@@ -1,0 +1,1708 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================
+   BorderPay Africa Design System - Step 1
+   Fintech-grade design system for MVP → Series A/B
+   ============================================ */
+
+:root {
+  --font-size: 16px;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  
+  /* Safe Area Insets for notched devices */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  
+  /* ============================================
+     DESIGN TOKENS - Standardized System
+     ============================================ */
+  
+  /* Container sizes */
+  --container-max-width-mobile: 100%;
+  --container-max-width-tablet: 768px;
+  --container-max-width-desktop: 1200px;
+  --content-max-width-sm: 480px;
+  --content-max-width-md: 640px;
+  --content-max-width-lg: 896px;
+  --content-max-width-xl: 1024px;
+  
+  /* Card padding */
+  --card-padding-sm: 16px;
+  --card-padding-md: 20px;
+  --card-padding-lg: 24px;
+  --card-padding-xl: 32px;
+  
+  /* Spacing system (8px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  
+  /* Font sizes (mobile-first) */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 28px;
+  --text-4xl: 32px;
+  --text-5xl: 40px;
+  
+  /* Line heights */
+  --leading-tight: 1.2;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+  
+  /* Layout spacing */
+  --page-padding-mobile: 16px;
+  --page-padding-tablet: 24px;
+  --page-padding-desktop: 32px;
+  --section-spacing-sm: 24px;
+  --section-spacing-md: 32px;
+  --section-spacing-lg: 48px;
+  --section-spacing-xl: 64px;
+  --gap-xs: 8px;
+  --gap-sm: 12px;
+  --gap-md: 16px;
+  --gap-lg: 24px;
+  --gap-xl: 32px;
+  
+  /* Safe areas */
+  --safe-top: max(16px, env(safe-area-inset-top));
+  --safe-bottom: max(16px, env(safe-area-inset-bottom));
+  --safe-left: max(16px, env(safe-area-inset-left));
+  --safe-right: max(16px, env(safe-area-inset-right));
+  --bottom-nav-height: 72px;
+  --bottom-nav-spacing: calc(var(--bottom-nav-height) + var(--safe-bottom));
+  
+  /* ============================================
+     BORDERPAY AFRICA COLOR SYSTEM
+     Primary: Lemon Green #C7FF00 on Black
+     ============================================ */
+  
+  /* Base colors */
+  --background: #000000;
+  --foreground: #FFFFFF;
+  --card: #1A1A1A;
+  --card-foreground: #FFFFFF;
+  --popover: #1A1A1A;
+  --popover-foreground: #FFFFFF;
+  
+  /* Primary CTA - Lemon Green #C7FF00 */
+  --primary: #C7FF00;
+  --primary-foreground: #000000;
+  --primary-hover: #D4FF33;
+  
+  /* Secondary colors */
+  --secondary: #1A1A1A;
+  --secondary-foreground: #FFFFFF;
+  --muted: #1A1A1A;
+  --muted-foreground: #6B7280;
+  
+  /* Accent colors */
+  --accent: #C7FF00;
+  --accent-foreground: #000000;
+  
+  /* Status colors */
+  --success: #10B981;
+  --success-foreground: #FFFFFF;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --warning: #F59E0B;
+  --warning-foreground: #FFFFFF;
+  
+  /* Border & Input */
+  --border: #E5E7EB;
+  --input: #FFFFFF;
+  --input-border: #D1D5DB;
+  --ring: rgba(164, 243, 77, 0.2);
+  
+  /* Shadows - Soft, professional */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1);
+  
+  /* Card shadows - Premium fintech feel */
+  --card-shadow: rgba(0, 0, 0, 0.04);
+  --card-shadow-hover: rgba(0, 0, 0, 0.08);
+  
+  /* Virtual Card - Black with gold accent */
+  --card-bg: #000000;
+  --card-text: #FFFFFF;
+  --card-accent: #D4AF37;
+  
+  /* Radius - Clean, modern */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  
+  /* Typography weights */
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
+  
+  /* Chart colors */
+  --chart-1: #0066FF;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #8B5CF6;
+  --chart-5: #EF4444;
+  
+  /* Sidebar (Desktop) */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #000000;
+  --sidebar-primary: #0066FF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: rgba(0, 102, 255, 0.1);
+  --sidebar-accent-foreground: #0066FF;
+  --sidebar-border: #E5E7EB;
+  --sidebar-ring: rgba(0, 102, 255, 0.2);
+}
+
+/* Dark theme variant (optional) */
+.dark {
+  --background: #000000;
+  --foreground: #FFFFFF;
+  --card: #111111;
+  --card-foreground: #FFFFFF;
+  --border: rgba(255, 255, 255, 0.1);
+  --muted-foreground: rgba(255, 255, 255, 0.6);
+}
+
+/* ============================================
+   LIGHT THEME - White bg, black text, lime CTA
+   Applied via .theme-light class on <html>
+   ============================================ */
+.theme-light {
+  --background: #FFFFFF;
+  --foreground: #111827;
+  --card: #F9FAFB;
+  --card-foreground: #111827;
+  --popover: #FFFFFF;
+  --popover-foreground: #111827;
+  --primary: #C7FF00;
+  --primary-foreground: #000000;
+  --primary-hover: #B8F000;
+  --secondary: #F3F4F6;
+  --secondary-foreground: #111827;
+  --muted: #F3F4F6;
+  --muted-foreground: #6B7280;
+  --accent: #C7FF00;
+  --accent-foreground: #000000;
+  --border: #E5E7EB;
+  --input: #FFFFFF;
+  --input-border: #D1D5DB;
+  --ring: rgba(199, 255, 0, 0.25);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
+}
+
+.theme-light body {
+  background: #FFFFFF;
+  color: #111827;
+}
+
+/* ============================================
+   DARK THEME - explicit class
+   ============================================ */
+.theme-dark {
+  --background: #000000;
+  --foreground: #FFFFFF;
+  --card: #111111;
+  --card-foreground: #FFFFFF;
+  --border: rgba(255, 255, 255, 0.1);
+  --muted-foreground: rgba(255, 255, 255, 0.6);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  
+  /* Radius tokens */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    font-size: var(--font-size);
+    height: 100%;
+    width: 100%;
+    position: fixed;
+    overflow: hidden;
+    /* Prevent pull-to-refresh and bounce */
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
+    /* Prevent any touch scrolling gestures */
+    touch-action: pan-x pan-y;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-family);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    height: 100%;
+    width: 100%;
+    position: fixed;
+    overflow: hidden;
+    /* Prevent bounce on both iOS and Android */
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
+    overscroll-behavior-x: none;
+    /* Disable pull-to-refresh */
+    touch-action: pan-x pan-y;
+  }
+
+  #root {
+    height: 100%;
+    height: 100dvh; /* Dynamic viewport height */
+    width: 100%;
+    max-width: 100vw;
+    position: fixed;
+    overflow: hidden;
+    /* Prevent overscroll bounce in root container */
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
+    /* Ensure immediate rendering on PWA startup */
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* Mobile input optimizations */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+    transition: none !important;
+  }
+  
+  /* Remove tap highlight */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ============================================
+   TYPOGRAPHY SYSTEM - Inter Sans-Serif
+   ============================================ */
+
+@layer utilities {
+  /* Desktop Typography */
+  .text-display {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 56px;
+    line-height: 110%;
+    letter-spacing: -0.03em;
+  }
+  
+  .text-h1 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 40px;
+    line-height: 120%;
+    letter-spacing: -0.02em;
+  }
+  
+  .text-h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 125%;
+    letter-spacing: -0.015em;
+  }
+  
+  .text-h3 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 24px;
+    line-height: 130%;
+    letter-spacing: -0.01em;
+  }
+  
+  .text-h4 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 20px;
+    line-height: 140%;
+  }
+  
+  .text-body-lg {
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 160%;
+  }
+  
+  .text-body {
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 160%;
+  }
+  
+  .text-body-sm {
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 150%;
+  }
+  
+  .text-caption {
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 140%;
+    color: var(--muted-foreground);
+  }
+  
+  /* Mobile Typography - Optimized for smaller screens */
+  .text-h1-mobile {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 120%;
+    letter-spacing: -0.02em;
+  }
+  
+  .text-h2-mobile {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 125%;
+    letter-spacing: -0.015em;
+  }
+  
+  .text-h3-mobile {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 20px;
+    line-height: 130%;
+  }
+  
+  /* ============================================
+     RESPONSIVE DESIGN SYSTEM
+     Mobile-first approach with proper breakpoints
+     ============================================ */
+  
+  /* Container that adapts to all screen sizes */
+  .app-container {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    max-width: 100vw;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: none;
+  }
+  
+  /* Content wrapper with safe padding */
+  .content-wrapper {
+    width: 100%;
+    max-width: 100%;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+  
+  /* Responsive padding utilities */
+  .px-safe {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  
+  .py-safe {
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  
+  .p-safe {
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  
+  /* Small screens (phones in portrait) - 320px to 480px */
+  @media (max-width: 480px) {
+    .text-h1 { font-size: 24px; }
+    .text-h2 { font-size: 20px; }
+    .text-h3 { font-size: 18px; }
+    .text-h4 { font-size: 16px; }
+    .text-body-lg { font-size: 16px; }
+    .text-body { font-size: 14px; }
+    
+    .btn-primary, .btn-secondary, .btn-success, .btn-destructive {
+      padding: 12px 20px;
+      font-size: 14px;
+    }
+    
+    /* Ensure touch targets are at least 44px */
+    button, a, input[type="button"], input[type="submit"] {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+  
+  /* Medium screens (phones in landscape, small tablets) - 481px to 768px */
+  @media (min-width: 481px) and (max-width: 768px) {
+    .text-h1 { font-size: 28px; }
+    .text-h2 { font-size: 24px; }
+    .text-h3 { font-size: 20px; }
+    
+    .content-wrapper {
+      padding-left: max(24px, env(safe-area-inset-left));
+      padding-right: max(24px, env(safe-area-inset-right));
+    }
+  }
+  
+  /* Large screens (tablets) - 769px to 1024px */
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .content-wrapper {
+      max-width: 768px;
+      margin: 0 auto;
+      padding-left: max(32px, env(safe-area-inset-left));
+      padding-right: max(32px, env(safe-area-inset-right));
+    }
+  }
+  
+  /* Extra large screens (desktop) - 1025px and up */
+  @media (min-width: 1025px) {
+    .content-wrapper {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding-left: max(48px, env(safe-area-inset-left));
+      padding-right: max(48px, env(safe-area-inset-right));
+    }
+    
+    .app-container {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+  }
+  
+  /* Ultra-wide screens - center content */
+  @media (min-width: 1441px) {
+    .app-container {
+      max-width: 1600px;
+    }
+  }
+  
+  /* Handle very small screens (iPhone SE, older Androids) */
+  @media (max-width: 360px) {
+    html {
+      font-size: 14px;
+    }
+    
+    .text-h1 { font-size: 20px; }
+    .text-h2 { font-size: 18px; }
+    .text-h3 { font-size: 16px; }
+    .text-h4 { font-size: 14px; }
+    
+    .content-wrapper {
+      padding-left: max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
+    }
+  }
+  
+  /* Landscape mode optimizations for phones */
+  @media (max-height: 480px) and (orientation: landscape) {
+    .app-container {
+      height: 100vh;
+    }
+    
+    .content-wrapper {
+      padding-top: max(8px, env(safe-area-inset-top));
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    
+    /* Reduce spacing in landscape */
+    .text-h1 { font-size: 20px; line-height: 110%; }
+    .text-h2 { font-size: 18px; line-height: 110%; }
+    .text-h3 { font-size: 16px; line-height: 110%; }
+  }
+}
+
+/* ============================================
+   BUTTON SYSTEM
+   ============================================ */
+
+@layer utilities {
+  /* Primary CTA - Blue #0066FF */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    padding: 14px 24px;
+    border-radius: var(--radius-md);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px rgba(0, 102, 255, 0.1);
+    cursor: pointer;
+    border: none;
+  }
+  
+  .btn-primary:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
+  }
+  
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+  
+  /* Outline button */
+  .btn-outline {
+    @apply border-2 border-primary text-primary bg-transparent;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+  }
+  
+  .btn-outline:hover {
+    @apply bg-primary text-primary-foreground;
+    transform: translateY(-1px);
+  }
+  
+  /* Secondary button */
+  .btn-secondary {
+    @apply bg-secondary text-foreground;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    padding: 14px 24px;
+    border-radius: var(--radius-md);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    border: none;
+  }
+  
+  .btn-secondary:hover {
+    background: #E5E7EB;
+    transform: translateY(-1px);
+  }
+  
+  /* Success button */
+  .btn-success {
+    @apply bg-success text-success-foreground;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    padding: 14px 24px;
+    border-radius: var(--radius-md);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    border: none;
+  }
+  
+  /* Destructive button */
+  .btn-destructive {
+    @apply bg-destructive text-destructive-foreground;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    padding: 14px 24px;
+    border-radius: var(--radius-md);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    border: none;
+  }
+}
+
+/* ============================================
+   CARD SYSTEM
+   ============================================ */
+
+@layer utilities {
+  /* Fintech card - Premium business-class */
+  .fintech-card {
+    @apply bg-card border border-border;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 24px;
+  }
+  
+  .fintech-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+  
+  /* Virtual card design - Black with gold accent */
+  .virtual-card {
+    background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 
+      0 10px 30px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(212, 175, 55, 0.1);
+    position: relative;
+    overflow: hidden;
+    min-height: 200px;
+  }
+  
+  .virtual-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle, rgba(212, 175, 55, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  
+  .card-chip {
+    width: 48px;
+    height: 36px;
+    background: linear-gradient(135deg, #D4AF37 0%, #F4E5B1 100%);
+    border-radius: 6px;
+    position: relative;
+  }
+  
+  .card-chip::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    background: linear-gradient(45deg, transparent 30%, rgba(0, 0, 0, 0.1) 50%, transparent 70%);
+  }
+}
+
+/* ============================================
+   INPUT SYSTEM
+   ============================================ */
+
+@layer utilities {
+  .input-field {
+    @apply bg-input border;
+    border-color: var(--input-border);
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 16px;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+  }
+  
+  .input-field:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+  
+  .input-field::placeholder {
+    color: var(--muted-foreground);
+  }
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+@layer utilities {
+  /* Logo scaling - 2x size */
+  .logo-2x {
+    transform: scale(2);
+    transform-origin: left center;
+  }
+  
+  /* Status badges */
+  .status-success {
+    background-color: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    padding: 6px 12px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  
+  .status-pending {
+    background-color: rgba(245, 158, 11, 0.1);
+    color: var(--warning);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    padding: 6px 12px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  
+  .status-error {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--destructive);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    padding: 6px 12px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  
+  /* Shadows */
+  .shadow-soft {
+    box-shadow: var(--shadow-sm);
+  }
+  
+  .shadow-card {
+    box-shadow: var(--shadow-md);
+  }
+  
+  .shadow-large {
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .shadow-extra-large {
+    box-shadow: var(--shadow-xl);
+  }
+  
+  /* Tap targets for mobile */
+  .tap-target {
+    min-height: 48px;
+    min-width: 48px;
+  }
+  
+  /* Minimum heights using dvh */
+  .min-h-screen-safe {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  
+  .h-screen-safe {
+    height: 100vh;
+    height: 100dvh;
+  }
+  
+  /* Proper screen containers */
+  .screen-container {
+    min-height: 100vh;
+    min-height: 100dvh;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: none;
+  }
+  
+  /* Hide scrollbar */
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
+  }
+  
+  /* Smooth transitions */
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* ============================================
+     GLASSMORPHIC DESIGN SYSTEM
+     Premium frosted glass effects for BorderPay
+     ============================================ */
+
+  /* Animated gradient background — place on app shell behind glass */
+  .glass-gradient-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .glass-gradient-bg::before {
+    content: '';
+    position: absolute;
+    width: 150%;
+    height: 150%;
+    top: -25%;
+    left: -25%;
+    background:
+      radial-gradient(ellipse 600px 600px at 20% 30%, rgba(199,255,0,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 500px 500px at 80% 70%, rgba(59,130,246,0.05) 0%, transparent 70%),
+      radial-gradient(ellipse 400px 400px at 50% 50%, rgba(139,92,246,0.04) 0%, transparent 70%);
+    animation: glass-gradient-drift 20s ease-in-out infinite alternate;
+  }
+
+  @keyframes glass-gradient-drift {
+    0% { transform: translate(0, 0) rotate(0deg); }
+    33% { transform: translate(2%, -3%) rotate(1deg); }
+    66% { transform: translate(-2%, 2%) rotate(-1deg); }
+    100% { transform: translate(1%, -1%) rotate(0.5deg); }
+  }
+
+  /* Light mode gradient */
+  .theme-light .glass-gradient-bg::before {
+    background:
+      radial-gradient(ellipse 600px 600px at 20% 30%, rgba(199,255,0,0.08) 0%, transparent 70%),
+      radial-gradient(ellipse 500px 500px at 80% 70%, rgba(59,130,246,0.06) 0%, transparent 70%),
+      radial-gradient(ellipse 400px 400px at 50% 50%, rgba(139,92,246,0.04) 0%, transparent 70%);
+  }
+
+  /* Subtle noise/grain texture overlay */
+  .glass-noise-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 128px 128px;
+  }
+
+  .theme-light .glass-noise-overlay {
+    opacity: 0.02;
+  }
+}
+
+/* ============================================
+   SCROLLABLE CONTAINER UTILITIES
+   ============================================ */
+
+@layer utilities {
+  /* Scrollable area with proper touch support */
+  .scrollable {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    height: 100%;
+    width: 100%;
+  }
+  
+  /* Fixed header/footer zones */
+  .fixed-top {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--background);
+  }
+  
+  .fixed-bottom {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    background: var(--background);
+  }
+  
+  /* Flex layouts that adapt to screen size */
+  .stack-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  @media (min-width: 768px) {
+    .stack-mobile {
+      flex-direction: row;
+      gap: 24px;
+    }
+  }
+  
+  /* Grid that adapts */
+  .grid-responsive {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  @media (min-width: 640px) {
+    .grid-responsive {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  @media (min-width: 1024px) {
+    .grid-responsive {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+  }
+  
+  /* ============================================
+     STANDARDIZED CONTAINERS
+     ============================================ */
+  
+  /* Form/Auth Container - Max width 480px, centered */
+  .form-container {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    padding-left: var(--page-padding-mobile);
+    padding-right: var(--page-padding-mobile);
+  }
+  
+  /* Content Container - Max width 640px */
+  .content-container-md {
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+    padding-left: var(--page-padding-mobile);
+    padding-right: var(--page-padding-mobile);
+  }
+  
+  /* Wide Container - Max width 896px */
+  .content-container-lg {
+    width: 100%;
+    max-width: 896px;
+    margin: 0 auto;
+    padding-left: var(--page-padding-mobile);
+    padding-right: var(--page-padding-mobile);
+  }
+  
+  /* Full-width scrollable screen */
+  .scrollable-screen {
+    position: fixed;
+    inset: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: none;
+  }
+  
+  /* Scrollable content area with bottom nav padding */
+  .scrollable-with-nav {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: var(--bottom-nav-spacing);
+  }
+  
+  /* Main content area (between header and nav) */
+  .main-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: var(--space-6);
+  }
+  
+  /* ============================================
+     STANDARDIZED CARDS
+     ============================================ */
+  
+  /* Standard card - Small padding */
+  .card-sm {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: var(--card-padding-sm);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Standard card - Medium padding (default) */
+  .card-md {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: var(--card-padding-md);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Standard card - Large padding */
+  .card-lg {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: var(--card-padding-lg);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Interactive card with hover */
+  .card-interactive {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: var(--card-padding-md);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+  }
+  
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--primary);
+  }
+  
+  .card-interactive:active {
+    transform: translateY(0);
+  }
+  
+  /* ============================================
+     STANDARDIZED SPACING
+     ============================================ */
+  
+  .section-spacing-sm {
+    margin-bottom: var(--section-spacing-sm);
+  }
+  
+  .section-spacing-md {
+    margin-bottom: var(--section-spacing-md);
+  }
+  
+  .section-spacing-lg {
+    margin-bottom: var(--section-spacing-lg);
+  }
+  
+  .gap-standard {
+    gap: var(--gap-md);
+  }
+  
+  /* ============================================
+     STANDARDIZED TEXT SIZES
+     ============================================ */
+  
+  .text-xs { font-size: var(--text-xs); line-height: var(--leading-normal); }
+  .text-sm { font-size: var(--text-sm); line-height: var(--leading-normal); }
+  .text-base { font-size: var(--text-base); line-height: var(--leading-normal); }
+  .text-lg { font-size: var(--text-lg); line-height: var(--leading-normal); }
+  .text-xl { font-size: var(--text-xl); line-height: var(--leading-snug); }
+  .text-2xl { font-size: var(--text-2xl); line-height: var(--leading-tight); }
+  .text-3xl { font-size: var(--text-3xl); line-height: var(--leading-tight); }
+  .text-4xl { font-size: var(--text-4xl); line-height: var(--leading-tight); }
+}
+
+/* ============================================
+   BORDERPAY AFRICA - RESPONSIVE FRAME SYSTEM
+   Fintech-grade responsive layouts (Wise/Revolut style)
+   ============================================ */
+
+@layer components {
+  /* ============================================
+     FRAME SIZES - Standardized
+     Mobile-first, scales to all devices
+     ============================================ */
+  
+  /* Compact Frame - Quick actions, small info cards */
+  .frame-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Standard Frame - Default for most cards */
+  .frame-standard {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Comfortable Frame - More breathing room */
+  .frame-comfortable {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 24px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 0.1);
+    border-radius: 16px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Interactive Frame - Clickable/tappable */
+  .frame-interactive {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    min-height: 44px; /* Touch target minimum */
+  }
+  
+  .frame-interactive:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  .frame-interactive:active {
+    transform: translateY(0);
+  }
+  
+  /* ============================================
+     FRAME HORIZONTAL LAYOUTS
+     For horizontal scrolling or row layouts
+     ============================================ */
+  
+  .frame-horizontal {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    padding: 16px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    align-items: center;
+  }
+  
+  .frame-horizontal-comfortable {
+    display: flex;
+    flex-direction: row;
+    gap: 16px;
+    padding: 20px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    align-items: center;
+  }
+  
+  /* ============================================
+     FRAME CONTENT AREAS
+     Inner sections within frames
+     ============================================ */
+  
+  .frame-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  
+  .frame-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    min-height: 0; /* Allow shrinking */
+  }
+  
+  .frame-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  
+  /* ============================================
+     RESPONSIVE FRAME GRIDS
+     Auto-responsive grid layouts
+     ============================================ */
+  
+  /* 1 column on mobile, 2 on tablet, 3 on desktop */
+  .frame-grid-responsive {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  @media (min-width: 640px) {
+    .frame-grid-responsive {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  @media (min-width: 1024px) {
+    .frame-grid-responsive {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+  }
+  
+  /* 2 columns on all sizes */
+  .frame-grid-2col {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  @media (min-width: 640px) {
+    .frame-grid-2col {
+      gap: 16px;
+    }
+  }
+  
+  /* ============================================
+     FRAME ROWS (Horizontal scroll on mobile)
+     ============================================ */
+  
+  .frame-row-scroll {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 4px; /* Prevent shadow clipping */
+  }
+  
+  .frame-row-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Items in horizontal scroll */
+  .frame-row-item {
+    flex: 0 0 auto;
+    width: 280px; /* Fixed width for consistency */
+    max-width: 85vw; /* Don't exceed viewport */
+  }
+  
+  @media (min-width: 640px) {
+    .frame-row-item {
+      width: 320px;
+    }
+  }
+  
+  /* ============================================
+     FRAME SIZES - Height Control
+     Prevent oversized cards
+     ============================================ */
+  
+  .frame-auto-height {
+    height: auto;
+    min-height: auto;
+    max-height: none;
+  }
+  
+  .frame-min-content {
+    min-height: min-content;
+  }
+  
+  .frame-max-half-screen {
+    max-height: 50vh;
+    max-height: 50dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* ============================================
+     FRAME ASPECT RATIOS
+     For cards that need fixed proportions
+     ============================================ */
+  
+  .frame-aspect-card {
+    aspect-ratio: 1.586 / 1; /* Credit card ratio */
+    width: 100%;
+    max-width: 360px;
+  }
+  
+  .frame-aspect-square {
+    aspect-ratio: 1 / 1;
+  }
+  
+  .frame-aspect-wide {
+    aspect-ratio: 16 / 9;
+  }
+  
+  /* ============================================
+     FRAME SPACING - Between frames
+     ============================================ */
+  
+  .frame-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .frame-stack-tight {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .frame-stack-loose {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  
+  /* ============================================
+     FRAME STATES
+     ============================================ */
+  
+  .frame-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  
+  .frame-loading {
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .frame-loading::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      transparent 100%
+    );
+    animation: shimmer 2s infinite;
+  }
+  
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  
+  /* ============================================
+     WALLET CARD FRAME - Fintech style
+     Similar to Wise/Revolut wallet cards
+     BIGGER, PROMINENT, RECTANGULAR
+     ============================================ */
+  
+  .frame-wallet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px;
+    background: linear-gradient(135deg, var(--card) 0%, rgba(26, 26, 26, 0.8) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    min-height: 160px;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .frame-wallet-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(
+      circle,
+      rgba(199, 255, 0, 0.15) 0%,
+      transparent 70%
+    );
+    pointer-events: none;
+  }
+  
+  /* Large variant - for main balance displays */
+  .frame-wallet-card-large {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 28px 24px;
+    background: linear-gradient(135deg, 
+      rgba(26, 26, 26, 1) 0%, 
+      rgba(35, 35, 35, 0.95) 50%,
+      rgba(26, 26, 26, 1) 100%
+    );
+    border: 1px solid rgba(199, 255, 0, 0.2);
+    border-radius: 24px;
+    min-height: 180px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  
+  .frame-wallet-card-large::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(
+      circle,
+      rgba(199, 255, 0, 0.18) 0%,
+      rgba(199, 255, 0, 0.08) 40%,
+      transparent 70%
+    );
+    pointer-events: none;
+  }
+  
+  /* Wise-style rectangular wallet card */
+  .frame-wallet-card-wise {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 32px 24px;
+    background: linear-gradient(135deg, 
+      rgba(30, 30, 30, 1) 0%, 
+      rgba(20, 20, 20, 0.98) 100%
+    );
+    border: 1px solid rgba(199, 255, 0, 0.25);
+    border-radius: 20px;
+    min-height: 200px;
+    max-height: 240px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 
+      0 4px 16px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(199, 255, 0, 0.1) inset;
+  }
+  
+  .frame-wallet-card-wise::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 250px;
+    height: 250px;
+    background: radial-gradient(
+      circle at top right,
+      rgba(199, 255, 0, 0.2) 0%,
+      rgba(199, 255, 0, 0.1) 30%,
+      transparent 60%
+    );
+    pointer-events: none;
+  }
+  
+  @media (min-width: 640px) {
+    .frame-wallet-card {
+      min-height: 180px;
+      padding: 28px;
+      gap: 20px;
+    }
+    
+    .frame-wallet-card-large {
+      min-height: 200px;
+      padding: 32px 28px;
+      gap: 24px;
+    }
+    
+    .frame-wallet-card-wise {
+      min-height: 220px;
+      max-height: 260px;
+      padding: 36px 28px;
+    }
+  }
+  
+  /* ============================================
+     TRANSACTION ITEM FRAME
+     Compact, scannable list items
+     ============================================ */
+  
+  .frame-transaction-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: 68px;
+  }
+  
+  .frame-transaction-item:active {
+    background: rgba(26, 26, 26, 0.8);
+    transform: scale(0.98);
+  }
+  
+  /* ============================================
+     STAT FRAME - Quick stats display
+     ============================================ */
+  
+  .frame-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    min-height: 88px;
+  }
+  
+  .frame-stat-horizontal {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    min-height: 64px;
+  }
+  
+  /* ============================================
+     ACTION FRAME - Quick action buttons
+     ============================================ */
+  
+  .frame-action-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 12px;
+  }
+  
+  .frame-action-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 12px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    min-height: 88px;
+  }
+  
+  .frame-action-item:active {
+    transform: scale(0.95);
+    background: rgba(26, 26, 26, 0.8);
+  }
+  
+  /* ============================================
+     RESPONSIVE ADJUSTMENTS
+     ============================================ */
+  
+  @media (min-width: 640px) {
+    .frame-standard,
+    .frame-comfortable {
+      max-width: 100%;
+    }
+  }
+  
+  @media (min-width: 768px) {
+    .frame-compact {
+      padding: 20px;
+      gap: 16px;
+    }
+    
+    .frame-standard {
+      padding: 24px;
+      gap: 20px;
+    }
+    
+    .frame-comfortable {
+      padding: 28px;
+      gap: 24px;
+    }
+  }
+  
+  /* ============================================
+     UTILITY CLASSES
+     ============================================ */
+  
+  /* Remove default frame background */
+  .frame-transparent {
+    background: transparent;
+    border: none;
+  }
+  
+  /* Frame with border only */
+  .frame-outline {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Frame with primary border */
+  .frame-primary {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
+  }
+  
+  /* Full bleed frame (no border) */
+  .frame-full-bleed {
+    border: none;
+    border-radius: 0;
+  }
+}

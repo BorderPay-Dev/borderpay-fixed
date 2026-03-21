@@ -1,0 +1,29 @@
+{
+  "name": "BorderPay Africa",
+  "short_name": "BorderPay",
+  "description": "Borderless Finance for Africa. Send, receive, and manage money across borders with low fees.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#C7FF00",
+  "orientation": "portrait",
+  "scope": "/",
+  "prefer_related_applications": false,
+  "categories": ["finance", "business"],
+  "screenshots": [],
+  "icons": [
+    {
+      "src": "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/Icons/Favicon/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/Icons/Favicon/Icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "related_applications": [],
+  "display_override": ["standalone", "minimal-ui"]
+}

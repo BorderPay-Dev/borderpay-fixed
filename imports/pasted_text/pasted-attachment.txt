@@ -1,0 +1,154 @@
+Perform a full frontend audit and fix all critical issues for BorderPay. Optimize for sandbox beta testing readiness. Do not change API structure. Fix UI, flows, logic, and inconsistencies.
+
+OPTION 1 — WALLET ISSUE (INVESTIGATE + FIX)
+
+Problem:
+- Wallet shows "No wallet found"
+- Only stablecoin appears
+- Generate address fails or redirects
+
+IMPORTANT:
+- Do NOT assume UI bug only
+
+Tasks:
+
+1. Check if wallet is hidden because user is "tier_0"
+- If yes:
+  → Confirm logic: wallet requires KYC (full_enrollment)
+  → Show clear message:
+    "Complete identity verification to access wallet"
+
+2. Align wallet logic with Cards:
+- Cards already show CTA → redirect to KYC
+- Wallet must follow SAME behavior
+
+3. If ENV = "sandbox":
+- Do NOT fully block wallet
+- Allow mock wallet OR show guided CTA
+- Prevent dead-end ("No wallet found")
+
+4. Stablecoin flow:
+- Fix generate address:
+  - No redirect
+  - No silent failure
+  - Show error if API fails
+  - Keep user on same screen
+
+OPTION 2 — SEND FLOW UI BUG (CRITICAL)
+
+Problem:
+- Counterparty form breaks layout
+- Page moves wide
+- Background scrolls
+
+Fix:
+
+1. Convert form into modal:
+- Centered modal
+- Fixed width
+- Responsive
+
+2. Prevent background scroll:
+- Lock page scroll when modal is open
+
+3. Fix overflow:
+- Remove horizontal scroll
+- Ensure clean layout on all screens
+
+OPTION 3 — P2P + MOBILE MONEY CURRENCIES
+
+Problem:
+- BorderPay Pay (P2P) does not show all currencies
+- Mobile money shows 8 currencies but P2P does not
+
+Fix:
+
+1. Sync currencies:
+- P2P must show SAME currencies as mobile money (all 8)
+
+2. Ensure:
+- Consistent currency list across:
+  - P2P
+  - Mobile money
+  - Wallet
+
+OPTION 4 — MOBILE MONEY PROVIDERS UI
+
+Question to resolve + implement:
+
+- If backend (Maplerad) provides providers:
+  → Use API response
+
+- If NOT:
+  → Build provider UI manually
+
+Implementation:
+
+- For each country/currency:
+  - Display mobile money providers in UI
+  - Example:
+    - Kenya → M-Pesa, Airtel Money
+    - Ghana → MTN, Vodafone
+    - Nigeria → Opay, PalmPay
+    - etc.
+
+- Use clean selectable list (dropdown or cards)
+
+OPTION 5 — COUNTRY + FLAG FIX
+
+- Fix XOF (CFA West):
+  - Replace Senegal flag 🇸🇳
+  - Use Benin flag 🇧🇯
+
+- Verify all other country flags are correct
+
+OPTION 6 — GLOBAL UI/UX STABILITY
+
+- Fix all layout shifts and broken screens
+- Ensure:
+  - No horizontal scrolling
+  - Consistent width
+  - Proper spacing and alignment
+
+OPTION 7 — ERROR HANDLING
+
+- No silent failures
+- No redirects on error
+
+Instead:
+- Show clear messages for:
+  - Wallet issues
+  - Address generation failure
+  - API errors
+  -  error message UI, lime green background and black text, show error message good place so user can see it clear ( signup and sign in) for biometric and other that’s don’t have UI errors message.
+
+OPTION 8 — SANDBOX MODE BEHAVIOR
+
+IF ENV = "sandbox":
+
+
+- Do NOT block entire product
+- Allow testing with:
+  - Mock wallet OR guided flow
+- Prevent dead-end UX
+
+OPTION 9 — FINAL AUDIT
+
+Check:
+
+- Wallet behavior aligned with KYC
+- Stablecoin flow stable
+- Send flow UI fixed
+- P2P currencies complete
+- Mobile money providers visible
+- Flags correct
+- No layout bugs
+
+OPTION 10 — BETA READINESS
+
+Return:
+
+- Is app ready for sandbox beta? (YES or NO)
+- If NO → list blocking issues
+- Explain clearly:
+  Why wallet is not showing (KYC or bug)

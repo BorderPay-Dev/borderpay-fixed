@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="Borderless Finance for Africa. Open a U.S. bank account in your name with FDIC-insured protection and start receiving USD payments globally just like a U.S. resident." />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="BorderPay" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <!-- Apple Splash Screens (iOS) -->
+    <link rel="apple-touch-startup-image" href="/icons/apple-touch-icon.png" />
+    
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://app.borderpayafrica.com/" />
+    <meta property="og:title" content="BorderPay Africa - Borderless Finance for Africa" />
+    <meta property="og:description" content="Open a free U.S. bank account in your name with FDIC-insured protection and start receiving USD payments globally just like a U.S. resident." />
+    <meta property="og:image" content="https://app.borderpayafrica.com/og-image.png" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://app.borderpayafrica.com/" />
+    <meta property="twitter:title" content="BorderPay Africa - Borderless Finance for Africa" />
+    <meta property="twitter:description" content="Open a U.S. bank account with FDIC protection and receive USD payments globally" />
+    <meta property="twitter:image" content="https://app.borderpayafrica.com/og-image.png" />
+    
+    <!-- Favicon Package - Real Favicon Generator Code -->
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <title>BorderPay Africa - Borderless Finance for Africa</title>
+    
+    <!-- Critical inline styles to prevent white flash -->
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: #000000;
+        color: #FFFFFF;
+      }
+      #root {
+        background-color: #000000;
+        min-height: 100vh;
+        min-height: 100dvh; /* Dynamic viewport height for mobile */
+      }
+      
+      /* Instant splash screen - shows immediately while React loads */
+      #initial-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background-color: #000000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+      }
+      
+      /* Hide once React takes over */
+      .react-loaded #initial-splash {
+        display: none;
+      }
+      
+      /* Pulsing logo animation */
+      @keyframes pulse-logo {
+        0%, 100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.05);
+          opacity: 0.9;
+        }
+      }
+      
+      #initial-splash .logo-container {
+        animation: pulse-logo 2s ease-in-out infinite;
+        margin-bottom: 2rem;
+      }
+      
+      #initial-splash .circle {
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        background-color: #C7FF00;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 20px 60px rgba(199, 255, 0, 0.3);
+      }
+      
+      #initial-splash .icon {
+        width: 100px;
+        height: 100px;
+        object-fit: contain;
+      }
+      
+      #initial-splash .text {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 14px;
+        color: #6B7280;
+        margin-top: 0.5rem;
+      }
+      
+      /* Spinner */
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      
+      #initial-splash .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #1A1A1A;
+        border-top-color: #C7FF00;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-top: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Instant splash screen - visible immediately -->
+    <div id="initial-splash">
+      <div class="logo-container">
+        <div class="circle">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+            <text x="50" y="70" font-family="Arial, sans-serif" font-size="80" font-weight="bold" text-anchor="middle" fill="#000000">b</text>
+          </svg>
+        </div>
+      </div>
+      <p class="text">Securing Session</p>
+      <div class="spinner"></div>
+    </div>
+    
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

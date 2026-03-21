@@ -1,0 +1,10 @@
+/* 
+This file should be your 512x512 logo image.
+Please copy: figma:asset/fe74c8f308a85120143d8e182f3021bbd97cde0a.png
+to this location as icon-512x512.png
+
+For now, you need to manually:
+1. Download/export your logo as PNG (512x512)
+2. Place it here: /public/icons/icon-512x512.png
+3. Then generate other sizes using https://realfavicongenerator.net/
+*/
