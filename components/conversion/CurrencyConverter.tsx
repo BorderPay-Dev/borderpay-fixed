@@ -12,7 +12,6 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 
 interface CurrencyConverterProps {
   userId: string;
-  walletsActivated: boolean;
   onConvert?: () => void;
   standalone?: boolean;
   onBack?: () => void;
@@ -46,7 +45,7 @@ const STABLECOIN_CURRENCIES: Currency[] = [
 
 const ALL_CURRENCIES = [...FX_CURRENCIES, ...STABLECOIN_CURRENCIES];
 
-export function CurrencyConverter({ userId, walletsActivated, onConvert, standalone, onBack }: CurrencyConverterProps) {
+export function CurrencyConverter({ userId, onConvert, standalone, onBack }: CurrencyConverterProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const [fromCurrency, setFromCurrency] = useState<Currency>(ALL_CURRENCIES[0]);
@@ -76,12 +75,6 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
   }, [fromAmount, exchangeRate]);
 
   const fetchExchangeRate = async () => {
-    if (!walletsActivated) {
-      setExchangeRate(0);
-      setToAmount('0');
-      return;
-    }
-
     if (fromCurrency.code === toCurrency.code) {
       setExchangeRate(1);
       setRateSource('identity');
@@ -107,12 +100,10 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
           setToAmount(Number(data.converted_amount).toFixed(2));
         }
       } else {
-        console.error('FX quote error:', result.error);
         setExchangeRate(0);
         setRateSource('');
       }
     } catch (error) {
-      console.error('Error fetching FX quote:', error);
       setExchangeRate(0);
       setRateSource('');
     } finally {
@@ -161,7 +152,6 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
             <button
               onClick={() => { setShowFromDropdown(!showFromDropdown); setShowToDropdown(false); }}
               className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 ${tc.isLight ? 'bg-gray-200/50 hover:bg-gray-200' : 'bg-gray-800/50 hover:bg-gray-700/50'} rounded-lg transition-colors`}
-              disabled={!walletsActivated}
             >
               <span className="text-xl">{fromCurrency.flag}</span>
               <span className={`text-sm font-semibold ${tc.text}`}>{fromCurrency.code}</span>
@@ -172,7 +162,6 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
               onChange={(e) => setFromAmount(e.target.value)}
               className={`flex-1 min-w-0 bg-transparent text-lg font-semibold ${tc.text} outline-none text-right`}
               placeholder="0.00"
-              disabled={!walletsActivated}
             />
           </div>
 
@@ -210,7 +199,6 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
         <button
           onClick={swapCurrencies}
           className="p-2 bg-[#C7FF00] rounded-full hover:bg-[#B8F000] transition-all transform hover:rotate-180 duration-300"
-          disabled={!walletsActivated}
         >
           <ArrowDownUp className="w-4 h-4 text-black" />
         </button>
@@ -224,7 +212,6 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
             <button
               onClick={() => { setShowToDropdown(!showToDropdown); setShowFromDropdown(false); }}
               className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 ${tc.isLight ? 'bg-gray-200/50 hover:bg-gray-200' : 'bg-gray-800/50 hover:bg-gray-700/50'} rounded-lg transition-colors`}
-              disabled={!walletsActivated}
             >
               <span className="text-xl">{toCurrency.flag}</span>
               <span className={`text-sm font-semibold ${tc.text}`}>{toCurrency.code}</span>
@@ -266,7 +253,7 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
       </div>
 
       {/* Exchange Rate Info */}
-      {walletsActivated && exchangeRate > 0 && (
+      {exchangeRate > 0 && (
         <div className={`${tc.isLight ? 'bg-gray-50' : 'bg-[#0B0E11]'} rounded-lg p-3 mb-4`}>
           <div className="flex items-center justify-between text-xs">
             <span className={tc.textMuted}>{t('exchange.exchangeRate') || 'Exchange rate'}</span>
@@ -288,17 +275,11 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
       {/* Convert Button */}
       <button
         onClick={handleConvert}
-        disabled={!walletsActivated || !fromAmount || parseFloat(fromAmount) <= 0}
+        disabled={!fromAmount || parseFloat(fromAmount) <= 0}
         className="w-full py-3 bg-[#C7FF00] text-black font-semibold rounded-xl hover:bg-[#B8F000] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
       >
-        {walletsActivated ? (t('converter.convert') || 'Convert Currency') : (t('converter.activateFirst') || 'Activate Wallet to Convert')}
+        {t('converter.convert') || 'Convert Currency'}
       </button>
-
-      {!walletsActivated && (
-        <p className={`text-xs ${tc.textMuted} text-center mt-3`}>
-          {t('converter.activateDesc') || 'Activate your wallet to access currency conversion'}
-        </p>
-      )}
     </>
   );
 
@@ -306,7 +287,7 @@ export function CurrencyConverter({ userId, walletsActivated, onConvert, standal
   if (standalone) {
     return (
       <div className={`min-h-screen ${tc.bg} ${tc.text}`}>
-        <div className={`sticky top-0 z-20 ${tc.bg} border-b ${tc.border}`}>
+        <div className={`sticky top-0 z-20 pt-safe ${tc.bg} border-b ${tc.border}`}>
           <div className="flex items-center justify-between p-4">
             <button onClick={onBack} className={`p-2 ${tc.hoverBg} rounded-lg transition-colors`}>
               <span className="text-lg">←</span>

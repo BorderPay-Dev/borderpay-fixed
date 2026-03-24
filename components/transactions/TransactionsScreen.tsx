@@ -12,6 +12,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -59,7 +60,6 @@ export function TransactionsScreen({ userId, customerId, onBack }: TransactionsS
 
       // Fallback to Hono route if standalone edge function is unavailable
       if (!result.success) {
-        console.warn('Standalone get-customer-transactions failed, falling back to Hono route');
         result = await backendAPI.transactions.getTransactions(100, 0);
       }
 
@@ -67,11 +67,9 @@ export function TransactionsScreen({ userId, customerId, onBack }: TransactionsS
         const txns = result.data.transactions || result.data;
         setTransactions(Array.isArray(txns) ? txns : []);
       } else {
-        console.error('Failed to load transactions:', result.error);
         setLoadError(true);
       }
     } catch (error) {
-      console.error('Failed to load transactions:', error);
       setLoadError(true);
     } finally {
       setLoading(false);
@@ -89,10 +87,9 @@ export function TransactionsScreen({ userId, customerId, onBack }: TransactionsS
           toast.success(`${t('transactions.export')} ${format.toUpperCase()}`);
         }
       } else {
-        toast.error(result.error || t('transactions.export'));
+        toast.error(friendlyError(result.error, t('transactions.export')));
       }
     } catch (error) {
-      console.error('Export error:', error);
       toast.error(t('send.txFailed'));
     } finally {
       setExporting(false);
@@ -237,11 +234,7 @@ export function TransactionsScreen({ userId, customerId, onBack }: TransactionsS
 
       {/* Content */}
       <div className="px-6 py-6">
-        {loading && transactions.length === 0 ? (
-          <div className="flex items-center justify-center py-12">
-            <LoadingSpinner />
-          </div>
-        ) : loadError ? (
+        {loadError ? (
           <ErrorState
             variant="server"
             title={t('transactions.title')}

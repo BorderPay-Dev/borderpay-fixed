@@ -24,6 +24,7 @@ import {
 import { backendAPI } from '../../utils/api/backendAPI';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface ProfileScreenProps {
   userId: string;
@@ -31,7 +32,7 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingPic, setUploadingPic] = useState(false);
@@ -65,8 +66,37 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   }, [userId]);
 
   const loadProfile = async () => {
+    // Fast path: show cached user data immediately so the screen never feels empty
     try {
-      // Use the backend API endpoint which merges KV + Supabase Auth data
+      const cached = localStorage.getItem('borderpay_user');
+      if (cached) {
+        const u = JSON.parse(cached);
+        const cachedData = {
+          full_name: u.full_name || '',
+          email: u.email || '',
+          phone: u.phone || '',
+          address: u.address || '',
+          city: u.city || '',
+          country: u.country || '',
+          postal_code: u.postal_code || '',
+          date_of_birth: u.date_of_birth || '',
+          kyc_status: u.kyc_status || 'pending',
+          account_type: u.account_type || 'individual',
+          is_unlocked: u.is_unlocked || false,
+          email_confirmed: u.email_confirmed || false,
+          last_sign_in_at: u.last_sign_in_at || null,
+          created_at: u.created_at || '',
+          profile_picture_url: u.profile_picture_url || null,
+          two_factor_enabled: u.two_factor_enabled || false,
+        };
+        setProfile(cachedData);
+        setEditedProfile(cachedData);
+        setLoading(false);
+      }
+    } catch (_) { /* ignore parse errors */ }
+
+    // Then fetch fresh data from backend silently
+    try {
       const result = await backendAPI.user.getProfile();
 
       if (result.success && result.data?.user) {
@@ -91,14 +121,12 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         };
         setProfile(profileData);
         setEditedProfile(profileData);
-        console.log('✅ Profile loaded from backend. KYC:', u.kyc_status);
-      } else {
-        console.error('Profile fetch failed:', result.error);
-        toast.error('Unable to load profile. Please try again.');
+        // Update cache for next time
+        localStorage.setItem('borderpay_user', JSON.stringify(u));
       }
-    } catch (error) {
-      console.error('Error loading profile:', error);
-      toast.error('Unable to load profile. Please try again.');
+      // No error toast — screen already shows cached or default data
+    } catch (_) {
+      // Silent — the screen works with cached data or defaults
     } finally {
       setLoading(false);
     }
@@ -132,10 +160,9 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           } catch (_) { /* ignore */ }
         }
       } else {
-        toast.error(result.error || 'Failed to update profile');
+        toast.error(friendlyError(result.error, 'Failed to update profile'));
       }
     } catch (error) {
-      console.error('Save error:', error);
       toast.error('Unable to save your profile changes. Please check your connection and try again.');
     } finally {
       setSaving(false);
@@ -163,7 +190,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         setEditedProfile((p) => ({ ...p, profile_picture_url: result.data.data.profile_picture_url }));
         toast.success('Profile picture updated');
       } else {
-        toast.error(result.error || 'Failed to upload picture');
+        toast.error(friendlyError(result.error, 'Failed to upload picture'));
       }
     } catch (error) {
       toast.error('Failed to upload picture');
@@ -187,14 +214,6 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   };
 
   const kycBadge = getKycBadge();
-
-  if (loading) {
-    return (
-      <div className={`min-h-screen ${tc.bg} flex items-center justify-center`}>
-        <Loader2 className="w-8 h-8 text-[#C7FF00] animate-spin" />
-      </div>
-    );
-  }
 
   return (
     <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>

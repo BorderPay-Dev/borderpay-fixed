@@ -372,15 +372,15 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
   return (
     <div className="min-h-full bg-black text-white">
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-6 border-b border-white/10">
+      <div className="flex-shrink-0 px-6 py-6 pt-safe border-b border-white/10">
         <button
           onClick={onBack}
-          className="flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4"
+          className="flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4 min-h-[44px]"
         >
           <ArrowLeft className="w-5 h-5" />
           <span className="text-sm font-medium">Back</span>
         </button>
-        
+
         <h1 className="text-2xl font-bold text-white mb-2">
           Terms of Service
         </h1>
@@ -410,7 +410,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
         className="px-6 py-6"
         onScroll={handleScroll}
       >
-        <div className="space-y-4 pb-32">
+        <div className="space-y-4 pb-safe">
           {sections.map((section) => {
             const isExpanded = expandedSections.has(section.id);
             const Icon = section.icon;

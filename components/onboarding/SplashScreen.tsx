@@ -18,14 +18,11 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
   const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
-    console.log('🎬 SplashScreen: Mounted, will complete in 2.5s');
     const timer = setTimeout(() => {
-      console.log('🎬 SplashScreen: Starting exit animation...');
       setIsExiting(true);
       setTimeout(() => {
-        console.log('🎬 SplashScreen: Calling onComplete callback');
         onComplete();
-      }, 500); // Wait for fade-out animation
+      }, 500);
     }, 2500);
 
     return () => clearTimeout(timer);
@@ -57,13 +54,9 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
       >
         {/* Circular Lime Green Background */}
         <div className="w-[180px] h-[180px] rounded-full bg-[#C7FF00] flex items-center justify-center shadow-2xl">
-          {/* Official App Icon (b logo with ®) */}
-          <div className="w-[100px] h-[100px] flex items-center justify-center">
-            <img
-              src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='28' y='18' width='12' height='62' rx='6' fill='black'/><path d='M44 32 Q76 32 76 50 Q76 68 44 68 L44 56 Q62 56 62 50 Q62 44 44 44 Z' fill='black'/></svg>"
-              alt="BorderPay Africa"
-              className="w-full h-full object-contain"
-            />
+          {/* Official App Icon (geometric b logo) */}
+          <div className="w-[100px] h-[110px] flex items-center justify-center">
+            <BorderPayLogo size={80} color="#000000" />
           </div>
         </div>
       </motion.div>

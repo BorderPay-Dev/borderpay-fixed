@@ -29,7 +29,9 @@ import {
   Link as LinkIcon,
   AlertCircle,
   Info,
+  Shield,
 } from 'lucide-react';
+import { isFullEnrollment } from '../../utils/config/environment';
 import { supabase, authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { toast } from 'sonner';
@@ -57,6 +59,20 @@ type Tab = 'details' | 'qr' | 'request';
 export function ReceiveMoneyScreen({ onBack, preSelectedWalletId }: ReceiveMoneyScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+
+  // KYC gate
+  const [kycStatus, setKycStatus] = useState<string>('pending');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('borderpay_user');
+      if (stored) {
+        const user = JSON.parse(stored);
+        setKycStatus(user.kyc_status || 'pending');
+      }
+    } catch {}
+  }, []);
+
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,20 +122,20 @@ export function ReceiveMoneyScreen({ onBack, preSelectedWalletId }: ReceiveMoney
         routing_number: getRoutingNumber(w.currency),
       }));
 
-      setWallets(formattedWallets);
-
-      // Pre-select wallet if provided
-      if (preSelectedWalletId) {
-        const preSelected = formattedWallets.find((w) => w.id === preSelectedWalletId);
-        if (preSelected) {
-          setSelectedWallet(preSelected);
+      if (formattedWallets.length > 0) {
+        setWallets(formattedWallets);
+        if (preSelectedWalletId) {
+          const preSelected = formattedWallets.find((w) => w.id === preSelectedWalletId);
+          if (preSelected) setSelectedWallet(preSelected);
+          else setSelectedWallet(formattedWallets[0]);
+        } else {
+          setSelectedWallet(formattedWallets[0]);
         }
-      } else if (formattedWallets.length > 0) {
-        setSelectedWallet(formattedWallets[0]);
+      } else {
+        setWallets([]);
       }
     } catch (error) {
-      console.error('Error loading wallets:', error);
-      toast.error('Unable to load your wallets. Please check your connection and try again.');
+      setWallets([]);
     } finally {
       setLoading(false);
     }
@@ -205,7 +221,6 @@ export function ReceiveMoneyScreen({ onBack, preSelectedWalletId }: ReceiveMoney
 
       setQrCodeUrl(qrUrl);
     } catch (error) {
-      console.error('Error generating QR code:', error);
       toast.error('Failed to generate QR code');
     }
   };
@@ -248,7 +263,6 @@ Fast, secure, and instant!
         handleCopy(message, 'Account details');
       }
     } catch (error) {
-      console.error('Error sharing:', error);
       toast.error('Failed to share');
     }
   };
@@ -281,21 +295,10 @@ Fast, secure, and instant!
     toast.success('QR code downloaded!');
   };
 
-  if (loading) {
-    return (
-      <div className={`min-h-screen ${tc.bg} flex items-center justify-center`}>
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[#C7FF00] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className={`${tc.textMuted} text-sm`}>{t('receive.loadingWallets')}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (wallets.length === 0) {
+  if (!loading && wallets.length === 0) {
     return (
       <div className={`min-h-screen ${tc.bg} ${tc.text}`}>
-        <div className={`sticky top-0 z-20 ${tc.bg} border-b ${tc.border}`}>
+        <div className={`sticky top-0 z-20 pt-safe ${tc.bg} border-b ${tc.border}`}>
           <div className="flex items-center justify-between p-4">
             <button onClick={onBack} className={`p-2 ${tc.hoverBg} rounded-lg transition-colors`}>
               <ArrowLeft className="w-5 h-5" />
@@ -317,7 +320,24 @@ Fast, secure, and instant!
   }
 
   return (
-    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-8`}>
+    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-8 relative`}>
+      {!isFullEnrollment(kycStatus) && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0E11]/95 backdrop-blur-sm px-6">
+          <div className="text-center max-w-sm">
+            <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-8 h-8 text-yellow-400" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-2">Verification Required</h2>
+            <p className="text-sm text-gray-400 mb-6">Complete identity verification to access this feature.</p>
+            <button
+              onClick={onBack}
+              className="w-full h-12 rounded-2xl bg-[#C7FF00] text-[#0B0E11] font-bold text-sm"
+            >
+              Go Back
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className={`sticky top-0 z-20 ${tc.bg} border-b ${tc.border}`}>
         <div className="flex items-center justify-between p-4">
@@ -405,10 +425,10 @@ Fast, secure, and instant!
         {/* Tabs */}
         {selectedWallet && (
           <>
-            <div className={`flex gap-2 ${tc.card} rounded-2xl p-1`}>
+            <div className={`flex gap-1.5 ${tc.card} rounded-2xl p-1`}>
               <button
                 onClick={() => setActiveTab('details')}
-                className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${
+                className={`flex-1 py-2.5 rounded-xl text-[11px] font-semibold transition-all ${
                   activeTab === 'details'
                     ? 'bg-[#C7FF00] text-black'
                     : `${tc.textMuted} ${tc.isLight ? 'hover:text-gray-900' : 'hover:text-white'}`
@@ -418,7 +438,7 @@ Fast, secure, and instant!
               </button>
               <button
                 onClick={() => setActiveTab('qr')}
-                className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${
+                className={`flex-1 py-2.5 rounded-xl text-[11px] font-semibold transition-all ${
                   activeTab === 'qr'
                     ? 'bg-[#C7FF00] text-black'
                     : `${tc.textMuted} ${tc.isLight ? 'hover:text-gray-900' : 'hover:text-white'}`
@@ -428,7 +448,7 @@ Fast, secure, and instant!
               </button>
               <button
                 onClick={() => setActiveTab('request')}
-                className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${
+                className={`flex-1 py-2.5 rounded-xl text-[11px] font-semibold transition-all ${
                   activeTab === 'request'
                     ? 'bg-[#C7FF00] text-black'
                     : `${tc.textMuted} ${tc.isLight ? 'hover:text-gray-900' : 'hover:text-white'}`

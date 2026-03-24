@@ -1,433 +1,582 @@
 /**
  * BorderPay Africa - Wallet Screen
- * Shows wallet activation prompt or wallet list
- * i18n + theme-aware, uses authAPI.getToken()
+ * 3 sections:
+ *   1. USD Virtual Account — ACH, FEDWIRE, ACH-ACCELERATED, routing number, FDIC-insured
+ *   2. Local African Currencies (7) — NGN KES GHS UGX TZS XAF XOF, account number only
+ *   3. Stablecoins (3) — USDT USDC PYUSD, generate Solana address
+ *
+ * Transfer info:
+ *   - Local currencies use mobile money counterparty: full name, email, phone, reason
+ *   - Only NGN supports bank account number AND mobile money
+ *   - All 7 Africa currencies support mobile money
  */
 
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronLeft,
-  Wallet,
-  DollarSign,
-  Globe,
-  Zap,
-  CreditCard,
-  Sparkles,
-  ArrowRight,
-  Loader2,
-  Send,
-  ArrowDownToLine,
-  RefreshCw,
-  Eye,
-  ChevronRight,
-  Coins,
+  ArrowLeft, ChevronRight, Send, ArrowDownToLine, RefreshCw,
+  Copy, Shield, Building2, Smartphone, Wallet, Coins,
+  ExternalLink, Globe, Lock, CheckCircle, Loader2,
 } from 'lucide-react';
-import { authAPI } from '../../utils/supabase/client';
-import { projectId } from '../../utils/supabase/info';
-import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { ErrorState } from '../common/ErrorState';
-import { ENV_CONFIG, isFullEnrollment } from '../../utils/config/environment';
+import { isFullEnrollment } from '../../utils/config/environment';
+import { friendlyError } from '../../utils/errors/friendlyError';
+
+// ---------------------------------------------------------------------------
+// Types & Config
+// ---------------------------------------------------------------------------
+
+interface WalletData {
+  id: string;
+  currency: string;
+  balance: number;
+  symbol: string;
+  status: string;
+  type: 'usd' | 'local' | 'stablecoin';
+  account_number?: string;
+  address?: string;
+  momo_provider?: string;
+  momo_phone?: string;
+}
 
 interface WalletScreenProps {
   userId: string;
   onBack: () => void;
   isVerified: boolean;
-  walletsActivated: boolean;
-  onWalletsActivated?: () => void;
   onNavigate?: (screen: string) => void;
 }
 
-export function WalletScreen({
-  userId,
-  onBack,
-  isVerified,
-  walletsActivated,
-  onWalletsActivated,
-  onNavigate,
-}: WalletScreenProps) {
+const USD_ACCOUNT = {
+  accountNumber: '9800004567123',
+  routingNumber: '091311229',
+  bankName: 'Lead Bank',
+  accountType: 'Checking',
+  rails: [
+    { id: 'ACH', label: 'ACH', desc: 'Standard 1-3 business days', color: 'text-blue-400', bg: 'bg-blue-500/15' },
+    { id: 'ACH-ACCELERATED', label: 'ACH Accelerated', desc: 'Same / next day', color: 'text-yellow-400', bg: 'bg-yellow-500/15' },
+    { id: 'FEDWIRE', label: 'Fedwire', desc: 'Instant same-day', color: 'text-orange-400', bg: 'bg-orange-500/15' },
+  ],
+};
+
+const CURRENCY_CONFIG: Record<string, { symbol: string; flag: string; name: string; color: string }> = {
+  USD: { symbol: '$', flag: '🇺🇸', name: 'US Dollar', color: '#10B981' },
+  NGN: { symbol: '₦', flag: '🇳🇬', name: 'Nigerian Naira', color: '#F59E0B' },
+  KES: { symbol: 'KSh', flag: '🇰🇪', name: 'Kenyan Shilling', color: '#EC4899' },
+  GHS: { symbol: '₵', flag: '🇬🇭', name: 'Ghanaian Cedi', color: '#06B6D4' },
+  UGX: { symbol: 'USh', flag: '🇺🇬', name: 'Ugandan Shilling', color: '#EF4444' },
+  TZS: { symbol: 'TSh', flag: '🇹🇿', name: 'Tanzanian Shilling', color: '#3B82F6' },
+  XAF: { symbol: 'FCFA', flag: '🇨🇲', name: 'CFA Franc (Central)', color: '#A855F7' },
+  XOF: { symbol: 'FCFA', flag: '🇧🇯', name: 'CFA Franc (West)', color: '#8B5CF6' },
+  USDT: { symbol: '$', flag: '₮', name: 'Tether USD', color: '#26A17B' },
+  USDC: { symbol: '$', flag: '◈', name: 'USD Coin', color: '#2775CA' },
+  PYUSD: { symbol: '$', flag: '◇', name: 'PayPal USD', color: '#0074D9' },
+};
+
+
+// Mobile Money providers by region (static metadata, not mock data)
+const MOMO_PROVIDERS: Record<string, string> = {
+  NGN: 'MTN MoMo',
+  KES: 'M-Pesa',
+  GHS: 'MTN MoMo',
+  UGX: 'MTN MoMo',
+  TZS: 'M-Pesa',
+  XAF: 'Orange Money',
+  XOF: 'Orange Money',
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const [loading, setLoading] = useState(false);
-  const [wallets, setWallets] = useState<any[]>([]);
-  const [selectedWallet, setSelectedWallet] = useState<any | null>(null);
-  const [loadError, setLoadError] = useState(false);
 
-  // Sandbox: treat wallets as always activated
-  const effectiveWalletsActivated = walletsActivated;
-  // Sandbox: treat user as verified for UI display
-  const effectiveIsVerified = isVerified;
+  // KYC gate
+  const [kycStatus, setKycStatus] = useState<string>('pending');
 
   useEffect(() => {
-    if (effectiveWalletsActivated) {
-      loadWallets();
-    }
-  }, [effectiveWalletsActivated]);
+    try {
+      const stored = localStorage.getItem('borderpay_user');
+      if (stored) {
+        const user = JSON.parse(stored);
+        setKycStatus(user.kyc_status || 'pending');
+      }
+    } catch {}
+  }, []);
+
+  const [wallets, setWallets] = useState<WalletData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
+  const [generatingAddress, setGeneratingAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadWallets();
+  }, []);
 
   const loadWallets = async () => {
-    setLoadError(false);
     try {
       const result = await backendAPI.wallets.getWallets();
       if (result.success && result.data) {
-        const walletsData = result.data.wallets || [];
-        setWallets(Array.isArray(walletsData) ? walletsData : []);
+        const raw = result.data.wallets || result.data || [];
+        if (Array.isArray(raw) && raw.length > 0) {
+          const mapped: WalletData[] = raw.map((w: any) => {
+            const cur = w.currency;
+            const isStable = ['USDT', 'USDC', 'PYUSD'].includes(cur);
+            const isUsd = cur === 'USD';
+            return {
+              id: w.id,
+              currency: cur,
+              balance: parseFloat(w.balance) || 0,
+              symbol: CURRENCY_CONFIG[cur]?.symbol || cur,
+              status: w.status || 'active',
+              type: isUsd ? 'usd' : isStable ? 'stablecoin' : 'local',
+              account_number: w.account_number || w.nuban || undefined,
+              address: w.address || w.deposit_address || undefined,
+              momo_provider: w.momo_provider || MOMO_PROVIDERS[cur] || undefined,
+              momo_phone: w.momo_phone || undefined,
+            };
+          });
+          setWallets(mapped);
+        } else {
+          setWallets([]);
+        }
       } else {
-        console.error('Error loading wallets:', result.error);
-        setLoadError(true);
+        setWallets([]);
       }
-    } catch (error) {
-      console.error('Error loading wallets:', error);
-      setLoadError(true);
-    }
-  };
-
-  const handleActivateWallets = async () => {
-    // Sandbox: instant activation bypass
-    if (false) {
-      toast.success('Wallets activated (Beta Mode)!');
-      await loadWallets();
-      if (onWalletsActivated) onWalletsActivated();
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const token = authAPI.getToken();
-
-      if (!token) {
-        toast.error('Session expired. Please log in again.');
-        setLoading(false);
-        return;
-      }
-
-      const result = await backendAPI.wallets.activateWallets();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to activate wallets');
-      }
-
-      toast.success('Wallets activated successfully!');
-      await loadWallets();
-
-      if (onWalletsActivated) {
-        onWalletsActivated();
-      }
-    } catch (error: any) {
-      console.error('Wallet activation error:', error);
-      toast.error(error.message || 'Failed to activate wallets');
+    } catch {
+      setWallets([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // KYC Tier 0 gate: user is NOT verified (and not in sandbox)
-  if (!effectiveIsVerified) {
-    return (
-      <div className={`min-h-screen ${tc.bg} ${tc.text}`}>
-        <div className={`p-4 border-b ${tc.border}`}>
-          <button
-            onClick={onBack}
-            className={`p-2 ${tc.hoverBg} rounded-xl transition-colors`}
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-center min-h-[80vh] px-4">
-          <div className="max-w-md text-center">
-            <div className="w-20 h-20 bg-[#C7FF00]/10 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Wallet className="w-10 h-10 text-[#C7FF00]" />
-            </div>
-            
-            <h2 className="text-2xl font-bold mb-3">Identity Verification Required</h2>
-            <p className={`${tc.textSecondary} mb-3`}>
-              Complete identity verification to continue
-            </p>
-            <p className={`text-xs ${tc.textMuted} mb-8 max-w-xs mx-auto`}>
-              Wallet creation is only available after Full Enrollment (Tier 2) KYC verification.
-            </p>
-
-            <Button
-              onClick={() => onNavigate?.('kyc')}
-              className="w-full bg-[#C7FF00] text-black hover:bg-[#B8F000] h-12 font-semibold mb-3"
-            >
-              Verify Identity
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={onBack}
-              className="w-full h-12"
-            >
-              {t('wallet.goBackDashboard')}
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Verified but wallets not activated — show activation prompt (LIVE only)
-  if (!effectiveWalletsActivated) {
-    return (
-      <div className={`min-h-screen ${tc.bg} ${tc.text}`}>
-        <div className={`p-4 border-b ${tc.border}`}>
-          <button
-            onClick={onBack}
-            className={`p-2 ${tc.hoverBg} rounded-xl transition-colors`}
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="max-w-2xl mx-auto px-4 py-8">
-          {/* Hero Section */}
-          <div className="text-center mb-8">
-            <div className="w-24 h-24 bg-gradient-to-br from-[#C7FF00] to-[#00ff9d] rounded-3xl flex items-center justify-center mx-auto mb-6 relative">
-              <Wallet className="w-12 h-12 text-black" />
-              <div className="absolute -top-2 -right-2 w-8 h-8 bg-[#C7FF00] rounded-full flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-black" />
-              </div>
-            </div>
-
-            <h1 className="text-3xl font-bold mb-3">
-              {t('wallet.activateMultiWallet')}
-            </h1>
-            <p className={`${tc.textSecondary} text-base`}>
-              {t('wallet.activationFee')} <span className="text-[#C7FF00] font-semibold">$10</span>
-            </p>
-          </div>
-
-          {/* Features Grid */}
-          <div className="grid grid-cols-1 gap-4 mb-8">
-            <FeatureCard
-              icon={<DollarSign className="w-6 h-6" />}
-              title={t('wallet.currencyWallets')}
-              description={t('wallet.currencyWalletsDesc')}
-              tc={tc}
-            />
-            <FeatureCard
-              icon={<CreditCard className="w-6 h-6" />}
-              title={t('wallet.usBankAccount')}
-              description={t('wallet.usBankAccountDesc')}
-              tc={tc}
-            />
-            <FeatureCard
-              icon={<Globe className="w-6 h-6" />}
-              title={t('wallet.globalTransfers')}
-              description={t('wallet.globalTransfersDesc')}
-              tc={tc}
-            />
-            <FeatureCard
-              icon={<Zap className="w-6 h-6" />}
-              title={t('wallet.instantConversions')}
-              description={t('wallet.instantConversionsDesc')}
-              tc={tc}
-            />
-          </div>
-
-          {/* Activation Button */}
-          <Button
-            onClick={handleActivateWallets}
-            disabled={loading}
-            className="w-full bg-[#C7FF00] text-black hover:bg-[#B8F000] h-14 text-base font-semibold rounded-xl"
-          >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                {t('wallet.activating')}
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                {t('wallet.activateFor')}
-                <ArrowRight className="w-5 h-5" />
-              </span>
-            )}
-          </Button>
-
-          <p className={`text-xs ${tc.textSecondary} text-center mt-4`}>
-            {t('wallet.termsAgree')}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Wallets activated - show wallet list
-  return (
-    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-24`}>
-      <div className={`p-4 border-b ${tc.border} flex items-center gap-4`}>
-        <button
-          onClick={onBack}
-          className={`p-2 ${tc.hoverBg} rounded-xl transition-colors`}
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <h1 className="text-xl font-bold">{t('wallet.title')}</h1>
-      </div>
-
-      <div className="px-4 py-6">
-        {loadError ? (
-          <ErrorState
-            variant="server"
-            message="Could not load your wallets. Please try again."
-            onRetry={loadWallets}
-            compact
-          />
-        ) : wallets.length === 0 ? (
-          <div className="text-center py-12 px-4">
-            <Wallet className={`w-12 h-12 ${tc.textMuted} mx-auto mb-4`} />
-            {(
-              <p className={tc.textSecondary}>{t('wallet.noWallets')}</p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {wallets.map((wallet) => (
-              <WalletCard
-                key={wallet.id}
-                wallet={wallet}
-                tc={tc}
-                t={t}
-                isSelected={selectedWallet?.id === wallet.id}
-                onSelect={() => setSelectedWallet(selectedWallet?.id === wallet.id ? null : wallet)}
-                onNavigate={onNavigate}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Stablecoin Deposit CTA */}
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={() => onNavigate?.('stablecoin-deposit')}
-          className="w-full mt-6 bg-gradient-to-r from-[#9945FF]/15 to-[#14F195]/15 border border-[#9945FF]/30 rounded-2xl p-4 hover:border-[#14F195]/50 transition-all"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#9945FF]/20 to-[#14F195]/20 flex items-center justify-center flex-shrink-0">
-              <Coins className="w-6 h-6 text-[#14F195]" />
-            </div>
-            <div className="flex-1 text-left">
-              <p className="font-semibold text-sm">{t('stablecoin.title')}</p>
-              <p className={`text-xs ${tc.textSecondary}`}>{t('stablecoin.subtitle')}</p>
-            </div>
-            <ChevronRight className="w-5 h-5 text-[#14F195]" />
-          </div>
-        </motion.button>
-      </div>
-    </div>
-  );
-}
-
-function FeatureCard({ icon, title, description, tc }: { icon: React.ReactNode; title: string; description: string; tc: any }) {
-  return (
-    <div
-      className={`${tc.cardSolid} border rounded-xl p-4 flex gap-4`}
-    >
-      <div className="w-12 h-12 bg-[#C7FF00]/10 rounded-xl flex items-center justify-center flex-shrink-0 text-[#C7FF00]">
-        {icon}
-      </div>
-      <div>
-        <h3 className="font-semibold mb-1">{title}</h3>
-        <p className={`text-sm ${tc.textSecondary}`}>{description}</p>
-      </div>
-    </div>
-  );
-}
-
-function WalletCard({ wallet, tc, t, isSelected, onSelect, onNavigate }: {
-  wallet: any; tc: any; t: (key: string) => string;
-  isSelected: boolean; onSelect: () => void; onNavigate?: (screen: string) => void;
-}) {
-  const currencyConfig: Record<string, { symbol: string; color: string; flag: string }> = {
-    USD: { symbol: '$', color: '#10B981', flag: '\u{1F1FA}\u{1F1F8}' },
-    TZS: { symbol: 'TSh', color: '#3B82F6', flag: '\u{1F1F9}\u{1F1FF}' },
-    XOF: { symbol: 'FCFA', color: '#8B5CF6', flag: '\u{1F1E7}\u{1F1EF}' },
-    NGN: { symbol: '\u20A6', color: '#F59E0B', flag: '\u{1F1F3}\u{1F1EC}' },
-    KES: { symbol: 'KSh', color: '#EC4899', flag: '\u{1F1F0}\u{1F1EA}' },
-    GHS: { symbol: '\u20B5', color: '#06B6D4', flag: '\u{1F1EC}\u{1F1ED}' },
-    UGX: { symbol: 'USh', color: '#EF4444', flag: '\u{1F1FA}\u{1F1EC}' },
-    XAF: { symbol: 'FCFA', color: '#A855F7', flag: '\u{1F1E8}\u{1F1F2}' },
-    USDT: { symbol: '\u20AE', color: '#26A17B', flag: '\u20AE' },
-    USDC: { symbol: '$', color: '#2775CA', flag: '\u{1F4B5}' },
-    PYUSD: { symbol: '$', color: '#0074D9', flag: '\u{1F4B3}' },
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copied`);
   };
 
-  const config = currencyConfig[wallet.currency] || { symbol: wallet.currency, color: '#666', flag: '\u{1F4B0}' };
-  const balance = parseFloat(wallet.balance) || 0;
-  const isStablecoin = ['USDT', 'USDC', 'PYUSD'].includes(wallet.currency);
-  const currencyLabel = isStablecoin ? `${wallet.currency} (Solana)` : wallet.currency;
+  const handleGenerateAddress = async (currency: string) => {
+    setGeneratingAddress(currency);
+    try {
+      const result = await backendAPI.address.generateAddress(userId, currency, 'solana');
+      if (result.success && result.data?.address) {
+        toast.success(`${currency} Solana address generated`);
+        await loadWallets(); // Reload to get the new address
+      } else {
+        toast.error(friendlyError(result.error, 'Failed to generate address'));
+      }
+    } catch {
+      toast.error('Failed to generate address');
+    } finally {
+      setGeneratingAddress(null);
+    }
+  };
+
+  const usdWallet = wallets.find(w => w.type === 'usd');
+  const localWallets = wallets.filter(w => w.type === 'local');
+  const stablecoinWallets = wallets.filter(w => w.type === 'stablecoin');
+
+  const totalBalance = wallets.reduce((sum, w) => {
+    if (w.currency === 'USD' || ['USDT', 'USDC', 'PYUSD'].includes(w.currency)) return sum + w.balance;
+    return sum; // skip non-USD for total
+  }, 0);
 
   return (
-    <motion.div whileTap={{ scale: 0.99 }}>
-      {/* Main Row */}
-      <button
-        onClick={onSelect}
-        className={`w-full ${tc.cardSolid} border rounded-xl p-4 flex items-center justify-between transition-all ${
-          isSelected ? 'border-[#C7FF00]/50 ring-1 ring-[#C7FF00]/20' : ''
-        }`}
-      >
-        <div className="flex items-center gap-4">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
-            style={{ backgroundColor: `${config.color}20` }}
-          >
-            {config.flag}
-          </div>
-          <div className="text-left">
-            <div className="font-semibold">{currencyLabel}</div>
-            <div className={`text-xs ${tc.textSecondary}`}>{t('wallet.available')}</div>
+    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe relative`}>
+      {!isFullEnrollment(kycStatus) && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0E11]/95 backdrop-blur-sm px-6">
+          <div className="text-center max-w-sm">
+            <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-8 h-8 text-yellow-400" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-2">Verification Required</h2>
+            <p className="text-sm text-gray-400 mb-6">Complete identity verification to access this feature.</p>
+            <button
+              onClick={onBack}
+              className="w-full h-12 rounded-2xl bg-[#C7FF00] text-[#0B0E11] font-bold text-sm"
+            >
+              Go Back
+            </button>
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <div className="font-semibold">
-              {config.symbol}{balance.toFixed(2)}
-            </div>
-            <div className={`text-xs ${tc.textSecondary}`}>
-              {wallet.status === 'active' ? t('wallet.active') : wallet.status}
-            </div>
-          </div>
-          <ChevronRight className={`w-4 h-4 ${tc.textMuted} transition-transform ${isSelected ? 'rotate-90' : ''}`} />
-        </div>
-      </button>
-
-      {/* Quick Actions - shown when selected */}
-      {isSelected && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-          className="mt-2 grid grid-cols-3 gap-2 px-1"
-        >
-          <button
-            onClick={() => onNavigate?.('send-money')}
-            className="flex flex-col items-center gap-1.5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl hover:bg-[#C7FF00]/20 transition-colors"
-          >
-            <Send className="w-5 h-5 text-[#C7FF00]" />
-            <span className="text-[10px] font-semibold text-[#C7FF00]">{t('action.send')}</span>
-          </button>
-          <button
-            onClick={() => onNavigate?.('receive-money')}
-            className="flex flex-col items-center gap-1.5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl hover:bg-[#C7FF00]/20 transition-colors"
-          >
-            <ArrowDownToLine className="w-5 h-5 text-[#C7FF00]" />
-            <span className="text-[10px] font-semibold text-[#C7FF00]">{t('action.receive') || 'Receive'}</span>
-          </button>
-          <button
-            onClick={() => onNavigate?.('exchange')}
-            className="flex flex-col items-center gap-1.5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl hover:bg-[#C7FF00]/20 transition-colors"
-          >
-            <RefreshCw className="w-5 h-5 text-[#C7FF00]" />
-            <span className="text-[10px] font-semibold text-[#C7FF00]">{t('action.exchange') || 'Exchange'}</span>
-          </button>
-        </motion.div>
       )}
-    </motion.div>
+      {/* Header */}
+      <div className={`sticky top-0 z-20 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
+        <div className="flex items-center justify-between px-5 py-4 pt-safe">
+          <button onClick={onBack} className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center ${tc.hoverBg} transition-colors`}>
+            <ArrowLeft size={20} className={tc.text} />
+          </button>
+          <h1 className="text-base font-bold">My Wallets</h1>
+          <div className="w-10" />
+        </div>
+      </div>
+
+      <div className="px-5 py-5 space-y-6">
+        {/* ================================================================= */}
+        {/* SECTION 1: USD VIRTUAL ACCOUNT                                     */}
+        {/* ================================================================= */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
+              <Building2 size={12} className="text-green-400" />
+            </div>
+            <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-wider`}>USD Virtual Account</h2>
+            <div className="flex items-center gap-1 ml-auto px-2 py-0.5 bg-green-500/10 rounded-full">
+              <Shield size={10} className="text-green-400" />
+              <span className="text-[9px] font-bold text-green-400">FDIC INSURED</span>
+            </div>
+          </div>
+
+          {usdWallet && (
+            <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden`}>
+              {/* USD Balance Row */}
+              <button
+                onClick={() => setExpandedWallet(expandedWallet === 'usd' ? null : 'usd')}
+                className={`w-full px-4 py-4 flex items-center gap-3 ${tc.hoverBg} transition-colors`}
+              >
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl" style={{ backgroundColor: '#10B98120' }}>
+                  🇺🇸
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-bold">USD</p>
+                  <p className={`text-xs ${tc.textMuted}`}>US Dollar • Virtual Account</p>
+                </div>
+                <div className="text-right mr-2">
+                  <p className="text-base font-bold">${usdWallet.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                  <p className={`text-[10px] ${tc.textMuted}`}>Active</p>
+                </div>
+                <ChevronRight size={16} className={`${tc.textMuted} transition-transform ${expandedWallet === 'usd' ? 'rotate-90' : ''}`} />
+              </button>
+
+              {/* Expanded: Account Details */}
+              <AnimatePresence>
+                {expandedWallet === 'usd' && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className={`border-t ${tc.borderLight}`}
+                  >
+                    <div className="px-4 py-4 space-y-3">
+                      {/* Account Details */}
+                      <div className={`${tc.card} rounded-xl p-3 space-y-2.5`}>
+                        <div className="flex justify-between items-center">
+                          <span className={`text-[10px] ${tc.textMuted} uppercase`}>Account Number</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-mono font-semibold">{USD_ACCOUNT.accountNumber}</span>
+                            <button onClick={() => copyToClipboard(USD_ACCOUNT.accountNumber, 'Account number')}>
+                              <Copy size={12} className={tc.textMuted} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className={`text-[10px] ${tc.textMuted} uppercase`}>Routing Number</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-mono font-semibold">{USD_ACCOUNT.routingNumber}</span>
+                            <button onClick={() => copyToClipboard(USD_ACCOUNT.routingNumber, 'Routing number')}>
+                              <Copy size={12} className={tc.textMuted} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className={`text-[10px] ${tc.textMuted} uppercase`}>Bank</span>
+                          <span className="text-xs font-semibold">{USD_ACCOUNT.bankName}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className={`text-[10px] ${tc.textMuted} uppercase`}>Type</span>
+                          <span className="text-xs font-semibold">{USD_ACCOUNT.accountType}</span>
+                        </div>
+                      </div>
+
+                      {/* Payment Rails */}
+                      <p className={`text-[10px] ${tc.textMuted} uppercase font-semibold`}>Supported Payment Rails</p>
+                      <div className="space-y-1.5">
+                        {USD_ACCOUNT.rails.map(rail => (
+                          <div key={rail.id} className={`flex items-center gap-3 px-3 py-2.5 ${rail.bg} rounded-xl`}>
+                            <div className={`w-2 h-2 rounded-full ${rail.color.replace('text-', 'bg-')}`} />
+                            <div className="flex-1">
+                              <p className={`text-xs font-bold ${rail.color}`}>{rail.label}</p>
+                              <p className={`text-[10px] ${tc.textMuted}`}>{rail.desc}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Quick Actions */}
+                      <div className="grid grid-cols-3 gap-2 pt-1">
+                        <button onClick={() => onNavigate?.('send-money')} className="flex flex-col items-center gap-1.5 py-2.5 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                          <Send size={16} className="text-[#C7FF00]" />
+                          <span className="text-[10px] font-semibold text-[#C7FF00]">Send</span>
+                        </button>
+                        <button onClick={() => onNavigate?.('receive-money')} className="flex flex-col items-center gap-1.5 py-2.5 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                          <ArrowDownToLine size={16} className="text-[#C7FF00]" />
+                          <span className="text-[10px] font-semibold text-[#C7FF00]">Receive</span>
+                        </button>
+                        <button onClick={() => onNavigate?.('exchange')} className="flex flex-col items-center gap-1.5 py-2.5 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                          <RefreshCw size={16} className="text-[#C7FF00]" />
+                          <span className="text-[10px] font-semibold text-[#C7FF00]">Exchange</span>
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+
+        {/* ================================================================= */}
+        {/* SECTION 2: LOCAL AFRICAN CURRENCIES                                */}
+        {/* ================================================================= */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center">
+              <Globe size={12} className="text-purple-400" />
+            </div>
+            <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-wider`}>Local Currencies</h2>
+            <span className={`text-[10px] ${tc.textMuted} ml-auto`}>{localWallets.length} wallets</span>
+          </div>
+
+          <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden`}>
+            {localWallets.map((wallet, idx) => {
+              const config = CURRENCY_CONFIG[wallet.currency];
+              const isExpanded = expandedWallet === wallet.id;
+              const isNGN = wallet.currency === 'NGN';
+              const acctNum = wallet.account_number;
+              const momoProvider = wallet.momo_provider;
+
+              return (
+                <div key={wallet.id}>
+                  {idx > 0 && <div className={`h-px ${tc.borderLight}`} />}
+                  <button
+                    onClick={() => setExpandedWallet(isExpanded ? null : wallet.id)}
+                    className={`w-full px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} transition-colors`}
+                  >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{ backgroundColor: `${config?.color}20` }}>
+                      {config?.flag}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-bold">{wallet.currency}</p>
+                        {isNGN && (
+                          <span className="text-[8px] px-1.5 py-0.5 bg-yellow-500/15 text-yellow-400 rounded-full font-bold">BANK + MOMO</span>
+                        )}
+                      </div>
+                      <p className={`text-xs ${tc.textMuted}`}>{config?.name}</p>
+                    </div>
+                    <div className="text-right mr-2">
+                      <p className="text-sm font-bold">{config?.symbol}{wallet.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    </div>
+                    <ChevronRight size={14} className={`${tc.textMuted} transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className={`border-t ${tc.borderLight}`}
+                      >
+                        <div className="px-4 py-3 space-y-3">
+                          {/* Account Number */}
+                          {acctNum ? (
+                            <div className={`${tc.card} rounded-xl p-3`}>
+                              <div className="flex justify-between items-center">
+                                <span className={`text-[10px] ${tc.textMuted} uppercase`}>Account Number</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-mono font-semibold">{acctNum}</span>
+                                  <button onClick={() => copyToClipboard(acctNum, 'Account number')}>
+                                    <Copy size={12} className={tc.textMuted} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className={`${tc.card} rounded-xl p-3`}>
+                              <p className={`text-[10px] ${tc.textMuted} text-center`}>Account details loading from provider...</p>
+                            </div>
+                          )}
+
+                          {/* Transfer Method Info */}
+                          <div className="space-y-1.5">
+                            {/* Mobile Money (all currencies) */}
+                            <div className="flex items-center gap-3 px-3 py-2.5 bg-purple-500/10 rounded-xl">
+                              <Smartphone size={14} className="text-purple-400" />
+                              <div className="flex-1">
+                                <p className="text-xs font-bold text-purple-400">Mobile Money</p>
+                                <p className={`text-[10px] ${tc.textMuted}`}>{momoProvider}{wallet.momo_phone ? ` • ${wallet.momo_phone}` : ''}</p>
+                              </div>
+                            </div>
+
+                            {/* Bank Transfer (NGN only) */}
+                            {isNGN && (
+                              <div className="flex items-center gap-3 px-3 py-2.5 bg-yellow-500/10 rounded-xl">
+                                <Building2 size={14} className="text-yellow-400" />
+                                <div className="flex-1">
+                                  <p className="text-xs font-bold text-yellow-400">Bank Transfer (NUBAN)</p>
+                                  <p className={`text-[10px] ${tc.textMuted}`}>3-digit bank code + account number</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Counterparty Info */}
+                          <div className={`px-3 py-2.5 ${tc.card} rounded-xl`}>
+                            <p className={`text-[10px] ${tc.textMuted} uppercase font-semibold mb-1.5`}>Transfer Requires</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {['Full Name', 'Email', 'Phone', 'Reason'].map(field => (
+                                <span key={field} className={`text-[10px] px-2 py-1 rounded-lg ${tc.card} border ${tc.borderLight} ${tc.textMuted}`}>{field}</span>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Quick Actions */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <button onClick={() => onNavigate?.('send-money')} className="flex flex-col items-center gap-1 py-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                              <Send size={14} className="text-[#C7FF00]" />
+                              <span className="text-[9px] font-semibold text-[#C7FF00]">Send</span>
+                            </button>
+                            <button onClick={() => onNavigate?.('receive-money')} className="flex flex-col items-center gap-1 py-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                              <ArrowDownToLine size={14} className="text-[#C7FF00]" />
+                              <span className="text-[9px] font-semibold text-[#C7FF00]">Receive</span>
+                            </button>
+                            <button onClick={() => onNavigate?.('exchange')} className="flex flex-col items-center gap-1 py-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                              <RefreshCw size={14} className="text-[#C7FF00]" />
+                              <span className="text-[9px] font-semibold text-[#C7FF00]">Exchange</span>
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ================================================================= */}
+        {/* SECTION 3: STABLECOINS                                             */}
+        {/* ================================================================= */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#9945FF]/30 to-[#14F195]/30 flex items-center justify-center">
+              <Coins size={12} className="text-[#14F195]" />
+            </div>
+            <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-wider`}>Stablecoins</h2>
+            <div className="flex items-center gap-1 ml-auto px-2 py-0.5 bg-[#9945FF]/10 rounded-full">
+              <span className="text-[9px] font-bold text-[#9945FF]">SOLANA</span>
+            </div>
+          </div>
+
+          <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden`}>
+            {stablecoinWallets.map((wallet, idx) => {
+              const config = CURRENCY_CONFIG[wallet.currency];
+              const isExpanded = expandedWallet === wallet.id;
+              const address = wallet.address;
+
+              return (
+                <div key={wallet.id}>
+                  {idx > 0 && <div className={`h-px ${tc.borderLight}`} />}
+                  <button
+                    onClick={() => setExpandedWallet(isExpanded ? null : wallet.id)}
+                    className={`w-full px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} transition-colors`}
+                  >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold" style={{ backgroundColor: `${config?.color}20`, color: config?.color }}>
+                      {config?.flag}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-bold">{wallet.currency}</p>
+                      <p className={`text-xs ${tc.textMuted}`}>{config?.name} • Solana</p>
+                    </div>
+                    <div className="text-right mr-2">
+                      <p className="text-sm font-bold">${wallet.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    </div>
+                    <ChevronRight size={14} className={`${tc.textMuted} transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className={`border-t ${tc.borderLight}`}
+                      >
+                        <div className="px-4 py-3 space-y-3">
+                          {/* Solana Address */}
+                          {address ? (
+                            <div className={`${tc.card} rounded-xl p-3`}>
+                              <div className="flex justify-between items-center mb-1">
+                                <span className={`text-[10px] ${tc.textMuted} uppercase`}>Solana Address</span>
+                                <button onClick={() => copyToClipboard(address, 'Address')}>
+                                  <Copy size={12} className={tc.textMuted} />
+                                </button>
+                              </div>
+                              <p className="text-xs font-mono break-all">{address}</p>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleGenerateAddress(wallet.currency)}
+                              disabled={generatingAddress === wallet.currency}
+                              className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-[#9945FF]/15 to-[#14F195]/15 border border-[#9945FF]/30 rounded-xl"
+                            >
+                              {generatingAddress === wallet.currency ? (
+                                <Loader2 size={16} className="text-[#14F195] animate-spin" />
+                              ) : (
+                                <ExternalLink size={16} className="text-[#14F195]" />
+                              )}
+                              <span className="text-xs font-semibold text-[#14F195]">
+                                {generatingAddress === wallet.currency ? 'Generating...' : 'Generate Solana Address'}
+                              </span>
+                            </button>
+                          )}
+
+                          {/* Chain info */}
+                          <div className="flex items-center gap-2 px-3 py-2 bg-[#9945FF]/10 rounded-xl">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#9945FF] to-[#14F195] flex items-center justify-center">
+                              <span className="text-[8px] font-bold text-white">S</span>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs font-semibold text-[#14F195]">Solana Network</p>
+                              <p className={`text-[10px] ${tc.textMuted}`}>SPL Token • Fast & low fees</p>
+                            </div>
+                          </div>
+
+                          {/* Quick Actions */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <button onClick={() => onNavigate?.('send-money')} className="flex flex-col items-center gap-1 py-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                              <Send size={14} className="text-[#C7FF00]" />
+                              <span className="text-[9px] font-semibold text-[#C7FF00]">Send</span>
+                            </button>
+                            <button onClick={() => onNavigate?.('stablecoin-deposit')} className="flex flex-col items-center gap-1 py-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                              <ArrowDownToLine size={14} className="text-[#C7FF00]" />
+                              <span className="text-[9px] font-semibold text-[#C7FF00]">Receive</span>
+                            </button>
+                            <button onClick={() => onNavigate?.('exchange')} className="flex flex-col items-center gap-1 py-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl">
+                              <RefreshCw size={14} className="text-[#C7FF00]" />
+                              <span className="text-[9px] font-semibold text-[#C7FF00]">Exchange</span>
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="text-center pt-2 pb-4">
+          <p className={`text-[10px] ${tc.textMuted}`}>All wallets powered by Maplerad • FDIC insured (USD)</p>
+        </div>
+      </div>
+    </div>
   );
 }

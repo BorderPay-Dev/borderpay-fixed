@@ -127,8 +127,8 @@ export function USDAccountScreen({ onBack, onComplete }: Props) {
   // Block if not KYC verified (in live mode)
   if (!userIsVerified) {
     return (
-      <div className={`min-h-screen ${tc.bg} ${tc.text} flex flex-col`}>
-        <div className={`p-4 border-b ${tc.border} flex items-center gap-3`}>
+      <div className={`min-h-screen ${tc.bg} ${tc.text} flex flex-col pb-safe`}>
+        <div className={`p-4 border-b ${tc.border} flex items-center gap-3 pt-safe`}>
           <button onClick={onBack} className={`p-2 ${tc.hoverBg} rounded-xl transition-colors`}>
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -144,7 +144,7 @@ export function USDAccountScreen({ onBack, onComplete }: Props) {
               Complete identity verification to continue
             </p>
             <p className={`text-xs ${tc.textMuted} mb-8`}>
-              USD account creation requires Full Enrollment (Tier 2) KYC.
+              USD account creation requires Full Enrollment KYC.
             </p>
             <button
               onClick={onBack}
@@ -283,7 +283,6 @@ export function USDAccountScreen({ onBack, onComplete }: Props) {
         });
       }
     } catch (err: any) {
-      console.error('USD Account creation error:', err);
       setSubmitResult({
         success: false,
         message: err.message || t('usdAccount.errorMessage'),

@@ -72,11 +72,9 @@ export function StablecoinDepositScreen({ onBack, onConfirm }: StablecoinDeposit
         setGeneratedAddress(result.data.address);
         setStep('address');
       } else {
-        console.error('Generate address error:', result.error);
         toast.error(result.error || t('addMoney.failedGenAddress'));
       }
     } catch (error) {
-      console.error('Generate address failed:', error);
       toast.error(t('addMoney.failedGenAddress'));
     } finally {
       setLoading(false);
@@ -189,26 +187,7 @@ export function StablecoinDepositScreen({ onBack, onConfirm }: StablecoinDeposit
           </motion.div>
         )}
 
-        {/* Loading State */}
-        {loading && (
-          <motion.div
-            key="loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center py-24 px-6"
-          >
-            <div className="relative mb-6">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#9945FF]/20 to-[#14F195]/20 flex items-center justify-center">
-                <LoadingSpinner />
-              </div>
-            </div>
-            <p className="font-bold text-lg mb-1">{t('stablecoin.generating')}</p>
-            <p className={`bp-text-small ${tc.textSecondary} text-center`}>
-              {selectedCoin} on Solana
-            </p>
-          </motion.div>
-        )}
+        {/* Loading placeholder removed — content renders instantly */}
 
         {/* Step 2: Display Address */}
         {step === 'address' && !loading && generatedAddress && activeCoin && (

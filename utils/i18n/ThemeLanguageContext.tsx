@@ -31,7 +31,6 @@ function loadPrefs(): { theme: Theme; language: Language } {
       };
     }
   } catch (e) {
-    console.warn('Failed to load preferences:', e);
   }
   return { theme: 'dark', language: 'en' };
 }
@@ -42,7 +41,6 @@ function savePrefs(updates: Record<string, unknown>) {
     const existing = stored ? JSON.parse(stored) : {};
     localStorage.setItem(PREFS_KEY, JSON.stringify({ ...existing, ...updates }));
   } catch (e) {
-    console.warn('Failed to save preferences:', e);
   }
 }
 

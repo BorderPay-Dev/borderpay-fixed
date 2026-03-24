@@ -82,11 +82,11 @@
   --gap-lg: 24px;
   --gap-xl: 32px;
   
-  /* Safe areas */
-  --safe-top: max(16px, env(safe-area-inset-top));
-  --safe-bottom: max(16px, env(safe-area-inset-bottom));
-  --safe-left: max(16px, env(safe-area-inset-left));
-  --safe-right: max(16px, env(safe-area-inset-right));
+  /* Safe areas — pure env() values, no forced minimum */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   --bottom-nav-height: 72px;
   --bottom-nav-spacing: calc(var(--bottom-nav-height) + var(--safe-bottom));
   
@@ -294,6 +294,9 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Kill all bounce/rubber-band everywhere */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
   }
 
   html {
@@ -302,11 +305,12 @@
     width: 100%;
     position: fixed;
     overflow: hidden;
-    /* Prevent pull-to-refresh and bounce */
     overscroll-behavior: none;
     overscroll-behavior-y: none;
-    /* Prevent any touch scrolling gestures */
+    overscroll-behavior-x: none;
     touch-action: pan-x pan-y;
+    /* iOS: prevent elastic bounce on the document */
+    -webkit-overflow-scrolling: auto;
   }
 
   body {
@@ -320,40 +324,51 @@
     width: 100%;
     position: fixed;
     overflow: hidden;
-    /* Prevent bounce on both iOS and Android */
     overscroll-behavior: none;
     overscroll-behavior-y: none;
     overscroll-behavior-x: none;
-    /* Disable pull-to-refresh */
     touch-action: pan-x pan-y;
+    /* Prevent iOS rubber-banding on body */
+    -webkit-overflow-scrolling: auto;
+    /* Prevent text selection on long press (native-like) */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Allow text selection only in inputs */
+  input, textarea, [contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* Every scrollable area: kill bounce globally */
+  [class*="overflow-y-auto"],
+  [class*="overflow-x-auto"],
+  [class*="overflow-auto"] {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
   }
 
   #root {
     height: 100%;
-    height: 100dvh; /* Dynamic viewport height */
+    height: 100dvh;
     width: 100%;
     max-width: 100vw;
     position: fixed;
     overflow: hidden;
-    /* Prevent overscroll bounce in root container */
     overscroll-behavior: none;
     overscroll-behavior-y: none;
-    /* Ensure immediate rendering on PWA startup */
+    overscroll-behavior-x: none;
     display: flex;
     flex-direction: column;
   }
-  
-  /* Mobile input optimizations */
+
+  /* Mobile input optimizations — prevent iOS zoom */
   input,
   textarea,
   select {
     font-size: 16px !important;
     transition: none !important;
-  }
-  
-  /* Remove tap highlight */
-  * {
-    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -464,12 +479,13 @@
   .app-container {
     width: 100%;
     height: 100vh;
-    height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    height: 100dvh;
     max-width: 100vw;
     overflow-x: hidden;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
     overscroll-behavior: none;
+    overscroll-behavior-y: none;
   }
   
   /* Content wrapper with safe padding */
@@ -483,19 +499,51 @@
     box-sizing: border-box;
   }
   
-  /* Responsive padding utilities */
+  /* ============================================
+     SAFE AREA UTILITIES
+     Used by 50+ components as pt-safe, pb-safe, etc.
+     These ensure content never overlaps notch, Dynamic Island,
+     status bar, home indicator, or gesture nav bar.
+     ============================================ */
+
+  /* Individual side safe area padding */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /* Individual side safe area margin */
+  .mt-safe {
+    margin-top: env(safe-area-inset-top, 0px);
+  }
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Combo safe area padding */
   .px-safe {
     padding-left: max(16px, env(safe-area-inset-left));
     padding-right: max(16px, env(safe-area-inset-right));
   }
-  
   .py-safe {
-    padding-top: max(16px, env(safe-area-inset-top));
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  
   .p-safe {
-    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom, 0px) max(16px, env(safe-area-inset-left));
+  }
+
+  /* Bottom nav safe spacing — content needs this much bottom padding to clear nav + safe area */
+  .pb-nav-safe {
+    padding-bottom: calc(var(--bottom-nav-height, 72px) + env(safe-area-inset-bottom, 0px));
   }
   
   /* Small screens (phones in portrait) - 320px to 480px */
@@ -618,12 +666,11 @@
   
   .btn-primary:hover {
     background: var(--primary-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
   }
-  
+
   .btn-primary:active {
-    transform: translateY(0);
+    opacity: 0.85;
+    transform: scale(0.98);
   }
   
   /* Outline button */
@@ -639,7 +686,11 @@
   
   .btn-outline:hover {
     @apply bg-primary text-primary-foreground;
-    transform: translateY(-1px);
+  }
+
+  .btn-outline:active {
+    opacity: 0.85;
+    transform: scale(0.98);
   }
   
   /* Secondary button */
@@ -656,7 +707,11 @@
   
   .btn-secondary:hover {
     background: #E5E7EB;
-    transform: translateY(-1px);
+  }
+
+  .btn-secondary:active {
+    opacity: 0.85;
+    transform: scale(0.98);
   }
   
   /* Success button */
@@ -700,7 +755,6 @@
   
   .fintech-card:hover {
     box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
   }
   
   /* Virtual card design - Black with gold accent */
@@ -846,7 +900,7 @@
     height: 100dvh;
   }
   
-  /* Proper screen containers */
+  /* Proper screen containers — no bounce */
   .screen-container {
     min-height: 100vh;
     min-height: 100dvh;
@@ -854,8 +908,9 @@
     max-width: 100vw;
     overflow-x: hidden;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
     overscroll-behavior: none;
+    overscroll-behavior-y: none;
   }
   
   /* Hide scrollbar */
@@ -950,12 +1005,12 @@
    ============================================ */
 
 @layer utilities {
-  /* Scrollable area with proper touch support */
+  /* Scrollable area — no bounce */
   .scrollable {
     overflow-y: auto;
     overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior-y: none;
     height: 100%;
     width: 100%;
   }
@@ -1040,31 +1095,34 @@
     padding-right: var(--page-padding-mobile);
   }
   
-  /* Full-width scrollable screen */
+  /* Full-width scrollable screen — no bounce */
   .scrollable-screen {
     position: fixed;
     inset: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
     overscroll-behavior: none;
+    overscroll-behavior-y: none;
   }
-  
+
   /* Scrollable content area with bottom nav padding */
   .scrollable-with-nav {
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior-y: none;
     padding-bottom: var(--bottom-nav-spacing);
   }
-  
+
   /* Main content area (between header and nav) */
   .main-content {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior-y: none;
     padding-bottom: var(--space-6);
   }
   
@@ -1107,13 +1165,12 @@
   }
   
   .card-interactive:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     border-color: var(--primary);
   }
-  
+
   .card-interactive:active {
-    transform: translateY(0);
+    opacity: 0.9;
+    transform: scale(0.98);
   }
   
   /* ============================================
@@ -1212,13 +1269,12 @@
   }
   
   .frame-interactive:hover {
-    transform: translateY(-2px);
     border-color: var(--primary);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
-  
+
   .frame-interactive:active {
-    transform: translateY(0);
+    opacity: 0.9;
+    transform: scale(0.98);
   }
   
   /* ============================================
@@ -1326,10 +1382,11 @@
     gap: 12px;
     overflow-x: auto;
     overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior-x: none;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    padding-bottom: 4px; /* Prevent shadow clipping */
+    padding-bottom: 4px;
   }
   
   .frame-row-scroll::-webkit-scrollbar {
@@ -1368,7 +1425,8 @@
     max-height: 50vh;
     max-height: 50dvh;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior-y: none;
   }
   
   /* ============================================

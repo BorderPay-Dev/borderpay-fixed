@@ -61,11 +61,6 @@ function AppContent() {
   const [appLocked, setAppLocked] = useState(false);
   const [lockChecked, setLockChecked] = useState(false);
 
-  // Development diagnostics (remove in production if needed)
-  useEffect(() => {
-    console.log('BorderPay Africa App Started');
-  }, []);
-
   // ── Android PWA Install Prompt ──
   useEffect(() => {
     const isAndroid = /android/i.test(navigator.userAgent);
@@ -87,7 +82,6 @@ function AppContent() {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    console.log('PWA install outcome:', outcome);
     setDeferredPrompt(null);
     setShowInstallBanner(false);
   };
@@ -101,22 +95,12 @@ function AppContent() {
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes('token=') || hash.includes('access_token=')) {
-      console.log('Reset token detected in URL, navigating to reset-password');
       setAppState('reset-password');
     }
   }, []);
 
   // Check authentication state and route appropriately
   useEffect(() => {
-    console.log('App: Auth state changed', {
-      authLoading,
-      isAuthenticated,
-      showSplash,
-      appState,
-      hasUser: !!user,
-      hasSeenOnboarding,
-    });
-
     // Wait for auth to finish loading
     if (authLoading) {
       return;
@@ -130,27 +114,18 @@ function AppContent() {
     // Now determine where to route based on auth state
     const determineRoute = async () => {
       try {
-        // Don't override if we're actively logging out
         if (isLoggingOut) {
-          console.log('App: Logout in progress — skipping route determination');
           return;
         }
 
         if (isAuthenticated && user) {
-          // Don't interrupt the signup flow - user may be authenticated
-          // but still completing KYC/PoA steps
           if (appState === 'signup') {
-            console.log('App: User authenticated but in signup flow - staying in signup');
             return;
           }
-          console.log('App: User authenticated -> Dashboard');
 
-          // ── Device IP detection on dashboard entry ──
           getDeviceFingerprint().then(fp => {
             if (checkNewDevice(fp)) {
-              console.log('🔐 App: New device/IP detected:', fp.ip);
               setNewDeviceDetected(true);
-              // Register the device after detection
               registerDevice(fp);
             }
           });
@@ -158,15 +133,12 @@ function AppContent() {
           setAppState('dashboard');
         } else {
           if (!hasSeenOnboarding) {
-            console.log('App: First time visitor -> Onboarding flow');
             setAppState('onboarding');
           } else {
-            console.log('App: Returning visitor -> Login screen');
             setAppState('login');
           }
         }
-      } catch (error) {
-        console.error('App: Route determination failed:', error);
+      } catch {
         setAppState(hasSeenOnboarding ? 'login' : 'onboarding');
       }
     };
@@ -174,9 +146,9 @@ function AppContent() {
     determineRoute();
   }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding]);
 
-  const handleSplashComplete = () => {
+  const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
-  };
+  }, []);
 
   const handleOnboardingComplete = () => {
     setHasSeenOnboarding(true);
@@ -191,51 +163,38 @@ function AppContent() {
   };
 
   const handleLoginSuccess = async (loginUser: any) => {
-    console.log('App: Login success, going to dashboard...');
     try {
       await sessionAPI.create({
         id: loginUser.id,
         email: loginUser.email,
         full_name: loginUser.user_metadata?.full_name || loginUser.email?.split('@')[0] || 'User',
       });
-    } catch (error) {
-      console.error('App: Session creation failed (non-critical):', error);
-      // Don't redirect — Supabase auth already succeeded,
-      // useEffect will route to dashboard via isAuthenticated
+    } catch {
+      // Non-critical — Supabase auth already succeeded
     }
   };
 
   const handleSignUpSuccess = async (signupUser: any) => {
-    console.log('App: Signup flow complete, creating session and going to dashboard...');
     try {
       await sessionAPI.create({
         id: signupUser.id,
         email: signupUser.email,
         full_name: signupUser.full_name || signupUser.user_metadata?.full_name || signupUser.email?.split('@')[0] || 'User',
       });
-      // User has completed the full signup flow (including KYC + PoA)
-      // Explicitly go to dashboard now
       setAppState('dashboard');
-    } catch (error) {
-      console.error('App: Session creation failed:', error);
-      // Still try to go to dashboard
+    } catch {
       setAppState('dashboard');
     }
   };
 
   const handleLogout = async () => {
     try {
-      console.log('App: Logging out...');
       setIsLoggingOut(true);
-      // Sign out from Supabase auth FIRST to clear session
       await signOut();
-      // Then destroy backend session
       await sessionAPI.destroy();
-      // Clear new device state
       setNewDeviceDetected(false);
       setAppState('login');
-    } catch (error) {
-      console.error('App: Logout failed:', error);
+    } catch {
       setAppState('login');
     } finally {
       setIsLoggingOut(false);
@@ -260,20 +219,17 @@ function AppContent() {
 
   // ── Inactivity auto-logout (30 min, silent — no warning modal) ──
   const handleInactivityLogout = useCallback(async () => {
-    console.log('App: Inactivity timeout — silent auto-logout triggered');
     setIsLoggingOut(true);
     try {
       await signOut();
       await sessionAPI.destroy();
-    } catch (e) {
-      console.error('App: Session destroy during inactivity logout failed:', e);
-    }
+    } catch { /* silent */ }
     setNewDeviceDetected(false);
     setAppState('login');
     setIsLoggingOut(false);
   }, [signOut]);
 
-  // Silent inactivity timer — no warning, just auto-logout after 30 min
+  // Inactivity auto-logout after 30 min
   useInactivityTimer({
     onLogout: handleInactivityLogout,
     timeoutMs: 30 * 60 * 1000,   // 30 minutes
@@ -281,24 +237,20 @@ function AppContent() {
     enabled: appState === 'dashboard' && isAuthenticated,
   });
 
-  // ── App Lock: check on dashboard entry ──
   useEffect(() => {
     if (appState === 'dashboard' && user?.id && !lockChecked) {
       const hasPIN = PINManager.hasPIN(user.id);
       if (hasPIN) {
-        console.log('🔐 App: User has PIN — locking app');
         setAppLocked(true);
       }
       setLockChecked(true);
     }
   }, [appState, user?.id, lockChecked]);
 
-  // Re-lock on visibility change (tab/app returns from background)
   useEffect(() => {
     if (appState !== 'dashboard' || !user?.id) return;
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && PINManager.hasPIN(user.id)) {
-        console.log('🔐 App: Visibility change — re-locking');
         setAppLocked(true);
       }
     };
@@ -306,19 +258,10 @@ function AppContent() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [appState, user?.id]);
 
-  // Show splash screen on first load
-  if (showSplash) {
+  // Show splash screen on first load (covers auth initialization too)
+  if (showSplash || authLoading || appState === 'loading') {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
-    );
-  }
-  
-  // Show loading while auth is initializing
-  if (authLoading || appState === 'loading') {
-    return (
-      <div className="app-container flex items-center justify-center bg-[#0B0E11]">
-        <LoadingSpinner />
-      </div>
     );
   }
 
@@ -393,8 +336,11 @@ function AppContent() {
             <div className="bg-[#1A1D21] border border-[#C7FF00]/30 rounded-2xl p-4 shadow-[0_8px_32px_rgba(0,0,0,0.6)]">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl bg-[#C7FF00] flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="28" height="28">
-                    <text x="50" y="75" fontFamily="Arial, sans-serif" fontSize="80" fontWeight="bold" textAnchor="middle" fill="#000">b</text>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 110" width="20" height="28">
+                    <rect x="10" y="5" width="24" height="95" rx="12" fill="#000" />
+                    <path d="M38 33 A33.5 33.5 0 0 1 38 100 Z" fill="#000" />
+                    <circle cx="66" cy="16" r="8" fill="none" stroke="#000" strokeWidth="1.8" />
+                    <text x="66" y="20.5" textAnchor="middle" fontSize="12" fontWeight="bold" fontFamily="Arial, sans-serif" fill="#000">R</text>
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
@@ -438,12 +384,17 @@ export default function App() {
         <AppContent />
         <Toaster
           position="top-center"
+          theme="dark"
+          richColors
           toastOptions={{
             style: {
-              background: 'transparent',
-              border: 'none',
-              boxShadow: 'none',
-              padding: 0,
+              background: '#1A1F26',
+              border: '1px solid rgba(255,255,255,0.08)',
+              color: '#F3F4F6',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+              borderRadius: '14px',
+              fontSize: '13px',
+              padding: '12px 16px',
             },
           }}
           gap={8}

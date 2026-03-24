@@ -1,7 +1,7 @@
 import { BorderPayLogo } from '../cards/BorderPayLogo';
 
 import React, { useState } from 'react';
-import { SERVER_URL, ANON_KEY } from '../../utils/supabase/client';
+import { BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -43,7 +43,7 @@ export function ForgotPassword({ onNavigateToLogin, onNavigateToResetPassword }:
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${SERVER_URL}/auth/reset-password`, {
+      const response = await fetch(`${BASE_URL}/auth-reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -58,9 +58,7 @@ export function ForgotPassword({ onNavigateToLogin, onNavigateToResetPassword }:
       }
 
       setSuccess(true);
-      console.log('✅ Password reset email sent to:', email);
     } catch (err: any) {
-      console.error('❌ Password reset error:', err);
       
       // User-friendly error messages
       if (err.message?.includes('User not found')) {

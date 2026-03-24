@@ -6,12 +6,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Building2, CreditCard, Smartphone, Bitcoin, Copy, CheckCircle, QrCode } from 'lucide-react';
+import { ArrowLeft, Building2, CreditCard, Smartphone, Bitcoin, Copy, CheckCircle, QrCode, Shield } from 'lucide-react';
+import { isFullEnrollment } from '../../utils/config/environment';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { QRCodeSVG } from 'qrcode.react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface AddMoneyScreenProps {
   userId: string;
@@ -37,6 +39,20 @@ type FundingMethod = 'bank' | 'card' | 'mobile' | 'crypto';
 export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+
+  // KYC gate
+  const [kycStatus, setKycStatus] = useState<string>('pending');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('borderpay_user');
+      if (stored) {
+        const user = JSON.parse(stored);
+        setKycStatus(user.kyc_status || 'pending');
+      }
+    } catch {}
+  }, []);
+
   const [selectedMethod, setSelectedMethod] = useState<FundingMethod | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
@@ -62,9 +78,8 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
           setSelectedWallet(walletsList[0]);
         }
       }
-    } catch (error) {
-      console.error('Failed to load wallets:', error);
-      toast.error('Failed to load wallets');
+    } catch (_) {
+      // Silent — shows empty wallet state
     }
   };
 
@@ -75,10 +90,9 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
       if (result.success && result.data) {
         setVirtualAccount(result.data.account || result.data);
       } else {
-        toast.error(result.error || t('addMoney.failedLoadDetails'));
+        toast.error(friendlyError(result.error, t('addMoney.failedLoadDetails')));
       }
     } catch (error) {
-      console.error('Failed to load virtual account:', error);
       toast.error(t('addMoney.failedLoadDetails'));
     } finally {
       setLoading(false);
@@ -92,10 +106,9 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
       if (result.success && result.data) {
         setCryptoAddress(result.data.address);
       } else {
-        toast.error(result.error || t('addMoney.failedGenAddress'));
+        toast.error(friendlyError(result.error, t('addMoney.failedGenAddress')));
       }
     } catch (error) {
-      console.error('Failed to generate crypto address:', error);
       toast.error(t('addMoney.failedGenAddress'));
     } finally {
       setLoading(false);
@@ -136,26 +149,34 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
       if (result.success) {
         toast.success('Mobile money request sent! Check your phone to approve.');
       } else {
-        toast.error(result.error || 'Failed to initiate mobile money collection');
+        toast.error(friendlyError(result.error, 'Failed to initiate mobile money collection'));
       }
     } catch (error) {
-      console.error('Mobile money error:', error);
       toast.error('Failed to initiate collection');
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading && !selectedMethod) {
-    return (
-      <div className={`min-h-screen ${tc.bg} flex items-center justify-center`}>
-        <LoadingSpinner />
-      </div>
-    );
-  }
-
   return (
-    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
+    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe relative`}>
+      {!isFullEnrollment(kycStatus) && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0E11]/95 backdrop-blur-sm px-6">
+          <div className="text-center max-w-sm">
+            <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-8 h-8 text-yellow-400" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-2">Verification Required</h2>
+            <p className="text-sm text-gray-400 mb-6">Complete identity verification to access this feature.</p>
+            <button
+              onClick={onBack}
+              className="w-full h-12 rounded-2xl bg-[#C7FF00] text-[#0B0E11] font-bold text-sm"
+            >
+              Go Back
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
         <div className="flex items-center justify-between px-6 py-4 pt-safe">
@@ -276,11 +297,7 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
             exit={{ opacity: 0, x: -20 }}
             className="px-6 py-6"
           >
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <LoadingSpinner />
-              </div>
-            ) : virtualAccount ? (
+            {virtualAccount ? (
               <>
                 <div className="bg-gradient-to-br from-[#C7FF00]/20 to-[#C7FF00]/5 border border-[#C7FF00]/30 rounded-3xl p-6 mb-6">
                   <p className="bp-text-small text-[#C7FF00] mb-4 font-semibold">
@@ -419,11 +436,7 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
             exit={{ opacity: 0, x: -20 }}
             className="px-6 py-6"
           >
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <LoadingSpinner />
-              </div>
-            ) : cryptoAddress ? (
+            {cryptoAddress ? (
               <>
                 {/* Stablecoin Badges */}
                 <div className="flex justify-center gap-2 mb-4">

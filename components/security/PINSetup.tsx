@@ -14,6 +14,7 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from '../ui/input-otp';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface PINSetupProps {
   userId: string;
@@ -55,23 +56,19 @@ export function PINSetup({ userId, onBack, onComplete }: PINSetupProps) {
 
     setLoading(true);
     try {
-      console.log('🔐 Setting up PIN for user:', userId);
       const result = await PINManager.setupPIN(userId, enteredPin);
 
       if (result.success) {
-        console.log('✅ PIN setup successful (client-side, SHA-256 hashed)');
         setStep('success');
         toast.success('Transaction PIN set successfully!');
         setTimeout(() => onComplete(), 1500);
       } else {
-        console.error('❌ PIN setup failed:', result.error);
-        toast.error(result.error || 'Unable to set up your transaction PIN.');
+        toast.error(friendlyError(result.error, 'Unable to set up your transaction PIN.'));
         setStep('enter');
         setPin('');
         setConfirmPin('');
       }
     } catch (error: any) {
-      console.error('❌ Exception during PIN setup:', error);
       toast.error('Unable to set up your transaction PIN. Please try again.');
       setStep('enter');
       setPin('');

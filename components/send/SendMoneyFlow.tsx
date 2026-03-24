@@ -15,7 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Building2, Smartphone, Users, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
-  Send, Info, ArrowRight, Copy, XCircle, DollarSign, Zap, Shield,
+  Send, Info, ArrowRight, Copy, XCircle, DollarSign, Zap, Shield, Coins, Link,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -27,12 +27,14 @@ import {
   InputOTPSlot,
 } from '../ui/input-otp';
 import { USPaymentDetails } from './USPaymentDetails';
+import { isFullEnrollment } from '../../utils/config/environment';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type TransferMethod = 'bank' | 'mobile_money' | 'borderpay' | 'us_ach_wire';
+type TransferMethod = 'bank' | 'mobile_money' | 'borderpay' | 'us_ach_wire' | 'stablecoin';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
 interface Institution {
@@ -69,6 +71,12 @@ const SUPPORTED_CURRENCIES = [
   { code: 'XOF', name: 'CFA (West)', symbol: 'FCFA', flag: '🇧🇯', country: 'BJ' },
 ];
 
+// Bank transfer only supports NGN (NUBAN)
+const BANK_TRANSFER_CURRENCIES = ['NGN'];
+
+// Mobile Money supported currencies
+const MOMO_CURRENCIES = ['XAF', 'KES', 'NGN', 'XOF', 'TZS', 'UGX', 'GHS'];
+
 const CURRENCY_SYMBOLS: Record<string, string> = {
   NGN: '₦', KES: 'KSh', GHS: '₵', UGX: 'USh',
   XAF: 'FCFA', XOF: 'FCFA', TZS: 'TSh', USD: '$',
@@ -79,6 +87,14 @@ function getCurrencySymbol(code: string) {
   return CURRENCY_SYMBOLS[code] || code;
 }
 
+const STABLECOIN_CHAINS = [
+  { id: 'base' as const, label: 'Base', color: 'text-blue-400', bg: 'bg-blue-500/15' },
+  { id: 'ethereum' as const, label: 'Ethereum', color: 'text-purple-400', bg: 'bg-purple-500/15' },
+  { id: 'optimism' as const, label: 'Optimism', color: 'text-red-400', bg: 'bg-red-500/15' },
+  { id: 'solana' as const, label: 'Solana', color: 'text-green-400', bg: 'bg-green-500/15' },
+  { id: 'polygon' as const, label: 'Polygon', color: 'text-violet-400', bg: 'bg-violet-500/15' },
+];
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -86,6 +102,19 @@ function getCurrencySymbol(code: string) {
 export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMoneyFlowProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+
+  // KYC gate
+  const [kycStatus, setKycStatus] = useState<string>('pending');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('borderpay_user');
+      if (stored) {
+        const user = JSON.parse(stored);
+        setKycStatus(user.kyc_status || 'pending');
+      }
+    } catch {}
+  }, []);
 
   // Step & method
   const [step, setStep] = useState<Step>('method');
@@ -133,6 +162,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [cpPostalCode, setCpPostalCode] = useState('');
   const [creatingCounterparty, setCreatingCounterparty] = useState(false);
 
+  // Stablecoin transfer
+  const [stablecoinAddress, setStablecoinAddress] = useState('');
+  const [stablecoinChain, setStablecoinChain] = useState<'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon'>('base');
+  const [stablecoinCoin, setStablecoinCoin] = useState<'usdc'>('usdc');
+
   // Amount & reason
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
@@ -163,7 +197,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           setWallets(list);
         }
       } catch (e) {
-        console.error('Failed to load wallets:', e);
       }
     })();
   }, [userId]);
@@ -178,7 +211,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Load institutions when method/currency changes
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (method === 'borderpay' || method === 'us_ach_wire') return;
+    if (method === 'borderpay' || method === 'us_ach_wire' || method === 'stablecoin') return;
     loadInstitutions();
   }, [method, selectedCurrency]);
 
@@ -193,7 +226,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setInstitutions(res.data.institutions);
       }
     } catch (e) {
-      console.error('Failed to load institutions:', e);
     } finally {
       setLoadingInstitutions(false);
     }
@@ -251,6 +283,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const canProceedDetails = () => {
     if (method === 'borderpay') return recipientIdentifier.trim().length > 0;
     if (method === 'us_ach_wire') return !!selectedCounterparty;
+    if (method === 'stablecoin') return stablecoinAddress.trim().length >= 20;
     return !!selectedBank && accountNumber.length >= 6;
   };
 
@@ -258,6 +291,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     const num = parseFloat(amount);
     if (method === 'us_ach_wire') {
       return num > 0 && selectedWallet && num <= selectedWallet.balance && usMemo.trim().length > 0 && reason.trim().length > 0;
+    }
+    if (method === 'stablecoin') {
+      return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
@@ -272,7 +308,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     try {
       let result: any;
 
-      if (method === 'us_ach_wire') {
+      if (method === 'stablecoin') {
+        result = await backendAPI.stablecoin.sendTransfer({
+          amount: parseFloat(amount),
+          reason: reason || 'Stablecoin transfer',
+          address: stablecoinAddress.trim(),
+          chain: stablecoinChain,
+          coin: stablecoinCoin,
+          funding_source: 'USD',
+          transaction_pin: verifiedPin,
+        });
+      } else if (method === 'us_ach_wire') {
         result = await backendAPI.usPayments.transfer({
           counterparty_id: selectedCounterparty.id || selectedCounterparty.maplerad_id,
           amount: parseFloat(amount),
@@ -312,12 +358,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       } else {
         setErrorMessage(result.error || t('send.txFailed'));
         setStep('error');
-        toast.error(result.error || t('send.txFailed'));
+        toast.error(friendlyError(result.error, t('send.txFailed')));
       }
     } catch (error: any) {
       setErrorMessage(error.message || t('send.txFailed'));
       setStep('error');
-      toast.error(error.message || t('send.txFailed'));
+      toast.error(friendlyError(error, t('send.txFailed')));
     }
   };
 
@@ -352,7 +398,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const getStepTitle = () => {
     switch (step) {
       case 'method': return t('send.title');
-      case 'details': return method === 'bank' ? t('send.bankDetails') : method === 'mobile_money' ? t('send.momoDetails') : method === 'us_ach_wire' ? t('send.usPaymentDetails') : t('send.borderPayDetails');
+      case 'details': return method === 'bank' ? t('send.bankDetails') : method === 'mobile_money' ? t('send.momoDetails') : method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Stablecoin Transfer' : t('send.borderPayDetails');
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
@@ -367,7 +413,24 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
+    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe relative`}>
+      {!isFullEnrollment(kycStatus) && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0E11]/95 backdrop-blur-sm px-6">
+          <div className="text-center max-w-sm">
+            <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-8 h-8 text-yellow-400" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-2">Verification Required</h2>
+            <p className="text-sm text-gray-400 mb-6">Complete identity verification to access this feature.</p>
+            <button
+              onClick={onBack}
+              className="w-full h-12 rounded-2xl bg-[#C7FF00] text-[#0B0E11] font-bold text-sm"
+            >
+              Go Back
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className={`sticky top-0 z-30 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
         <div className="flex items-center justify-between px-5 py-4 pt-safe">
@@ -401,7 +464,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <p className={`text-sm ${tc.textSecondary} mb-5`}>{t('send.chooseMethod')}</p>
 
             <div className="space-y-3">
-              {/* Bank Transfer */}
+              {/* Bank Transfer (NGN only) */}
               <button
                 onClick={() => { setMethod('bank'); setSelectedCurrency('NGN'); setStep('details'); }}
                 className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
@@ -411,7 +474,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
                 <div className="flex-1 text-left">
                   <p className={`text-sm font-semibold ${tc.text}`}>{t('send.bankTransfer')}</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>{t('send.bankTransferDesc')}</p>
+                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>NGN bank transfer via NUBAN</p>
                 </div>
                 <ArrowRight size={18} className={tc.textMuted} />
               </button>
@@ -426,7 +489,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
                 <div className="flex-1 text-left">
                   <p className={`text-sm font-semibold ${tc.text}`}>{t('send.mobileMoney')}</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>{t('send.mobileMoneyDesc')}</p>
+                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Send via MoMo providers across Africa</p>
                 </div>
                 <ArrowRight size={18} className={tc.textMuted} />
               </button>
@@ -460,6 +523,21 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
                 <ArrowRight size={18} className={tc.textMuted} />
               </button>
+
+              {/* Stablecoin Transfer */}
+              <button
+                onClick={() => { setMethod('stablecoin'); setSelectedCurrency('USD'); setStep('details'); }}
+                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
+              >
+                <div className="w-12 h-12 rounded-full bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
+                  <Coins size={22} className="text-cyan-400" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className={`text-sm font-semibold ${tc.text}`}>Stablecoin Transfer</p>
+                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Send USDC via Base, Ethereum, Solana & more</p>
+                </div>
+                <ArrowRight size={18} className={tc.textMuted} />
+              </button>
             </div>
 
             {/* Info */}
@@ -481,61 +559,80 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             exit={{ opacity: 0, x: -20 }}
             className="px-5 py-6"
           >
-            {/* Currency Picker (Africa only — not for P2P or US) */}
-            {method !== 'borderpay' && method !== 'us_ach_wire' && (
+            {/* Currency Picker (Africa only — not for P2P, US, or Stablecoin) */}
+            {method !== 'borderpay' && method !== 'us_ach_wire' && method !== 'stablecoin' && (() => {
+              const availableCurrencies = method === 'bank'
+                ? SUPPORTED_CURRENCIES.filter(c => BANK_TRANSFER_CURRENCIES.includes(c.code))
+                : SUPPORTED_CURRENCIES.filter(c => MOMO_CURRENCIES.includes(c.code));
+              return (
               <div className="mb-5">
                 <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>{t('send.selectCurrency')}</label>
-                <button
-                  onClick={() => setShowCurrencyPicker(!showCurrencyPicker)}
-                  className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center justify-between ${tc.hoverBg} transition-colors`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.flag}</span>
+                {/* Bank transfer is NGN only — show fixed, no picker */}
+                {method === 'bank' ? (
+                  <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
+                    <span className="text-xl">🇳🇬</span>
                     <div>
-                      <p className={`text-sm font-semibold ${tc.text}`}>{selectedCurrency}</p>
-                      <p className={`text-xs ${tc.textMuted}`}>{SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.name}</p>
+                      <p className={`text-sm font-semibold ${tc.text}`}>NGN</p>
+                      <p className={`text-xs ${tc.textMuted}`}>Nigerian Naira (NUBAN)</p>
                     </div>
+                    <CheckCircle size={16} className="text-[#C7FF00] ml-auto" />
                   </div>
-                  <ChevronDown size={18} className={`${tc.textMuted} transition-transform ${showCurrencyPicker ? 'rotate-180' : ''}`} />
-                </button>
-
-                {showCurrencyPicker && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`mt-2 ${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden shadow-xl max-h-64 overflow-y-auto`}
+                ) : (
+                <>
+                  <button
+                    onClick={() => setShowCurrencyPicker(!showCurrencyPicker)}
+                    className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center justify-between ${tc.hoverBg} transition-colors`}
                   >
-                    {SUPPORTED_CURRENCIES.map(cur => (
-                      <button
-                        key={cur.code}
-                        onClick={() => {
-                          setSelectedCurrency(cur.code);
-                          setShowCurrencyPicker(false);
-                          setSelectedBank(null);
-                          setAccountNumber('');
-                          setResolvedName('');
-                        }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 ${tc.hoverBg} transition-colors text-left ${
-                          selectedCurrency === cur.code ? 'bg-[#C7FF00]/10' : ''
-                        }`}
-                      >
-                        <span className="text-lg">{cur.flag}</span>
-                        <div className="flex-1">
-                          <p className={`text-sm font-semibold ${tc.text}`}>{cur.code}</p>
-                          <p className={`text-xs ${tc.textMuted}`}>{cur.name}</p>
-                        </div>
-                        {selectedCurrency === cur.code && (
-                          <CheckCircle size={16} className="text-[#C7FF00]" />
-                        )}
-                      </button>
-                    ))}
-                  </motion.div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl">{availableCurrencies.find(c => c.code === selectedCurrency)?.flag}</span>
+                      <div>
+                        <p className={`text-sm font-semibold ${tc.text}`}>{selectedCurrency}</p>
+                        <p className={`text-xs ${tc.textMuted}`}>{availableCurrencies.find(c => c.code === selectedCurrency)?.name}</p>
+                      </div>
+                    </div>
+                    <ChevronDown size={18} className={`${tc.textMuted} transition-transform ${showCurrencyPicker ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showCurrencyPicker && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`mt-2 ${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden shadow-xl max-h-64 overflow-y-auto`}
+                    >
+                      {availableCurrencies.map(cur => (
+                        <button
+                          key={cur.code}
+                          onClick={() => {
+                            setSelectedCurrency(cur.code);
+                            setShowCurrencyPicker(false);
+                            setSelectedBank(null);
+                            setAccountNumber('');
+                            setResolvedName('');
+                          }}
+                          className={`w-full flex items-center gap-3 px-4 py-3 ${tc.hoverBg} transition-colors text-left ${
+                            selectedCurrency === cur.code ? 'bg-[#C7FF00]/10' : ''
+                          }`}
+                        >
+                          <span className="text-lg">{cur.flag}</span>
+                          <div className="flex-1">
+                            <p className={`text-sm font-semibold ${tc.text}`}>{cur.code}</p>
+                            <p className={`text-xs ${tc.textMuted}`}>{cur.name}</p>
+                          </div>
+                          {selectedCurrency === cur.code && (
+                            <CheckCircle size={16} className="text-[#C7FF00]" />
+                          )}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {/* Bank / MoMo Selection (Africa only) */}
-            {method !== 'borderpay' && method !== 'us_ach_wire' && (
+            {method !== 'borderpay' && method !== 'us_ach_wire' && method !== 'stablecoin' && (
               <>
                 <div className="mb-4">
                   <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>
@@ -692,6 +789,75 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </>
             )}
 
+            {/* Stablecoin Transfer Details */}
+            {method === 'stablecoin' && (
+              <>
+                {/* Chain Selection */}
+                <div className="mb-5">
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Blockchain Network</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {STABLECOIN_CHAINS.map(chain => (
+                      <button
+                        key={chain.id}
+                        onClick={() => setStablecoinChain(chain.id)}
+                        className={`px-3 py-3 rounded-2xl text-xs font-semibold transition-all flex items-center gap-2 ${
+                          stablecoinChain === chain.id
+                            ? 'bg-[#C7FF00] text-black'
+                            : `${tc.card} border ${tc.borderLight} ${tc.text} ${tc.hoverBg}`
+                        }`}
+                      >
+                        <Link size={14} />
+                        <span>{chain.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Coin Selection */}
+                <div className="mb-5">
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Coin</label>
+                  <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
+                    <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+                      <span className="text-xs font-bold text-blue-400">$</span>
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-sm font-semibold ${tc.text}`}>USDC</p>
+                      <p className={`text-xs ${tc.textMuted}`}>USD Coin</p>
+                    </div>
+                    <CheckCircle size={16} className="text-[#C7FF00]" />
+                  </div>
+                </div>
+
+                {/* Wallet Address */}
+                <div className="mb-5">
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Recipient Address</label>
+                  <input
+                    type="text"
+                    value={stablecoinAddress}
+                    onChange={e => setStablecoinAddress(e.target.value)}
+                    placeholder="0x... or wallet address"
+                    className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm font-mono focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                  />
+                  {stablecoinAddress.length > 0 && stablecoinAddress.length < 20 && (
+                    <p className="text-xs text-red-400 mt-1.5 px-1">Address too short</p>
+                  )}
+                </div>
+
+                {/* Funding Source */}
+                <div className="mb-4">
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Funding Source</label>
+                  <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
+                    <span className="text-lg">🇺🇸</span>
+                    <div className="flex-1">
+                      <p className={`text-sm font-semibold ${tc.text}`}>USD Wallet</p>
+                      <p className={`text-xs ${tc.textMuted}`}>USD equivalent debited & exchanged to fund transfer</p>
+                    </div>
+                    <CheckCircle size={16} className="text-[#C7FF00]" />
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* US Payment (ACH/Wire) Details */}
             {method === 'us_ach_wire' && (
               <USPaymentDetails
@@ -755,7 +921,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             {/* Recipient summary */}
             <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-6`}>
               <p className={`text-xs ${tc.textMuted} mb-1`}>{t('send.sendingTo')}</p>
-              {method === 'us_ach_wire' ? (
+              {method === 'stablecoin' ? (
+                <>
+                  <p className={`text-sm font-mono font-semibold ${tc.text} truncate`}>{stablecoinAddress}</p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.bg} ${STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.color}`}>
+                      {STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.label}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-400">USDC</span>
+                  </div>
+                </>
+              ) : method === 'us_ach_wire' ? (
                 <>
                   <p className={`text-sm font-semibold ${tc.text}`}>{selectedCounterparty?.account_name || selectedCounterparty?.business_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`}</p>
                   <p className={`text-xs ${tc.textMuted}`}>{selectedCounterparty?.institution_name} • ****{selectedCounterparty?.account_number_last4}</p>
@@ -875,11 +1051,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.method')}</span>
                   <span className={`text-sm font-medium ${tc.text}`}>
-                    {method === 'bank' ? t('send.bankTransfer') : method === 'mobile_money' ? t('send.mobileMoney') : method === 'us_ach_wire' ? t('send.usAchWire') : t('send.borderPayPay')}
+                    {method === 'bank' ? t('send.bankTransfer') : method === 'mobile_money' ? t('send.mobileMoney') : method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : t('send.borderPayPay')}
                   </span>
                 </div>
 
-                {method !== 'borderpay' && method !== 'us_ach_wire' && (
+                {method !== 'borderpay' && method !== 'us_ach_wire' && method !== 'stablecoin' && (
                   <>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>{method === 'bank' ? t('send.bankName') : t('send.provider')}</span>
@@ -926,6 +1102,29 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         <span className={`text-sm ${tc.text}`}>{usMemo}</span>
                       </div>
                     )}
+                  </>
+                )}
+
+                {method === 'stablecoin' && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Network</span>
+                      <span className={`text-sm font-semibold ${STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.color || tc.text}`}>
+                        {STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.label}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Coin</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>USDC</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Address</span>
+                      <span className={`text-xs font-mono ${tc.text} truncate ml-4 max-w-[180px]`}>{stablecoinAddress}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Funding Source</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>USD Wallet</span>
+                    </div>
                   </>
                 )}
 
@@ -982,7 +1181,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
               <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
               <p className={`text-sm ${tc.textSecondary}`}>
-                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
+                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${stablecoinAddress.slice(0, 8)}...${stablecoinAddress.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
               </p>
             </div>
 
@@ -1074,7 +1273,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
             <p className={`text-sm ${tc.textMuted} mb-6`}>
-              → {method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
+              → {method === 'stablecoin' ? `${stablecoinAddress.slice(0, 8)}...${stablecoinAddress.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
             </p>
 
             {/* Transaction details */}

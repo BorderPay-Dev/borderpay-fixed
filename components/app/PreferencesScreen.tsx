@@ -111,9 +111,9 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
   );
 
   return (
-    <div className={`min-h-screen pb-24 ${tc.bg}`}>
+    <div className={`min-h-screen pb-safe ${tc.bg}`}>
       {/* Header */}
-      <div className={`${tc.bgAlt} border-b ${tc.border} px-4 py-4 sticky top-0 z-10`}>
+      <div className={`${tc.bgAlt} border-b ${tc.border} px-4 py-4 pt-safe sticky top-0 z-10`}>
         <div className="flex items-center gap-3">
           <button onClick={onBack} className={`p-2 ${tc.hoverBg} rounded-lg transition-colors`}>
             <ChevronLeft className={`w-6 h-6 ${tc.text}`} />

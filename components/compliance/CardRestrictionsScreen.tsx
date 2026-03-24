@@ -85,17 +85,17 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
+    <div className="min-h-screen bg-black text-white flex flex-col pb-safe">
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-6 border-b border-white/10">
+      <div className="flex-shrink-0 px-6 py-6 pt-safe border-b border-white/10">
         <button
           onClick={onBack}
-          className="flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4"
+          className="flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4 min-h-[44px]"
         >
           <ArrowLeft className="w-5 h-5" />
           <span className="text-sm font-medium">Back</span>
         </button>
-        
+
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center">
             <CreditCard className="w-5 h-5 text-red-400" />

@@ -12,7 +12,7 @@
 export type AppEnvironment = 'sandbox' | 'live';
 
 /** ← Change this to 'live' when going to production */
-export const ENV: AppEnvironment = 'live';
+export const ENV = 'sandbox' as AppEnvironment;
 
 // ─── Derived helpers (read-only, DO NOT change) ──────────────────────────────
 
@@ -33,16 +33,10 @@ export const ENV_CONFIG = {
   /** Sub-label under user avatar/header */
   betaAccessText:      'Beta Access Enabled',
 
-  /** Whether the $10 wallet activation step is required */
-  activationRequired:  ENV === 'live',
-
-  /** Wallet activation is automatically bypassed in sandbox */
-  skipActivation:      ENV === 'sandbox',
-
   /**
    * KYC tier constants
-   * Tier 0 = not verified (blocks wallet/account/card creation)
-   * Tier 2 = Full Enrollment (unlocks all features)
+   * 0 = not verified (blocks wallet/account/card creation)
+   * 2 = Full Enrollment via enroll-customer-full (unlocks all features)
    */
   kycTier: {
     NONE:            0,
@@ -51,38 +45,22 @@ export const ENV_CONFIG = {
 } as const;
 
 /**
- * Returns true if the given kyc_status string represents Full Enrollment (Tier 2).
+ * Returns true if the given kyc_status string represents Full Enrollment.
  * Accepts: 'verified' | 'approved' | 'tier2' | 'full_enrollment'
  */
 export function isFullEnrollment(kycStatus: string | null | undefined): boolean {
   if (!kycStatus) return false;
-  const s = kycStatus.toLowerCase().trim();
-  return (
-    s === 'verified'        ||
-    s === 'approved'        ||
-    s === 'tier2'           ||
-    s === 'full_enrollment' ||
-    s === 'complete'        ||
-    s === 'completed'
-  );
+  const s = kycStatus.toLowerCase();
+  return s === 'verified' || s === 'approved' || s === 'tier2' || s === 'full_enrollment';
 }
 
 /**
  * Returns true if user is allowed to create wallets / accounts / cards.
  * In sandbox: always true (beta bypass).
- * In live: requires Full Enrollment (Tier 2).
+ * In live: requires Full Enrollment.
  */
 export function canCreateFinancialProducts(kycStatus: string | null | undefined): boolean {
   if (isSandbox()) return true; // Beta bypass
   return isFullEnrollment(kycStatus);
 }
 
-/**
- * Returns true if the wallet activation screen should be shown.
- * In sandbox: never (wallets treated as activated).
- * In live: only when wallets are NOT yet activated.
- */
-export function shouldShowActivation(walletsActivated: boolean): boolean {
-  if (isSandbox()) return false;
-  return !walletsActivated;
-}

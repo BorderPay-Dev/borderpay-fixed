@@ -84,10 +84,3 @@ export function isCountryAllowed(countryCode: string): boolean {
   return ALLOWED_COUNTRIES.some(c => c.code === countryCode);
 }
 
-export function getCountryStats() {
-  return {
-    total: ALLOWED_COUNTRIES.length,
-    african: ALLOWED_COUNTRIES.filter(c => !['CA','FR','GB','US'].includes(c.code)).length,
-    global: 4,
-  };
-}

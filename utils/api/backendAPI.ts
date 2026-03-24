@@ -1,28 +1,17 @@
 /**
  * BorderPay Africa - Backend API Integration
- * Complete API service layer for all 70+ deployed Supabase Edge Functions
- * This replaces ALL mock data with real backend calls
+ * Clean API layer — only endpoints actively used by the current UI.
+ * All calls go direct to Supabase Edge Functions (no Hono/make-server proxy).
  *
- * Routing convention:
- *   Financial & sensitive data -> apiCall('edge-function-name', ...)
- *     Direct to Supabase Edge Functions, no middleware
- *   Non-financial (auth signup/signin, notifications preferences)
- *     -> apiCall(`${S}/sub-route`, ...) via Hono server
+ * Routing: apiCall('edge-function-name', ...) → ${BASE_URL}/edge-function-name
  *
- * Last audit: 2026-03-17
+ * Last audit: 2026-03-23
  */
 
-import { authAPI, hasSupabase, SERVER_URL, BASE_URL, ANON_KEY } from '../supabase/client';
+import { authAPI, BASE_URL, ANON_KEY } from '../supabase/client';
 
-/**
- * Server route prefix – resolves to the VITE_SERVER_FUNCTION env var
- * (or the legacy make-server name as fallback).
- * All calls go through apiCall() which handles auth headers automatically.
- */
-const S = import.meta.env.VITE_SERVER_FUNCTION || 'make-server-8714b62b';
-const D = `${S}/direct`;
+// ── Core API caller ──────────────────────────────────────────────────────────
 
-// Helper function to make authenticated API calls
 async function apiCall<T = any>(
   endpoint: string,
   options: RequestInit = {}
@@ -32,13 +21,10 @@ async function apiCall<T = any>(
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      // Supabase gateway requires apikey header to reach Edge Functions
-      'apikey': publicAnonKey,
+      'apikey': ANON_KEY,
+      'Authorization': `Bearer ${token || ANON_KEY}`,
       ...options.headers,
-    };
-
-    // Send user JWT if authenticated; fall back to anon key for gateway access
-    headers['Authorization'] = `Bearer ${token || publicAnonKey}`;
+    } as Record<string, string>;
 
     const response = await fetch(`${BASE_URL}/${endpoint}`, {
       ...options,
@@ -48,33 +34,23 @@ async function apiCall<T = any>(
     const data = await response.json();
 
     if (!response.ok) {
-      console.error(`API Error [${endpoint}]:`, data);
       return {
         success: false,
         error: data.error || data.message || `Request failed with status ${response.status}`,
       };
     }
 
-    console.log(`API Success [${endpoint}]:`, data);
-
-    // If the server already returns { success, data } shape (e.g. Hono routes),
-    // return it as-is to avoid double-wrapping
+    // If the edge function already returns { success, data }, pass through
     if (data && typeof data === 'object' && 'success' in data) {
       return data;
     }
 
     return { success: true, data };
   } catch (error: any) {
-    // Silently handle aborted requests (e.g. from polling cleanup)
     if (error?.name === 'AbortError') {
       return { success: false, error: 'Request aborted' };
     }
-    // Suppress noisy logs for background polling endpoints
-    const silentEndpoints = ['notifications/unread-count'];
-    const isSilent = silentEndpoints.some(e => endpoint.includes(e));
-    if (!isSilent) {
-      console.error(`API Exception [${endpoint}]:`, error);
-    }
+    // Silent — errors are handled by callers
     return {
       success: false,
       error: error.message || 'Unable to connect to our servers. Please check your internet connection and try again.',
@@ -82,16 +58,13 @@ async function apiCall<T = any>(
   }
 }
 
-/**
- * Unauthenticated API call (uses publicAnonKey). For signup/public routes only.
- */
 async function apiCallPublic<T = any>(
   endpoint: string,
   options: RequestInit = {},
   anonKey?: string
 ): Promise<{ success: boolean; data?: T; error?: string }> {
   try {
-    const key = anonKey || publicAnonKey;
+    const key = anonKey || ANON_KEY;
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'apikey': key,
@@ -103,19 +76,17 @@ async function apiCallPublic<T = any>(
     const data = await response.json();
     if (!response.ok) return { success: false, error: data.error || data.message || `Request failed: ${response.status}` };
 
-    // If the server already returns { success, data } shape, return as-is
     if (data && typeof data === 'object' && 'success' in data) {
       return data;
     }
-
     return { success: true, data };
   } catch (error: any) {
-    return { success: false, error: error.message || 'Unable to connect to our servers. Please check your internet connection.' };
+    return { success: false, error: error.message || 'Unable to connect to our servers.' };
   }
 }
 
 // ============================================================================
-// AUTH & SECURITY APIs
+// AUTH & SECURITY
 // ============================================================================
 
 export const authSecurityAPI = {
@@ -126,7 +97,7 @@ export const authSecurityAPI = {
     phone_number: string;
     country_code: string;
   }, anonKey: string) {
-    return apiCallPublic(`${S}/auth/signup`, {
+    return apiCallPublic('auth-signup', {
       method: 'POST',
       body: JSON.stringify(data),
     }, anonKey);
@@ -174,85 +145,62 @@ export const authSecurityAPI = {
     });
   },
 
-  async mfaTOTP(userId: string, code: string) {
-    return apiCall('mfa_totp', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, code }),
-    });
-  },
-
-  async mfaAuditRateLimit(userId: string, action: string) {
-    return apiCall(`${S}/get-security-status`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, action }),
-    });
-  },
-
-  /** GET security status - Hono server route (Postgres read-only) */
   async getSecurityStatus(userId: string) {
-    return apiCall(`${S}/get-security-status`, {
+    return apiCall('get-security-status', {
       method: 'POST',
       body: JSON.stringify({ user_id: userId }),
     });
   },
 
-  async enableBiometric(userId: string, publicKey: string) {
-    return apiCall('enable-biometric', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, public_key: publicKey }),
-    });
-  },
-
-  async biometricAuth(userId: string, credentialId: string, signature: string) {
-    return apiCall('biometric-auth', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, credential_id: credentialId, signature }),
-    });
-  },
-
   async resetPasswordRequest(email: string) {
-    return apiCall(`${S}/auth/reset-password`, {
+    return apiCallPublic('auth-reset-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
     });
   },
 
   async resetPasswordConfirm(token: string, newPassword: string) {
-    return apiCall(`${S}/auth/reset-password/confirm`, {
+    return apiCallPublic('auth-reset-password-confirm', {
       method: 'POST',
       body: JSON.stringify({ access_token: token, new_password: newPassword }),
-    });
-  },
-
-  /** Verify auth callback (e.g. email link, OAuth redirect) */
-  async verifyCallback(data: any) {
-    return apiCall('auth-verify-callback', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  /** Consume and send auth challenge (email/SMS OTP) */
-  async verifyAuthChallenge(data: any) {
-    return apiCall('verify_auth_challenge_consume_and_send', {
-      method: 'POST',
-      body: JSON.stringify(data),
     });
   },
 };
 
 // ============================================================================
-// WALLET APIs
+// USER / PROFILE
+// ============================================================================
+
+export const userAPI = {
+  async getProfile() {
+    return apiCall('get-user-profile', { method: 'GET' });
+  },
+
+  async updateProfile(data: any) {
+    return apiCall('update-user-profile', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async uploadProfilePicture(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiCall('upload-profile-picture', {
+      method: 'POST',
+      body: formData,
+      headers: {},
+    });
+  },
+};
+
+// ============================================================================
+// WALLETS
 // ============================================================================
 
 export const walletAPI = {
-  /** GET wallets - Hono server route (Postgres read-only) */
   async getWallets() {
-    return apiCall(`${S}/get-wallets`, { method: 'POST' });
-  },
-
-  async activateWallets() {
-    return apiCall('activate-wallets', { method: 'POST' });
+    return apiCall('get-wallets', { method: 'POST' });
   },
 
   async createVirtualAccount(userId: string, currency: string) {
@@ -261,66 +209,18 @@ export const walletAPI = {
       body: JSON.stringify({ user_id: userId, currency }),
     });
   },
-
-  async createUSDAccount(userId: string) {
-    return apiCall('create-usd-account', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
-    });
-  },
-
-  async createDynamicAccount(userId: string, currency: string) {
-    return apiCall('create-dynamic-account', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, currency }),
-    });
-  },
-
-  async getCustomerAccounts(customerId: string) {
-    return apiCall('get-customer-accounts', {
-      method: 'POST',
-      body: JSON.stringify({ customer_id: customerId }),
-    });
-  },
-
-  async getVirtualAccount(accountId: string) {
-    return apiCall('get-virtual-account', {
-      method: 'POST',
-      body: JSON.stringify({ account_id: accountId }),
-    });
-  },
-
-  async getCustomerVirtualAccounts(customerId: string) {
-    return apiCall('get-customer-virtual-accounts', {
-      method: 'POST',
-      body: JSON.stringify({ customer_id: customerId }),
-    });
-  },
-
-  async creditWallet(userId: string, walletId: string, amount: number, idempotencyKey: string) {
-    return apiCall('credit-wallet-idempotent', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, wallet_id: walletId, amount, idempotency_key: idempotencyKey }),
-    });
-  },
 };
 
 // ============================================================================
-// TRANSACTION APIs
+// TRANSACTIONS
 // ============================================================================
 
 export const transactionAPI = {
-  /** GET paginated transactions - Hono server route (Postgres read-only) */
   async getTransactions(limit = 10, offset = 0) {
-    return apiCall(`${S}/get-transactions-list`, {
+    return apiCall('get-transactions', {
       method: 'POST',
       body: JSON.stringify({ limit, offset }),
     });
-  },
-
-  /** GET dashboard summary (profile + wallets + recent txns) - standalone Edge Function */
-  async getDashboardSummary() {
-    return apiCall('get-dashboard-summary', { method: 'POST' });
   },
 
   async getCustomerTransactions(customerId: string, filters?: any) {
@@ -337,34 +237,16 @@ export const transactionAPI = {
     });
   },
 
-  async importTransactions(userId: string, file: File) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('user_id', userId);
-    return apiCall('import-transactions', {
-      method: 'POST',
-      body: formData,
-      headers: {},
-    });
-  },
-
   async verifyTransaction(transactionId: string) {
     return apiCall('verify-transaction', {
       method: 'POST',
       body: JSON.stringify({ transaction_id: transactionId }),
     });
   },
-
-  async getTransferFee(amount: number, currency: string, type: string) {
-    return apiCall('get_transfer_fee', {
-      method: 'POST',
-      body: JSON.stringify({ amount, currency, type }),
-    });
-  },
 };
 
 // ============================================================================
-// VIRTUAL CARD APIs  (Standalone Edge Functions — Maplerad card issuance)
+// VIRTUAL CARDS
 // ============================================================================
 
 export const cardAPI = {
@@ -390,115 +272,71 @@ export const cardAPI = {
   },
 
   async getCards() {
-    return apiCall(`${S}/get-cards`, { method: 'POST' });
+    return apiCall('get-cards', { method: 'POST' });
   },
 
   async getCard(cardId: string) {
-    return apiCall(`${S}/get-cards`, {
+    return apiCall('get-cards', {
       method: 'POST',
       body: JSON.stringify({ card_id: cardId }),
     });
   },
 
+  async getCardTransactions(cardId: string, filters?: { start_date?: string; end_date?: string; page?: string; page_size?: string }) {
+    return apiCall('get-card-transactions', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: cardId, ...filters }),
+    });
+  },
+
   async fundCard(cardId: string, amount: number) {
-    return apiCall('maplerad-fund-card', {
+    return apiCall('fund-card', {
       method: 'POST',
       body: JSON.stringify({ card_id: cardId, amount, wallet_currency: 'USD' }),
     });
   },
 
   async withdrawCard(cardId: string, amount: number) {
-    return apiCall('maplerad-withdraw-card', {
+    return apiCall('withdraw-card', {
       method: 'POST',
       body: JSON.stringify({ card_id: cardId, amount }),
     });
   },
 
   async freezeCard(cardId: string) {
-    return apiCall('maplerad-proxy-freeze', {
+    return apiCall('freeze-card', {
       method: 'POST',
       body: JSON.stringify({ card_id: cardId }),
     });
   },
 
   async unfreezeCard(cardId: string) {
-    return apiCall('maplerad-proxy-unfreeze', {
+    return apiCall('unfreeze-card', {
       method: 'POST',
       body: JSON.stringify({ card_id: cardId }),
     });
   },
-};
 
-// ============================================================================
-// BENEFICIARY APIs
-// ============================================================================
-
-export const beneficiaryAPI = {
-  async getBeneficiaries(userId: string) {
-    return apiCall('get-beneficiaries', {
+  async terminateCard(cardId: string) {
+    return apiCall('terminate-card', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ card_id: cardId }),
     });
   },
 
-  async addBeneficiary(data: any) {
-    return apiCall('add-beneficiary', {
+  async getCardCharges(filters?: { channel?: string; transaction_id?: string; start_date?: string; end_date?: string; page?: number; page_size?: number; search?: string }) {
+    return apiCall('get-card-charges', {
       method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async updateBeneficiary(beneficiaryId: string, data: any) {
-    return apiCall('update-beneficiary', {
-      method: 'POST',
-      body: JSON.stringify({ beneficiary_id: beneficiaryId, ...data }),
-    });
-  },
-
-  async deleteBeneficiary(beneficiaryId: string) {
-    return apiCall('delete-beneficiary', {
-      method: 'POST',
-      body: JSON.stringify({ beneficiary_id: beneficiaryId }),
+      body: JSON.stringify(filters || {}),
     });
   },
 };
 
 // ============================================================================
-// USER / PROFILE APIs
-// ============================================================================
-
-export const userAPI = {
-  /** GET profile - routes to dedicated user-profile-direct module (Postgres + Auth merge) */
-  async getProfile() {
-    return apiCall(`${D}/user/profile`, { method: 'GET' });
-  },
-
-  /** PUT profile - routes to dedicated user-profile-direct module (Postgres + Auth sync) */
-  async updateProfile(data: any) {
-    return apiCall(`${D}/user/profile`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-  },
-
-  /** POST profile picture - routes to dedicated user-profile-direct module (Storage + Postgres) */
-  async uploadProfilePicture(file: File) {
-    const formData = new FormData();
-    formData.append('file', file);
-    return apiCall(`${D}/user/profile-picture`, {
-      method: 'POST',
-      body: formData,
-      headers: {},
-    });
-  },
-};
-
-// ============================================================================
-// FX / EXCHANGE APIs  (single `fx` Edge Function handles all three actions)
+// FX / EXCHANGE
 // ============================================================================
 
 export const fxAPI = {
-  /** Generate an FX quote */
   async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
     return apiCall('fx', {
       method: 'POST',
@@ -511,7 +349,6 @@ export const fxAPI = {
     });
   },
 
-  /** Execute a currency conversion */
   async convert(data: {
     quote_reference: string | null;
     source_wallet_id: string;
@@ -525,40 +362,34 @@ export const fxAPI = {
     });
   },
 
-  /** Get FX transaction history */
-  async getHistory(userId: string, filters?: any) {
-    return apiCall('fx', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'history', user_id: userId, ...filters }),
-    });
+  async getHistory() {
+    return apiCall('get-fx-history', { method: 'POST' });
+  },
+
+  async getLiveRates() {
+    return apiCall('get-fx-rates', { method: 'POST' });
   },
 };
 
 // ============================================================================
-// KYC APIs
+// KYC / ENROLLMENT
 // ============================================================================
 
 export const kycAPI = {
-  /** Poll SmileID verification status via the deployed callback handler */
   async getSmileIdStatus(userId: string) {
-    return apiCall(`${S}/smile-callback-handler`, {
+    return apiCall('smile-callback-handler', {
       method: 'GET',
       headers: { 'X-User-Id': userId },
     });
   },
 
-  /** SmileID callback handler (server-to-server, but available for status polling) */
-  async smileCallback(data: any) {
-    return apiCall(`${S}/smile-callback-handler`, {
+  async verifyBVN(bvn: string) {
+    return apiCall('verify-bvn', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ bvn }),
     });
   },
 };
-
-// ============================================================================
-// ENROLLMENT APIs
-// ============================================================================
 
 export const enrollmentAPI = {
   async enrollCustomer(data: any) {
@@ -568,10 +399,6 @@ export const enrollmentAPI = {
     });
   },
 };
-
-// ============================================================================
-// PROOF OF ADDRESS APIs
-// ============================================================================
 
 export const proofOfAddressAPI = {
   async getUploadUrl(fileType: string, fileName: string) {
@@ -590,7 +417,7 @@ export const proofOfAddressAPI = {
 };
 
 // ============================================================================
-// LOCAL PAYMENT APIs (Bank transfers, Mobile Money)
+// LOCAL PAYMENTS (Bank transfers)
 // ============================================================================
 
 export const localPaymentsAPI = {
@@ -598,6 +425,13 @@ export const localPaymentsAPI = {
     return apiCall('get-institutions', {
       method: 'POST',
       body: JSON.stringify({ currency, type }),
+    });
+  },
+
+  async fetchBankDetails(routingNumber: string, countryCode: string) {
+    return apiCall('fetch-bank-details', {
+      method: 'POST',
+      body: JSON.stringify({ routing_number: routingNumber, country_code: countryCode }),
     });
   },
 
@@ -609,7 +443,7 @@ export const localPaymentsAPI = {
   },
 
   async transfer(data: any) {
-    return apiCall('maplerad_transfers', {
+    return apiCall('transfer', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -621,15 +455,26 @@ export const localPaymentsAPI = {
       body: JSON.stringify(data),
     });
   },
+
+  async verifyTransfer(transferId: string) {
+    return apiCall('verify-transfer', {
+      method: 'POST',
+      body: JSON.stringify({ transfer_id: transferId }),
+    });
+  },
+
+  async getTransfers() {
+    return apiCall('get-transfers', { method: 'POST' });
+  },
 };
 
 // ============================================================================
-// US PAYMENT APIs (ACH / Wire)
+// US PAYMENTS (ACH / Wire)
 // ============================================================================
 
 export const usPaymentsAPI = {
   async transfer(data: any) {
-    return apiCall('maplerad_transfers', {
+    return apiCall('usd-transfer', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -640,7 +485,7 @@ export const usPaymentsAPI = {
   },
 
   async createCounterparty(data: any) {
-    return apiCall('maplerad-create-counterparty', {
+    return apiCall('create-counterparty', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -648,33 +493,33 @@ export const usPaymentsAPI = {
 };
 
 // ============================================================================
-// CRYPTO / STABLECOIN ADDRESS APIs
+// CRYPTO / STABLECOIN
 // ============================================================================
 
 export const addressAPI = {
-  /** Get existing address for a currency/network */
-  async getAddress(userId: string, currency: string, network: string) {
-    return apiCall('get-address', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, currency, network }),
-    });
-  },
-
-  /** Generate a new deposit address */
   async generateAddress(userId: string, currency: string, network: string) {
     return apiCall('generate-address', {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, currency, network }),
     });
   },
+
+  async getAddress(addressId: string) {
+    return apiCall('get-address', {
+      method: 'POST',
+      body: JSON.stringify({ address_id: addressId }),
+    });
+  },
+
+  async updateOfframp(addressId: string, offramp: boolean) {
+    return apiCall('update-offramp', {
+      method: 'POST',
+      body: JSON.stringify({ address_id: addressId, offramp }),
+    });
+  },
 };
 
-// ============================================================================
-// STABLECOIN TRANSACTION APIs (Hono server → Postgres)
-// ============================================================================
-
 export const stablecoinAPI = {
-  /** Log a stablecoin transaction to Postgres */
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
     currency: 'USDC' | 'USDT' | 'PYUSD';
@@ -685,23 +530,30 @@ export const stablecoinAPI = {
     status?: 'pending' | 'confirmed' | 'failed';
     metadata?: Record<string, any>;
   }) {
-    return apiCall(`${S}/log-stablecoin-transaction`, {
+    return apiCall('log-stablecoin-transaction', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  /** Get stablecoin transactions from Postgres */
-  async getTransactions(limit = 20, offset = 0, currency?: string) {
-    return apiCall(`${S}/get-stablecoin-transactions`, {
+  async sendTransfer(data: {
+    amount: number;
+    reason: string;
+    address: string;
+    chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon';
+    coin: 'usdc';
+    funding_source: 'USD';
+    transaction_pin: string;
+  }) {
+    return apiCall('stablecoin-transfer', {
       method: 'POST',
-      body: JSON.stringify({ limit, offset, currency }),
+      body: JSON.stringify(data),
     });
   },
 };
 
 // ============================================================================
-// MOBILE MONEY APIs
+// MOBILE MONEY
 // ============================================================================
 
 export const mobileMoneyAPI = {
@@ -725,7 +577,102 @@ export const mobileMoneyAPI = {
 };
 
 // ============================================================================
-// CUSTOMER MANAGEMENT APIs
+// NOTIFICATIONS
+// ============================================================================
+
+export const notificationsAPI = {
+  async getUnreadCount(signal?: AbortSignal) {
+    return apiCall('notifications-unread-count', { method: 'GET', signal });
+  },
+
+  async getNotifications(limit: number = 20) {
+    return apiCall(`get-notifications?limit=${limit}`, { method: 'GET' });
+  },
+
+  async markAsRead(notificationId: string) {
+    return apiCall('mark-notification-read', {
+      method: 'POST',
+      body: JSON.stringify({ notification_id: notificationId }),
+    });
+  },
+
+  async markAllAsRead() {
+    return apiCall('mark-all-notifications-read', { method: 'POST' });
+  },
+
+  async deleteNotification(notificationId: string) {
+    return apiCall('delete-notification', {
+      method: 'POST',
+      body: JSON.stringify({ notification_id: notificationId }),
+    });
+  },
+
+  async clearAll() {
+    return apiCall('clear-notifications', { method: 'POST' });
+  },
+};
+
+// ============================================================================
+// ACCOUNTS
+// ============================================================================
+
+export const accountsAPI = {
+  async getAccounts() {
+    return apiCall('get-accounts', { method: 'GET' });
+  },
+
+  async createUSDAccount(data: any) {
+    return apiCall('create-usd-account', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async checkAccountStatus(reference: string) {
+    return apiCall('check-account-status', {
+      method: 'POST',
+      body: JSON.stringify({ reference }),
+    });
+  },
+
+  async getSupportedRails(accountId: string) {
+    return apiCall('get-account-rails', {
+      method: 'POST',
+      body: JSON.stringify({ account_id: accountId }),
+    });
+  },
+
+  async createCounterparty(data: any) {
+    return apiCall('create-counterparty', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getCounterparty(counterPartyId: string) {
+    return apiCall('get-counterparty', {
+      method: 'POST',
+      body: JSON.stringify({ counter_party_id: counterPartyId }),
+    });
+  },
+
+  async getAccountCounterparties(accountId: string) {
+    return apiCall('get-account-counterparties', {
+      method: 'POST',
+      body: JSON.stringify({ account_id: accountId }),
+    });
+  },
+
+  async createDynamicAccount(accountName: string, preferredBank: string, amount?: string) {
+    return apiCall('create-dynamic-account', {
+      method: 'POST',
+      body: JSON.stringify({ account_name: accountName, preferred_bank: preferredBank, amount }),
+    });
+  },
+};
+
+// ============================================================================
+// CUSTOMER MANAGEMENT
 // ============================================================================
 
 export const customersAPI = {
@@ -736,349 +683,18 @@ export const customersAPI = {
     });
   },
 
-  async resumeUser(userId: string) {
-    return apiCall('resume-user', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
-    });
-  },
-
-  async searchUsers(query: string, filters?: any) {
-    return apiCall('search_users', {
-      method: 'POST',
-      body: JSON.stringify({ query, ...filters }),
-    });
-  },
-
-  async setCustomerActive(userId: string, active: boolean) {
-    return apiCall('set-customer-active', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, active }),
-    });
-  },
-
-  async upgradeTier2(userId: string) {
-    return apiCall('upgrade-tier2', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
-    });
-  },
-
-  /** Proxy to banking provider customer endpoints */
-  async mapleradCustomersProxy(action: string, data?: any) {
-    return apiCall('maplerad_customers_proxy', {
-      method: 'POST',
-      body: JSON.stringify({ action, ...data }),
-    });
-  },
-
-  /** Update customer details via Maplerad */
-  async updateCustomer(data: any) {
-    return apiCall('update-customer', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
 };
 
 // ============================================================================
-// ACCOUNTS APIs
-// ============================================================================
-
-export const accountsAPI = {
-  async createUSDAccount(data: any) {
-    return apiCall('create-usd-account', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async reconcileAccounts(data?: any) {
-    return apiCall('reconcile-accounts', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    });
-  },
-};
-
-// ============================================================================
-// NOTIFICATIONS APIs  (Direct Edge Function)
-// ============================================================================
-
-export const notificationsAPI = {
-  async notifyUsers(data: any) {
-    return apiCall('notify-users', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async getUnreadCount(signal?: AbortSignal) {
-    return apiCall(`${S}/notifications/unread-count`, { method: 'GET', signal });
-  },
-
-  async getNotifications(limit: number = 20) {
-    return apiCall(`${S}/notifications?limit=${limit}`, { method: 'GET' });
-  },
-
-  async markAsRead(notificationId: string) {
-    return apiCall(`${S}/notifications/${notificationId}/read`, { method: 'POST' });
-  },
-
-  async markAllAsRead() {
-    return apiCall(`${S}/notifications/mark-all-read`, { method: 'POST' });
-  },
-
-  async deleteNotification(notificationId: string) {
-    return apiCall(`${S}/notifications/${notificationId}`, { method: 'DELETE' });
-  },
-
-  async clearAll() {
-    return apiCall(`${S}/notifications/clear`, { method: 'DELETE' });
-  },
-};
-
-// ============================================================================
-// CHAT / SUPPORT APIs  (Direct Edge Function: live-chat-support)
-// ============================================================================
-
-export const chatAPI = {
-  async getSessions() {
-    return apiCall('live-chat-support', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'get_sessions' }),
-    });
-  },
-
-  async createSession(topic: string) {
-    return apiCall('live-chat-support', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'create_session', topic }),
-    });
-  },
-
-  async getMessages(sessionId: string) {
-    return apiCall('live-chat-support', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'get_messages', session_id: sessionId }),
-    });
-  },
-
-  async sendMessage(sessionId: string, message: string) {
-    return apiCall('live-chat-support', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'send_message', session_id: sessionId, message }),
-    });
-  },
-};
-
-// ============================================================================
-// SAVINGS GOALS APIs  (Direct Edge Functions)
-// ============================================================================
-
-export const savingsAPI = {
-  async getSavingsGoals(userId: string) {
-    return apiCall('get-savings-goals', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
-    });
-  },
-
-  /** Alias: saving_goals_list (legacy endpoint) */
-  async listSavingsGoals(userId: string) {
-    return apiCall('saving_goals_list', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
-    });
-  },
-
-  async createSavingsGoal(userId: string, data: any) {
-    return apiCall('create-savings-goal', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, ...data }),
-    });
-  },
-
-  /** Alias: saving_goals_create (legacy endpoint) */
-  async createSavingsGoalLegacy(userId: string, data: any) {
-    return apiCall('saving_goals_create', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, ...data }),
-    });
-  },
-
-  async updateSavingsGoal(goalId: string, data: any) {
-    return apiCall('update-savings-goal', {
-      method: 'POST',
-      body: JSON.stringify({ goal_id: goalId, ...data }),
-    });
-  },
-
-  async fundSavingsGoal(goalId: string, amount: number, walletId: string) {
-    return apiCall('fund-savings-goal', {
-      method: 'POST',
-      body: JSON.stringify({ goal_id: goalId, amount, wallet_id: walletId }),
-    });
-  },
-
-  async deleteSavingsGoal(goalId: string) {
-    return apiCall('delete-savings-goal', {
-      method: 'POST',
-      body: JSON.stringify({ goal_id: goalId }),
-    });
-  },
-};
-
-// ============================================================================
-// SCHEDULED TRANSFERS APIs  (Direct Edge Functions)
-// ============================================================================
-
-export const scheduledTransfersAPI = {
-  async getScheduledTransfers(userId: string) {
-    return apiCall('get-scheduled-transfers', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
-    });
-  },
-
-  async createScheduledTransfer(userId: string, data: any) {
-    return apiCall('create-scheduled-transfer', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, ...data }),
-    });
-  },
-
-  async updateScheduledTransfer(transferId: string, data: any) {
-    return apiCall('update-scheduled-transfer', {
-      method: 'POST',
-      body: JSON.stringify({ transfer_id: transferId, ...data }),
-    });
-  },
-
-  async pauseScheduledTransfer(transferId: string, paused: boolean) {
-    return apiCall('pause-scheduled-transfer', {
-      method: 'POST',
-      body: JSON.stringify({ transfer_id: transferId, paused }),
-    });
-  },
-
-  async deleteScheduledTransfer(transferId: string) {
-    return apiCall('delete-scheduled-transfer', {
-      method: 'POST',
-      body: JSON.stringify({ transfer_id: transferId }),
-    });
-  },
-};
-
-// ============================================================================
-// ANALYTICS APIs  (Direct Edge Function: get-analytics)
-// ============================================================================
-
-export const analyticsAPI = {
-  async getAnalytics(userId: string, timeRange?: string) {
-    return apiCall('get-analytics', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, range: timeRange }),
-    });
-  },
-
-  async getTransactionInsights(userId: string, timeRange: string) {
-    return apiCall('get-analytics', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, range: timeRange, type: 'insights' }),
-    });
-  },
-
-  async generateSpendingReport(userId: string, data?: any) {
-    return apiCall('generate-spending-report', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, ...data }),
-    });
-  },
-
-  async generateReport(userId: string, data: any) {
-    return apiCall('generate-report', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, ...data }),
-    });
-  },
-};
-
-// ============================================================================
-// MAPLERAD PROXY APIs  (Admin / internal operations)
-// ============================================================================
-
-export const mapleradProxyAPI = {
-  async getCharges(data?: any) {
-    return apiCall('maplerad-proxy-charges', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    });
-  },
-
-  async freezeAccount(data: any) {
-    return apiCall('maplerad-proxy-freeze', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async unfreezeAccount(data: any) {
-    return apiCall('maplerad-proxy-unfreeze', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async terminateAccount(data: any) {
-    return apiCall('maplerad-proxy-terminate', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async getTransactions(data?: any) {
-    return apiCall('maplerad-proxy-transactions', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    });
-  },
-};
-
-// ============================================================================
-// FEES / CONFIG APIs
-// ============================================================================
-
-export const feesAPI = {
-  async getFeesConfig() {
-    return apiCall('fees-config-json', { method: 'POST' });
-  },
-};
-
-// ============================================================================
-// REALTIME PROXY APIs
-// ============================================================================
-
-export const realtimeAPI = {
-  async connect(data: any) {
-    return apiCall('realtime-proxy', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-};
-
-// ============================================================================
-// COMBINED BACKEND API - single import for all components
+// COMBINED BACKEND API — single import for all components
 // ============================================================================
 
 export const backendAPI = {
   auth: authSecurityAPI,
+  user: userAPI,
   wallets: walletAPI,
   transactions: transactionAPI,
   cards: cardAPI,
-  beneficiaries: beneficiaryAPI,
-  user: userAPI,
   fx: fxAPI,
   kyc: kycAPI,
   enrollment: enrollmentAPI,
@@ -1086,18 +702,11 @@ export const backendAPI = {
   localPayments: localPaymentsAPI,
   usPayments: usPaymentsAPI,
   address: addressAPI,
-  mobileMoney: mobileMoneyAPI,
-  customers: customersAPI,
-  accounts: accountsAPI,
-  notifications: notificationsAPI,
-  chat: chatAPI,
-  savings: savingsAPI,
-  scheduledTransfers: scheduledTransfersAPI,
-  analytics: analyticsAPI,
-  mapleradProxy: mapleradProxyAPI,
-  fees: feesAPI,
-  realtime: realtimeAPI,
   stablecoin: stablecoinAPI,
+  mobileMoney: mobileMoneyAPI,
+  notifications: notificationsAPI,
+  accounts: accountsAPI,
+  customers: customersAPI,
 };
 
 export default backendAPI;

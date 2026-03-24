@@ -33,6 +33,8 @@ import { StablecoinDepositScreen } from '../wallets/StablecoinDepositScreen';
 import { StablecoinConfirmScreen } from '../wallets/StablecoinConfirmScreen';
 import { ReferralScreen } from '../referral/ReferralScreen';
 import { BiometricSetup } from '../security/BiometricSetup';
+import { HelpCenterScreen } from '../settings/HelpCenterScreen';
+import { ProofOfAddressScreen } from '../settings/ProofOfAddressScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert, X } from 'lucide-react';
@@ -74,7 +76,9 @@ export type AppScreen =
   | 'stablecoin-deposit'
   | 'stablecoin-confirm'
   | 'referral'
-  | 'biometric-setup';
+  | 'biometric-setup'
+  | 'help-center'
+  | 'proof-of-address';
 
 export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevice }: MainAppProps) {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('dashboard');
@@ -109,7 +113,6 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
 
     if (isAlreadyHere) return;
 
-    console.log('🔀 MainApp: Navigating to', screen);
     setCurrentScreen(target);
     setNavigationStack(prev => [...prev, target]);
     scrollToTop();
@@ -160,7 +163,6 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
         return (
           <CurrencyConverter
             userId={userId}
-            walletsActivated={verificationStatus.walletsActivated}
             standalone={true}
             onBack={navigateBack}
             onConvert={() => navigateTo('exchange')}
@@ -217,8 +219,6 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
             userId={userId}
             onBack={navigateBack}
             isVerified={verificationStatus.isVerified}
-            walletsActivated={verificationStatus.walletsActivated}
-            onWalletsActivated={handleRefresh}
             onNavigate={navigateTo}
           />
         );
@@ -319,6 +319,12 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
           />
         ) : null;
 
+      case 'help-center':
+        return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
+
+      case 'proof-of-address':
+        return <ProofOfAddressScreen onBack={navigateBack} />;
+
       case 'referral':
         return <ReferralScreen onBack={navigateBack} />;
 
@@ -334,7 +340,7 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
       <div className="glass-gradient-bg" />
       <div className="glass-noise-overlay" />
       
-      <div ref={scrollContainerRef} className="h-full overflow-y-auto relative z-[2]">
+      <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden relative z-[2]" style={{ WebkitOverflowScrolling: 'auto', overscrollBehavior: 'none' }}>
         {renderScreen()}
       </div>
 
@@ -347,7 +353,7 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm px-6"
           >
-            <div className="w-full max-w-sm bg-[#0B0E11]/80 backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden">
+            <div className="w-full max-w-[calc(100vw-48px)] sm:max-w-sm bg-[#0B0E11]/80 backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden">
               <div className="h-1 bg-red-500" />
               <div className="p-6">
                 <div className="flex flex-col items-center mb-5">

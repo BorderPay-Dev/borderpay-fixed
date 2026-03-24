@@ -85,7 +85,6 @@ export function useInactivityTimer({
     if (warningMs <= 0) {
       logoutTimerRef.current = setTimeout(() => {
         clearAllTimers();
-        console.log('Silent session timeout — auto-logout');
         onLogoutRef.current();
       }, timeoutMs);
       return;
@@ -103,7 +102,6 @@ export function useInactivityTimer({
           if (prev <= 1) {
             // Time's up — logout
             clearAllTimers();
-            console.log('Session timeout — auto-logout triggered');
             onLogoutRef.current();
             return 0;
           }
@@ -116,7 +114,6 @@ export function useInactivityTimer({
     logoutTimerRef.current = setTimeout(() => {
       clearAllTimers();
       setShowWarning(false);
-      console.log('Hard session timeout — auto-logout');
       onLogoutRef.current();
     }, timeoutMs);
   }, [timeoutMs, warningMs, clearAllTimers]);

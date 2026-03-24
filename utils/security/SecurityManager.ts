@@ -151,12 +151,12 @@ function base32Decode(input: string): Uint8Array {
 async function hmacSha1(key: Uint8Array, message: Uint8Array): Promise<ArrayBuffer> {
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    key,
+    key as BufferSource,
     { name: 'HMAC', hash: 'SHA-1' },
     false,
     ['sign']
   );
-  return crypto.subtle.sign('HMAC', cryptoKey, message);
+  return crypto.subtle.sign('HMAC', cryptoKey, message as BufferSource);
 }
 
 function intToBytes(num: number): Uint8Array {
@@ -235,7 +235,7 @@ export const PINManager = {
     }
 
     try {
-      const salt = arrayBufferToHex(generateRandomBytes(32).buffer);
+      const salt = arrayBufferToHex(generateRandomBytes(32).buffer as ArrayBuffer);
       const hash = await sha256(pin, salt);
 
       const state = loadState(userId);
@@ -425,8 +425,8 @@ export const BiometricManager = {
         return { success: false, error: 'Biometric authentication is not supported on this device' };
       }
 
-      const challenge = generateRandomBytes(32);
-      const userIdBytes = new TextEncoder().encode(userId);
+      const challenge = generateRandomBytes(32) as BufferSource;
+      const userIdBytes = new TextEncoder().encode(userId) as BufferSource;
 
       const credential = await navigator.credentials.create({
         publicKey: {
@@ -489,7 +489,7 @@ export const BiometricManager = {
         return { success: false, error: 'Biometric not enrolled' };
       }
 
-      const challenge = generateRandomBytes(32);
+      const challenge = generateRandomBytes(32) as BufferSource;
       const credentialIdBuffer = base64ToArrayBuffer(state.biometricCredentialId);
 
       const assertion = await navigator.credentials.get({

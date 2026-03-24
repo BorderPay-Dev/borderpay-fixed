@@ -20,6 +20,7 @@ import {
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINVerify } from '../auth/PINVerify';
 
 /* ──────────────── Types ──────────────── */
@@ -199,7 +200,6 @@ export function MomoCollectionScreen({ onBack, onComplete }: Props) {
         setAllProviders(FALLBACK_PROVIDERS);
       }
     } catch (e) {
-      console.error('Failed to load MoMo providers, using fallback:', e);
       // Use fallback providers
       const seen = new Set<string>();
       const derived: MomoCurrency[] = [];
@@ -311,7 +311,7 @@ export function MomoCollectionScreen({ onBack, onComplete }: Props) {
           setStep('result');
         }
       } else {
-        toast.error(res.error || t('momo.collectionFailed'));
+        toast.error(friendlyError(res.error, t('momo.collectionFailed')));
         setResultData({
           success: false,
           message: res.error || t('momo.collectionFailed'),
@@ -319,8 +319,7 @@ export function MomoCollectionScreen({ onBack, onComplete }: Props) {
         setStep('result');
       }
     } catch (err: any) {
-      console.error('MoMo collect error:', err);
-      toast.error(err.message || t('momo.collectionFailed'));
+      toast.error(friendlyError(err, t('momo.collectionFailed')));
       setResultData({
         success: false,
         message: err.message || t('momo.collectionFailed'),
@@ -358,7 +357,7 @@ export function MomoCollectionScreen({ onBack, onComplete }: Props) {
       }
       setStep('result');
     } catch (err: any) {
-      toast.error(err.message || t('momo.otpFailed'));
+      toast.error(friendlyError(err, t('momo.otpFailed')));
     } finally {
       setOtpSubmitting(false);
     }
@@ -440,7 +439,7 @@ export function MomoCollectionScreen({ onBack, onComplete }: Props) {
     const selectedProviderName = providers.find(p => p.bank_code === form.bank_code)?.name || '';
 
     return (
-      <div className={`min-h-screen ${tc.bg} pb-32`}>
+      <div className={`min-h-screen ${tc.bg} pb-safe`}>
         <Header title={t('momo.title')} onBackAction={onBack} />
 
         <div className="px-5 py-5 space-y-5">
@@ -568,7 +567,7 @@ export function MomoCollectionScreen({ onBack, onComplete }: Props) {
 
   /* ──────────── Step 2: Counterparty ──────────────── */
   const renderCounterparty = () => (
-    <div className={`min-h-screen ${tc.bg} pb-32`}>
+    <div className={`min-h-screen ${tc.bg} pb-safe`}>
       <Header title={t('momo.counterpartyTitle')} onBackAction={() => setStep('form')} />
 
       <div className="px-5 py-5 space-y-5">
@@ -630,7 +629,7 @@ export function MomoCollectionScreen({ onBack, onComplete }: Props) {
     const currencyInfo = currencies.find(c => c.code === form.currency);
 
     return (
-      <div className={`min-h-screen ${tc.bg} pb-32`}>
+      <div className={`min-h-screen ${tc.bg} pb-safe`}>
         <Header title={t('momo.reviewTitle')} onBackAction={() => setStep('counterparty')} />
 
         <div className="px-5 py-5 space-y-5">

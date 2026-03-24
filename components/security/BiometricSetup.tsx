@@ -9,6 +9,7 @@ import { motion } from 'motion/react';
 import { Fingerprint, ArrowLeft, CheckCircle, AlertCircle, Shield, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { BiometricManager } from '../../utils/security/SecurityManager';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface BiometricSetupProps {
   userId: string;
@@ -53,10 +54,10 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
         toast.success('Biometric enrolled successfully!');
         setTimeout(() => onComplete(), 2000);
       } else {
-        toast.error(result.error || 'Enrollment failed');
+        toast.error(friendlyError(result.error, 'Enrollment failed'));
       }
     } catch (err: any) {
-      toast.error(err.message || 'Enrollment failed');
+      toast.error(friendlyError(err, 'Enrollment failed'));
     } finally {
       setEnrolling(false);
     }

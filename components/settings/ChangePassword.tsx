@@ -11,6 +11,7 @@ import { Label } from '../ui/label';
 import { toast } from 'sonner';
 import { supabase } from '../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface ChangePasswordProps {
   onBack: () => void;
@@ -76,14 +77,13 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
       });
 
       if (error) {
-        toast.error(error.message);
+        toast.error(friendlyError(error));
         return;
       }
 
       toast.success('Password changed successfully');
       onBack();
     } catch (error) {
-      console.error('Error changing password:', error);
       toast.error('Failed to change password');
     } finally {
       setLoading(false);
@@ -99,9 +99,9 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
   ];
 
   return (
-    <div className={`min-h-screen ${tc.bg} pb-24`}>
+    <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
-      <div className={`${tc.bgAlt} px-4 py-4 border-b ${tc.border} sticky top-0 z-10`}>
+      <div className={`${tc.bgAlt} px-4 py-4 pt-safe border-b ${tc.border} sticky top-0 z-10`}>
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}

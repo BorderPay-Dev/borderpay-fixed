@@ -3,8 +3,9 @@
   "configurations": [
     {
       "name": "borderpay-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "env": { "PATH": "/Users/a/.nvm/versions/node/v24.14.0/bin:/usr/local/bin:/usr/bin:/bin" },
+      "runtimeExecutable": "/Users/a/.nvm/versions/node/v24.14.0/bin/npx",
+      "runtimeArgs": ["vite", "--port", "3000"],
       "port": 3000
     }
   ]

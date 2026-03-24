@@ -48,7 +48,6 @@ export function PINVerify({
         throw new Error(result.error || 'Invalid PIN');
       }
     } catch (err: any) {
-      console.error('PIN verification error:', err);
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
       

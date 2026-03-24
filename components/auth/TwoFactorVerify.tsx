@@ -53,11 +53,9 @@ export function TwoFactorVerify({ onVerifySuccess, onBack, userEmail, userId }: 
     setError('');
 
     try {
-      console.log('🔐 Verifying 2FA code client-side...');
       const isValid = await TOTPManager.verifyCode(resolvedUserId, token);
 
       if (isValid) {
-        console.log('✅ 2FA verification successful');
         toast.success('2FA verified successfully');
         onVerifySuccess();
       } else {
@@ -73,7 +71,6 @@ export function TwoFactorVerify({ onVerifySuccess, onBack, userEmail, userId }: 
         setToken('');
       }
     } catch (err: any) {
-      console.error('2FA verification error:', err);
       setError(err.message || 'Verification failed. Please try again.');
       setToken('');
     } finally {

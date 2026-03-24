@@ -115,7 +115,6 @@ export function USPaymentDetails(props: USPaymentDetailsProps) {
         setUsCounterparties(res.data.counterparties);
       }
     } catch (e) {
-      console.error('Failed to load US counterparties:', e);
     } finally {
       setLoadingCounterparties(false);
     }
@@ -174,14 +173,13 @@ export function USPaymentDetails(props: USPaymentDetailsProps) {
         await loadCounterparties();
       } else {
         // Check if it was a restricted country error from the backend
-        if (res.restricted) {
+        if ((res as any).restricted) {
           toast.error(t('send.usRestrictedCountry'));
         } else {
           toast.error(res.error || t('send.usCounterpartyFailed'));
         }
       }
     } catch (e: any) {
-      console.error('Failed to create counterparty:', e);
       toast.error(e.message || t('send.usCounterpartyFailed'));
     } finally {
       setCreatingCounterparty(false);
@@ -294,7 +292,7 @@ export function USPaymentDetails(props: USPaymentDetailsProps) {
             initial={{ y: '100%', opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            transition={{ type: 'tween', duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             className={`relative w-full max-h-[88vh] overflow-y-auto rounded-t-3xl p-5 space-y-3`}
             style={{ background: '#0B0E11', borderTop: '1px solid rgba(199,255,0,0.15)' }}
           >

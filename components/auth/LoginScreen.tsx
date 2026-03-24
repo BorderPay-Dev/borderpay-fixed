@@ -16,14 +16,14 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { SERVER_URL, ANON_KEY } from '../../utils/supabase/client';
+import { BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mail, Lock, Eye, EyeOff, Fingerprint, Loader2,
   ShieldCheck, X, Camera, AlertCircle, CheckCircle,
   RefreshCw,
 } from 'lucide-react';
-import { supabase, hasSupabase } from '../../utils/supabase/client';
+import { supabase } from '../../utils/supabase/client';
 import { sessionAPI } from '../../utils/api/sessionAPI';
 import { toast } from 'sonner';
 
@@ -33,15 +33,13 @@ import { TwoFactorVerify } from './TwoFactorVerify';
 import { projectId } from '../../utils/supabase/info';
 import { authAPI } from '../../utils/supabase/client';
 import { ENV_CONFIG } from '../../utils/config/environment';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
   onNavigateToSignUp: () => void;
   onNavigateToForgotPassword?: () => void;
 }
-
-// SmileID sandbox widget URL
-const SMILEID_SANDBOX_URL = 'https://links.sandbox.usesmileid.com/8077/4ad0eb49-0a5d-45e1-8365-b64c5bc3fe98';
 
 // ── SmileID Biometric Auth Modal ─────────────────────────────────────────────
 interface SmileIDAuthModalProps {
@@ -97,7 +95,7 @@ function SmileIDAuthModal({ userId, onSuccess, onFail, onClose }: SmileIDAuthMod
     try {
       const token = authAPI.getToken();
       const response = await fetch(
-        `${SERVER_URL}/smile-callback-handler`,
+        `${BASE_URL}/smile-callback-handler`,
         {
           method: 'POST',
           headers: {
@@ -129,16 +127,11 @@ function SmileIDAuthModal({ userId, onSuccess, onFail, onClose }: SmileIDAuthMod
         }
       }
     } catch (e) {
-      console.warn('SmileID auth widget load failed, using sandbox URL:', e);
     }
 
-    // Fallback to sandbox URL
-    const fallbackUrl = new URL(SMILEID_SANDBOX_URL);
-    fallbackUrl.searchParams.set('theme_color', 'C7FF00');
-    fallbackUrl.searchParams.set('partner_name', 'BorderPay Africa');
-    setVerificationUrl(fallbackUrl.toString());
-    setStatus('widget');
-    startPolling();
+    // No fallback — backend must provide the URL
+    setStatus('failed');
+    onFail();
   };
 
   const startPolling = () => {
@@ -147,7 +140,7 @@ function SmileIDAuthModal({ userId, onSuccess, onFail, onClose }: SmileIDAuthMod
       try {
         const token = authAPI.getToken();
         const res = await fetch(
-          `${SERVER_URL}/smile-callback-handler?userId=${userId}`,
+          `${BASE_URL}/smile-callback-handler?userId=${userId}`,
           {
             headers: {
               'Authorization': `Bearer ${token || ANON_KEY}`,
@@ -300,23 +293,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
     setIsLoading(true);
 
     try {
-      // Mock login when Supabase is not configured
-      if (!hasSupabase) {
-        const mockUser = {
-          id: 'mock-user-id',
-          email,
-          full_name: email.split('@')[0] || 'Demo User',
-          kyc_status: 'verified',
-          country: 'NG',
-          two_factor_enabled: false,
-        };
-        localStorage.setItem('borderpay_user', JSON.stringify(mockUser));
-        localStorage.setItem('borderpay_token', 'mock-token');
-        toast.success('Welcome back!');
-        onLoginSuccess(mockUser);
-        return;
-      }
-
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
@@ -324,7 +300,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         localStorage.setItem('borderpay_token', data.session.access_token);
         localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
 
-        console.log('Login successful, fetching profile & checking 2FA...', data.user.email);
 
         let userProfile: any = null;
         try {
@@ -334,7 +309,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
             userProfile = profileResult.data.user;
           }
         } catch (profileError) {
-          console.warn('Backend profile fetch failed, falling back to auth metadata:', profileError);
         }
 
         if (!userProfile) {
@@ -365,24 +339,9 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         onLoginSuccess(userProfile);
       }
     } catch (error: any) {
-      console.error('Login error:', error);
-      // Fallback to mock login in demo/preview mode when backend is unreachable
-      const mockUser = {
-        id: 'mock-user-id',
-        email,
-        full_name: email.split('@')[0] || 'Demo User',
-        kyc_status: 'verified',
-        country: 'NG',
-        two_factor_enabled: false,
-      };
-      localStorage.setItem('borderpay_user', JSON.stringify(mockUser));
-      localStorage.setItem('borderpay_token', 'mock-token');
-      // Trigger auth hook reload for mock login
-      if ((window as any).__borderpay_reload_auth) {
-        (window as any).__borderpay_reload_auth();
-      }
-      toast.success('Welcome back! (Demo Mode)');
-      onLoginSuccess(mockUser);
+      const message = friendlyError(error, 'Login failed. Please check your credentials and try again.');
+      setInlineError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -444,7 +403,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
       // Step 4: Restore Supabase session via refresh_token (most reliable path)
       if (refreshToken) {
-        console.log('🔐 Biometric: attempting session refresh...');
         const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession({
           refresh_token: refreshToken,
         });
@@ -474,7 +432,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
           return;
         }
 
-        console.warn('🔐 Biometric: session refresh failed, falling back to SmileID liveness...');
       }
 
       // Step 5: Refresh token exhausted or missing → SmileID liveness check
@@ -484,7 +441,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
       setShowSmileIDModal(true);
 
     } catch (error: any) {
-      console.error('Biometric auth error:', error);
       const msg = error.name === 'NotAllowedError'
         ? 'Biometric verification was cancelled or timed out.'
         : (error.message || 'Biometric authentication failed. Please try again.');

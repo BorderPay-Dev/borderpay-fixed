@@ -68,22 +68,12 @@ export const RESTRICTED_COUNTRY_CODES = new Set(
   RESTRICTED_JURISDICTIONS.map(country => country.code)
 );
 
-export const RESTRICTED_COUNTRY_NAMES = new Set(
-  RESTRICTED_JURISDICTIONS.map(country => country.name.toLowerCase())
-);
 
 /**
  * Check if a country code is restricted
  */
 export function isCountryRestricted(countryCode: string): boolean {
   return RESTRICTED_COUNTRY_CODES.has(countryCode.toUpperCase());
-}
-
-/**
- * Check if a country name is restricted
- */
-export function isCountryNameRestricted(countryName: string): boolean {
-  return RESTRICTED_COUNTRY_NAMES.has(countryName.toLowerCase());
 }
 
 /**
@@ -94,13 +84,6 @@ export function getRestrictionReason(countryCode: string): string | null {
     c => c.code === countryCode.toUpperCase()
   );
   return country?.reason || null;
-}
-
-/**
- * Get all restricted country codes
- */
-export function getRestrictedCountryCodes(): string[] {
-  return Array.from(RESTRICTED_COUNTRY_CODES);
 }
 
 /**
@@ -128,60 +111,3 @@ export function validateOnboarding(countryCode: string): OnboardingValidation {
   return { allowed: true };
 }
 
-/**
- * Validate if transaction can be sent/received from a country
- */
-export interface TransactionValidation {
-  allowed: boolean;
-  message?: string;
-  severity: 'error' | 'warning' | 'info';
-}
-
-export function validateTransaction(
-  fromCountry: string,
-  toCountry: string
-): TransactionValidation {
-  const fromRestricted = isCountryRestricted(fromCountry);
-  const toRestricted = isCountryRestricted(toCountry);
-
-  if (fromRestricted && toRestricted) {
-    return {
-      allowed: false,
-      message: 'Cannot send or receive funds from restricted jurisdictions',
-      severity: 'error',
-    };
-  }
-
-  if (fromRestricted) {
-    return {
-      allowed: false,
-      message: `Cannot receive funds from ${fromCountry} (restricted jurisdiction)`,
-      severity: 'error',
-    };
-  }
-
-  if (toRestricted) {
-    return {
-      allowed: false,
-      message: `Cannot send funds to ${toCountry} (restricted jurisdiction)`,
-      severity: 'error',
-    };
-  }
-
-  return {
-    allowed: true,
-    severity: 'info',
-  };
-}
-
-/**
- * Filter out restricted countries from a list
- */
-export function filterRestrictedCountries<T extends { code?: string; country?: string }>(
-  countries: T[]
-): T[] {
-  return countries.filter(country => {
-    const code = country.code || country.country;
-    return code ? !isCountryRestricted(code) : true;
-  });
-}

@@ -7,7 +7,7 @@
  * - /auth/security/status → PIN setup status
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck,
@@ -29,12 +29,14 @@ import {
   Lock,
   ShieldAlert,
   Gift,
+  TrendingUp,
+  TrendingDown,
+  Activity,
 } from 'lucide-react';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
-import { CurrencyConverter } from '../conversion/CurrencyConverter';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface DashboardProps {
@@ -66,17 +68,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('starter');
   const [has2FA, setHas2FA]               = useState(false);
   const [hasPIN, setHasPIN]               = useState(false);
-  const [walletsActivated, setWalletsActivated] = useState(false);
   const [wallets, setWallets]             = useState<Array<{ currency: string; balance: number; symbol: string; color: string }>>([]);
   const [totalBalance, setTotalBalance]   = useState(0);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [loading, setLoading]             = useState(true);
   // Use parentScreen from MainApp for active state tracking; fallback to 'dashboard'
   const activeScreen = parentScreen || 'dashboard';
-
-  // Feature locked modal state
-  const [lockedFeature, setLockedFeature]   = useState<string>('');
-  const [showLockedModal, setShowLockedModal] = useState(false);
 
   // 2FA recommendation banner state (dismissible, persisted)
   const [show2FABanner, setShow2FABanner] = useState(() => {
@@ -137,15 +134,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         if (p) {
           setUserName(p.full_name || p.email?.split('@')[0] || 'User');
           const verified   = p.kyc_status === 'verified';
-          const unlocked   = p.is_unlocked === true;
           setIsVerified(verified);
           setHas2FA(p.two_factor_enabled || false);
-          setWalletsActivated(unlocked);
-          if (unlocked)        setAccountStatus('active');
-          else if (verified)   setAccountStatus('verified');
-          else                 setAccountStatus('starter');
+          if (verified)   setAccountStatus('verified');
+          else            setAccountStatus('starter');
           localStorage.setItem('borderpay_user', JSON.stringify(p));
-          console.log('✅ Dashboard: profile loaded. KYC:', p.kyc_status, '2FA:', p.two_factor_enabled);
         }
       }
 
@@ -160,20 +153,15 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         }));
         setWallets(formatted);
 
-        // Best-effort USD-equivalent total
         const usdLike = new Set(['USD', 'USDT', 'USDC', 'PYUSD']);
         const total = formatted.reduce(
           (sum: number, w: any) => sum + (usdLike.has(w.currency) ? w.balance : 0),
           0
         );
         setTotalBalance(total);
-
-        // Consider wallets "activated" if > 0 wallets exist (signup creates them)
-        if (raw.length > 0) {
-          setWalletsActivated(true);
-          // Note: Having wallets does NOT mean account is verified
-          // Verification status ONLY comes from KYC (kyc_status === 'verified')
-        }
+      } else {
+        setWallets([]);
+        setTotalBalance(0);
       }
 
       // ── Security status (PIN) ─────────────────────────────────────────────
@@ -184,17 +172,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         if (sec?.two_factor_enabled !== undefined) {
           setHas2FA(sec.two_factor_enabled);
         }
-        console.log('✅ Dashboard: security status. PIN:', sec?.pin_set, '2FA:', sec?.two_factor_enabled);
       }
 
       // ── Recent transactions ───────────────────────────────────────────────
       if (txRes.status === 'fulfilled' && txRes.value?.success) {
         const txns = txRes.value.data?.transactions || [];
         setRecentTransactions(Array.isArray(txns) ? txns.slice(0, 5) : []);
+      } else {
+        setRecentTransactions([]);
       }
 
     } catch (error) {
-      console.error('❌ Dashboard: data load error:', error);
     } finally {
       setLoading(false);
     }
@@ -209,36 +197,24 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     return () => clearInterval(greetingInterval);
   }, [loadDashboardData, setTimeBasedGreeting]);
 
-  // ─── activation steps ─────────────────────────────────────────────────────
-  const activationSteps = [
+  // ─── setup steps ─────────────────────────────────────────────────────
+  const setupSteps = [
     { id: 'account', label: t('activation.accountCreated'),                        completed: true,  screen: '' },
     { id: '2fa',     label: t('activation.2faEnabled'),                            completed: has2FA, screen: 'two-factor-setup' },
     { id: 'pin',     label: t('activation.pinSetup'),                              completed: hasPIN, screen: 'pin-setup' },
     { id: 'kyc',     label: t('activation.kycComplete'),                           completed: isVerified, screen: 'kyc' },
-    { id: 'wallets', label: t('activation.walletsActivate'),                       completed: walletsActivated, screen: 'deposit' },
   ];
 
-  // "Continue Setup" button removed — banner is now reminder-only
-
-  const handleLockedFeatureClick = (featureName: string, action: string) => {
-    if (!walletsActivated) {
-      setLockedFeature(featureName);
-      setShowLockedModal(true);
-    } else {
-      handleNavigate(action);
-    }
-  };
-
-  const handleActivateWallets = () => {
-    setShowLockedModal(false);
-    handleNavigate('deposit');
+  const handleLockedFeatureClick = (_featureName: string, action: string) => {
+    handleNavigate(action);
   };
 
   // ─── quick actions ────────────────────────────────────────────────────────
   const quickActions = [
-    { id: 'add-money',           label: t('action.addMoney'), icon: Plus,    bg: '#C7FF00', color: '#000' },
-    { id: 'send-money',          label: t('action.send'),     icon: Send,    bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
-    { id: 'exchange',            label: t('action.exchange'),  icon: ArrowLeftRight,  bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
+    { id: 'add-money',           label: t('action.addMoney'), icon: Plus,           bg: '#C7FF00', color: '#000' },
+    { id: 'send-money',          label: t('action.send'),     icon: Send,           bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
+    { id: 'receive-money',       label: t('action.receive') || 'Receive', icon: ArrowDownLeft, bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
+    { id: 'exchange',            label: t('action.exchange'), icon: ArrowLeftRight,  bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
   ];
 
   // ─── transaction helpers ──────────────────────────────────────────────────
@@ -270,7 +246,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   // ─── render ───────────────────────────────────────────────────────────────
   return (
-    <div className={`min-h-screen ${tc.bg} pb-28`}>
+    <div className={`min-h-screen ${tc.bg} pb-nav-safe`}>
 
       {/* ── Top Bar ── */}
       <div className={`sticky top-0 ${tc.isLight ? 'bg-white/70' : 'bg-[#0B0E11]/80'} backdrop-blur-xl border-b ${tc.isLight ? 'border-gray-200/50' : 'border-white/[0.06]'} pt-safe z-40`}>
@@ -305,12 +281,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
             {t('dashboard.totalBalance')}
           </p>
           <div className="flex items-center gap-2">
-            <h1 className={`text-4xl font-normal ${tc.text} tracking-tight`}>
+            <h1 className={`text-[28px] sm:text-4xl font-normal ${tc.text} tracking-tight`}>
               {balanceHidden ? (
-                <span className="text-3xl">••••••</span>
+                <span className="text-2xl sm:text-3xl">••••••</span>
               ) : (
                 <>
-                  <span className="text-2xl text-gray-400">$</span>
+                  <span className="text-xl sm:text-2xl text-gray-400">$</span>
                   {totalBalance.toFixed(2)}
                 </>
               )}
@@ -324,9 +300,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                 : <EyeOff className="w-4 h-4 text-gray-500" />}
             </button>
           </div>
-          {loading && (
-            <div className="w-3.5 h-3.5 border-2 border-[#C7FF00]/30 border-t-[#C7FF00] rounded-full animate-spin mt-2" />
-          )}
         </div>
       </div>
 
@@ -335,13 +308,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         <h3 className={`text-xs ${tc.textSecondary} uppercase tracking-[0.2em] font-semibold mb-3`}>
           {t('dashboard.wallets')}
         </h3>
-        <div className="flex gap-3 overflow-x-auto -mx-5 px-5 pb-2 scrollbar-hide snap-x snap-mandatory" style={{ scrollbarWidth: 'none' } as React.CSSProperties}>
+        <div className="flex gap-3 overflow-x-auto -mx-5 px-5 pb-2 scrollbar-hide snap-x snap-mandatory" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'auto', overscrollBehaviorX: 'none' } as React.CSSProperties}>
           {wallets.length > 0 ? wallets.map((wallet) => (
             <motion.button
               key={wallet.currency}
               whileTap={{ scale: 0.95 }}
               onClick={() => handleNavigate('wallet-detail')}
-              className={`flex-shrink-0 w-[160px] ${tc.isLight ? 'bg-white/60 border-white/50' : 'bg-white/[0.05] border-white/[0.08]'} backdrop-blur-lg border rounded-[22px] p-4 hover:border-[#C7FF00] transition-all snap-start text-left`}
+              className={`flex-shrink-0 w-[140px] sm:w-[160px] ${tc.isLight ? 'bg-white/60 border-white/50' : 'bg-white/[0.05] border-white/[0.08]'} backdrop-blur-lg border rounded-[22px] p-3 sm:p-4 active:border-[#C7FF00] transition-colors snap-start text-left`}
             >
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center mb-3"
@@ -416,17 +389,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               <ShieldCheck className="w-4 h-4 text-[#C7FF00]" />
               <h3 className={`text-sm font-bold ${tc.text}`}>{t('dashboard.completeSetup') || 'Complete Setup'}</h3>
               <span className="text-xs text-[#C7FF00] font-semibold ml-auto">
-                {activationSteps.filter(s => s.completed).length}/{activationSteps.length}
+                {setupSteps.filter(s => s.completed).length}/{setupSteps.length}
               </span>
             </div>
             <div className={`w-full h-1.5 ${tc.isLight ? 'bg-gray-200' : 'bg-white/10'} rounded-full mb-4`}>
               <div
                 className="h-full bg-[#C7FF00] rounded-full transition-all duration-500"
-                style={{ width: `${(activationSteps.filter(s => s.completed).length / activationSteps.length) * 100}%` }}
+                style={{ width: `${(setupSteps.filter(s => s.completed).length / setupSteps.length) * 100}%` }}
               />
             </div>
             <div className="space-y-2">
-              {activationSteps.map((step) => (
+              {setupSteps.map((step) => (
                 <button
                   key={step.id}
                   onClick={() => !step.completed && step.screen ? handleNavigate(step.screen) : undefined}
@@ -479,13 +452,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         </div>
       )}
 
-      {/* ── Currency Converter ── */}
+      {/* ── Exchange Activity — Live Rate Chart ── */}
       <div className="px-5 mb-6">
-        <CurrencyConverter
-          userId={userId}
-          walletsActivated={walletsActivated}
-          onConvert={() => handleNavigate('exchange')}
-        />
+        <DashboardRateWidget onNavigate={handleNavigate} />
       </div>
 
       {/* ── Recent Activity ── */}
@@ -537,12 +506,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
       {/* ── Bottom Navigation ── */}
       <div className={`fixed bottom-0 left-0 right-0 ${tc.isLight ? 'bg-white/90 border-gray-200/50' : 'bg-[#0B0E11]/95 border-white/[0.08]'} backdrop-blur-2xl border-t pb-safe z-50`}>
-        <div className="flex items-center justify-around px-4 pt-2 pb-1">
+        <div className="flex items-stretch justify-around px-2">
           {[
             { id: 'home',         icon: Home,       labelKey: 'nav.home'     },
             { id: 'wallet-detail',icon: Coins,       labelKey: 'nav.wallets'  },
             { id: 'cards',        icon: CreditCard,  labelKey: 'nav.cards'    },
-            { id: 'send-money',   icon: Send,        labelKey: 'action.send'  },
             { id: 'settings',     icon: Settings,    labelKey: 'nav.settings' },
           ].map((item) => {
             const Icon = item.icon;
@@ -553,12 +521,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               <button
                 key={item.id}
                 onClick={() => handleNavigate(item.id)}
-                className={`flex flex-col items-center justify-center flex-1 py-2 rounded-2xl transition-all relative ${isActive ? 'text-[#C7FF00]' : 'text-gray-500 hover:text-gray-300 active:scale-95'}`}
+                className={`flex flex-col items-center justify-center flex-1 min-h-[56px] min-w-[48px] transition-colors relative ${isActive ? 'text-[#C7FF00]' : 'text-gray-500 active:text-gray-300'}`}
               >
                 {isActive && (
-                  <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full bg-[#C7FF00]" />
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full bg-[#C7FF00]" />
                 )}
-                <div className={`p-1 rounded-xl ${isActive ? 'bg-[#C7FF00]/10' : ''}`}>
+                <div className={`p-1.5 rounded-xl ${isActive ? 'bg-[#C7FF00]/10' : ''}`}>
                   <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 1.5} />
                 </div>
                 <span className="text-[10px] mt-0.5 font-semibold">{t(item.labelKey)}</span>
@@ -568,47 +536,212 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         </div>
       </div>
 
-      {/* ── Feature Locked Modal ── */}
-      <AnimatePresence>
-        {showLockedModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-end justify-center"
-            onClick={() => setShowLockedModal(false)}
-          >
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-              className="bg-[#0B0E11]/80 backdrop-blur-2xl border border-white/[0.08] rounded-t-3xl w-full max-w-md p-6 pb-safe"
-              onClick={(e) => e.stopPropagation()}
+    </div>
+  );
+}
+
+// ─── Dashboard Live Rate Chart Widget ────────────────────────────────────────
+
+const RATE_PAIRS = [
+  { from: 'USD', to: 'NGN', rate: 1552.30, change: +0.82, base: 1550, vol: 80 },
+  { from: 'USD', to: 'KES', rate: 129.45, change: -0.34, base: 129, vol: 4 },
+  { from: 'USD', to: 'GHS', rate: 15.52, change: +1.12, base: 15.5, vol: 0.8 },
+  { from: 'USD', to: 'UGX', rate: 3702.0, change: +0.25, base: 3700, vol: 120 },
+  { from: 'USD', to: 'XAF', rate: 605.80, change: -0.18, base: 606, vol: 8 },
+];
+
+function generateSparkData(count: number, base: number, vol: number): number[] {
+  const pts: number[] = [];
+  let v = base;
+  for (let i = 0; i < count; i++) {
+    v += (Math.random() - 0.48) * vol;
+    v = Math.max(base * 0.9, Math.min(base * 1.1, v));
+    pts.push(v);
+  }
+  return pts;
+}
+
+function DashboardSparkline({ data, positive, width = 100, height = 32 }: { data: number[]; positive: boolean; width?: number; height?: number }) {
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const pad = 2;
+
+  const points = data
+    .map((v, i) => {
+      const x = pad + (i / (data.length - 1)) * (width - pad * 2);
+      const y = pad + (1 - (v - min) / range) * (height - pad * 2);
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  const color = positive ? '#C7FF00' : '#EF4444';
+  const gradId = `dsg-${positive ? 'g' : 'r'}-${Math.random().toString(36).slice(2, 6)}`;
+
+  // Fill area
+  const firstX = pad;
+  const lastX = pad + ((data.length - 1) / (data.length - 1)) * (width - pad * 2);
+  const fillPath = `M ${firstX},${height} L ${points.replace(/ /g, ' L ')} L ${lastX},${height} Z`;
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={fillPath} fill={`url(#${gradId})`} />
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function DashboardRateWidget({ onNavigate }: { onNavigate: (screen: string) => void }) {
+  const [selectedPair, setSelectedPair] = useState(0);
+
+  // Generate chart data for the selected pair (30 points)
+  const chartData = useMemo(() => {
+    const pair = RATE_PAIRS[selectedPair];
+    return generateSparkData(30, pair.base, pair.vol);
+  }, [selectedPair]);
+
+  // Full chart points for the big chart
+  const pair = RATE_PAIRS[selectedPair];
+  const isPositive = pair.change >= 0;
+
+  // Generate mini sparklines for rate rows (stable per render)
+  const miniCharts = useMemo(() =>
+    RATE_PAIRS.map(p => generateSparkData(20, p.base, p.vol)),
+  []);
+
+  // Big chart SVG
+  const chartW = 320;
+  const chartH = 100;
+  const min = Math.min(...chartData);
+  const max = Math.max(...chartData);
+  const range = max - min || 1;
+
+  const linePoints = chartData
+    .map((v, i) => {
+      const x = (i / (chartData.length - 1)) * chartW;
+      const y = 6 + (1 - (v - min) / range) * (chartH - 12);
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  const color = isPositive ? '#C7FF00' : '#EF4444';
+  const fillPath = `M 0,${chartH} L ${linePoints.replace(/ /g, ' L ')} L ${chartW},${chartH} Z`;
+
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <div className="flex items-center gap-2">
+          <Activity className="w-3.5 h-3.5 text-[#C7FF00]" />
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Exchange Activity</span>
+        </div>
+        <button
+          onClick={() => onNavigate('exchange')}
+          className="text-[10px] text-[#C7FF00] font-semibold flex items-center gap-1"
+        >
+          Trade <ChevronRight size={12} />
+        </button>
+      </div>
+
+      {/* Selected Pair Info */}
+      <div className="px-4 pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-lg font-bold text-white">{pair.from}/{pair.to}</span>
+            <span className="text-sm text-gray-400 ml-2">{pair.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+          <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+            isPositive ? 'bg-[#C7FF00]/10 text-[#C7FF00]' : 'bg-red-500/10 text-red-400'
+          }`}>
+            {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+            {isPositive ? '+' : ''}{pair.change.toFixed(2)}%
+          </div>
+        </div>
+      </div>
+
+      {/* Main Chart */}
+      <div className="px-4 pb-3">
+        <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" className="rounded-lg">
+          <defs>
+            <linearGradient id="dashChartGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={fillPath} fill="url(#dashChartGrad)" />
+          <polyline
+            points={linePoints}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Current value dot */}
+          {(() => {
+            const lastIdx = chartData.length - 1;
+            const cx = (lastIdx / (chartData.length - 1)) * chartW;
+            const cy = 6 + (1 - (chartData[lastIdx] - min) / range) * (chartH - 12);
+            return (
+              <>
+                <circle cx={cx} cy={cy} r="4" fill={color} opacity="0.3" />
+                <circle cx={cx} cy={cy} r="2.5" fill={color} />
+              </>
+            );
+          })()}
+        </svg>
+      </div>
+
+      {/* Rate Rows */}
+      <div className="border-t border-white/[0.04]">
+        {RATE_PAIRS.map((p, i) => {
+          const pos = p.change >= 0;
+          return (
+            <button
+              key={`${p.from}-${p.to}`}
+              onClick={() => setSelectedPair(i)}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors ${
+                i === selectedPair ? 'bg-[#C7FF00]/[0.06]' : 'hover:bg-white/[0.02]'
+              } ${i < RATE_PAIRS.length - 1 ? 'border-b border-white/[0.03]' : ''}`}
             >
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-white font-bold text-lg">{t('dashboard.featureLocked')}</h3>
-                <button onClick={() => setShowLockedModal(false)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                  <X size={16} className="text-white" />
-                </button>
+              {/* Pair label */}
+              <div className="w-[70px] text-left">
+                <span className={`text-[11px] font-bold ${i === selectedPair ? 'text-[#C7FF00]' : 'text-white'}`}>
+                  {p.from}/{p.to}
+                </span>
               </div>
-              <div className="w-16 h-16 bg-[#C7FF00]/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Lock className="w-8 h-8 text-[#C7FF00]" />
+
+              {/* Mini sparkline */}
+              <div className="flex-1">
+                <DashboardSparkline data={miniCharts[i]} positive={pos} width={80} height={24} />
               </div>
-              <p className="text-center text-gray-300 text-sm mb-2">
-                <span className="font-semibold text-white">{lockedFeature}</span> {t('dashboard.featureRequiresActivation')}
-              </p>
-              <p className="text-center text-gray-500 text-xs mb-6">{t('dashboard.activationFee')}</p>
-              <button onClick={handleActivateWallets} className="w-full py-4 bg-[#C7FF00] text-black font-bold rounded-xl hover:bg-[#B8F000] transition-colors">
-                {t('dashboard.activateWallets')} – $10
-              </button>
-              <button onClick={() => setShowLockedModal(false)} className="w-full py-3 text-gray-400 text-sm mt-2 hover:text-white transition-colors">
-                {t('dashboard.maybeLater')}
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+              {/* Rate + change */}
+              <div className="text-right">
+                <p className="text-[11px] font-semibold text-white">
+                  {p.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className={`text-[9px] font-bold ${pos ? 'text-[#C7FF00]' : 'text-red-400'}`}>
+                  {pos ? '+' : ''}{p.change.toFixed(2)}%
+                </p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

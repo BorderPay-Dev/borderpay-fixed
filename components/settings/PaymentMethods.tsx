@@ -55,7 +55,6 @@ export function PaymentMethods({ onBack }: PaymentMethodsProps) {
         setPaymentMethods(methods);
       }
     } catch (error) {
-      console.error('Error loading payment methods:', error);
     } finally {
       setLoading(false);
     }
@@ -79,9 +78,9 @@ export function PaymentMethods({ onBack }: PaymentMethodsProps) {
   };
 
   return (
-    <div className={`min-h-screen ${tc.bg} pb-24`}>
+    <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
-      <div className={`${tc.bgAlt} px-6 py-4 border-b ${tc.border} sticky top-0 z-10`}>
+      <div className={`${tc.bgAlt} px-6 py-4 pt-safe border-b ${tc.border} sticky top-0 z-10`}>
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
@@ -104,16 +103,8 @@ export function PaymentMethods({ onBack }: PaymentMethodsProps) {
           </p>
         </div>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="text-center py-12">
-            <div className="inline-block w-8 h-8 border-3 border-[#C7FF00] border-t-transparent rounded-full animate-spin" />
-            <p className={`${tc.textSecondary} text-sm mt-4`}>{t('paymentMethods.loading')}</p>
-          </div>
-        )}
-
         {/* Empty State */}
-        {!loading && paymentMethods.length === 0 && (
+        {paymentMethods.length === 0 && (
           <div className="text-center py-12">
             <div className={`w-16 h-16 rounded-full ${tc.card} flex items-center justify-center mx-auto mb-4`}>
               <CreditCard className={`w-8 h-8 ${tc.textMuted}`} />

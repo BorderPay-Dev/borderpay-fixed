@@ -40,9 +40,9 @@ export function ReferralScreen({ onBack }: ReferralScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0E11] pb-24">
+    <div className="min-h-screen bg-[#0B0E11] pb-safe">
       {/* Header */}
-      <div className="sticky top-0 bg-[#0B0E11]/90 backdrop-blur-md border-b border-white/5 z-40">
+      <div className="sticky top-0 bg-[#0B0E11]/90 backdrop-blur-md border-b border-white/5 z-40 pt-safe">
         <div className="flex items-center gap-3 px-5 py-4">
           <motion.button
             whileTap={{ scale: 0.9 }}

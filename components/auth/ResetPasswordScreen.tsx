@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { SERVER_URL, ANON_KEY } from '../../utils/supabase/client';
+import { BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Lock, 
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface ResetPasswordScreenProps {
   onNavigateToLogin: () => void;
@@ -65,7 +66,7 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
       }
 
       // Validate token with backend
-      const response = await fetch(`${SERVER_URL}/auth/reset-password/confirm`, {
+      const response = await fetch(`${BASE_URL}/auth-reset-password-confirm`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -76,7 +77,6 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
 
       if (!response.ok) {
         const data = await response.json();
-        console.error('Token validation error:', data);
         toast.error('Invalid or expired reset link');
         setHasValidToken(false);
       } else {
@@ -86,7 +86,6 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
         window.history.replaceState(null, '', window.location.pathname);
       }
     } catch (error) {
-      console.error('Error validating token:', error);
       toast.error('Error validating reset link');
       setHasValidToken(false);
     } finally {
@@ -120,7 +119,7 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
 
     try {
       // Call backend to submit new password
-      const response = await fetch(`${SERVER_URL}/auth/reset-password/confirm`, {
+      const response = await fetch(`${BASE_URL}/auth-reset-password-confirm`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -134,7 +133,6 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
 
       if (!response.ok) {
         const data = await response.json();
-        console.error('Password reset error:', data);
         toast.error(data.message || 'Failed to reset password');
         setLoading(false);
         return;
@@ -149,8 +147,7 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
         onNavigateToLogin();
       }, 3000);
     } catch (error: any) {
-      console.error('Error resetting password:', error);
-      toast.error(error.message || 'Failed to reset password');
+      toast.error(friendlyError(error, 'Failed to reset password'));
       setLoading(false);
     }
   };

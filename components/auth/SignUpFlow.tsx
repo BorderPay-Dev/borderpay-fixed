@@ -26,17 +26,18 @@ import { toast } from 'sonner';
 import { publicAnonKey } from '../../utils/supabase/info';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { getAllowedCountries, getPopularCountries } from '../../utils/countries/allowedCountries';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import type { Country } from '../../utils/countries/allCountries';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
-import { SmileIDVerification } from '../kyc/SmileIDVerification';
+import { KYCVerification } from '../kyc/KYCVerification';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type SignUpStep = 'personal' | 'identity' | 'smile-id' | 'address' | 'proof-of-address' | 'review' | 'pending';
+type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'smile-id' | 'address' | 'proof-of-address' | 'review' | 'pending';
 
 interface SignUpData {
   // Step 1: Personal
@@ -147,9 +148,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     setFormData(prev => ({ ...prev, ...updates }));
   };
 
-  const steps: SignUpStep[] = ['personal', 'identity', 'smile-id', 'address', 'proof-of-address', 'review', 'pending'];
+  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'smile-id', 'address', 'proof-of-address', 'review', 'pending'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 6; // Don't count 'pending'
+  const totalSteps = 7; // Don't count 'pending'
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)
@@ -195,43 +196,26 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         throw new Error(result.error || 'Signup failed');
       }
 
-      // Sign in the user to get session
-      const { data, error } = await supabase.auth.signInWithPassword({
+      // Store signup data temporarily for after email confirmation
+      localStorage.setItem('borderpay_pending_signup', JSON.stringify({
         email,
-        password,
-      });
+        full_name: fullName,
+      }));
 
-      if (error) throw error;
+      // Try to send branded confirmation email via Resend
+      try {
+        const confirmUrl = `${window.location.origin}/auth/confirm?email=${encodeURIComponent(email)}`;
+        await fetch(`${import.meta.env.VITE_SUPABASE_URL || `https://orwrcpwsffjlvzuraxjc.supabase.co`}/functions/v1/send-confirmation-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+          body: JSON.stringify({ email, full_name: fullName, confirmation_url: confirmUrl }),
+        });
+      } catch { /* Supabase default email will be sent as fallback */ }
 
-      if (data.user) {
-        setCreatedUserId(data.user.id);
-
-        // Store in localStorage
-        localStorage.setItem('borderpay_user', JSON.stringify({
-          id: data.user.id,
-          email: data.user.email,
-          full_name: fullName,
-        }));
-
-        // Store session tokens (access + refresh — needed for biometric re-auth)
-        if (data.session?.access_token) {
-          localStorage.setItem('borderpay_token', data.session.access_token);
-        }
-        if (data.session?.refresh_token) {
-          localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
-        }
-        // Store biometric user reference for sign-in
-        localStorage.setItem('borderpay_biometric_user_id', data.user.id);
-        // Ensure kyc_status is set to pending (Tier 0) — NO wallet/account creation here
-        const userRecord = { id: data.user.id, email: data.user.email, full_name: fullName, kyc_status: 'pending' };
-        localStorage.setItem('borderpay_user', JSON.stringify(userRecord));
-
-        toast.success('Account created! Continue with verification.');
-        setCurrentStep('identity');
-      }
+      toast.success('Account created! Check your email to verify.');
+      setCurrentStep('confirm-email');
     } catch (error: any) {
-      console.error('Signup error:', error);
-      const msg = error.message || 'Failed to create account. Please try again.';
+      const msg = friendlyError(error, 'Failed to create account. Please try again.');
       setFormError(msg);
       toast.error(msg);
     } finally {
@@ -295,8 +279,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       toast.success('Proof of address submitted!');
       setCurrentStep('review');
     } catch (error: any) {
-      console.error('PoA upload error:', error);
-      toast.error(error.message || 'Upload failed');
+      toast.error(friendlyError(error, 'Upload failed'));
     } finally {
       setIsLoading(false);
     }
@@ -344,9 +327,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       const result = await backendAPI.enrollment.enrollCustomer(enrollPayload);
 
       if (!result.success) {
-        console.error('Enrollment error:', result);
         // Don't block - user can proceed to dashboard, enrollment can be retried
-        toast.error(result.error || 'Enrollment submitted with issues. Our team will follow up.');
+        toast.error(friendlyError(result.error, 'Enrollment submitted with issues. Our team will follow up.'));
       } else {
         toast.success('Registration complete! Your account is under review.');
         setEnrollmentComplete(true);
@@ -354,7 +336,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
 
       setCurrentStep('pending');
     } catch (error: any) {
-      console.error('Enrollment error:', error);
       toast.error('Submission error. You can proceed - our team will complete your setup.');
       setCurrentStep('pending');
     } finally {
@@ -464,6 +445,61 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                 onShowPrivacy={() => setShowPrivacy(true)}
                 formError={formError}
                 onClearError={() => setFormError('')}
+              />
+            )}
+
+            {currentStep === 'confirm-email' && (
+              <StepConfirmEmail
+                email={formData.email}
+                fullName={formData.fullName}
+                onEmailConfirmed={async () => {
+                  // Try to sign in now that email is confirmed
+                  try {
+                    setIsLoading(true);
+                    const { data, error } = await supabase.auth.signInWithPassword({
+                      email: formData.email,
+                      password: formData.password,
+                    });
+                    if (error) throw error;
+                    if (data.user) {
+                      setCreatedUserId(data.user.id);
+                      localStorage.setItem('borderpay_user', JSON.stringify({
+                        id: data.user.id,
+                        email: data.user.email,
+                        full_name: formData.fullName,
+                        kyc_status: 'pending',
+                      }));
+                      if (data.session?.access_token) {
+                        localStorage.setItem('borderpay_token', data.session.access_token);
+                      }
+                      if (data.session?.refresh_token) {
+                        localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
+                      }
+                      localStorage.setItem('borderpay_biometric_user_id', data.user.id);
+                      localStorage.removeItem('borderpay_pending_signup');
+                      toast.success('Email verified! Continue with verification.');
+                      setCurrentStep('identity');
+                    }
+                  } catch (err: any) {
+                    toast.error(friendlyError(err, 'Sign in failed. Please try logging in.'));
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                onResend={async () => {
+                  try {
+                    const confirmUrl = `${window.location.origin}/auth/confirm?email=${encodeURIComponent(formData.email)}`;
+                    await fetch(`${import.meta.env.VITE_SUPABASE_URL || `https://orwrcpwsffjlvzuraxjc.supabase.co`}/functions/v1/send-confirmation-email`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+                      body: JSON.stringify({ email: formData.email, full_name: formData.fullName, confirmation_url: confirmUrl }),
+                    });
+                    toast.success('Confirmation email resent!');
+                  } catch {
+                    toast.error('Failed to resend. Please try again.');
+                  }
+                }}
+                isLoading={isLoading}
               />
             )}
 
@@ -1012,6 +1048,102 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
 }
 
 // ============================================================================
+// EMAIL CONFIRMATION STEP
+// ============================================================================
+
+function StepConfirmEmail({ email, fullName, onEmailConfirmed, onResend, isLoading }: {
+  email: string;
+  fullName: string;
+  onEmailConfirmed: () => void;
+  onResend: () => void;
+  isLoading: boolean;
+}) {
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
+
+  const handleResend = () => {
+    onResend();
+    setResendCooldown(60);
+  };
+
+  const handleCheckConfirmation = async () => {
+    setChecking(true);
+    // Give a moment for the UI, then try signing in
+    await new Promise(r => setTimeout(r, 500));
+    onEmailConfirmed();
+    setChecking(false);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      className="space-y-6 px-1"
+    >
+      <div className="flex flex-col items-center text-center pt-4">
+        <div className="w-20 h-20 rounded-2xl bg-[#C7FF00]/10 flex items-center justify-center mb-5">
+          <Mail className="w-10 h-10 text-[#C7FF00]" />
+        </div>
+        <h2 className="text-xl font-bold text-white mb-2">Check your email</h2>
+        <p className="text-sm text-gray-400 leading-relaxed max-w-xs">
+          We sent a verification link to
+        </p>
+        <p className="text-sm font-semibold text-[#C7FF00] mt-1">{email}</p>
+        <p className="text-xs text-gray-500 mt-3 leading-relaxed max-w-xs">
+          Click the link in the email to verify your account, then tap the button below to continue.
+        </p>
+      </div>
+
+      <div className="space-y-3 pt-2">
+        <button
+          onClick={handleCheckConfirmation}
+          disabled={isLoading || checking}
+          className="w-full h-14 rounded-2xl bg-[#C7FF00] text-[#0B0E11] font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50"
+        >
+          {(isLoading || checking) ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <>
+              <CheckCircle className="w-5 h-5" />
+              I've Verified My Email
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={handleResend}
+          disabled={resendCooldown > 0}
+          className="w-full h-12 rounded-2xl bg-white/5 border border-white/10 text-white/70 font-medium text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-40"
+        >
+          {resendCooldown > 0 ? (
+            `Resend in ${resendCooldown}s`
+          ) : (
+            <>
+              <Mail className="w-4 h-4" />
+              Resend Confirmation Email
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="text-center pt-2">
+        <p className="text-[11px] text-gray-600">
+          Didn't receive it? Check your spam folder or try resending.
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+// ============================================================================
 // STEP 2: IDENTITY INFO (DOB + ID Type)
 // ============================================================================
 
@@ -1020,7 +1152,8 @@ function StepIdentityInfo({ formData, updateForm, onNext }: {
   updateForm: (u: Partial<SignUpData>) => void;
   onNext: () => void;
 }) {
-  const idTypes = ID_TYPES_BY_COUNTRY[formData.selectedCountry?.code] || ID_TYPES_BY_COUNTRY.DEFAULT;
+  const countryCode = formData.selectedCountry?.code ?? 'DEFAULT';
+  const idTypes = ID_TYPES_BY_COUNTRY[countryCode] || ID_TYPES_BY_COUNTRY.DEFAULT;
 
   const isValid = formData.dateOfBirth && formData.idType && formData.idNumber;
 
@@ -1066,7 +1199,7 @@ function StepIdentityInfo({ formData, updateForm, onNext }: {
             ID Document Type
           </label>
           <div className="space-y-2">
-            {idTypes.map((idType) => (
+            {idTypes.map((idType: { value: string; label: string }) => (
               <button
                 key={idType.value}
                 onClick={() => updateForm({ idType: idType.value as any })}
@@ -1123,51 +1256,15 @@ function StepSmileID({ formData, userId, onComplete, onSkip }: {
   onSkip: () => void;
 }) {
   return (
-    <div className="px-6 pb-8">
-      <div className="text-center mb-6 pt-4">
-        <div className="w-16 h-16 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Shield className="w-8 h-8 text-[#C7FF00]" />
-        </div>
-        <h2 className="text-xl font-bold mb-1">Verify Your Identity</h2>
-        <p className="text-sm text-gray-400 max-w-xs mx-auto">
-          Complete identity verification using your {formData.idType || 'ID'} document and a selfie photo via SmileID.
-        </p>
-      </div>
-
-      {/* Info Cards */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <div className="bg-white/[0.04] backdrop-blur-md border border-white/[0.08] rounded-xl p-3 text-center">
-          <CreditCard className="w-5 h-5 text-[#C7FF00] mx-auto mb-1.5" />
-          <p className="text-xs text-gray-300 font-medium">ID Document</p>
-          <p className="text-[10px] text-gray-500 mt-0.5">Front & back photo</p>
-        </div>
-        <div className="bg-white/[0.04] backdrop-blur-md border border-white/[0.08] rounded-xl p-3 text-center">
-          <Camera className="w-5 h-5 text-[#C7FF00] mx-auto mb-1.5" />
-          <p className="text-xs text-gray-300 font-medium">Selfie Photo</p>
-          <p className="text-[10px] text-gray-500 mt-0.5">Live face capture</p>
-        </div>
-      </div>
-
-      {/* SmileID Widget */}
-      <SmileIDVerification
-        onVerificationComplete={onComplete}
-        userEmail={formData.email}
-        userName={formData.fullName}
-        userCountry={formData.selectedCountry?.code}
-      />
-
-      {/* Skip for later */}
-      <div className="mt-4 text-center">
-        <button
-          onClick={onSkip}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-2"
-        >
-          Skip for now (you can verify later in Settings)
-        </button>
-      </div>
-    </div>
+    <KYCVerification
+      userId={userId}
+      userEmail={formData.email}
+      onBack={onSkip}
+      onComplete={() => onComplete('verified')}
+    />
   );
 }
+
 
 // ============================================================================
 // STEP 4: ADDRESS DETAILS

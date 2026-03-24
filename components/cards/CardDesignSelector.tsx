@@ -173,7 +173,7 @@ export function CardDesignSelector({ onSelectDesign, onCancel, isActivating = fa
   };
 
   return (
-    <div className={`min-h-screen ${tc.bg} flex flex-col`}>
+    <div className={`min-h-screen ${tc.bg} flex flex-col pb-safe`}>
       {/* Header */}
       <div className="px-5 pt-safe pb-3">
         <div className="flex items-center gap-3 mb-1">
@@ -221,8 +221,8 @@ export function CardDesignSelector({ onSelectDesign, onCancel, isActivating = fa
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-[11%]"
-          style={{ scrollSnapType: 'x mandatory' }}
+          className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 sm:px-[11%]"
+          style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'auto', overscrollBehaviorX: 'none' } as React.CSSProperties}
         >
           {CARD_DESIGNS.map((design, idx) => {
             const isDark = design.textColor === 'light';
@@ -234,8 +234,7 @@ export function CardDesignSelector({ onSelectDesign, onCancel, isActivating = fa
             return (
               <div
                 key={design.id}
-                className="flex-shrink-0 snap-center cursor-pointer"
-                style={{ width: '78%' }}
+                className="flex-shrink-0 snap-center cursor-pointer w-[80%] sm:w-[78%]"
                 onClick={() => handleCardTap(idx)}
               >
                 <div

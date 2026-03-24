@@ -9,6 +9,7 @@ import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import { PINManager } from '../../utils/security/SecurityManager';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface ChangePINProps {
   userId: string;
@@ -61,10 +62,9 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
         toast.success('PIN changed successfully');
         onBack();
       } else {
-        toast.error(result.error || 'Failed to change PIN');
+        toast.error(friendlyError(result.error, 'Failed to change PIN'));
       }
     } catch (error) {
-      console.error('Error changing PIN:', error);
       toast.error('Failed to change PIN');
     } finally {
       setLoading(false);
@@ -80,9 +80,9 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
   const isPINMatch = formData.newPIN === formData.confirmPIN && formData.confirmPIN.length === 6;
 
   return (
-    <div className={`min-h-screen ${tc.bg} pb-24`}>
+    <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
-      <div className={`${tc.bgAlt} px-6 py-4 border-b ${tc.border} sticky top-0 z-10`}>
+      <div className={`${tc.bgAlt} px-6 py-4 pt-safe border-b ${tc.border} sticky top-0 z-10`}>
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}

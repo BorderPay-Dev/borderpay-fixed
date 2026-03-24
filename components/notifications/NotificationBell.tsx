@@ -109,9 +109,8 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
         setNotifications(Array.isArray(items) ? items : []);
         setUnreadCount(result.data.unread_count ?? 0);
       }
-    } catch (error) {
-      console.error('Error loading notifications:', error);
-      toast.error('Unable to load your notifications. Please try again.');
+    } catch (_) {
+      // Silent — notifications panel shows empty state
     } finally {
       setLoading(false);
     }
@@ -127,7 +126,6 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
     } catch (error) {
-      console.error('Error marking as read:', error);
     }
   };
 
@@ -142,7 +140,6 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
         toast.success('All notifications marked as read');
       }
     } catch (error) {
-      console.error('Error marking all as read:', error);
       toast.error('Could not update notifications. Please try again.');
     }
   };
@@ -155,7 +152,6 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
         toast.success('Notification deleted');
       }
     } catch (error) {
-      console.error('Error deleting notification:', error);
       toast.error('Could not remove this notification. Please try again.');
     }
   };
@@ -171,7 +167,6 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
         toast.success('All notifications cleared');
       }
     } catch (error) {
-      console.error('Error clearing notifications:', error);
       toast.error('Could not clear notifications. Please check your connection.');
     }
   };
@@ -266,7 +261,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="absolute right-0 mt-2 w-[380px] max-w-[calc(100vw-32px)] bg-[#0B0E11]/80 backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-2xl z-50 overflow-hidden"
+              className="absolute right-0 mt-2 w-[calc(100vw-32px)] sm:w-[380px] bg-[#0B0E11]/80 backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-2xl z-50 overflow-hidden"
             >
               {/* Header */}
               <div className="p-4 border-b border-white/10">
@@ -302,12 +297,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
 
               {/* Notifications List */}
               <div className="max-h-[500px] overflow-y-auto">
-                {loading ? (
-                  <div className="p-8 text-center">
-                    <div className="w-8 h-8 border-2 border-[#C7FF00] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                    <p className="text-white/40 text-xs">Loading...</p>
-                  </div>
-                ) : notifications.length === 0 ? (
+                {notifications.length === 0 ? (
                   <div className="p-8 text-center">
                     <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-3">
                       <Bell className="w-8 h-8 text-white/30" />

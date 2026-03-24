@@ -1,27 +1,32 @@
-import { BorderPayLogo } from '../cards/BorderPayLogo';
 /**
- * BorderPay Africa - KYC Verification Screen
- * Embeds SmileID widget directly in-app via themed iframe
- * Full BorderPay neon green/black branding applied to SmileID widget
- * Users complete verification without leaving the app
+ * BorderPay Africa — KYC Verification Screen
  *
- * Status polling uses smile-callback-handler (deployed edge function)
+ * Uses SmileID smart-camera-web v11 component for document verification:
+ *   1. Welcome — overview of benefits + requirements
+ *   2. Document Select — choose ID type
+ *   3. smart-camera-web — native camera capture (selfie + ID document)
+ *   4. Processing — images uploaded to SmileID via backend
+ *   5. Result — success or failure
+ *
+ * Backend: smile-callback-handler handles token generation, image upload to
+ * SmileID, and receives verification callbacks.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { SERVER_URL, ANON_KEY } from '../../utils/supabase/client';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck, ArrowLeft, Camera, FileText, AlertCircle,
-  CheckCircle, Loader2, X, RefreshCw, Fingerprint,
-  Lock, Eye, Sparkles, ChevronRight, Wifi
+  CheckCircle, Loader2, RefreshCw, Fingerprint,
+  Lock, Eye, ChevronRight, Wifi, CreditCard, Globe,
+  Smartphone, UserCheck, Scan, Shield, Star,
+  ArrowRight, Zap, BadgeCheck
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI, supabase } from '../../utils/supabase/client';
-import { projectId } from '../../utils/supabase/info';
-
-import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface KYCVerificationProps {
   userId: string;
@@ -30,185 +35,164 @@ interface KYCVerificationProps {
   onComplete: () => void;
 }
 
-type VerificationStep = 'intro' | 'permissions' | 'loading' | 'widget' | 'processing' | 'success' | 'failed';
+type KYCStep = 'welcome' | 'doc-select' | 'loading' | 'capture' | 'uploading' | 'processing' | 'success' | 'failed';
 
-// SmileID sandbox widget URL (fallback)
-const SMILEID_SANDBOX_URL = 'https://links.sandbox.usesmileid.com/8077/4ad0eb49-0a5d-45e1-8365-b64c5bc3fe98';
+type DocType = 'PASSPORT' | 'NIN' | 'DRIVERS_LICENSE' | 'VOTERS_CARD';
 
-// BorderPay theme config for SmileID
-const BORDERPAY_SMILEID_THEME = {
-  partner_name: 'BorderPay Africa',
-  theme_color: '#C7FF00',
-  logo_url: '',
-  accent_color: '#C7FF00',
-  background_color: '#0B0E11',
-  text_color: '#FFFFFF',
-  button_color: '#C7FF00',
-  button_text_color: '#0B0E11',
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const DOC_OPTIONS: { id: DocType; label: string; desc: string; icon: typeof FileText }[] = [
+  { id: 'PASSPORT', label: 'International Passport', desc: 'Valid travel passport', icon: Globe },
+  { id: 'NIN', label: 'National ID (NIN)', desc: 'National Identity Number', icon: CreditCard },
+  { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Government-issued license', icon: Smartphone },
+  { id: 'VOTERS_CARD', label: "Voter's Card", desc: 'Electoral registration card', icon: UserCheck },
+];
+
+const UNLOCK_FEATURES = [
+  { icon: CreditCard, label: 'Virtual & Physical Cards', color: 'from-yellow-400/20 to-yellow-600/5' },
+  { icon: Globe, label: 'International Transfers', color: 'from-blue-400/20 to-blue-600/5' },
+  { icon: Zap, label: 'Instant Settlements', color: 'from-purple-400/20 to-purple-600/5' },
+  { icon: Star, label: 'Higher Transaction Limits', color: 'from-green-400/20 to-green-600/5' },
+];
+
+const STEPS_CONFIG = [
+  { label: 'Document', icon: FileText },
+  { label: 'Scan ID', icon: Scan },
+  { label: 'Selfie', icon: Eye },
+  { label: 'Verified', icon: BadgeCheck },
+];
+
+// Map our doc types to SmileID id_type values
+const SMILE_ID_TYPE_MAP: Record<DocType, string> = {
+  PASSPORT: 'PASSPORT',
+  NIN: 'NIN_V2',
+  DRIVERS_LICENSE: 'DRIVERS_LICENSE',
+  VOTERS_CARD: 'VOTER_ID',
 };
 
-// Append SmileID theming query params to widget URL
-function appendSmileIDThemeParams(url: string): string {
-  try {
-    const u = new URL(url);
-    u.searchParams.set('theme_color', BORDERPAY_SMILEID_THEME.theme_color.replace('#', ''));
-    u.searchParams.set('partner_name', BORDERPAY_SMILEID_THEME.partner_name);
-    u.searchParams.set('hide_attribution', 'false');
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVerificationProps) {
-  const [step, setStep] = useState<VerificationStep>('intro');
-  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
+  const [step, setStep] = useState<KYCStep>('welcome');
+  const [selectedDoc, setSelectedDoc] = useState<DocType | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [iframeLoaded, setIframeLoaded] = useState(false);
-  const [cameraGranted, setCameraGranted] = useState<boolean | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [sdkConfig, setSdkConfig] = useState<any>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const cameraRef = useRef<HTMLDivElement>(null);
 
-  // Cleanup
+  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      stopPolling();
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => stopPolling();
   }, []);
 
-  // Listen for postMessage from SmileID widget
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      console.log('📨 postMessage:', event.origin, event.data);
-      if (!event.data) return;
-
-      const data = typeof event.data === 'string' ? tryParseJSON(event.data) : event.data;
-      if (!data) return;
-
-      if (data.event === 'smileid:complete' || data.status === 'complete' ||
-          data.ResultCode === '1012' || data.SmileJobID) {
-        handleVerificationDone('success');
-      }
-      if (data.event === 'smileid:error') {
-        handleVerificationDone('failed');
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
-  const tryParseJSON = (str: string) => {
-    try { return JSON.parse(str); } catch { return null; }
-  };
-
-  const stopPolling = () => {
+  const stopPolling = useCallback(() => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-  };
+  }, []);
 
-  const startPolling = () => {
-    if (pollingRef.current) return;
-    pollingRef.current = setInterval(async () => {
-      await checkVerificationStatus();
-    }, 3000);
-  };
-
-  const startTimer = () => {
-    setElapsedSeconds(0);
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setElapsedSeconds(prev => prev + 1);
-    }, 1000);
-  };
-
-  // Poll smile-callback-handler for verification status
-  const checkVerificationStatus = async () => {
+  const checkVerificationStatus = useCallback(async () => {
     try {
       const token = authAPI.getToken();
       if (!token) return;
-
       const response = await fetch(
-        `${SERVER_URL}/smile-callback-handler?userId=${userId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'apikey': ANON_KEY,
-          }
-        }
+        `${BASE_URL}/smile-callback-handler?userId=${userId}`,
+        { headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY } }
       );
       const data = await response.json();
-      console.log('📊 KYC Poll:', data.status);
-
       if (data.success) {
         if (data.status === 'verified') handleVerificationDone('success');
         else if (data.status === 'failed') handleVerificationDone('failed');
       }
-    } catch (e) {
-      console.warn('⚠️ Poll error:', e);
-    }
-  };
+    } catch (e) { /* polling will retry */ }
+  }, [userId]);
+
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return;
+    pollingRef.current = setInterval(() => checkVerificationStatus(), 5000);
+  }, [checkVerificationStatus]);
 
   const handleVerificationDone = async (result: 'success' | 'failed') => {
     stopPolling();
-    if (timerRef.current) clearInterval(timerRef.current);
-
     if (result === 'success') {
       setStep('success');
-      toast.success('Identity verified successfully!');
-
-      // Refresh user profile
+      toast.success('Identity verified!');
       try {
         const profileResult = await backendAPI.user.getProfile();
         if (profileResult.success && profileResult.data?.user) {
           localStorage.setItem('borderpay_user', JSON.stringify(profileResult.data.user));
         }
-      } catch (e) {
-        console.warn('⚠️ Profile refresh error:', e);
-      }
-      setTimeout(() => onComplete(), 3000);
+      } catch (e) { /* silent */ }
+      setTimeout(() => onComplete(), 3500);
     } else {
       setStep('failed');
       setError('Verification could not be completed. Please try again.');
-      toast.error('Verification failed.');
+      toast.error('Verification failed');
     }
   };
 
-  // Check camera permission
-  const checkCameraPermission = async () => {
-    setStep('permissions');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      stream.getTracks().forEach(t => t.stop());
-      setCameraGranted(true);
-      // Auto-proceed after a short delay
-      setTimeout(() => launchWidget(), 800);
-    } catch (err) {
-      console.warn('📷 Camera permission not available:', err);
-      setCameraGranted(false);
-      // Auto-proceed anyway after 2 seconds — SmileID widget handles its own camera request
-      setTimeout(() => launchWidget(), 2000);
-    }
-  };
+  // ─── Initialize: get token from backend ────────────────────────────────────
 
-  // Launch the SmileID widget
-  const launchWidget = async () => {
+  const initializeVerification = async () => {
     setStep('loading');
     setError(null);
-    setIframeLoaded(false);
 
     try {
       const token = authAPI.getToken();
+      const response = await fetch(`${BASE_URL}/smile-callback-handler`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'apikey': ANON_KEY,
+        },
+        body: JSON.stringify({
+          product: 'doc_verification',
+          id_type: selectedDoc ? SMILE_ID_TYPE_MAP[selectedDoc] : 'PASSPORT',
+          country: 'NG',
+        }),
+      });
 
-      // Request fresh verification link with theme customization
-      const response = await fetch(
-        `${SERVER_URL}/smile-callback-handler`,
-        {
+      if (!response.ok) throw new Error('Failed to initialize verification');
+
+      const result = await response.json();
+      if (!result.success || !result.data) {
+        if (result.data?.already_verified) {
+          handleVerificationDone('success');
+          return;
+        }
+        throw new Error('Backend returned no data');
+      }
+
+      setSdkConfig(result.data);
+      setStep('capture');
+    } catch (err: any) {
+      console.error('Init error:', err);
+      setStep('failed');
+      setError(err.message || 'Could not start verification.');
+      toast.error('Could not start verification');
+    }
+  };
+
+  // ─── Handle smart-camera-web events ────────────────────────────────────────
+
+  useEffect(() => {
+    if (step !== 'capture' || !cameraRef.current) return;
+
+    const container = cameraRef.current;
+    const el = container.querySelector('smart-camera-web');
+    if (!el) return;
+
+    const handleImagesComputed = async (event: any) => {
+      const detail = event.detail;
+      if (!detail?.images) return;
+
+      setStep('uploading');
+
+      try {
+        const token = authAPI.getToken();
+        const response = await fetch(`${BASE_URL}/smile-callback-handler`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -216,422 +200,337 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             'apikey': ANON_KEY,
           },
           body: JSON.stringify({
-            job_id: `kyc-${userId}-${Date.now()}`,
-            product: 'biometric_kyc',
-            // SmileID theme customization params
-            partner_details: {
-              name: BORDERPAY_SMILEID_THEME.partner_name,
-              theme_color: BORDERPAY_SMILEID_THEME.theme_color,
-              logo: BORDERPAY_SMILEID_THEME.logo_url,
-            },
-            customization: {
-              theme_color: BORDERPAY_SMILEID_THEME.theme_color,
-              accent_color: BORDERPAY_SMILEID_THEME.accent_color,
-              button_color: BORDERPAY_SMILEID_THEME.button_color,
-              button_text_color: BORDERPAY_SMILEID_THEME.button_text_color,
-            }
-          })
-        }
-      );
+            action: 'submit_images',
+            images: detail.images,
+            id_type: selectedDoc ? SMILE_ID_TYPE_MAP[selectedDoc] : 'PASSPORT',
+            country: 'NG',
+            job_id: sdkConfig?.job_id,
+          }),
+        });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('📨 SmileID Response:', data);
+        const result = await response.json();
 
-        const link = data.data?.web_url || data.data?.mobile_url ||
-                     data.data?.smile_link || data.data?.verification_url ||
-                     data.data?.link;
-
-        if (link) {
-          setVerificationUrl(appendSmileIDThemeParams(link));
-          setStep('widget');
+        if (result.success) {
+          setStep('processing');
           startPolling();
-          startTimer();
-          return;
+          // Also check after a delay
+          setTimeout(() => checkVerificationStatus(), 10000);
+          setTimeout(() => checkVerificationStatus(), 20000);
+          setTimeout(() => {
+            stopPolling();
+            setStep(current => {
+              if (current === 'processing') {
+                toast.info("Verification is being processed. You'll be notified.");
+                setTimeout(() => onComplete(), 500);
+              }
+              return current;
+            });
+          }, 60000);
+        } else {
+          setStep('failed');
+          setError(result.error || 'Upload failed. Please try again.');
+          toast.error('Upload failed');
         }
+      } catch (err: any) {
+        setStep('failed');
+        setError(err.message || 'Upload failed.');
+        toast.error('Upload failed');
       }
+    };
 
-      // Fallback to sandbox URL with theme params
-      console.log('ℹ️ Using SmileID sandbox widget URL');
-      setVerificationUrl(appendSmileIDThemeParams(SMILEID_SANDBOX_URL));
-      setStep('widget');
-      startPolling();
-      startTimer();
+    const handleClose = () => {
+      setStep('doc-select');
+    };
 
-    } catch (err: any) {
-      console.warn('⚠️ Backend failed, using sandbox:', err.message);
-      setVerificationUrl(appendSmileIDThemeParams(SMILEID_SANDBOX_URL));
-      setStep('widget');
-      startPolling();
-      startTimer();
-    }
-  };
+    el.addEventListener('imagesComputed', handleImagesComputed);
+    el.addEventListener('close', handleClose);
 
-  const handleIframeLoad = () => {
-    setIframeLoaded(true);
-    console.log('✅ SmileID widget loaded');
-
-    // Inject CSS to theme the SmileID widget (best effort — cross-origin may block)
-    try {
-      const iframe = iframeRef.current;
-      if (iframe?.contentDocument) {
-        const style = iframe.contentDocument.createElement('style');
-        style.textContent = `
-          :root {
-            --smile-primary: #C7FF00 !important;
-            --smile-primary-dark: #A8D600 !important;
-            --smile-accent: #C7FF00 !important;
-          }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-          }
-          .smile-btn-primary, 
-          button[class*="primary"],
-          .btn-primary,
-          [class*="PrimaryButton"],
-          [class*="primaryButton"],
-          [data-testid="continue-button"],
-          [class*="ContinueButton"] {
-            background-color: #C7FF00 !important;
-            background: #C7FF00 !important;
-            color: #0B0E11 !important;
-            border-color: #C7FF00 !important;
-            border-radius: 9999px !important;
-            font-weight: 700 !important;
-          }
-          .smile-btn-primary:hover,
-          button[class*="primary"]:hover,
-          .btn-primary:hover {
-            background-color: #B8F000 !important;
-            background: #B8F000 !important;
-          }
-          a, .smile-link, [class*="link"] {
-            color: #C7FF00 !important;
-          }
-          [class*="progress"], [class*="Progress"],
-          [role="progressbar"] > div {
-            background-color: #C7FF00 !important;
-          }
-          [class*="check"], [class*="Check"],
-          [class*="success"] svg {
-            color: #C7FF00 !important;
-            fill: #C7FF00 !important;
-          }
-          [class*="Header"], [class*="header"] {
-            border-bottom-color: rgba(199, 255, 0, 0.2) !important;
-          }
-          input[type="radio"]:checked + *,
-          input[type="checkbox"]:checked + * {
-            border-color: #C7FF00 !important;
-          }
-          input[type="radio"]:checked::before {
-            background-color: #C7FF00 !important;
-          }
-          *:focus-visible {
-            outline-color: #C7FF00 !important;
-            box-shadow: 0 0 0 2px rgba(199, 255, 0, 0.3) !important;
-          }
-          [class*="selected"], [class*="Selected"],
-          [class*="active"], [aria-selected="true"] {
-            border-color: #C7FF00 !important;
-            box-shadow: 0 0 0 2px rgba(199, 255, 0, 0.2) !important;
-          }
-          .smile-btn-secondary,
-          button[class*="secondary"],
-          .btn-secondary {
-            border-color: #C7FF00 !important;
-            color: #C7FF00 !important;
-          }
-          [class*="oval"], [class*="Oval"],
-          [class*="capture-area"], [class*="CaptureArea"] {
-            border-color: #C7FF00 !important;
-          }
-        `;
-        iframe.contentDocument.head.appendChild(style);
-        console.log('🎨 SmileID theme CSS injected');
-      }
-    } catch (e) {
-      console.log('🎨 Cross-origin: CSS injection not possible (expected)');
-    }
-  };
+    return () => {
+      el.removeEventListener('imagesComputed', handleImagesComputed);
+      el.removeEventListener('close', handleClose);
+    };
+  }, [step, sdkConfig, selectedDoc]);
 
   const handleRetry = () => {
     stopPolling();
-    if (timerRef.current) clearInterval(timerRef.current);
-    setStep('intro');
+    setStep('welcome');
+    setSelectedDoc(null);
     setError(null);
-    setVerificationUrl(null);
-    setIframeLoaded(false);
-    setElapsedSeconds(0);
+    setSdkConfig(null);
   };
 
-  const handleManualComplete = () => {
-    setStep('processing');
-    toast.info('Checking verification status...');
-    checkVerificationStatus().then(() => {
-      startPolling();
-      setTimeout(() => {
-        stopPolling();
-        setStep(current => {
-          if (current === 'processing') {
-            toast.info("Verification is being processed. You'll be notified.");
-            setTimeout(() => onComplete(), 500);
-          }
-          return current;
-        });
-      }, 30000);
-    });
+  // ── Step progress ──
+  const activeStepIdx =
+    step === 'welcome' || step === 'doc-select' ? 0 :
+    step === 'loading' || step === 'capture' ? 1 :
+    step === 'uploading' ? 2 :
+    step === 'processing' ? 3 :
+    step === 'success' ? 4 : 2;
+
+  const progressPct: Record<KYCStep, number> = {
+    welcome: 0, 'doc-select': 12, loading: 25,
+    capture: 50, uploading: 70, processing: 85, success: 100, failed: 60,
   };
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
-
-  // Step progress config
-  const stepProgress: Record<VerificationStep, number> = {
-    intro: 0, permissions: 15, loading: 30, widget: 55, processing: 80, success: 100, failed: 55
-  };
-
-  const verificationSteps = [
-    { id: 1, label: 'Prepare', icon: FileText },
-    { id: 2, label: 'Scan ID', icon: Camera },
-    { id: 3, label: 'Selfie', icon: Eye },
-    { id: 4, label: 'Done', icon: CheckCircle },
-  ];
-
-  const activeStepIndex = step === 'intro' || step === 'permissions' ? 0
-    : step === 'loading' ? 1
-    : step === 'widget' ? 2
-    : step === 'processing' ? 3
-    : step === 'success' ? 4
-    : 2;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="min-h-screen bg-[#0B0E11] text-white flex flex-col">
+    <div className="min-h-screen bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-[#C7FF00]/10">
-        <div className="flex items-center justify-between px-4 py-2.5 pt-safe">
+      <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
+        <div className="flex items-center justify-between px-4 py-3 pt-safe">
           <button
-            onClick={step === 'widget' ? handleRetry : onBack}
-            className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors active:scale-95"
+            onClick={step === 'capture' ? () => setStep('doc-select') : onBack}
+            className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
           >
-            {step === 'widget' ? <X size={16} /> : <ArrowLeft size={16} />}
+            <ArrowLeft size={16} />
           </button>
 
           <div className="flex items-center gap-2">
-            <ShieldCheck size={16} className="text-[#C7FF00]" />
-            <span className="text-xs font-bold tracking-wide">
-              {step === 'widget' ? 'VERIFYING' : 'KYC VERIFICATION'}
+            <Shield size={14} className="text-[#C7FF00]" />
+            <span className="text-[11px] font-bold tracking-widest uppercase">
+              {step === 'capture' ? 'Scan & Capture' : step === 'uploading' ? 'Uploading' : 'Identity Verification'}
             </span>
-            {step === 'widget' && (
-              <span className="text-[9px] font-mono text-[#C7FF00]/70 bg-[#C7FF00]/10 px-1.5 py-0.5 rounded">
-                {formatTime(elapsedSeconds)}
-              </span>
-            )}
           </div>
 
-          <div className="w-8 flex items-center justify-center">
-            {(step === 'widget' || step === 'processing') && (
+          <div className="w-9 flex items-center justify-center">
+            {(step === 'capture' || step === 'uploading' || step === 'processing') && (
               <div className="w-2 h-2 rounded-full bg-[#C7FF00] animate-pulse" />
             )}
           </div>
         </div>
 
         {/* Progress bar */}
-        <div className="h-[2px] bg-white/5">
+        <div className="h-[2px] bg-white/[0.04]">
           <motion.div
-            className="h-full bg-gradient-to-r from-[#C7FF00] to-[#A8D600]"
-            initial={{ width: '0%' }}
-            animate={{ width: `${stepProgress[step]}%` }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
+            className="h-full bg-gradient-to-r from-[#C7FF00] to-[#9BDB00]"
+            animate={{ width: `${progressPct[step]}%` }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
           />
         </div>
       </div>
+
+      {/* ── Step indicators ── */}
+      {step !== 'capture' && step !== 'success' && step !== 'failed' && step !== 'uploading' && (
+        <div className="px-6 pt-4 pb-2">
+          <div className="flex items-center justify-between">
+            {STEPS_CONFIG.map((s, i) => (
+              <React.Fragment key={i}>
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    i < activeStepIdx
+                      ? 'bg-[#C7FF00] text-[#0B0E11]'
+                      : i === activeStepIdx
+                        ? 'bg-[#C7FF00]/20 border border-[#C7FF00]/50 text-[#C7FF00]'
+                        : 'bg-white/[0.04] border border-white/[0.08] text-gray-600'
+                  }`}>
+                    {i < activeStepIdx ? <CheckCircle size={14} /> : <s.icon size={13} />}
+                  </div>
+                  <span className={`text-[8px] font-bold uppercase tracking-wider ${
+                    i <= activeStepIdx ? 'text-[#C7FF00]' : 'text-gray-700'
+                  }`}>
+                    {s.label}
+                  </span>
+                </div>
+                {i < STEPS_CONFIG.length - 1 && (
+                  <div className={`flex-1 h-[1px] mx-2 mb-5 transition-colors duration-300 ${
+                    i < activeStepIdx ? 'bg-[#C7FF00]/40' : 'bg-white/[0.06]'
+                  }`} />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Content ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <AnimatePresence mode="wait">
 
-          {/* ═══ STEP 1: INTRO ═══ */}
-          {step === 'intro' && (
+          {/* ═══ WELCOME ═══ */}
+          {step === 'welcome' && (
             <motion.div
-              key="intro"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="flex-1 px-5 py-5 overflow-y-auto"
+              key="welcome"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 px-5 py-4 overflow-y-auto"
             >
-              {/* Hero */}
-              <div className="relative flex flex-col items-center mb-6">
-                <motion.div
-                  className="absolute w-28 h-28 rounded-full"
-                  style={{ background: 'radial-gradient(circle, rgba(199,255,0,0.15) 0%, transparent 70%)' }}
-                  animate={{ scale: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
-                  transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-                />
-                <div className="w-18 h-18 rounded-full bg-gradient-to-br from-[#C7FF00]/20 to-[#C7FF00]/5 border border-[#C7FF00]/30 flex items-center justify-center relative z-10" style={{ width: 72, height: 72 }}>
-                  <Fingerprint className="w-9 h-9 text-[#C7FF00]" strokeWidth={1.5} />
+              <div className="flex flex-col items-center mb-6">
+                <div className="relative">
+                  <motion.div
+                    className="absolute -inset-4 rounded-full"
+                    style={{ background: 'radial-gradient(circle, rgba(199,255,0,0.12) 0%, transparent 70%)' }}
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+                    transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                  />
+                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#C7FF00]/20 to-[#C7FF00]/5 border border-[#C7FF00]/20 flex items-center justify-center relative z-10 rotate-3">
+                    <Fingerprint className="w-10 h-10 text-[#C7FF00]" strokeWidth={1.5} />
+                  </div>
                 </div>
-                <h2 className="text-lg font-extrabold mt-4 tracking-tight">Verify Your Identity</h2>
-                <p className="text-[11px] text-gray-400 text-center mt-1 max-w-[260px] leading-relaxed">
-                  Quick & secure ID verification powered by SmileID
+                <h1 className="text-xl font-black mt-5 tracking-tight">Verify Your Identity</h1>
+                <p className="text-xs text-gray-500 text-center mt-1.5 max-w-[280px] leading-relaxed">
+                  Complete KYC verification to unlock all BorderPay features. Quick, secure, powered by SmileID.
                 </p>
               </div>
 
-              {/* Step indicators */}
-              <div className="flex items-center justify-between px-2 mb-6">
-                {verificationSteps.map((vs, i) => (
-                  <div key={vs.id} className="contents">
-                    <div className="flex flex-col items-center gap-1.5">
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center border transition-all ${
-                        i === 0
-                          ? 'bg-[#C7FF00] border-[#C7FF00] text-[#0B0E11]'
-                          : 'bg-white/5 border-white/10 text-gray-500'
-                      }`}>
-                        <vs.icon size={16} />
-                      </div>
-                      <span className={`text-[9px] font-semibold ${i === 0 ? 'text-[#C7FF00]' : 'text-gray-600'}`}>
-                        {vs.label}
-                      </span>
-                    </div>
-                    {i < verificationSteps.length - 1 && (
-                      <div className="flex-1 h-[1px] bg-white/10 mx-1 mb-4" />
-                    )}
-                  </div>
-                ))}
+              <div className="mb-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Zap className="w-3.5 h-3.5 text-[#C7FF00]" />
+                  <span className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest">Unlock Features</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {UNLOCK_FEATURES.map((f, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.1 + i * 0.07 }}
+                      className={`flex items-center gap-2.5 bg-gradient-to-br ${f.color} border border-white/[0.06] rounded-xl px-3 py-2.5`}
+                    >
+                      <f.icon className="w-4 h-4 text-white/70 flex-shrink-0" />
+                      <span className="text-[10px] text-white/80 font-medium leading-tight">{f.label}</span>
+                    </motion.div>
+                  ))}
+                </div>
               </div>
 
-              {/* Benefits Card */}
-              <div className="bg-gradient-to-br from-[#C7FF00]/8 to-transparent border border-[#C7FF00]/15 rounded-2xl p-4 mb-3">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="w-3.5 h-3.5 text-[#C7FF00]" />
-                  <span className="text-[11px] font-bold text-[#C7FF00] uppercase tracking-wider">Unlock Premium</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2.5">
+              <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mb-4">
+                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-3 block">What You'll Need</span>
+                <div className="space-y-3">
                   {[
-                    { icon: '\uD83D\uDCB3', text: 'Virtual Cards' },
-                    { icon: '\uD83C\uDF0D', text: "Int'l Transfers" },
-                    { icon: '\uD83D\uDCC8', text: 'Higher Limits' },
-                    { icon: '\u2728', text: 'Verified Badge' },
-                  ].map((b, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-white/3 rounded-lg px-2.5 py-2">
-                      <span className="text-sm">{b.icon}</span>
-                      <span className="text-[10px] text-white/80 font-medium">{b.text}</span>
+                    { icon: FileText, title: 'Valid Government ID', sub: 'Passport, NIN, License, or Voter\'s Card' },
+                    { icon: Camera, title: 'Camera Access', sub: 'For ID scan and selfie capture' },
+                    { icon: Wifi, title: 'Stable Internet', sub: 'For real-time verification processing' },
+                  ].map((req, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-[#C7FF00]/[0.07] flex items-center justify-center flex-shrink-0">
+                        <req.icon className="w-4 h-4 text-[#C7FF00]/70" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-white font-semibold">{req.title}</p>
+                        <p className="text-[9px] text-gray-500">{req.sub}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Requirements Card */}
-              <div className="bg-white/[0.03] border border-white/8 rounded-2xl p-4 mb-3">
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3 block">What You Need</span>
-                <div className="space-y-2.5">
-                  <RequirementRow icon={Camera} title="Camera Access" subtitle="For selfie capture" />
-                  <RequirementRow icon={FileText} title="Valid Government ID" subtitle="Passport, National ID, or License" />
-                  <RequirementRow icon={Wifi} title="Stable Connection" subtitle="For real-time verification" />
-                </div>
-              </div>
-
-              {/* Security Badge */}
-              <div className="flex items-center gap-2.5 bg-[#C7FF00]/5 border border-[#C7FF00]/10 rounded-xl px-3 py-2.5 mb-5">
-                <Lock className="w-3.5 h-3.5 text-[#C7FF00]/70 flex-shrink-0" />
-                <p className="text-[9px] text-[#C7FF00]/60 leading-relaxed">
-                  End-to-end encrypted. Your biometric data is processed by SmileID and never stored on our servers.
+              <div className="flex items-center gap-2.5 bg-[#C7FF00]/[0.04] border border-[#C7FF00]/[0.08] rounded-xl px-3.5 py-2.5 mb-6">
+                <Lock className="w-3.5 h-3.5 text-[#C7FF00]/60 flex-shrink-0" />
+                <p className="text-[9px] text-[#C7FF00]/50 leading-relaxed">
+                  End-to-end encrypted. Biometric data is processed by SmileID and never stored on BorderPay servers.
                 </p>
               </div>
+            </motion.div>
+          )}
 
-              {/* CTA */}
+          {/* WELCOME CTA */}
+          {step === 'welcome' && (
+            <div className="sticky bottom-0 z-20 bg-gradient-to-t from-[#0B0E11] via-[#0B0E11] to-[#0B0E11]/0 px-5 pt-6 pb-4 pb-safe">
               <motion.button
-                onClick={checkCameraPermission}
-                className="w-full relative overflow-hidden bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-full font-extrabold text-[13px] tracking-wide flex items-center justify-center gap-2.5 transition-transform"
+                onClick={() => setStep('doc-select')}
+                className="w-full relative overflow-hidden bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm tracking-wide flex items-center justify-center gap-2.5"
                 whileTap={{ scale: 0.97 }}
               >
                 <motion.div
-                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent"
+                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
                   animate={{ x: ['-100%', '100%'] }}
-                  transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut', repeatDelay: 1 }}
-                  style={{ width: '50%' }}
+                  transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut', repeatDelay: 1.5 }}
+                  style={{ width: '40%' }}
                 />
                 <ShieldCheck size={18} className="relative z-10" />
-                <span className="relative z-10">Begin Verification</span>
-                <ChevronRight size={16} className="relative z-10" />
+                <span className="relative z-10">Start Verification</span>
+                <ArrowRight size={16} className="relative z-10" />
               </motion.button>
-
-              <button
-                onClick={onBack}
-                className="w-full text-gray-600 py-3 text-[10px] font-medium hover:text-gray-400 transition-colors"
-              >
-                I'll do this later
+              <button onClick={onBack} className="w-full text-gray-600 py-3 text-[10px] font-medium hover:text-gray-400 transition-colors">
+                I'll verify later
               </button>
-            </motion.div>
+            </div>
           )}
 
-          {/* ═══ STEP 1.5: CAMERA PERMISSION ═══ */}
-          {step === 'permissions' && (
+          {/* ═══ DOCUMENT SELECT ═══ */}
+          {step === 'doc-select' && (
             <motion.div
-              key="permissions"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col items-center justify-center px-6"
+              key="doc-select"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 px-5 py-4 overflow-y-auto"
             >
-              <motion.div
-                animate={cameraGranted === null ? { scale: [1, 1.05, 1] } : {}}
-                transition={{ repeat: Infinity, duration: 2 }}
-                className={`w-20 h-20 rounded-full flex items-center justify-center mb-5 ${
-                  cameraGranted === true ? 'bg-[#C7FF00]/20' :
-                  cameraGranted === 'bg-[#C7FF00]/10'
-                }`}
-              >
-                {cameraGranted === null && <Camera className="w-9 h-9 text-[#C7FF00]" />}
-                {cameraGranted === true && <CheckCircle className="w-9 h-9 text-[#C7FF00]" />}
-                {cameraGranted === false && <AlertCircle className="w-9 h-9 text-red-400" />}
-              </motion.div>
+              <div className="text-center mb-6">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <FileText className="w-7 h-7 text-[#C7FF00]" />
+                </div>
+                <h2 className="text-lg font-bold mb-1">Select ID Document</h2>
+                <p className="text-[11px] text-gray-500 max-w-[250px] mx-auto">
+                  Choose the type of government-issued ID you will use for verification
+                </p>
+              </div>
 
-              {cameraGranted === null && (
-                <>
-                  <h3 className="text-base font-bold mb-1.5">Camera Access Required</h3>
-                  <p className="text-[11px] text-gray-400 text-center max-w-[240px]">
-                    Please allow camera access when prompted to continue with verification
-                  </p>
-                  <Loader2 className="w-5 h-5 text-[#C7FF00] animate-spin mt-4" />
-                </>
-              )}
-
-              {cameraGranted === true && (
-                <>
-                  <h3 className="text-base font-bold text-[#C7FF00] mb-1.5">Camera Ready</h3>
-                  <p className="text-[11px] text-gray-400">Launching verification widget...</p>
-                </>
-              )}
-
-              {cameraGranted === false && (
-                <>
-                  <h3 className="text-base font-bold text-red-400 mb-1.5">Camera Blocked</h3>
-                  <p className="text-[11px] text-gray-400 text-center max-w-[260px] mb-5">
-                    Camera access is needed for selfie verification. Please enable it in your browser settings and try again.
-                  </p>
-                  <button
-                    onClick={() => { setCameraGranted(null); checkCameraPermission(); }}
-                    className="bg-[#C7FF00] text-[#0B0E11] px-6 py-2.5 rounded-full text-xs font-bold active:scale-95 transition-transform mb-2"
+              <div className="space-y-2.5 mb-6">
+                {DOC_OPTIONS.map((doc, i) => (
+                  <motion.button
+                    key={doc.id}
+                    initial={{ opacity: 0, x: -12 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.06 }}
+                    onClick={() => setSelectedDoc(doc.id)}
+                    className={`w-full flex items-center gap-3.5 p-4 rounded-2xl border transition-all text-left active:scale-[0.98] ${
+                      selectedDoc === doc.id
+                        ? 'bg-[#C7FF00]/10 border-[#C7FF00]/40 shadow-[0_0_20px_rgba(199,255,0,0.08)]'
+                        : 'bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]'
+                    }`}
                   >
-                    Try Again
-                  </button>
-                  <button
-                    onClick={() => launchWidget()}
-                    className="text-[#C7FF00]/60 text-[10px] font-medium py-2"
-                  >
-                    Continue anyway
-                  </button>
-                </>
-              )}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                      selectedDoc === doc.id ? 'bg-[#C7FF00]/20' : 'bg-white/[0.04]'
+                    }`}>
+                      <doc.icon className={`w-5 h-5 transition-colors ${
+                        selectedDoc === doc.id ? 'text-[#C7FF00]' : 'text-gray-500'
+                      }`} />
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-[12px] font-semibold transition-colors ${
+                        selectedDoc === doc.id ? 'text-white' : 'text-gray-300'
+                      }`}>{doc.label}</p>
+                      <p className="text-[9px] text-gray-600">{doc.desc}</p>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                      selectedDoc === doc.id ? 'border-[#C7FF00] bg-[#C7FF00]' : 'border-gray-700'
+                    }`}>
+                      {selectedDoc === doc.id && <CheckCircle className="w-3 h-3 text-[#0B0E11]" />}
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
             </motion.div>
           )}
 
-          {/* ═══ STEP 2: LOADING ═══ */}
+          {/* DOC-SELECT CTA */}
+          {step === 'doc-select' && (
+            <div className="sticky bottom-0 z-20 bg-gradient-to-t from-[#0B0E11] via-[#0B0E11] to-[#0B0E11]/0 px-5 pt-6 pb-4 pb-safe">
+              <motion.button
+                onClick={initializeVerification}
+                disabled={!selectedDoc}
+                className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                  selectedDoc
+                    ? 'bg-[#C7FF00] text-[#0B0E11] active:scale-[0.97]'
+                    : 'bg-white/[0.06] text-gray-600 cursor-not-allowed'
+                }`}
+                whileTap={selectedDoc ? { scale: 0.97 } : undefined}
+              >
+                <Camera size={16} />
+                Continue
+                <ChevronRight size={16} />
+              </motion.button>
+            </div>
+          )}
+
+          {/* ═══ LOADING ═══ */}
           {step === 'loading' && (
             <motion.div
               key="loading"
@@ -640,152 +539,86 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col items-center justify-center px-6"
             >
-              {/* Animated scanner effect */}
-              <div className="relative w-24 h-24 mb-6">
+              <div className="relative w-28 h-28 mb-6">
                 <motion.div
-                  className="absolute inset-0 rounded-2xl border-2 border-[#C7FF00]/30"
+                  className="absolute inset-0 rounded-2xl border-2 border-[#C7FF00]/20"
                   animate={{ rotate: 360 }}
                   transition={{ repeat: Infinity, duration: 4, ease: 'linear' }}
                 />
                 <motion.div
-                  className="absolute inset-2 rounded-xl border border-[#C7FF00]/20"
+                  className="absolute inset-3 rounded-xl border border-[#C7FF00]/15"
                   animate={{ rotate: -360 }}
                   transition={{ repeat: Infinity, duration: 6, ease: 'linear' }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <Fingerprint className="w-10 h-10 text-[#C7FF00]" strokeWidth={1.5} />
+                  <Scan className="w-10 h-10 text-[#C7FF00]" strokeWidth={1.5} />
                 </div>
-                {/* Scanning line */}
                 <motion.div
-                  className="absolute left-2 right-2 h-[2px] bg-gradient-to-r from-transparent via-[#C7FF00] to-transparent"
-                  animate={{ top: ['15%', '85%', '15%'] }}
+                  className="absolute left-3 right-3 h-[2px] bg-gradient-to-r from-transparent via-[#C7FF00] to-transparent rounded-full"
+                  animate={{ top: ['20%', '80%', '20%'] }}
                   transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
                 />
               </div>
-
-              <h3 className="text-sm font-bold mb-1">Preparing Verification</h3>
-              <p className="text-[10px] text-gray-500 mb-4">Establishing secure connection...</p>
-
-              {/* Loading steps */}
-              <div className="space-y-2 w-full max-w-[220px]">
-                <LoadingStep label="Authenticating session" done delay={0} />
-                <LoadingStep label="Connecting to SmileID" done={false} delay={0.5} />
-                <LoadingStep label="Loading widget" done={false} delay={1} />
+              <h3 className="text-sm font-bold mb-1.5">Preparing Verification</h3>
+              <p className="text-[10px] text-gray-600 mb-5">Establishing secure connection...</p>
+              <div className="space-y-2.5 w-full max-w-[240px]">
+                <AnimatedLoadingStep label="Authenticating session" delay={0} />
+                <AnimatedLoadingStep label="Connecting to SmileID" delay={0.6} />
+                <AnimatedLoadingStep label="Initializing camera" delay={1.2} />
               </div>
             </motion.div>
           )}
 
-          {/* ═══ STEP 3: WIDGET — Themed iframe embed ═══ */}
-          {step === 'widget' && verificationUrl && (
+          {/* ═══ CAPTURE (smart-camera-web) ═══ */}
+          {step === 'capture' && (
             <motion.div
-              key="widget"
+              key="capture"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col"
+              ref={cameraRef}
             >
-              {/* Branded info strip */}
-              <div className="px-3 py-1.5 bg-gradient-to-r from-[#C7FF00]/10 via-[#C7FF00]/5 to-transparent border-b border-[#C7FF00]/10">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C7FF00] animate-pulse" />
-                    <span className="text-[9px] text-[#C7FF00]/80 font-semibold uppercase tracking-wider">
-                      Secure Session Active
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Lock className="w-2.5 h-2.5 text-[#C7FF00]/50" />
-                    <span className="text-[8px] text-[#C7FF00]/40 font-mono">TLS 1.3</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Iframe container with branded border */}
-              <div className="flex-1 relative">
-                {/* Corner accents */}
-                <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#C7FF00]/40 rounded-tl z-10 pointer-events-none" />
-                <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#C7FF00]/40 rounded-tr z-10 pointer-events-none" />
-                <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#C7FF00]/40 rounded-bl z-10 pointer-events-none" />
-                <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-[#C7FF00]/40 rounded-br z-10 pointer-events-none" />
-
-                {/* Loading overlay */}
-                <AnimatePresence>
-                  {!iframeLoaded && (
-                    <motion.div
-                      initial={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.4 }}
-                      className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0B0E11]"
-                    >
-                      <div className="relative w-16 h-16 mb-4">
-                        <motion.div
-                          className="absolute inset-0 rounded-full border-2 border-[#C7FF00]/20"
-                          animate={{ scale: [1, 1.3, 1], opacity: [0.5, 0, 0.5] }}
-                          transition={{ repeat: Infinity, duration: 1.5 }}
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <BorderPayLogo size={32} color="#ffffff" className="animate-pulse" />
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-gray-400 font-medium">Loading SmileID Widget</p>
-                      <div className="flex gap-1 mt-2">
-                        {[0, 1, 2].map(i => (
-                          <motion.div
-                            key={i}
-                            className="w-1.5 h-1.5 rounded-full bg-[#C7FF00]"
-                            animate={{ opacity: [0.2, 1, 0.2] }}
-                            transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
-                          />
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <iframe
-                  ref={iframeRef}
-                  src={verificationUrl}
-                  onLoad={handleIframeLoad}
-                  allow="camera *; microphone *; geolocation *"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-top-navigation"
-                  className="w-full h-full border-0"
-                  style={{
-                    minHeight: 'calc(100vh - 130px)',
-                    backgroundColor: '#ffffff',
-                  }}
-                  title="SmileID Identity Verification"
+              {/* SmileID smart-camera-web component */}
+              <div className="flex-1 bg-white rounded-t-2xl overflow-hidden" style={{ minHeight: 'calc(100vh - 100px)' }}>
+                {/* @ts-ignore - custom web component */}
+                <smart-camera-web
+                  document-capture-modes="camera,upload"
+                  capture-id="true"
+                  show-attribution="true"
+                  style={{ width: '100%', height: '100%' }}
                 />
-              </div>
-
-              {/* Bottom bar */}
-              <div className="sticky bottom-0 z-10 bg-[#0B0E11] border-t border-[#C7FF00]/10 px-4 py-2.5 pb-safe">
-                <button
-                  onClick={handleManualComplete}
-                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-2.5 rounded-full font-bold text-[11px] tracking-wide flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
-                >
-                  <CheckCircle size={14} />
-                  I've Completed Verification
-                </button>
-                <div className="flex items-center justify-center gap-3 mt-2">
-                  <button
-                    onClick={handleRetry}
-                    className="text-gray-600 text-[9px] font-medium hover:text-gray-400 transition-colors"
-                  >
-                    Restart
-                  </button>
-                  <span className="text-gray-800">&middot;</span>
-                  <button
-                    onClick={onBack}
-                    className="text-gray-600 text-[9px] font-medium hover:text-gray-400 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
               </div>
             </motion.div>
           )}
 
-          {/* ═══ STEP 4: PROCESSING ═══ */}
+          {/* ═══ UPLOADING ═══ */}
+          {step === 'uploading' && (
+            <motion.div
+              key="uploading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col items-center justify-center px-6"
+            >
+              <div className="relative w-24 h-24 mb-6">
+                <motion.div
+                  className="absolute inset-0 rounded-full border-2 border-[#C7FF00]/20 border-t-[#C7FF00]"
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Camera className="w-8 h-8 text-[#C7FF00]" />
+                </div>
+              </div>
+              <h3 className="text-base font-bold mb-1.5">Uploading Images</h3>
+              <p className="text-[10px] text-gray-500 text-center max-w-[250px]">
+                Securely uploading your ID and selfie to SmileID for verification...
+              </p>
+            </motion.div>
+          )}
+
+          {/* ═══ PROCESSING ═══ */}
           {step === 'processing' && (
             <motion.div
               key="processing"
@@ -794,37 +627,34 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col items-center justify-center px-6"
             >
-              {/* DNA helix spinner */}
-              <div className="relative w-20 h-20 mb-5">
+              <div className="relative w-24 h-24 mb-6">
                 <motion.div
-                  className="absolute inset-0 rounded-full border-2 border-[#C7FF00]/30 border-t-[#C7FF00]"
+                  className="absolute inset-0 rounded-full border-2 border-[#C7FF00]/20 border-t-[#C7FF00]"
                   animate={{ rotate: 360 }}
                   transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
                 />
                 <motion.div
-                  className="absolute inset-2 rounded-full border-2 border-[#C7FF00]/20 border-b-[#C7FF00]/60"
+                  className="absolute inset-3 rounded-full border-2 border-[#C7FF00]/10 border-b-[#C7FF00]/50"
                   animate={{ rotate: -360 }}
                   transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <ShieldCheck className="w-7 h-7 text-[#C7FF00]" />
+                  <ShieldCheck className="w-8 h-8 text-[#C7FF00]" />
                 </div>
               </div>
-
-              <h3 className="text-sm font-bold mb-1.5">Processing Verification</h3>
-              <p className="text-[10px] text-gray-500 text-center max-w-[240px] mb-5">
+              <h3 className="text-base font-bold mb-1.5">Processing Verification</h3>
+              <p className="text-[10px] text-gray-500 text-center max-w-[250px] mb-6">
                 Securely confirming your identity. This usually takes less than a minute.
               </p>
-
-              <div className="w-full max-w-[220px] space-y-2">
-                <LoadingStep label="Analyzing document" done delay={0} />
-                <LoadingStep label="Matching biometrics" done={false} delay={0.8} />
-                <LoadingStep label="Confirming identity" done={false} delay={1.6} />
+              <div className="w-full max-w-[240px] space-y-2.5">
+                <AnimatedLoadingStep label="Analyzing document" delay={0} />
+                <AnimatedLoadingStep label="Matching biometrics" delay={0.8} />
+                <AnimatedLoadingStep label="Confirming identity" delay={1.6} />
               </div>
             </motion.div>
           )}
 
-          {/* ═══ STEP 5: SUCCESS ═══ */}
+          {/* ═══ SUCCESS ═══ */}
           {step === 'success' && (
             <motion.div
               key="success"
@@ -833,57 +663,50 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col items-center justify-center px-6"
             >
-              {/* Confetti burst effect */}
               <div className="relative">
-                {[...Array(8)].map((_, i) => (
+                {[...Array(12)].map((_, i) => (
                   <motion.div
                     key={i}
                     className="absolute w-2 h-2 rounded-full"
                     style={{
-                      backgroundColor: i % 2 === 0 ? '#C7FF00' : '#FFFFFF',
+                      backgroundColor: i % 3 === 0 ? '#C7FF00' : i % 3 === 1 ? '#FFFFFF' : '#9BDB00',
                       top: '50%', left: '50%',
                     }}
                     initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
                     animate={{
-                      x: Math.cos((i * Math.PI * 2) / 8) * 60,
-                      y: Math.sin((i * Math.PI * 2) / 8) * 60,
-                      opacity: 0,
-                      scale: 0,
+                      x: Math.cos((i * Math.PI * 2) / 12) * 80,
+                      y: Math.sin((i * Math.PI * 2) / 12) * 80,
+                      opacity: 0, scale: 0,
                     }}
-                    transition={{ duration: 0.8, delay: 0.3 + i * 0.05, ease: 'easeOut' }}
+                    transition={{ duration: 0.9, delay: 0.2 + i * 0.04, ease: 'easeOut' }}
                   />
                 ))}
-
                 <motion.div
                   initial={{ scale: 0, rotate: -180 }}
                   animate={{ scale: 1, rotate: 0 }}
-                  transition={{ duration: 0.4, ease: 'easeOut', delay: 0.1 }}
-                  className="w-24 h-24 rounded-full bg-gradient-to-br from-[#C7FF00]/30 to-[#C7FF00]/10 border-2 border-[#C7FF00]/40 flex items-center justify-center relative z-10"
+                  transition={{ duration: 0.5, ease: 'easeOut', delay: 0.1 }}
+                  className="w-28 h-28 rounded-3xl bg-gradient-to-br from-[#C7FF00]/25 to-[#C7FF00]/5 border-2 border-[#C7FF00]/30 flex items-center justify-center relative z-10"
                 >
-                  <CheckCircle className="w-12 h-12 text-[#C7FF00]" strokeWidth={2} />
+                  <BadgeCheck className="w-14 h-14 text-[#C7FF00]" strokeWidth={1.5} />
                 </motion.div>
               </div>
-
-              <div className="text-center mt-5">
-                <h2 className="text-xl font-extrabold text-white mb-1.5">Verified!</h2>
-                <p className="text-[11px] text-gray-400 max-w-[240px] mb-5">
+              <div className="text-center mt-6">
+                <motion.h2 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+                  className="text-2xl font-black text-white mb-2">Verified!</motion.h2>
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}
+                  className="text-xs text-gray-400 max-w-[260px] mb-6">
                   Your identity has been confirmed. All premium features are now unlocked.
-                </p>
-
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.8 }}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-full"
-                >
+                </motion.p>
+                <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.9 }}
+                  className="inline-flex items-center gap-2.5 px-5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-2xl">
                   <ShieldCheck className="w-4 h-4 text-[#C7FF00]" />
-                  <span className="text-xs text-[#C7FF00] font-bold">KYC Level 2 — Verified</span>
+                  <span className="text-xs text-[#C7FF00] font-bold">KYC Level 2 — Fully Verified</span>
                 </motion.div>
               </div>
             </motion.div>
           )}
 
-          {/* ═══ STEP 6: FAILED ═══ */}
+          {/* ═══ FAILED ═══ */}
           {step === 'failed' && (
             <motion.div
               key="failed"
@@ -896,69 +719,50 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ duration: 0.4, ease: 'easeOut' }}
-                className="w-20 h-20 rounded-full bg-red-500/15 border border-red-500/20 flex items-center justify-center mb-5"
+                className="w-24 h-24 rounded-3xl bg-red-500/10 border border-red-500/15 flex items-center justify-center mb-5"
               >
-                <AlertCircle className="w-10 h-10 text-red-400" />
+                <AlertCircle className="w-12 h-12 text-red-400" />
               </motion.div>
-
-              <h2 className="text-base font-bold text-white mb-1.5">Verification Failed</h2>
-              <p className="text-[11px] text-gray-400 text-center max-w-[250px] mb-1.5">
+              <h2 className="text-lg font-bold text-white mb-1.5">Verification Failed</h2>
+              <p className="text-[11px] text-gray-400 text-center max-w-[260px] mb-1.5">
                 {error || 'We could not verify your identity.'}
               </p>
-              <p className="text-[9px] text-gray-600 text-center max-w-[220px] mb-6">
-                Ensure your ID is fully visible, well-lit, and your selfie is clear.
+              <p className="text-[9px] text-gray-600 text-center max-w-[240px] mb-6">
+                Make sure your ID is fully visible, well-lit, and your selfie is clear. Then try again.
               </p>
-
-              <div className="w-full max-w-[260px] space-y-2.5">
-                <button
+              <div className="w-full max-w-[280px] space-y-2.5">
+                <motion.button
                   onClick={handleRetry}
-                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3 rounded-full font-bold text-xs flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                  whileTap={{ scale: 0.97 }}
                 >
-                  <RefreshCw size={14} />
+                  <RefreshCw size={15} />
                   Try Again
-                </button>
-                <button
-                  onClick={onBack}
-                  className="w-full text-gray-500 py-2.5 text-[10px] font-medium hover:text-gray-300 transition-colors"
-                >
+                </motion.button>
+                <button onClick={onBack} className="w-full text-gray-500 py-3 text-[10px] font-medium hover:text-gray-300 transition-colors">
                   Go Back
                 </button>
               </div>
             </motion.div>
           )}
+
         </AnimatePresence>
       </div>
     </div>
   );
 }
 
-// ── Sub-components ──
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
-function RequirementRow({ icon: Icon, title, subtitle }: { icon: any; title: string; subtitle: string }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="w-8 h-8 rounded-lg bg-[#C7FF00]/8 flex items-center justify-center flex-shrink-0">
-        <Icon className="w-4 h-4 text-[#C7FF00]/60" />
-      </div>
-      <div>
-        <p className="text-[11px] text-white font-semibold">{title}</p>
-        <p className="text-[9px] text-gray-500">{subtitle}</p>
-      </div>
-    </div>
-  );
-}
-
-function LoadingStep({ label, done, delay = 0 }: { label: string; done: boolean; delay?: number }) {
+function AnimatedLoadingStep({ label, delay = 0 }: { label: string; delay?: number }) {
   const [active, setActive] = useState(false);
-  const [completed, setCompleted] = useState(false);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     const t1 = setTimeout(() => setActive(true), delay * 1000);
-    const t2 = setTimeout(() => {
-      if (done) setCompleted(true);
-    }, (delay + 1.2) * 1000);
+    const t2 = setTimeout(() => setDone(true), (delay + 1.5) * 1000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [delay, done]);
+  }, [delay]);
 
   return (
     <motion.div
@@ -967,15 +771,15 @@ function LoadingStep({ label, done, delay = 0 }: { label: string; done: boolean;
       transition={{ duration: 0.3 }}
       className="flex items-center gap-2.5"
     >
-      {completed ? (
-        <CheckCircle className="w-3.5 h-3.5 text-[#C7FF00] flex-shrink-0" />
+      {done ? (
+        <CheckCircle className="w-4 h-4 text-[#C7FF00] flex-shrink-0" />
       ) : active ? (
-        <Loader2 className="w-3.5 h-3.5 text-[#C7FF00] animate-spin flex-shrink-0" />
+        <Loader2 className="w-4 h-4 text-[#C7FF00] animate-spin flex-shrink-0" />
       ) : (
-        <div className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" />
+        <div className="w-4 h-4 rounded-full border border-white/15 flex-shrink-0" />
       )}
-      <span className={`text-[10px] font-medium ${
-        completed ? 'text-[#C7FF00]' : active ? 'text-white' : 'text-gray-600'
+      <span className={`text-[11px] font-medium ${
+        done ? 'text-[#C7FF00]' : active ? 'text-white' : 'text-gray-700'
       }`}>
         {label}
       </span>

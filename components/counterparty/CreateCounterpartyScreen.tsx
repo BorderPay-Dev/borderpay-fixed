@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { usPaymentsAPI as counterpartyAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINVerify } from '../auth/PINVerify';
 import {
   isCountryRestricted,
@@ -198,7 +199,7 @@ export function CreateCounterpartyScreen({
       if (!a.postal_code.trim()) e['beneficiary_address.postal_code'] = t('cp.required');
       if (!a.country.trim()) e['beneficiary_address.country'] = t('cp.required');
       else if (!/^[A-Z]{2}$/.test(a.country.toUpperCase())) e['beneficiary_address.country'] = 'Invalid ISO code';
-      else if (isCountryRestricted(a.country.toUpperCase())) e['beneficiary_address.country'] = getRestrictionReason(a.country.toUpperCase());
+      else if (isCountryRestricted(a.country.toUpperCase())) e['beneficiary_address.country'] = getRestrictionReason(a.country.toUpperCase()) ?? 'Restricted country';
     }
 
     if (s === 'bank') {
@@ -217,7 +218,7 @@ export function CreateCounterpartyScreen({
       if (!a.postal_code.trim()) e['institution_address.postal_code'] = t('cp.required');
       if (!a.country.trim()) e['institution_address.country'] = t('cp.required');
       else if (!/^[A-Z]{2}$/.test(a.country.toUpperCase())) e['institution_address.country'] = 'Invalid ISO code';
-      else if (isCountryRestricted(a.country.toUpperCase())) e['institution_address.country'] = getRestrictionReason(a.country.toUpperCase());
+      else if (isCountryRestricted(a.country.toUpperCase())) e['institution_address.country'] = getRestrictionReason(a.country.toUpperCase()) ?? 'Restricted country';
     }
 
     setErrors(e);
@@ -278,7 +279,6 @@ export function CreateCounterpartyScreen({
         };
       }
 
-      console.log('[CreateCounterparty] Submitting:', JSON.stringify(payload).slice(0, 300));
 
       const result = await counterpartyAPI.createCounterparty(payload);
 
@@ -292,8 +292,7 @@ export function CreateCounterpartyScreen({
         throw new Error(result?.error || t('cp.error'));
       }
     } catch (err: any) {
-      console.error('[CreateCounterparty] Error:', err);
-      toast.error(err.message || t('cp.error'));
+      toast.error(friendlyError(err, t('cp.error')));
       setShowPIN(false);
     } finally {
       setSubmitting(false);
@@ -745,7 +744,7 @@ export function CreateCounterpartyScreen({
   return (
     <div className={`min-h-screen ${tc.bg}`}>
       {/* ── Header ── */}
-      <div className={`sticky top-0 z-30 ${tc.isLight ? 'bg-white/80' : 'bg-[#0B0E11]/80'} backdrop-blur-md border-b ${tc.borderLight}`}>
+      <div className={`sticky top-0 z-30 ${tc.isLight ? 'bg-white/80' : 'bg-[#0B0E11]/80'} backdrop-blur-md border-b ${tc.borderLight} pt-safe`}>
         <div className="flex items-center justify-between px-5 py-3">
           <button onClick={goBack} className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors">
             <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
@@ -801,7 +800,7 @@ export function CreateCounterpartyScreen({
       </div>
 
       {/* ── Content ── */}
-      <div className="px-5 pt-4 pb-32">
+      <div className="px-5 pt-4 pb-safe">
         <AnimatePresence mode="wait">
           <motion.div
             key={step}

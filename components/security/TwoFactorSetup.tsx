@@ -16,6 +16,7 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from '../ui/input-otp';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface TwoFactorSetupProps {
   userId: string;
@@ -46,11 +47,9 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
       }
     } catch { /* fallback email */ }
 
-    console.log('🔐 Generating TOTP secret client-side for:', userEmail);
     const setupData = TOTPManager.generateSecret(userId, userEmail);
     setSecret(setupData.secret);
     setQrCodeUri(setupData.qrCodeUri);
-    console.log('✅ TOTP secret generated (base32):', setupData.secret.slice(0, 4) + '...');
   };
 
   const handleCopySecret = () => {
@@ -68,21 +67,17 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
 
     setVerifying(true);
     try {
-      console.log('🔐 Verifying TOTP code client-side...');
       const result = await TOTPManager.verifyAndEnable(userId, token);
 
       if (result.success) {
-        console.log('✅ 2FA enabled successfully (client-side TOTP)');
         setStep('success');
         toast.success('2FA enabled successfully!');
         setTimeout(() => onComplete(), 2000);
       } else {
-        console.error('❌ TOTP verification failed:', result.error);
-        toast.error(result.error || 'Invalid verification code');
+        toast.error(friendlyError(result.error, 'Invalid verification code'));
         setToken('');
       }
     } catch (error: any) {
-      console.error('❌ Exception during TOTP verification:', error);
       toast.error('Verification failed');
       setToken('');
     } finally {
@@ -264,8 +259,8 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
             {/* Verify Button */}
             <button
               onClick={handleVerify}
-              disabled={token.length !== 6 || verifying}
-              className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              disabled={verifying}
+              className={`w-full py-4 rounded-full font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${token.length === 6 ? 'bg-[#C7FF00] text-black' : 'bg-white/10 text-white/40'}`}
             >
               {verifying ? (
                 <>

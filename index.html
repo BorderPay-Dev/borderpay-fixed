@@ -13,7 +13,15 @@
     <meta name="mobile-web-app-capable" content="yes" />
     
     <!-- Apple Splash Screens (iOS) -->
-    <link rel="apple-touch-startup-image" href="/icons/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
     
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website" />
@@ -29,14 +37,17 @@
     <meta property="twitter:description" content="Open a U.S. bank account with FDIC protection and receive USD payments globally" />
     <meta property="twitter:image" content="https://app.borderpayafrica.com/og-image.png" />
     
-    <!-- Favicon Package - Real Favicon Generator Code -->
+    <!-- Favicon -->
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16" />
     <link rel="shortcut icon" href="/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
     
     <title>BorderPay Africa - Borderless Finance for Africa</title>
+
+    <!-- SmileID Web SDK v11 (smart-camera-web component) -->
+    <script src="https://cdn.smileidentity.com/js/v11/smart-camera-web.js"></script>
     
     <!-- Critical inline styles to prevent white flash -->
     <style>
@@ -132,8 +143,11 @@
     <div id="initial-splash">
       <div class="logo-container">
         <div class="circle">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
-            <text x="50" y="70" font-family="Arial, sans-serif" font-size="80" font-weight="bold" text-anchor="middle" fill="#000000">b</text>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 110" width="72" height="99">
+            <rect x="10" y="5" width="24" height="95" rx="12" fill="#000000" />
+            <path d="M38 33 A33.5 33.5 0 0 1 38 100 Z" fill="#000000" />
+            <circle cx="66" cy="16" r="8" fill="none" stroke="#000000" stroke-width="1.8" />
+            <text x="66" y="20.5" text-anchor="middle" font-size="12" font-weight="bold" font-family="Arial, sans-serif" fill="#000000">R</text>
           </svg>
         </div>
       </div>

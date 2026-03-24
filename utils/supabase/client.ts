@@ -1,9 +1,6 @@
 /**
  * BorderPay Africa – Supabase Client
  * Single source of truth for authentication and data access.
- *
- * Falls back to mock data automatically when env vars are missing,
- * so every screen works in preview without a live backend.
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -15,13 +12,9 @@ import { projectId, publicAnonKey } from './info';
 
 const _supabaseUrl = import.meta.env.VITE_SUPABASE_URL || `https://${projectId}.supabase.co`;
 const _anonKey     = import.meta.env.VITE_SUPABASE_ANON_KEY || publicAnonKey;
-const _serverFn    = import.meta.env.VITE_SERVER_FUNCTION || 'make-server-8714b62b';
-
 export const SUPABASE_URL    = _supabaseUrl;
 export const ANON_KEY        = _anonKey;
-export const SERVER_FN       = _serverFn;
 export const BASE_URL        = `${SUPABASE_URL}/functions/v1`;
-export const SERVER_URL      = `${BASE_URL}/${SERVER_FN}`;
 
 /** True when Supabase credentials are present */
 export const hasSupabase = Boolean(SUPABASE_URL && ANON_KEY);
@@ -33,8 +26,7 @@ function getOrCreateClient(): SupabaseClient {
   if ((globalThis as any)[GLOBAL_KEY]) return (globalThis as any)[GLOBAL_KEY];
 
   if (!hasSupabase) {
-    // Return a no-op stub so imports never throw
-    return null as any;
+    throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.');
   }
 
   const client = createClient(SUPABASE_URL, ANON_KEY, {
@@ -58,20 +50,10 @@ export const supabase = getOrCreateClient();
 
 // ── Auth API ─────────────────────────────────────────────────────────────────
 export const authAPI = {
-  /** Sign in – real Supabase auth if configured, mock otherwise */
+  /** Sign in with Supabase auth */
   signin: async (credentials: { email: string; password: string }) => {
     if (!hasSupabase) {
-      // Mock: accept any credentials in preview
-      const mockUser = {
-        id: 'mock-user-id',
-        email: credentials.email,
-        full_name: 'Demo User',
-        kyc_status: 'verified',
-        country: 'NG',
-      };
-      localStorage.setItem('borderpay_user', JSON.stringify(mockUser));
-      localStorage.setItem('borderpay_token', 'mock-token');
-      return { success: true, data: { user: mockUser, access_token: 'mock-token' } };
+      throw new Error('Supabase is not configured. Cannot sign in.');
     }
 
     try {
@@ -83,7 +65,7 @@ export const authAPI = {
 
         // Try fetching the full profile from the backend
         try {
-          const profileRes = await fetch(`${SERVER_URL}/direct/user/profile`, {
+          const profileRes = await fetch(`${BASE_URL}/get-user-profile`, {
             headers: {
               Authorization: `Bearer ${data.session.access_token}`,
               apikey: ANON_KEY,
@@ -119,14 +101,11 @@ export const authAPI = {
   /** Sign up – posts to the backend Edge Function */
   signup: async (userData: any) => {
     if (!hasSupabase) {
-      const mockUser = { id: 'mock-user-id', email: userData.email, full_name: userData.full_name, kyc_status: 'pending' };
-      localStorage.setItem('borderpay_user', JSON.stringify(mockUser));
-      localStorage.setItem('borderpay_token', 'mock-token');
-      return { success: true, data: { user: mockUser, access_token: 'mock-token' } };
+      throw new Error('Supabase is not configured. Cannot sign up.');
     }
 
     try {
-      const res = await fetch(`${SERVER_URL}/auth/signup`, {
+      const res = await fetch(`${BASE_URL}/auth-signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY },
         body: JSON.stringify(userData),
@@ -146,8 +125,8 @@ export const authAPI = {
   signout: async () => {
     try {
       const token = authAPI.getToken();
-      if (hasSupabase && token && token !== 'mock-token') {
-        await fetch(`${SERVER_URL}/auth/signout`, {
+      if (hasSupabase && token) {
+        await fetch(`${BASE_URL}/auth-signout`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, apikey: ANON_KEY },
         }).catch(() => {});
@@ -161,9 +140,8 @@ export const authAPI = {
 
   /** Password reset request */
   resetPasswordRequest: async (email: string) => {
-    if (!hasSupabase) return { success: true };
     try {
-      const res = await fetch(`${SERVER_URL}/auth/reset-password`, {
+      const res = await fetch(`${BASE_URL}/auth-reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY },
         body: JSON.stringify({ email }),
@@ -174,9 +152,8 @@ export const authAPI = {
 
   /** Password reset confirm */
   resetPasswordConfirm: async (access_token: string, new_password: string) => {
-    if (!hasSupabase) return { success: true };
     try {
-      const res = await fetch(`${SERVER_URL}/auth/reset-password/confirm`, {
+      const res = await fetch(`${BASE_URL}/auth-reset-password-confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY },
         body: JSON.stringify({ access_token, new_password }),
@@ -189,9 +166,8 @@ export const authAPI = {
   verifySession: async () => {
     const token = authAPI.getToken();
     if (!token) return { success: false };
-    if (!hasSupabase || token === 'mock-token') return { success: true };
     try {
-      const res = await fetch(`${SERVER_URL}/auth/session`, {
+      const res = await fetch(`${BASE_URL}/auth-verify-session`, {
         headers: { Authorization: `Bearer ${token}`, apikey: ANON_KEY },
       });
       return await res.json();
