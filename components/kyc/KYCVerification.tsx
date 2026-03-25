@@ -47,22 +47,14 @@ interface DocOption {
 }
 
 // SmileID supported document types per country
+// Covers all 35 BorderPay allowed countries (31 African + US, CA, UK, FR)
 const DOC_TYPES_BY_COUNTRY: Record<string, DocOption[]> = {
+  // ── West Africa ─────────────────────────────────────────────────────────────
   NG: [
     { id: 'PASSPORT', label: 'International Passport', desc: 'Valid travel passport', icon: Globe },
     { id: 'NIN_V2', label: 'National ID (NIN)', desc: 'National Identity Number', icon: CreditCard },
     { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Government-issued license', icon: Smartphone },
     { id: 'VOTER_ID', label: "Voter's Card", desc: 'Electoral registration card', icon: UserCheck },
-  ],
-  KE: [
-    { id: 'PASSPORT', label: 'Passport', desc: 'Kenyan or foreign passport', icon: Globe },
-    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Kenyan National ID card', icon: CreditCard },
-    { id: 'ALIEN_CARD', label: 'Alien Card', desc: 'Foreign resident card', icon: UserCheck },
-  ],
-  ZA: [
-    { id: 'PASSPORT', label: 'Passport', desc: 'South African or foreign passport', icon: Globe },
-    { id: 'NATIONAL_ID', label: 'National ID', desc: 'South African ID card', icon: CreditCard },
-    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'SA driving licence', icon: Smartphone },
   ],
   GH: [
     { id: 'PASSPORT', label: 'Passport', desc: 'Ghanaian or foreign passport', icon: Globe },
@@ -70,9 +62,35 @@ const DOC_TYPES_BY_COUNTRY: Record<string, DocOption[]> = {
     { id: 'VOTER_ID', label: "Voter's Card", desc: 'Electoral commission card', icon: UserCheck },
     { id: 'SSNIT', label: 'SSNIT Card', desc: 'Social Security card', icon: CreditCard },
   ],
-  UG: [
-    { id: 'PASSPORT', label: 'Passport', desc: 'Ugandan or foreign passport', icon: Globe },
-    { id: 'NATIONAL_ID_NO_PHOTO', label: 'National ID', desc: 'Ugandan National ID', icon: CreditCard },
+  SN: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Senegalese or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'Carte nationale d\'identité', desc: 'National ID card', icon: CreditCard },
+  ],
+  BJ: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Beninese or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte d\'identité nationale', icon: CreditCard },
+  ],
+  BF: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Burkinabé or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'CNIB', desc: 'Carte nationale d\'identité', icon: CreditCard },
+  ],
+  CV: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Cape Verdean or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Bilhete de identidade', icon: CreditCard },
+  ],
+  GM: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Gambian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Gambian identity card', icon: CreditCard },
+  ],
+  NE: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Nigerien or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte d\'identité nationale', icon: CreditCard },
+  ],
+  // ── East Africa ─────────────────────────────────────────────────────────────
+  KE: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Kenyan or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Kenyan National ID card', icon: CreditCard },
+    { id: 'ALIEN_CARD', label: 'Alien Card', desc: 'Foreign resident card', icon: UserCheck },
   ],
   TZ: [
     { id: 'PASSPORT', label: 'Passport', desc: 'Tanzanian or foreign passport', icon: Globe },
@@ -80,28 +98,102 @@ const DOC_TYPES_BY_COUNTRY: Record<string, DocOption[]> = {
     { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'TZ driving licence', icon: Smartphone },
     { id: 'VOTER_ID', label: "Voter's Card", desc: 'NEC voter registration', icon: UserCheck },
   ],
+  UG: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Ugandan or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID_NO_PHOTO', label: 'National ID', desc: 'Ugandan National ID', icon: CreditCard },
+  ],
   RW: [
     { id: 'PASSPORT', label: 'Passport', desc: 'Rwandan or foreign passport', icon: Globe },
     { id: 'NATIONAL_ID', label: 'National ID', desc: 'Rwandan ID card', icon: CreditCard },
   ],
+  DJ: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Djiboutian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte d\'identité nationale', icon: CreditCard },
+  ],
+  KM: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Comorian or foreign passport', icon: Globe },
+  ],
+  MG: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Malagasy or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte d\'identité nationale', icon: CreditCard },
+  ],
+  MW: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Malawian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Malawian national ID', icon: CreditCard },
+  ],
+  SC: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Seychellois or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Identity card', icon: CreditCard },
+  ],
+  // ── Central Africa ──────────────────────────────────────────────────────────
   CM: [
     { id: 'PASSPORT', label: 'Passport', desc: 'Cameroonian or foreign passport', icon: Globe },
-    { id: 'NATIONAL_ID', label: 'National ID', desc: 'CNI / National ID card', icon: CreditCard },
-  ],
-  MZ: [
-    { id: 'PASSPORT', label: 'Passport', desc: 'Mozambican or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'CNI / Carte nationale', icon: CreditCard },
   ],
   GA: [
     { id: 'PASSPORT', label: 'Passport', desc: 'Gabonese or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte d\'identité nationale', icon: CreditCard },
   ],
-  SN: [
-    { id: 'PASSPORT', label: 'Passport', desc: 'Senegalese or foreign passport', icon: Globe },
-    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte nationale d\'identité', icon: CreditCard },
+  TD: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Chadian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte d\'identité nationale', icon: CreditCard },
   ],
+  ST: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'São Toméan or foreign passport', icon: Globe },
+  ],
+  // ── Southern Africa ─────────────────────────────────────────────────────────
+  ZA: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'South African or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'South African ID card', icon: CreditCard },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'SA driving licence', icon: Smartphone },
+  ],
+  MZ: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Mozambican or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Bilhete de identidade', icon: CreditCard },
+  ],
+  BW: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Botswanan or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'Omang ID', desc: 'Botswana national ID card', icon: CreditCard },
+  ],
+  NA: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Namibian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Namibian identity card', icon: CreditCard },
+  ],
+  SZ: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Eswatini or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Eswatini identity card', icon: CreditCard },
+  ],
+  LS: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Basotho or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Lesotho identity card', icon: CreditCard },
+  ],
+  MU: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Mauritian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Mauritian identity card', icon: CreditCard },
+  ],
+  // ── North Africa ────────────────────────────────────────────────────────────
   EG: [
     { id: 'PASSPORT', label: 'Passport', desc: 'Egyptian or foreign passport', icon: Globe },
     { id: 'NATIONAL_ID', label: 'National ID', desc: 'Egyptian national ID', icon: CreditCard },
   ],
+  MA: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Moroccan or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'CNIE', desc: 'Carte nationale d\'identité', icon: CreditCard },
+    { id: 'DRIVERS_LICENSE', label: 'Permis de conduire', desc: 'Moroccan driving licence', icon: Smartphone },
+  ],
+  TN: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Tunisian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'CIN', desc: 'Carte d\'identité nationale', icon: CreditCard },
+  ],
+  DZ: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Algerian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte nationale d\'identité', icon: CreditCard },
+  ],
+  MR: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Mauritanian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte d\'identité nationale', icon: CreditCard },
+  ],
+  // ── Global ──────────────────────────────────────────────────────────────────
   GB: [
     { id: 'PASSPORT', label: 'Passport', desc: 'UK or foreign passport', icon: Globe },
     { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'DVLA driving licence', icon: Smartphone },
@@ -121,11 +213,9 @@ const DOC_TYPES_BY_COUNTRY: Record<string, DocOption[]> = {
   ],
 };
 
-// Fallback for countries not explicitly listed
+// Fallback for any unlisted country
 const DEFAULT_DOC_TYPES: DocOption[] = [
   { id: 'PASSPORT', label: 'International Passport', desc: 'Valid travel passport', icon: Globe },
-  { id: 'NATIONAL_ID', label: 'National ID', desc: 'Government-issued national ID', icon: CreditCard },
-  { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Government-issued licence', icon: Smartphone },
 ];
 
 function getDocTypesForCountry(countryCode: string): DocOption[] {
