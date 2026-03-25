@@ -78,6 +78,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   const [error, setError] = useState<string | null>(null);
   const [sdkConfig, setSdkConfig] = useState<any>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollCountRef = useRef(0);
   const cameraRef = useRef<HTMLDivElement>(null);
 
   // Cleanup on unmount
@@ -90,9 +91,24 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
+    pollCountRef.current = 0;
   }, []);
 
   const checkVerificationStatus = useCallback(async () => {
+    // Stop after 12 polls (2 minutes at 10s intervals)
+    pollCountRef.current += 1;
+    if (pollCountRef.current > 12) {
+      stopPolling();
+      setStep(current => {
+        if (current === 'processing') {
+          toast.info("Verification is being processed. You'll be notified when complete.");
+          setTimeout(() => onComplete(), 1500);
+        }
+        return current;
+      });
+      return;
+    }
+
     try {
       const token = authAPI.getToken();
       if (!token) return;
@@ -110,7 +126,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
-    pollingRef.current = setInterval(() => checkVerificationStatus(), 5000);
+    pollCountRef.current = 0;
+    // Poll every 10 seconds (backend actively checks SmileID Job Status API)
+    pollingRef.current = setInterval(() => checkVerificationStatus(), 10000);
   }, [checkVerificationStatus]);
 
   const handleVerificationDone = async (result: 'success' | 'failed') => {
@@ -212,20 +230,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
         if (result.success) {
           setStep('processing');
+          // First check after 5s, then poll every 10s (max 12 polls = 2 min)
+          setTimeout(() => checkVerificationStatus(), 5000);
           startPolling();
-          // Also check after a delay
-          setTimeout(() => checkVerificationStatus(), 10000);
-          setTimeout(() => checkVerificationStatus(), 20000);
-          setTimeout(() => {
-            stopPolling();
-            setStep(current => {
-              if (current === 'processing') {
-                toast.info("Verification is being processed. You'll be notified.");
-                setTimeout(() => onComplete(), 500);
-              }
-              return current;
-            });
-          }, 60000);
         } else {
           setStep('failed');
           setError(result.error || 'Upload failed. Please try again.');
