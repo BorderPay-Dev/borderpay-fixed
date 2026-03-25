@@ -37,16 +37,100 @@ interface KYCVerificationProps {
 
 type KYCStep = 'welcome' | 'doc-select' | 'loading' | 'capture' | 'uploading' | 'processing' | 'success' | 'failed';
 
-type DocType = 'PASSPORT' | 'NIN' | 'DRIVERS_LICENSE' | 'VOTERS_CARD';
-
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const DOC_OPTIONS: { id: DocType; label: string; desc: string; icon: typeof FileText }[] = [
+interface DocOption {
+  id: string;        // SmileID id_type value
+  label: string;
+  desc: string;
+  icon: typeof FileText;
+}
+
+// SmileID supported document types per country
+const DOC_TYPES_BY_COUNTRY: Record<string, DocOption[]> = {
+  NG: [
+    { id: 'PASSPORT', label: 'International Passport', desc: 'Valid travel passport', icon: Globe },
+    { id: 'NIN_V2', label: 'National ID (NIN)', desc: 'National Identity Number', icon: CreditCard },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Government-issued license', icon: Smartphone },
+    { id: 'VOTER_ID', label: "Voter's Card", desc: 'Electoral registration card', icon: UserCheck },
+  ],
+  KE: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Kenyan or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Kenyan National ID card', icon: CreditCard },
+    { id: 'ALIEN_CARD', label: 'Alien Card', desc: 'Foreign resident card', icon: UserCheck },
+  ],
+  ZA: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'South African or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'South African ID card', icon: CreditCard },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'SA driving licence', icon: Smartphone },
+  ],
+  GH: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Ghanaian or foreign passport', icon: Globe },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Ghana driving licence', icon: Smartphone },
+    { id: 'VOTER_ID', label: "Voter's Card", desc: 'Electoral commission card', icon: UserCheck },
+    { id: 'SSNIT', label: 'SSNIT Card', desc: 'Social Security card', icon: CreditCard },
+  ],
+  UG: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Ugandan or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID_NO_PHOTO', label: 'National ID', desc: 'Ugandan National ID', icon: CreditCard },
+  ],
+  TZ: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Tanzanian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID (NIDA)', desc: 'NIDA identity card', icon: CreditCard },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'TZ driving licence', icon: Smartphone },
+    { id: 'VOTER_ID', label: "Voter's Card", desc: 'NEC voter registration', icon: UserCheck },
+  ],
+  RW: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Rwandan or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Rwandan ID card', icon: CreditCard },
+  ],
+  CM: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Cameroonian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'CNI / National ID card', icon: CreditCard },
+  ],
+  MZ: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Mozambican or foreign passport', icon: Globe },
+  ],
+  GA: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Gabonese or foreign passport', icon: Globe },
+  ],
+  SN: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Senegalese or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Carte nationale d\'identité', icon: CreditCard },
+  ],
+  EG: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Egyptian or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'National ID', desc: 'Egyptian national ID', icon: CreditCard },
+  ],
+  GB: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'UK or foreign passport', icon: Globe },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'DVLA driving licence', icon: Smartphone },
+  ],
+  US: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'US or foreign passport', icon: Globe },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'State-issued licence', icon: Smartphone },
+  ],
+  CA: [
+    { id: 'PASSPORT', label: 'Passport', desc: 'Canadian or foreign passport', icon: Globe },
+    { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Provincial licence', icon: Smartphone },
+  ],
+  FR: [
+    { id: 'PASSPORT', label: 'Passeport', desc: 'French or foreign passport', icon: Globe },
+    { id: 'NATIONAL_ID', label: 'Carte d\'identité', desc: 'French national ID', icon: CreditCard },
+    { id: 'DRIVERS_LICENSE', label: 'Permis de conduire', desc: 'French driving licence', icon: Smartphone },
+  ],
+};
+
+// Fallback for countries not explicitly listed
+const DEFAULT_DOC_TYPES: DocOption[] = [
   { id: 'PASSPORT', label: 'International Passport', desc: 'Valid travel passport', icon: Globe },
-  { id: 'NIN', label: 'National ID (NIN)', desc: 'National Identity Number', icon: CreditCard },
-  { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Government-issued license', icon: Smartphone },
-  { id: 'VOTERS_CARD', label: "Voter's Card", desc: 'Electoral registration card', icon: UserCheck },
+  { id: 'NATIONAL_ID', label: 'National ID', desc: 'Government-issued national ID', icon: CreditCard },
+  { id: 'DRIVERS_LICENSE', label: "Driver's License", desc: 'Government-issued licence', icon: Smartphone },
 ];
+
+function getDocTypesForCountry(countryCode: string): DocOption[] {
+  return DOC_TYPES_BY_COUNTRY[countryCode] || DEFAULT_DOC_TYPES;
+}
 
 const UNLOCK_FEATURES = [
   { icon: CreditCard, label: 'Virtual & Physical Cards', color: 'from-yellow-400/20 to-yellow-600/5' },
@@ -62,24 +146,36 @@ const STEPS_CONFIG = [
   { label: 'Verified', icon: BadgeCheck },
 ];
 
-// Map our doc types to SmileID id_type values
-const SMILE_ID_TYPE_MAP: Record<DocType, string> = {
-  PASSPORT: 'PASSPORT',
-  NIN: 'NIN_V2',
-  DRIVERS_LICENSE: 'DRIVERS_LICENSE',
-  VOTERS_CARD: 'VOTER_ID',
-};
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVerificationProps) {
   const [step, setStep] = useState<KYCStep>('welcome');
-  const [selectedDoc, setSelectedDoc] = useState<DocType | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<string | null>(null); // SmileID id_type
+  const [userCountry, setUserCountry] = useState<string>('NG');
   const [error, setError] = useState<string | null>(null);
   const [sdkConfig, setSdkConfig] = useState<any>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
   const cameraRef = useRef<HTMLDivElement>(null);
+
+  // Load user's country from profile
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('borderpay_user');
+      if (cached) {
+        const user = JSON.parse(cached);
+        if (user.country) setUserCountry(user.country);
+      }
+    } catch {}
+    // Also fetch fresh from API
+    backendAPI.user.getProfile().then(result => {
+      if (result.success && result.data?.user?.country) {
+        setUserCountry(result.data.user.country);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const docOptions = getDocTypesForCountry(userCountry);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -167,8 +263,8 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         },
         body: JSON.stringify({
           product: 'doc_verification',
-          id_type: selectedDoc ? SMILE_ID_TYPE_MAP[selectedDoc] : 'PASSPORT',
-          country: 'NG',
+          id_type: selectedDoc || 'PASSPORT',
+          country: userCountry,
         }),
       });
 
@@ -220,8 +316,8 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           body: JSON.stringify({
             action: 'submit_images',
             images: detail.images,
-            id_type: selectedDoc ? SMILE_ID_TYPE_MAP[selectedDoc] : 'PASSPORT',
-            country: 'NG',
+            id_type: selectedDoc || 'PASSPORT',
+            country: userCountry,
             job_id: sdkConfig?.job_id,
           }),
         });
@@ -480,39 +576,42 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               </div>
 
               <div className="space-y-2.5 mb-6">
-                {DOC_OPTIONS.map((doc, i) => (
-                  <motion.button
-                    key={doc.id}
-                    initial={{ opacity: 0, x: -12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.06 }}
-                    onClick={() => setSelectedDoc(doc.id)}
-                    className={`w-full flex items-center gap-3.5 p-4 rounded-2xl border transition-all text-left active:scale-[0.98] ${
-                      selectedDoc === doc.id
-                        ? 'bg-[#C7FF00]/10 border-[#C7FF00]/40 shadow-[0_0_20px_rgba(199,255,0,0.08)]'
-                        : 'bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]'
-                    }`}
-                  >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
-                      selectedDoc === doc.id ? 'bg-[#C7FF00]/20' : 'bg-white/[0.04]'
-                    }`}>
-                      <doc.icon className={`w-5 h-5 transition-colors ${
-                        selectedDoc === doc.id ? 'text-[#C7FF00]' : 'text-gray-500'
-                      }`} />
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-[12px] font-semibold transition-colors ${
-                        selectedDoc === doc.id ? 'text-white' : 'text-gray-300'
-                      }`}>{doc.label}</p>
-                      <p className="text-[9px] text-gray-600">{doc.desc}</p>
-                    </div>
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                      selectedDoc === doc.id ? 'border-[#C7FF00] bg-[#C7FF00]' : 'border-gray-700'
-                    }`}>
-                      {selectedDoc === doc.id && <CheckCircle className="w-3 h-3 text-[#0B0E11]" />}
-                    </div>
-                  </motion.button>
-                ))}
+                {docOptions.map((doc, i) => {
+                  const Icon = doc.icon;
+                  return (
+                    <motion.button
+                      key={doc.id}
+                      initial={{ opacity: 0, x: -12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.06 }}
+                      onClick={() => setSelectedDoc(doc.id)}
+                      className={`w-full flex items-center gap-3.5 p-4 rounded-2xl border transition-all text-left active:scale-[0.98] ${
+                        selectedDoc === doc.id
+                          ? 'bg-[#C7FF00]/10 border-[#C7FF00]/40 shadow-[0_0_20px_rgba(199,255,0,0.08)]'
+                          : 'bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                        selectedDoc === doc.id ? 'bg-[#C7FF00]/20' : 'bg-white/[0.04]'
+                      }`}>
+                        <Icon className={`w-5 h-5 transition-colors ${
+                          selectedDoc === doc.id ? 'text-[#C7FF00]' : 'text-gray-500'
+                        }`} />
+                      </div>
+                      <div className="flex-1">
+                        <p className={`text-[12px] font-semibold transition-colors ${
+                          selectedDoc === doc.id ? 'text-white' : 'text-gray-300'
+                        }`}>{doc.label}</p>
+                        <p className="text-[9px] text-gray-600">{doc.desc}</p>
+                      </div>
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        selectedDoc === doc.id ? 'border-[#C7FF00] bg-[#C7FF00]' : 'border-gray-700'
+                      }`}>
+                        {selectedDoc === doc.id && <CheckCircle className="w-3 h-3 text-[#0B0E11]" />}
+                      </div>
+                    </motion.button>
+                  );
+                })}
               </div>
             </motion.div>
           )}
