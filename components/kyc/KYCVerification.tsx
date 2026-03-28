@@ -416,6 +416,14 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
         if (result.success) {
           setStep('processing');
+
+          // Send 'submitted' KYC status email (fire-and-forget)
+          fetch(`${BASE_URL}/send-kyc-status-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
+            body: JSON.stringify({ type: 'submitted', userId }),
+          }).catch(() => {});
+
           // First check after 5s, then poll every 10s (max 12 polls = 2 min)
           setTimeout(() => checkVerificationStatus(), 5000);
           startPolling();
@@ -814,7 +822,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             </motion.div>
           )}
 
-          {/* ═══ PROCESSING ═══ */}
+          {/* ═══ PROCESSING / SUBMITTED ═══ */}
           {step === 'processing' && (
             <motion.div
               key="processing"
@@ -823,30 +831,51 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col items-center justify-center px-6"
             >
-              <div className="relative w-24 h-24 mb-6">
-                <motion.div
-                  className="absolute inset-0 rounded-full border-2 border-[#C7FF00]/20 border-t-[#C7FF00]"
-                  animate={{ rotate: 360 }}
-                  transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-                />
-                <motion.div
-                  className="absolute inset-3 rounded-full border-2 border-[#C7FF00]/10 border-b-[#C7FF00]/50"
-                  animate={{ rotate: -360 }}
-                  transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <ShieldCheck className="w-8 h-8 text-[#C7FF00]" />
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+                className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#C7FF00]/20 to-[#C7FF00]/5 border border-[#C7FF00]/20 flex items-center justify-center mb-5"
+              >
+                <FileText className="w-12 h-12 text-[#C7FF00]" strokeWidth={1.5} />
+              </motion.div>
+
+              <h2 className="text-lg font-bold text-white mb-2 text-center">Document Submitted</h2>
+              <p className="text-xs text-gray-400 text-center max-w-[280px] mb-5 leading-relaxed">
+                Your identity document has been successfully submitted for review.
+              </p>
+
+              <div className="w-full max-w-[300px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-[#C7FF00]/10 flex items-center justify-center">
+                    <Loader2 className="w-4 h-4 text-[#C7FF00] animate-spin" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-white">Under Review</p>
+                    <p className="text-[9px] text-gray-500">Estimated 1-2 business days</p>
+                  </div>
+                </div>
+                <div className="space-y-2 text-[10px] text-gray-400 leading-relaxed">
+                  <p>Our verification team is reviewing your document to ensure it meets all security requirements.</p>
+                  <p>You will receive an <span className="text-[#C7FF00]/80 font-medium">email notification</span> and an <span className="text-[#C7FF00]/80 font-medium">in-app notification</span> once your verification is complete.</p>
                 </div>
               </div>
-              <h3 className="text-base font-bold mb-1.5">Processing Verification</h3>
-              <p className="text-[10px] text-gray-500 text-center max-w-[250px] mb-6">
-                Securely confirming your identity. This usually takes less than a minute.
-              </p>
-              <div className="w-full max-w-[240px] space-y-2.5">
-                <AnimatedLoadingStep label="Analyzing document" delay={0} />
-                <AnimatedLoadingStep label="Matching biometrics" delay={0.8} />
-                <AnimatedLoadingStep label="Confirming identity" delay={1.6} />
+
+              <div className="w-full max-w-[300px] space-y-2">
+                <div className="flex items-center gap-2.5 bg-blue-500/[0.06] border border-blue-500/[0.1] rounded-xl px-3.5 py-2.5">
+                  <CheckCircle className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                  <p className="text-[9px] text-blue-300/80">You can continue using BorderPay while we review your document.</p>
+                </div>
               </div>
+
+              <motion.button
+                onClick={onComplete}
+                className="mt-6 w-full max-w-[300px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
+                whileTap={{ scale: 0.97 }}
+              >
+                <ArrowRight size={16} />
+                Back to Dashboard
+              </motion.button>
             </motion.div>
           )}
 
