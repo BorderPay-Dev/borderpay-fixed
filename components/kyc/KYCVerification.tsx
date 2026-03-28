@@ -539,7 +539,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       )}
 
       {/* ── Content ── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-y-auto">
         <AnimatePresence mode="wait">
 
           {/* ═══ WELCOME ═══ */}
@@ -550,7 +550,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="flex-1 px-5 py-4 overflow-y-auto"
+              className="flex-1 px-5 py-4"
             >
               <div className="flex flex-col items-center mb-6">
                 <div className="relative">
@@ -621,9 +621,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             </motion.div>
           )}
 
-          {/* WELCOME CTA */}
+          {/* WELCOME CTA — inside scroll area so always reachable */}
           {step === 'welcome' && (
-            <div className="sticky bottom-0 z-20 bg-gradient-to-t from-[#0B0E11] via-[#0B0E11] to-[#0B0E11]/0 px-5 pt-6 pb-4 pb-safe">
+            <div className="px-5 pt-2 pb-6 pb-safe">
               <motion.button
                 onClick={() => setStep('doc-select')}
                 className="w-full relative overflow-hidden bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm tracking-wide flex items-center justify-center gap-2.5"
@@ -706,9 +706,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             </motion.div>
           )}
 
-          {/* DOC-SELECT CTA */}
+          {/* DOC-SELECT CTA — inside scroll area so always reachable */}
           {step === 'doc-select' && (
-            <div className="sticky bottom-0 z-20 bg-gradient-to-t from-[#0B0E11] via-[#0B0E11] to-[#0B0E11]/0 px-5 pt-6 pb-4 pb-safe">
+            <div className="px-5 pt-2 pb-6 pb-safe">
               <motion.button
                 onClick={initializeVerification}
                 disabled={!selectedDoc}

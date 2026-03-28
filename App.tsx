@@ -92,12 +92,22 @@ function AppContent() {
   };
 
   // Check for password reset token in URL hash
+  // Detect password reset tokens in URL hash — but don't change state until splash is done
+  const [pendingResetPassword, setPendingResetPassword] = useState(false);
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes('token=') || hash.includes('access_token=')) {
-      setAppState('reset-password');
+      setPendingResetPassword(true);
     }
   }, []);
+
+  // Apply pending reset-password state only after splash + auth have finished
+  useEffect(() => {
+    if (pendingResetPassword && !showSplash && !authLoading) {
+      setAppState('reset-password');
+      setPendingResetPassword(false);
+    }
+  }, [pendingResetPassword, showSplash, authLoading]);
 
   // Check authentication state and route appropriately
   useEffect(() => {
@@ -164,10 +174,36 @@ function AppContent() {
 
   const handleLoginSuccess = async (loginUser: any) => {
     try {
+      // Try to get the real name from profile DB first, then user_metadata, then email prefix
+      let fullName = loginUser.user_metadata?.full_name;
+
+      if (!fullName || fullName === 'User') {
+        // Check cached profile
+        try {
+          const cached = localStorage.getItem('borderpay_user');
+          if (cached) {
+            const cachedUser = JSON.parse(cached);
+            if (cachedUser.full_name && cachedUser.full_name !== 'User') {
+              fullName = cachedUser.full_name;
+            }
+          }
+        } catch {}
+      }
+
+      if (!fullName || fullName === 'User') {
+        // Fetch from DB profile
+        try {
+          const profileResult = await backendAPI.user.getProfile();
+          if (profileResult.success && profileResult.data?.user?.full_name) {
+            fullName = profileResult.data.user.full_name;
+          }
+        } catch {}
+      }
+
       await sessionAPI.create({
         id: loginUser.id,
         email: loginUser.email,
-        full_name: loginUser.user_metadata?.full_name || loginUser.email?.split('@')[0] || 'User',
+        full_name: fullName || loginUser.email?.split('@')[0] || 'User',
       });
     } catch {
       // Non-critical — Supabase auth already succeeded
@@ -259,7 +295,9 @@ function AppContent() {
   }, [appState, user?.id]);
 
   // Show splash screen on first load (covers auth initialization too)
-  if (showSplash || authLoading || appState === 'loading') {
+  // Keep splash visible until both auth check AND splash animation are complete
+  const showSplashScreen = showSplash || authLoading || appState === 'loading';
+  if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
     );
