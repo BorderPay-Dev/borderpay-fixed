@@ -31,7 +31,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
 import { projectId } from '../../utils/supabase/info';
-import { authAPI } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile } from '../../utils/supabase/client';
 import { ENV_CONFIG } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -305,25 +305,31 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         try {
           const profileResult = await backendAPI.user.getProfile();
           if (profileResult.success && profileResult.data?.user) {
-            localStorage.setItem('borderpay_user', JSON.stringify(profileResult.data.user));
             userProfile = profileResult.data.user;
           }
         } catch (profileError) {
         }
 
+        // Auth metadata is the source-of-truth for the user's name
+        const authName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || '';
+
         if (!userProfile) {
           userProfile = {
             id:           data.user.id,
             email:        data.user.email,
-            full_name:    data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User',
+            full_name:    authName || data.user.email?.split('@')[0] || 'User',
             phone:        data.user.user_metadata?.phone || data.user.phone || '',
             country:      data.user.user_metadata?.country || '',
             account_type: data.user.user_metadata?.account_type || 'individual',
             kyc_status:   data.user.user_metadata?.kyc_status || 'pending',
             created_at:   data.user.created_at,
           };
-          localStorage.setItem('borderpay_user', JSON.stringify(userProfile));
+        } else if (!userProfile.full_name || userProfile.full_name === 'User') {
+          // Backend profile missing name — supplement from auth metadata
+          userProfile.full_name = authName || data.user.email?.split('@')[0] || 'User';
         }
+
+        storeUserProfile(userProfile);
 
         const has2FA      = TOTPManager.isEnabled(userProfile.id);
         const profileHas2FA = userProfile.two_factor_enabled || userProfile.mfa_enabled;

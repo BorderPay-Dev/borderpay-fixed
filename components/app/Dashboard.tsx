@@ -33,7 +33,7 @@ import {
   TrendingDown,
   Activity,
 } from 'lucide-react';
-import { authAPI, storeUserProfile } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { SecurityStatus } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -136,7 +136,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       if (profileRes.status === 'fulfilled' && profileRes.value?.success) {
         const p = profileRes.value.data?.user;
         if (p) {
-          setUserName(p.full_name || p.email?.split('@')[0] || 'User');
+          let displayName = p.full_name;
+
+          // If backend profile has no name, get it from Supabase auth metadata
+          if (!displayName || displayName === 'User') {
+            try {
+              const { data: { user: authUser } } = await supabase.auth.getUser();
+              displayName = authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || '';
+              if (displayName) p.full_name = displayName;
+            } catch { /* silent */ }
+          }
+
+          setUserName(displayName || p.email?.split('@')[0] || 'User');
           const verified   = p.kyc_status === 'verified';
           setIsVerified(verified);
           // Don't override 2FA from profile — it doesn't have that column
