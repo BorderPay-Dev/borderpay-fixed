@@ -494,7 +494,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   // ═══════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="min-h-screen bg-[#0B0E11] text-white flex flex-col pb-safe">
+    <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* ── Header ── */}
       <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
         <div className="flex items-center justify-between px-4 py-3 pt-safe">
@@ -563,7 +563,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       )}
 
       {/* ── Content ── */}
-      <div className="flex-1 flex flex-col overflow-y-auto">
+      <div className="flex-1 flex flex-col">
         <AnimatePresence mode="wait">
 
           {/* ═══ WELCOME ═══ */}
@@ -677,7 +677,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="flex-1 px-5 py-4 overflow-y-auto"
+              className="flex-1 px-5 py-4"
             >
               <div className="text-center mb-6">
                 <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
@@ -800,7 +800,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               ref={cameraRef}
             >
               {/* SmileID smart-camera-web component */}
-              <div className="flex-1 bg-white rounded-t-2xl overflow-y-auto" style={{ minHeight: 'calc(100vh - 100px)' }}>
+              <div className="flex-1 bg-white rounded-t-2xl overflow-y-auto" style={{ minHeight: '70dvh' }}>
                 {selectedDoc === 'PASSPORT' ? (
                   // @ts-ignore - custom web component
                   <smart-camera-web

@@ -96,7 +96,7 @@ export function StablecoinConfirmScreen({
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0E11] text-white flex flex-col pb-safe">
+    <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/5">
         <div className="flex items-center justify-between px-5 py-3 pt-safe">
@@ -113,7 +113,7 @@ export function StablecoinConfirmScreen({
         </div>
       </div>
 
-      <div className="flex-1 px-5 py-6 overflow-y-auto">
+      <div className="flex-1 px-5 py-6">
         <AnimatePresence mode="wait">
 
           {/* ═══ LOGGING STATE ═══ */}
