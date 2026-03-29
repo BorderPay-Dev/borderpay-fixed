@@ -24,14 +24,24 @@ interface KYCJob {
   phone: string;
   country: string;
   kyc_status: string;
+  kyc_level: number;
+  kyc_verified_at: string | null;
   created_at: string;
   updated_at: string;
-  documents: Array<{
-    document_type: string;
+  verifications: Array<{
+    job_id: string;
+    provider: string;
     status: string;
-    provider_ref: string;
-    rejection_reason: string | null;
+    document_type: string;
+    confidence_score: number | null;
+    result_code: string | null;
+    result_text: string | null;
+    smile_job_id: string | null;
+    full_name: string | null;
+    id_type: string | null;
+    country: string | null;
     created_at: string;
+    updated_at: string;
   }>;
   smile_job: {
     job_complete: boolean;
@@ -353,34 +363,40 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
                             </div>
                           )}
 
-                          {/* Documents */}
-                          {job.documents.length > 0 && (
+                          {/* Verifications */}
+                          {job.verifications.length > 0 && (
                             <div>
                               <div className="flex items-center gap-2 mb-2">
                                 <FileText size={12} className="text-gray-400" />
                                 <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">
-                                  Documents ({job.documents.length})
+                                  Verifications ({job.verifications.length})
                                 </span>
                               </div>
                               <div className="space-y-1.5">
-                                {job.documents.map((doc, i) => {
-                                  const dsc = getStatusConfig(doc.status);
+                                {job.verifications.map((v, i) => {
+                                  const vsc = getStatusConfig(v.status);
                                   return (
                                     <div
                                       key={i}
-                                      className="flex items-center justify-between bg-white/[0.02] border border-white/[0.04] rounded-lg px-3 py-2"
+                                      className="bg-white/[0.02] border border-white/[0.04] rounded-lg px-3 py-2"
                                     >
-                                      <div>
+                                      <div className="flex items-center justify-between mb-1">
                                         <p className="text-[10px] font-medium text-white/80 capitalize">
-                                          {(doc.document_type || 'document').replace(/_/g, ' ')}
+                                          {(v.document_type || v.id_type || 'document').replace(/_/g, ' ')}
                                         </p>
-                                        {doc.rejection_reason && (
-                                          <p className="text-[9px] text-red-400 mt-0.5">{doc.rejection_reason}</p>
-                                        )}
+                                        <span className={`text-[8px] font-bold uppercase ${vsc.color}`}>
+                                          {vsc.label}
+                                        </span>
                                       </div>
-                                      <span className={`text-[8px] font-bold uppercase ${dsc.color}`}>
-                                        {dsc.label}
-                                      </span>
+                                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-gray-500">
+                                        {v.result_code && <span>Code: {v.result_code}</span>}
+                                        {v.confidence_score && <span>Confidence: {v.confidence_score}%</span>}
+                                        {v.smile_job_id && <span>Job: {v.smile_job_id.slice(0, 12)}</span>}
+                                        {v.result_text && <span>{v.result_text}</span>}
+                                      </div>
+                                      <p className="text-[8px] text-gray-600 mt-1">
+                                        {formatDate(v.created_at)} {formatTime(v.created_at)}
+                                      </p>
                                     </div>
                                   );
                                 })}
