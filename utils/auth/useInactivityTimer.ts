@@ -124,17 +124,8 @@ export function useInactivityTimer({
 
     lastActivityRef.current = Date.now();
 
-    // If warning is showing, user is active → dismiss it and reset
-    setShowWarning((wasWarning) => {
-      if (wasWarning) {
-        resetTimers();
-      }
-      return false;
-    });
-
-    // Reset timers only if NOT in warning state (handled above)
-    // To avoid resetting on every pixel of mousemove, throttle the timer reset
-    // But we always want to postpone the hard logout
+    // Single resetTimers call — handles both warning-dismiss and normal reset.
+    // resetTimers() already calls setShowWarning(false) internally.
     resetTimers();
 
     // Throttled backend activity report

@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { BASE_URL, ANON_KEY } from '../../utils/supabase/client';
+import { BASE_URL, ANON_KEY, storeUserProfile, readUserProfile, dataCache } from '../../utils/supabase/client';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck, ArrowLeft, Camera, FileText, AlertCircle,
@@ -251,11 +251,8 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   // Load user's country from profile
   useEffect(() => {
     try {
-      const cached = localStorage.getItem('borderpay_user');
-      if (cached) {
-        const user = JSON.parse(cached);
-        if (user.country) setUserCountry(user.country);
-      }
+      const user = readUserProfile();
+      if (user?.country) setUserCountry(user.country);
     } catch {}
     // Also fetch fresh from API
     backendAPI.user.getProfile().then(result => {
@@ -325,7 +322,8 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       try {
         const profileResult = await backendAPI.user.getProfile();
         if (profileResult.success && profileResult.data?.user) {
-          localStorage.setItem('borderpay_user', JSON.stringify(profileResult.data.user));
+          storeUserProfile(profileResult.data.user);
+          dataCache.invalidate('profile');
         }
       } catch (e) { /* silent */ }
       setTimeout(() => onComplete(), 3500);
@@ -367,6 +365,21 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           return;
         }
         throw new Error('Backend returned no data');
+      }
+
+      // Validate that any URLs in the config point to trusted SmileID origins
+      const TRUSTED_ORIGINS = ['smileidentity.com', 'usesmileid.com', 'supabase.co'];
+      if (result.data.smile_api) {
+        try {
+          const apiHost = new URL(result.data.smile_api).hostname;
+          if (!TRUSTED_ORIGINS.some(t => apiHost.endsWith(t))) {
+            throw new Error('Untrusted verification provider URL');
+          }
+        } catch (urlErr: any) {
+          if (urlErr.message === 'Untrusted verification provider URL') throw urlErr;
+          // Malformed URL — reject
+          throw new Error('Invalid verification provider URL');
+        }
       }
 
       setSdkConfig(result.data);

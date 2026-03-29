@@ -38,6 +38,7 @@ import { ProofOfAddressScreen } from '../settings/ProofOfAddressScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert, X } from 'lucide-react';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 
 interface MainAppProps {
   userId: string;
@@ -342,7 +343,9 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
       <div className="glass-noise-overlay" />
       
       <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden relative z-[2]" style={{ WebkitOverflowScrolling: 'auto', overscrollBehavior: 'none' }}>
-        {renderScreen()}
+        <ErrorBoundary key={currentScreen}>
+          {renderScreen()}
+        </ErrorBoundary>
       </div>
 
       {/* New Device / IP Security Alert */}

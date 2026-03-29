@@ -38,7 +38,7 @@ function getOrCreateClient(): SupabaseClient {
       localStorage.setItem('borderpay_token', session.access_token);
     } else if (event === 'SIGNED_OUT') {
       localStorage.removeItem('borderpay_token');
-      localStorage.removeItem('borderpay_user');
+      clearUserProfile();
     }
   });
 
@@ -47,6 +47,42 @@ function getOrCreateClient(): SupabaseClient {
 }
 
 export const supabase = getOrCreateClient();
+
+// ── Secure user profile storage ─────────────────────────────────────────────
+// Exported so all components use a single read/write path.
+// Strips internal Supabase metadata before caching to limit PII exposure.
+const USER_STORAGE_KEY = 'borderpay_user';
+
+/** Fields safe to cache locally. Everything else is fetched on demand. */
+const SAFE_FIELDS = [
+  'id', 'email', 'full_name', 'country', 'phone', 'kyc_status',
+  'kyc_level', 'avatar_url', 'currency', 'maplerad_customer_id',
+  'created_at', 'date_of_birth', 'address', 'city', 'state', 'postal_code',
+];
+
+export function storeUserProfile(profile: any): void {
+  if (!profile) return;
+  // Strip unnecessary internal fields (aud, role, app_metadata, etc.)
+  const cleaned: Record<string, any> = {};
+  for (const key of SAFE_FIELDS) {
+    if (profile[key] !== undefined) cleaned[key] = profile[key];
+  }
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(cleaned));
+}
+
+export function readUserProfile(): any | null {
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function clearUserProfile(): void {
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
 
 // ── Auth API ─────────────────────────────────────────────────────────────────
 export const authAPI = {
@@ -74,7 +110,7 @@ export const authAPI = {
           if (profileRes.ok) {
             const profileData = await profileRes.json();
             if (profileData.success && profileData.data?.user) {
-              localStorage.setItem('borderpay_user', JSON.stringify(profileData.data.user));
+              storeUserProfile(profileData.data.user);
               return { success: true, data: { user: profileData.data.user, access_token: data.session.access_token } };
             }
           }
@@ -88,7 +124,7 @@ export const authAPI = {
           phone:     data.user.phone || data.user.user_metadata?.phone || '',
           kyc_status: data.user.user_metadata?.kyc_status || 'pending',
         };
-        localStorage.setItem('borderpay_user', JSON.stringify(fallback));
+        storeUserProfile(fallback);
         return { success: true, data: { user: fallback, access_token: data.session.access_token } };
       }
 
@@ -113,7 +149,7 @@ export const authAPI = {
       const data = await res.json();
       if (data.success && data.data?.access_token) {
         localStorage.setItem('borderpay_token', data.data.access_token);
-        localStorage.setItem('borderpay_user', JSON.stringify(data.data.user));
+        storeUserProfile(data.data.user);
       }
       return data;
     } catch {
@@ -134,7 +170,7 @@ export const authAPI = {
       }
     } finally {
       localStorage.removeItem('borderpay_token');
-      localStorage.removeItem('borderpay_user');
+      clearUserProfile();
     }
   },
 
@@ -174,10 +210,7 @@ export const authAPI = {
     } catch { return { success: false }; }
   },
 
-  getStoredUser: () => {
-    try { return JSON.parse(localStorage.getItem('borderpay_user') || 'null'); }
-    catch { return null; }
-  },
+  getStoredUser: () => readUserProfile(),
 
   getToken: () => localStorage.getItem('borderpay_token'),
 };

@@ -33,7 +33,7 @@ import {
   TrendingDown,
   Activity,
 } from 'lucide-react';
-import { authAPI } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { SecurityStatus } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -143,7 +143,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           // 2FA status is set later from security endpoint + client-side merge
           if (verified)   setAccountStatus('verified');
           else            setAccountStatus('starter');
-          localStorage.setItem('borderpay_user', JSON.stringify(p));
+          storeUserProfile(p);
         }
       }
 

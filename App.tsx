@@ -10,6 +10,7 @@ import { MainApp } from './components/app/MainApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { sessionAPI } from './utils/api/sessionAPI';
 import { backendAPI } from './utils/api/backendAPI';
+import { readUserProfile } from './utils/supabase/client';
 import { useAuth } from './utils/auth/useAuth';
 import { ThemeLanguageProvider } from './utils/i18n/ThemeLanguageContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -229,12 +230,9 @@ function AppContent() {
       if (!fullName || fullName === 'User') {
         // Check cached profile
         try {
-          const cached = localStorage.getItem('borderpay_user');
-          if (cached) {
-            const cachedUser = JSON.parse(cached);
-            if (cachedUser.full_name && cachedUser.full_name !== 'User') {
-              fullName = cachedUser.full_name;
-            }
+          const cachedUser = readUserProfile();
+          if (cachedUser?.full_name && cachedUser.full_name !== 'User') {
+            fullName = cachedUser.full_name;
           }
         } catch {}
       }

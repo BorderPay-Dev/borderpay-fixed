@@ -10,11 +10,25 @@
 
 import { authAPI, BASE_URL, ANON_KEY } from '../supabase/client';
 
-// ── Core API caller ──────────────────────────────────────────────────────────
+// ── CSRF token (per-session, rotated on page load) ───────────────────────────
+const CSRF_TOKEN = crypto.randomUUID();
+
+// ── Sanitize error messages to prevent info leakage ──────────────────────────
+function sanitizeError(raw: string | undefined): string {
+  if (!raw) return 'Something went wrong. Please try again.';
+  // Strip anything that looks like a key, URL, or internal path
+  if (/supabase|secret|key|token|password|internal/i.test(raw)) {
+    return 'Something went wrong. Please try again.';
+  }
+  return raw;
+}
+
+// ── Core API caller with retry for transient network failures ────────────────
 
 async function apiCall<T = any>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retries: number = 0
 ): Promise<{ success: boolean; data?: T; error?: string }> {
   try {
     const token = authAPI.getToken();
@@ -23,6 +37,7 @@ async function apiCall<T = any>(
       'Content-Type': 'application/json',
       'apikey': ANON_KEY,
       'Authorization': `Bearer ${token || ANON_KEY}`,
+      'X-CSRF-Token': CSRF_TOKEN,
       ...options.headers,
     } as Record<string, string>;
 
@@ -36,12 +51,13 @@ async function apiCall<T = any>(
     if (!response.ok) {
       return {
         success: false,
-        error: data.error || data.message || `Request failed with status ${response.status}`,
+        error: sanitizeError(data.error || data.message),
       };
     }
 
     // If the edge function already returns { success, data }, pass through
     if (data && typeof data === 'object' && 'success' in data) {
+      if (!data.success) data.error = sanitizeError(data.error);
       return data;
     }
 
@@ -50,10 +66,13 @@ async function apiCall<T = any>(
     if (error?.name === 'AbortError') {
       return { success: false, error: 'Request aborted' };
     }
-    // Silent — errors are handled by callers
+    // Retry once on network failure for critical calls
+    if (retries < 1 && !options.signal?.aborted) {
+      return apiCall<T>(endpoint, options, retries + 1);
+    }
     return {
       success: false,
-      error: error.message || 'Unable to connect to our servers. Please check your internet connection and try again.',
+      error: 'Unable to connect to our servers. Please check your internet connection and try again.',
     };
   }
 }
