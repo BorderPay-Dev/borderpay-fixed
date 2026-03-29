@@ -44,6 +44,7 @@ interface MainAppProps {
   onLogout: () => void;
   newDeviceDetected?: boolean;
   onDismissNewDevice?: () => void;
+  onTrustDevice?: () => void;
 }
 
 export type AppScreen = 
@@ -80,7 +81,7 @@ export type AppScreen =
   | 'help-center'
   | 'proof-of-address';
 
-export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevice }: MainAppProps) {
+export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('dashboard');
   const [navigationStack, setNavigationStack] = useState<AppScreen[]>(['dashboard']);
   const verificationStatus = useVerification(userId);
@@ -367,7 +368,7 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
                 </div>
                 <div className="space-y-3">
                   <button
-                    onClick={() => onDismissNewDevice?.()}
+                    onClick={() => onTrustDevice?.()}
                     className="w-full h-12 rounded-2xl bg-[#C7FF00] text-[#0B0E11] font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                   >
                     This Was Me

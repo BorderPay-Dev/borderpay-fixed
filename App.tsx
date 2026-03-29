@@ -19,31 +19,64 @@ import { AppLockScreen } from './components/security/AppLockScreen';
 
 type AppState = 'splash' | 'onboarding' | 'login' | 'signup' | 'forgot-password' | 'reset-password' | 'dashboard' | 'loading';
 
-// ── Device IP fingerprinting ──
-async function getDeviceFingerprint(): Promise<{ ip: string; ua: string }> {
+// ── Device fingerprinting ──
+// Uses a persistent random device ID (survives IP/UA changes) combined with
+// IP for new-network detection. Trusted devices skip the alert entirely.
+
+function getOrCreateDeviceId(): string {
+  const KEY = 'borderpay_device_id';
+  let id = localStorage.getItem(KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
+async function getDeviceFingerprint(): Promise<{ ip: string; ua: string; deviceId: string }> {
   let ip = 'unknown';
   try {
     const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
     const data = await res.json();
     ip = data.ip || 'unknown';
   } catch { /* silent */ }
-  return { ip, ua: navigator.userAgent };
+  return { ip, ua: navigator.userAgent, deviceId: getOrCreateDeviceId() };
 }
 
-function checkNewDevice(fingerprint: { ip: string; ua: string }): boolean {
+function checkNewDevice(fingerprint: { ip: string; ua: string; deviceId: string }): boolean {
   const stored = localStorage.getItem('borderpay_known_devices');
-  const devices: Array<{ ip: string; ua: string }> = stored ? JSON.parse(stored) : [];
-  const isKnown = devices.some(d => d.ip === fingerprint.ip && d.ua === fingerprint.ua);
+  const devices: Array<{ ip: string; deviceId: string }> = stored ? JSON.parse(stored) : [];
+  // Known if same deviceId OR same IP from a known device
+  const isKnown = devices.some(d => d.deviceId === fingerprint.deviceId || d.ip === fingerprint.ip);
   return !isKnown;
 }
 
-function registerDevice(fingerprint: { ip: string; ua: string }) {
+function registerDevice(fingerprint: { ip: string; ua: string; deviceId: string }) {
   const stored = localStorage.getItem('borderpay_known_devices');
-  const devices: Array<{ ip: string; ua: string }> = stored ? JSON.parse(stored) : [];
+  const devices: Array<{ ip: string; deviceId: string }> = stored ? JSON.parse(stored) : [];
+  // Don't duplicate
+  if (devices.some(d => d.deviceId === fingerprint.deviceId)) {
+    // Update IP for existing device
+    const existing = devices.find(d => d.deviceId === fingerprint.deviceId);
+    if (existing) existing.ip = fingerprint.ip;
+  } else {
+    devices.push({ ip: fingerprint.ip, deviceId: fingerprint.deviceId });
+  }
   // Keep last 10 devices
-  devices.push(fingerprint);
   if (devices.length > 10) devices.shift();
   localStorage.setItem('borderpay_known_devices', JSON.stringify(devices));
+}
+
+function trustCurrentDevice() {
+  const deviceId = getOrCreateDeviceId();
+  const stored = localStorage.getItem('borderpay_trusted_devices');
+  const trusted: string[] = stored ? JSON.parse(stored) : [];
+  // Build a composite key — deviceId is enough since it's persistent per browser
+  const fp = `${deviceId}`;
+  if (!trusted.includes(fp)) {
+    trusted.push(fp);
+    localStorage.setItem('borderpay_trusted_devices', JSON.stringify(trusted));
+  }
 }
 
 function AppContent() {
@@ -134,7 +167,14 @@ function AppContent() {
             return;
           }
 
+          // Device fingerprint check (non-blocking)
           getDeviceFingerprint().then(fp => {
+            const trusted = localStorage.getItem('borderpay_trusted_devices');
+            const trustedList: string[] = trusted ? JSON.parse(trusted) : [];
+
+            // Skip alert for trusted devices (matches deviceId stored by trustCurrentDevice)
+            if (trustedList.includes(fp.deviceId)) return;
+
             if (checkNewDevice(fp)) {
               setNewDeviceDetected(true);
               registerDevice(fp);
@@ -143,6 +183,14 @@ function AppContent() {
 
           setAppState('dashboard');
         } else {
+          // If we still have a token in localStorage, auth might still be settling
+          // (e.g. Supabase session refresh) — wait before showing login
+          const cachedToken = localStorage.getItem('borderpay_token');
+          if (cachedToken && appState === 'loading') {
+            // Give auth one more cycle to settle
+            return;
+          }
+
           if (!hasSeenOnboarding) {
             setAppState('onboarding');
           } else {
@@ -368,6 +416,7 @@ function AppContent() {
           onLogout={handleLogout}
           newDeviceDetected={newDeviceDetected}
           onDismissNewDevice={() => setNewDeviceDetected(false)}
+          onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}
         />
         {/* Android PWA Install Banner */}
         {showInstallBanner && (

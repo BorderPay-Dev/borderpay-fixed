@@ -784,7 +784,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               ref={cameraRef}
             >
               {/* SmileID smart-camera-web component */}
-              <div className="flex-1 bg-white rounded-t-2xl overflow-hidden" style={{ minHeight: 'calc(100vh - 100px)' }}>
+              <div className="flex-1 bg-white rounded-t-2xl overflow-y-auto" style={{ minHeight: 'calc(100vh - 100px)' }}>
                 {/* @ts-ignore - custom web component */}
                 <smart-camera-web
                   document-capture-modes="camera,upload"

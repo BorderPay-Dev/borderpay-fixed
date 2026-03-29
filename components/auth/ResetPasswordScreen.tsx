@@ -138,7 +138,11 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
         return;
       }
 
-      // Success!
+      // Success! Clear stale session data (but preserve security keys like PIN/2FA)
+      localStorage.removeItem('borderpay_token');
+      localStorage.removeItem('borderpay_user');
+      localStorage.removeItem('borderpay_known_devices');
+
       setSuccess(true);
       toast.success('Password reset successfully!');
 
