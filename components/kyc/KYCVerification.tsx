@@ -392,6 +392,24 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     }
   };
 
+  // ─── Configure smart-camera-web attributes imperatively ────────────────────
+  // React 18 doesn't reliably set boolean attributes on custom elements,
+  // so we set them via the DOM after mount.
+
+  useEffect(() => {
+    if (step !== 'capture' || !cameraRef.current) return;
+
+    const el = cameraRef.current.querySelector('smart-camera-web');
+    if (!el) return;
+
+    // Passport: skip back-of-ID capture
+    if (selectedDoc === 'PASSPORT') {
+      el.setAttribute('hide-back-of-id', '');
+    } else {
+      el.removeAttribute('hide-back-of-id');
+    }
+  }, [step, selectedDoc]);
+
   // ─── Handle smart-camera-web events ────────────────────────────────────────
 
   useEffect(() => {
@@ -403,7 +421,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
     const handleImagesComputed = async (event: any) => {
       const detail = event.detail;
-      if (!detail?.images) return;
+      // Accept images from either detail.images or detail directly
+      const images = detail?.images || (Array.isArray(detail) ? detail : null);
+      if (!images) return;
 
       setStep('uploading');
 
@@ -418,7 +438,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           },
           body: JSON.stringify({
             action: 'submit_images',
-            images: detail.images,
+            images,
             id_type: selectedDoc || 'PASSPORT',
             country: userCountry,
             job_id: sdkConfig?.job_id,
@@ -456,15 +476,19 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       setStep('doc-select');
     };
 
-    // Listen for both legacy and current SmileID event names
+    // Listen for all known SmileID event names (varies across SDK versions)
     el.addEventListener('imagesComputed', handleImagesComputed);
     el.addEventListener('smart-camera-web.publish', handleImagesComputed);
+    el.addEventListener('publish', handleImagesComputed);
     el.addEventListener('close', handleClose);
+    el.addEventListener('smart-camera-web.close', handleClose);
 
     return () => {
       el.removeEventListener('imagesComputed', handleImagesComputed);
       el.removeEventListener('smart-camera-web.publish', handleImagesComputed);
+      el.removeEventListener('publish', handleImagesComputed);
       el.removeEventListener('close', handleClose);
+      el.removeEventListener('smart-camera-web.close', handleClose);
     };
   }, [step, sdkConfig, selectedDoc]);
 
@@ -790,37 +814,25 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           )}
 
           {/* ═══ CAPTURE (smart-camera-web) ═══ */}
+          {/* No motion.div here — framer-motion compositing layers (will-change,
+              transform) break click handling inside the web component Shadow DOM
+              on mobile browsers. Plain div avoids this. */}
           {step === 'capture' && (
-            <motion.div
-              key="capture"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <div
               className="flex-1 flex flex-col"
               ref={cameraRef}
             >
-              {/* SmileID smart-camera-web component */}
-              <div className="flex-1 bg-white rounded-t-2xl overflow-y-auto" style={{ minHeight: '70dvh' }}>
-                {selectedDoc === 'PASSPORT' ? (
-                  // @ts-ignore - custom web component
-                  <smart-camera-web
-                    document-capture-modes="camera,upload"
-                    capture-id="true"
-                    hide-back-of-id="true"
-                    show-attribution="true"
-                    style={{ width: '100%', height: '100%' }}
-                  />
-                ) : (
-                  // @ts-ignore - custom web component
-                  <smart-camera-web
-                    document-capture-modes="camera,upload"
-                    capture-id="true"
-                    show-attribution="true"
-                    style={{ width: '100%', height: '100%' }}
-                  />
-                )}
+              {/* SmileID needs full control: no overflow clipping, no constrained
+                  width/height. The component manages its own layout and scroll. */}
+              <div
+                className="flex-1 bg-white rounded-t-2xl"
+                style={{ minHeight: '70dvh' }}
+              >
+                {/* hide-back-of-id set imperatively via useEffect above */}
+                {/* @ts-ignore - custom web component */}
+                <smart-camera-web document-capture-modes="camera,upload" capture-id="true" show-attribution="true" />
               </div>
-            </motion.div>
+            </div>
           )}
 
           {/* ═══ UPLOADING ═══ */}
