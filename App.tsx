@@ -80,7 +80,44 @@ function trustCurrentDevice() {
   }
 }
 
+/** SmileID Smile Link redirects here after verification completes. */
+function VerificationReturnScreen() {
+  const params = new URLSearchParams(window.location.search);
+  const status = params.get('status');
+  useEffect(() => {
+    // Clean URL so reloads don't loop
+    window.history.replaceState({}, '', '/');
+  }, []);
+  return (
+    <div className="fixed inset-0 bg-[#0B0E11] text-white flex flex-col items-center justify-center px-6 text-center">
+      <div className="w-20 h-20 rounded-2xl bg-[#C7FF00]/20 border border-[#C7FF00]/20 flex items-center justify-center mb-5">
+        {status === 'verified' ? (
+          <svg className="w-10 h-10 text-[#C7FF00]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+        ) : (
+          <svg className="w-10 h-10 text-[#C7FF00]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+        )}
+      </div>
+      <h1 className="text-xl font-bold mb-2">
+        {status === 'verified' ? 'Verification Complete!' : 'Verification Submitted'}
+      </h1>
+      <p className="text-sm text-gray-400 mb-6 max-w-[280px]">
+        {status === 'verified'
+          ? 'Your identity has been verified. You can close this tab and return to the BorderPay app.'
+          : 'Your documents have been submitted. You can close this tab and return to the BorderPay app — we\'ll notify you when verification is complete.'}
+      </p>
+      <button
+        onClick={() => { window.history.replaceState({}, '', '/'); window.location.reload(); }}
+        className="bg-[#C7FF00] text-black py-3 px-8 rounded-2xl font-bold text-sm"
+      >
+        Open BorderPay
+      </button>
+    </div>
+  );
+}
+
 function AppContent() {
+  // Handle SmileID Smile Link redirect (/verification-complete)
+  const [isVerificationReturn] = useState(() => window.location.pathname === '/verification-complete');
   const [appState, setAppState] = useState<AppState>('loading');
   const [showSplash, setShowSplash] = useState(true);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
@@ -343,6 +380,11 @@ function AppContent() {
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [appState, user?.id]);
+
+  // SmileID redirect — skip everything and show the return screen
+  if (isVerificationReturn) {
+    return <VerificationReturnScreen />;
+  }
 
   // Show splash screen on first load (covers auth initialization too)
   // Keep splash visible until both auth check AND splash animation are complete

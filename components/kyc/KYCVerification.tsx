@@ -41,7 +41,8 @@ type KYCStep = 'welcome' | 'loading' | 'redirect' | 'processing' | 'success' | '
 /** SmileID Smile Link URL — set in SmileID portal with callback pointing to
  *  our smile-callback-handler edge function. If the backend returns a
  *  smile_link URL, that takes precedence. */
-const SMILE_LINK_BASE = import.meta.env.VITE_SMILEID_LINK_URL || '';
+const SMILE_LINK_BASE = import.meta.env.VITE_SMILEID_LINK_URL
+  || 'https://links.sandbox.usesmileid.com/8077/4ad0eb49-0a5d-45e1-8365-b64c5bc3fe98';
 
 const UNLOCK_FEATURES = [
   { icon: Globe,      label: 'USD Account',      color: 'from-blue-500/10 to-blue-600/5' },
@@ -141,6 +142,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     setStep('loading');
     setError(null);
 
+    let linkUrl = '';
+
+    // Try backend first — it may return a dynamic Smile Link URL
     try {
       const token = authAPI.getToken();
       const response = await fetch(`${BASE_URL}/smile-callback-handler`, {
@@ -156,48 +160,48 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to initialize verification');
-
-      const result = await response.json();
-      if (!result.success || !result.data) {
+      if (response.ok) {
+        const result = await response.json();
         if (result.data?.already_verified) {
           handleVerificationDone('success');
           return;
         }
-        throw new Error('Backend returned no data');
+        linkUrl = result.data?.smile_link || result.data?.consent_url || '';
       }
-
-      // Use smile_link from backend if available, else fall back to env var
-      const linkUrl = result.data.smile_link || result.data.consent_url || SMILE_LINK_BASE;
-
-      if (linkUrl) {
-        // Validate URL origin
-        try {
-          const host = new URL(linkUrl).hostname;
-          const TRUSTED = ['smileidentity.com', 'usesmileid.com', 'supabase.co'];
-          if (!TRUSTED.some(t => host.endsWith(t))) {
-            throw new Error('Untrusted verification URL');
-          }
-        } catch (urlErr: any) {
-          if (urlErr.message === 'Untrusted verification URL') throw urlErr;
-          throw new Error('Invalid verification URL');
-        }
-        setSmileLinkUrl(linkUrl);
-        setStep('redirect');
-
-        // Start polling for the callback result
-        setTimeout(() => checkVerificationStatus(), 15000);
-        startPolling();
-      } else {
-        // No Smile Link URL available — show instructions
-        throw new Error('Verification link not configured. Please contact support.');
-      }
-    } catch (err: any) {
-      console.error('Init error:', err);
-      setStep('failed');
-      setError(err.message || 'Could not start verification.');
-      toast.error('Could not start verification');
+    } catch {
+      // Backend unavailable — fall through to default Smile Link
     }
+
+    // Fall back to configured Smile Link URL
+    if (!linkUrl) linkUrl = SMILE_LINK_BASE;
+
+    if (!linkUrl) {
+      setStep('failed');
+      setError('Verification link not configured. Please contact support.');
+      toast.error('Could not start verification');
+      return;
+    }
+
+    // Validate URL origin
+    try {
+      const host = new URL(linkUrl).hostname;
+      const TRUSTED = ['smileidentity.com', 'usesmileid.com', 'sandbox.usesmileid.com', 'supabase.co'];
+      if (!TRUSTED.some(t => host.endsWith(t))) {
+        throw new Error('Untrusted verification URL');
+      }
+    } catch (urlErr: any) {
+      setStep('failed');
+      setError(urlErr.message === 'Untrusted verification URL' ? urlErr.message : 'Invalid verification URL');
+      toast.error('Could not start verification');
+      return;
+    }
+
+    setSmileLinkUrl(linkUrl);
+    setStep('redirect');
+
+    // Start polling for the callback result
+    setTimeout(() => checkVerificationStatus(), 15000);
+    startPolling();
   };
 
   const openSmileLink = () => {
