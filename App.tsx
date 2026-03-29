@@ -9,6 +9,7 @@ import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { MainApp } from './components/app/MainApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { sessionAPI } from './utils/api/sessionAPI';
+import { backendAPI } from './utils/api/backendAPI';
 import { useAuth } from './utils/auth/useAuth';
 import { ThemeLanguageProvider } from './utils/i18n/ThemeLanguageContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';

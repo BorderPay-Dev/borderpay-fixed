@@ -146,6 +146,7 @@ export function ReceiveMoneyScreen({ onBack, preSelectedWalletId }: ReceiveMoney
       USD: '$', NGN: '₦', KES: 'KSh', GHS: '₵',
       TZS: 'TSh', UGX: 'USh', USDT: '$', USDC: '$',
       XOF: 'FCFA', XAF: 'FCFA',
+      SLE: 'Le', MZN: 'MT', MWK: 'MK',
       PYUSD: '$',
     };
     return symbols[currency] || currency;
@@ -163,6 +164,9 @@ export function ReceiveMoneyScreen({ onBack, preSelectedWalletId }: ReceiveMoney
       USDC: 'BorderPay Crypto',
       XOF: 'BorderPay UEMOA',
       XAF: 'BorderPay CEMAC',
+      SLE: 'BorderPay Sierra Leone',
+      MZN: 'BorderPay Mozambique',
+      MWK: 'BorderPay Malawi',
     };
     return bankNames[currency] || 'BorderPay Africa';
   };
@@ -179,6 +183,9 @@ export function ReceiveMoneyScreen({ onBack, preSelectedWalletId }: ReceiveMoney
       USDC: 'BPCT',
       XOF: 'BPXO',
       XAF: 'BPXA',
+      SLE: 'BPSL',
+      MZN: 'BPMZ',
+      MWK: 'BPMW',
     };
     return bankCodes[currency] || 'BPAF';
   };

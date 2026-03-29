@@ -69,6 +69,9 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; flag: string; name: stri
   TZS: { symbol: 'TSh', flag: '🇹🇿', name: 'Tanzanian Shilling', color: '#3B82F6' },
   XAF: { symbol: 'FCFA', flag: '🇨🇲', name: 'CFA Franc (Central)', color: '#A855F7' },
   XOF: { symbol: 'FCFA', flag: '🇧🇯', name: 'CFA Franc (West)', color: '#8B5CF6' },
+  SLE: { symbol: 'Le', flag: '🇸🇱', name: 'Sierra Leonean Leone', color: '#22D3EE' },
+  MZN: { symbol: 'MT', flag: '🇲🇿', name: 'Mozambican Metical', color: '#F97316' },
+  MWK: { symbol: 'MK', flag: '🇲🇼', name: 'Malawian Kwacha', color: '#14B8A6' },
   USDT: { symbol: '$', flag: '₮', name: 'Tether USD', color: '#26A17B' },
   USDC: { symbol: '$', flag: '◈', name: 'USD Coin', color: '#2775CA' },
   PYUSD: { symbol: '$', flag: '◇', name: 'PayPal USD', color: '#0074D9' },
@@ -84,6 +87,9 @@ const MOMO_PROVIDERS: Record<string, string> = {
   TZS: 'M-Pesa',
   XAF: 'Orange Money',
   XOF: 'Orange Money',
+  SLE: 'Orange Money',
+  MZN: 'M-Pesa',
+  MWK: 'Airtel Money',
 };
 
 // ---------------------------------------------------------------------------

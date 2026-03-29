@@ -34,6 +34,9 @@ const FX_CURRENCIES: Currency[] = [
   { code: 'UGX', name: 'Ugandan Shilling', symbol: 'USh', flag: '🇺🇬' },
   { code: 'XAF', name: 'Central African CFA', symbol: 'FCFA', flag: '🇨🇲' },
   { code: 'XOF', name: 'West African CFA', symbol: 'FCFA', flag: '🌍' },
+  { code: 'SLE', name: 'Sierra Leonean Leone', symbol: 'Le', flag: '🇸🇱' },
+  { code: 'MZN', name: 'Mozambican Metical', symbol: 'MT', flag: '🇲🇿' },
+  { code: 'MWK', name: 'Malawian Kwacha', symbol: 'MK', flag: '🇲🇼' },
 ];
 
 // Stablecoins (1:1 with USD, no FX quote needed)

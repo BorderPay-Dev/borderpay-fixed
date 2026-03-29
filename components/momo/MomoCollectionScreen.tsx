@@ -75,6 +75,9 @@ const DENOM: Record<string, number> = {
   XAF: 1,
   XOF: 1,
   TZS: 100,
+  SLE: 100,
+  MZN: 100,
+  MWK: 100,
 };
 
 /** Currency flag / symbol */
@@ -86,6 +89,9 @@ const CURRENCY_FLAG: Record<string, string> = {
   TZS: '🇹🇿',
   UGX: '🇺🇬',
   GHS: '🇬🇭',
+  SLE: '🇸🇱',
+  MZN: '🇲🇿',
+  MWK: '🇲🇼',
 };
 
 /** Fallback providers used in sandbox when API returns empty */
@@ -108,6 +114,12 @@ const FALLBACK_PROVIDERS: MomoProvider[] = [
   { bank_code: 'mtn_xaf', name: 'MTN MoMo', currency: 'XAF', country: 'CM', icon: '🟡' },
   { bank_code: 'orange_xof', name: 'Orange Money', currency: 'XOF', country: 'BJ', icon: '🟠' },
   { bank_code: 'moov_xof', name: 'Moov Money', currency: 'XOF', country: 'BJ', icon: '🟣' },
+  { bank_code: 'orange_sle', name: 'Orange Money', currency: 'SLE', country: 'SL', icon: '🟠' },
+  { bank_code: 'africell_sle', name: 'Africell Money', currency: 'SLE', country: 'SL', icon: '🔵' },
+  { bank_code: 'mpesa_mzn', name: 'M-Pesa', currency: 'MZN', country: 'MZ', icon: '📱' },
+  { bank_code: 'emola_mzn', name: 'e-Mola', currency: 'MZN', country: 'MZ', icon: '🟢' },
+  { bank_code: 'airtel_mwk', name: 'Airtel Money', currency: 'MWK', country: 'MW', icon: '🔴' },
+  { bank_code: 'tnm_mwk', name: 'TNM Mpamba', currency: 'MWK', country: 'MW', icon: '🔵' },
 ];
 
 /* ──────────────── Props ──────────────── */

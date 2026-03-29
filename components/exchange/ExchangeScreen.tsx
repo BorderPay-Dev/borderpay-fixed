@@ -70,6 +70,7 @@ function generateVolumeData(days: number): number[] {
 const CURRENCY_SYMBOLS: Record<string, string> = {
   USD: '$', NGN: '₦', KES: 'KSh', GHS: '₵', UGX: 'USh',
   XAF: 'FCFA', XOF: 'FCFA', TZS: 'TSh', EUR: '€', GBP: '£',
+  SLE: 'Le', MZN: 'MT', MWK: 'MK',
   USDT: '$', USDC: '$', PYUSD: '$',
 };
 

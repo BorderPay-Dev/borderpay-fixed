@@ -152,6 +152,13 @@ export const authSecurityAPI = {
     });
   },
 
+  async updateSecurityStatus(updates: { pin_set?: boolean; two_factor_enabled?: boolean }) {
+    return apiCall('update-security-status', {
+      method: 'POST',
+      body: JSON.stringify(updates),
+    });
+  },
+
   async resetPasswordRequest(email: string) {
     return apiCallPublic('auth-reset-password', {
       method: 'POST',

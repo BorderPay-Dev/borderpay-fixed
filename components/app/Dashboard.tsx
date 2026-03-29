@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { SecurityStatus } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -55,6 +56,9 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
   KES:  { symbol: 'KSh', color: '#EC4899' },
   GHS:  { symbol: '₵',   color: '#06B6D4' },
   UGX:  { symbol: 'USh', color: '#EF4444' },
+  SLE:  { symbol: 'Le',  color: '#22D3EE' },
+  MZN:  { symbol: 'MT',  color: '#F97316' },
+  MWK:  { symbol: 'MK',  color: '#14B8A6' },
   USDT: { symbol: '₮',   color: '#26A17B' },
   USDC: { symbol: '$',   color: '#2775CA' },
   PYUSD:{ symbol: '$',   color: '#0074D9' },
@@ -135,7 +139,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           setUserName(p.full_name || p.email?.split('@')[0] || 'User');
           const verified   = p.kyc_status === 'verified';
           setIsVerified(verified);
-          setHas2FA(p.two_factor_enabled || false);
+          // Don't override 2FA from profile — it doesn't have that column
+          // 2FA status is set later from security endpoint + client-side merge
           if (verified)   setAccountStatus('verified');
           else            setAccountStatus('starter');
           localStorage.setItem('borderpay_user', JSON.stringify(p));
@@ -164,14 +169,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         setTotalBalance(0);
       }
 
-      // ── Security status (PIN) ─────────────────────────────────────────────
+      // ── Security status (merge backend + client-side) ─────────────────────
+      // Client-side localStorage is the source of truth for PIN/2FA
+      const clientSecurity = SecurityStatus.get(userId);
       if (securityRes.status === 'fulfilled' && securityRes.value?.success) {
         const sec = securityRes.value.data;
-        setHasPIN(sec?.pin_set || false);
-        // Override 2FA if more accurate from security endpoint
-        if (sec?.two_factor_enabled !== undefined) {
-          setHas2FA(sec.two_factor_enabled);
-        }
+        // Use OR: if either backend or client says it's set, it's set
+        setHasPIN(sec?.pin_set || clientSecurity.hasPIN);
+        setHas2FA(sec?.two_factor_enabled || clientSecurity.has2FA);
+      } else {
+        // Backend failed — rely on client-side only
+        setHasPIN(clientSecurity.hasPIN);
+        setHas2FA(clientSecurity.has2FA);
       }
 
       // ── Recent transactions ───────────────────────────────────────────────

@@ -69,17 +69,21 @@ const SUPPORTED_CURRENCIES = [
   { code: 'TZS', name: 'Tanzanian Shilling', symbol: 'TSh', flag: '🇹🇿', country: 'TZ' },
   { code: 'XAF', name: 'CFA (Central)', symbol: 'FCFA', flag: '🇨🇲', country: 'CM' },
   { code: 'XOF', name: 'CFA (West)', symbol: 'FCFA', flag: '🇧🇯', country: 'BJ' },
+  { code: 'SLE', name: 'Sierra Leonean Leone', symbol: 'Le', flag: '🇸🇱', country: 'SL' },
+  { code: 'MZN', name: 'Mozambican Metical', symbol: 'MT', flag: '🇲🇿', country: 'MZ' },
+  { code: 'MWK', name: 'Malawian Kwacha', symbol: 'MK', flag: '🇲🇼', country: 'MW' },
 ];
 
 // Bank transfer only supports NGN (NUBAN)
 const BANK_TRANSFER_CURRENCIES = ['NGN'];
 
 // Mobile Money supported currencies
-const MOMO_CURRENCIES = ['XAF', 'KES', 'NGN', 'XOF', 'TZS', 'UGX', 'GHS'];
+const MOMO_CURRENCIES = ['XAF', 'KES', 'NGN', 'XOF', 'TZS', 'UGX', 'GHS', 'SLE', 'MZN', 'MWK'];
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   NGN: '₦', KES: 'KSh', GHS: '₵', UGX: 'USh',
   XAF: 'FCFA', XOF: 'FCFA', TZS: 'TSh', USD: '$',
+  SLE: 'Le', MZN: 'MT', MWK: 'MK',
   USDT: '$', USDC: '$', PYUSD: '$',
 };
 

@@ -10,6 +10,8 @@
  * Storage key: borderpay_security_{userId}
  */
 
+import { BASE_URL, ANON_KEY } from '../supabase/client';
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -86,6 +88,23 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 
 function generateRandomBytes(length: number): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(length));
+}
+
+/** Fire-and-forget sync of security status to backend */
+function syncSecurityToBackend(updates: { pin_set?: boolean; two_factor_enabled?: boolean }): void {
+  try {
+    const token = localStorage.getItem('borderpay_token');
+    if (!token) return;
+    fetch(`${BASE_URL}/update-security-status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': ANON_KEY,
+      },
+      body: JSON.stringify(updates),
+    }).catch(() => {});
+  } catch { /* non-critical */ }
 }
 
 async function sha256(data: string, salt: string): Promise<string> {
@@ -246,6 +265,9 @@ export const PINManager = {
       }
       saveState(userId, state);
 
+      // Sync to backend DB
+      syncSecurityToBackend({ pin_set: true });
+
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to set up PIN' };
@@ -280,6 +302,7 @@ export const PINManager = {
     state.pinHash = null;
     state.pinSalt = null;
     saveState(userId, state);
+    syncSecurityToBackend({ pin_set: false });
   },
 };
 
@@ -329,6 +352,9 @@ export const TOTPManager = {
       if (isValid) {
         state.totpEnabled = true;
         saveState(userId, state);
+
+        // Sync to backend DB
+        syncSecurityToBackend({ two_factor_enabled: true });
 
         // Also update the stored user profile to reflect 2FA status
         try {
@@ -382,6 +408,9 @@ export const TOTPManager = {
     state.totpSecret = null;
     state.totpEnabled = false;
     saveState(userId, state);
+
+    // Sync to backend DB
+    syncSecurityToBackend({ two_factor_enabled: false });
 
     // Update stored user profile
     try {
