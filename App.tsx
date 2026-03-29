@@ -184,12 +184,11 @@ function AppContent() {
 
           setAppState('dashboard');
         } else {
-          // If we still have a token in localStorage, auth might still be settling
-          // (e.g. Supabase session refresh) — wait before showing login
+          // Auth has finished loading but user is not authenticated.
+          // Clear any stale cached token so we don't loop here forever.
           const cachedToken = localStorage.getItem('borderpay_token');
-          if (cachedToken && appState === 'loading') {
-            // Give auth one more cycle to settle
-            return;
+          if (cachedToken) {
+            localStorage.removeItem('borderpay_token');
           }
 
           if (!hasSeenOnboarding) {
