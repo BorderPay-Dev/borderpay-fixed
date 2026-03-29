@@ -415,6 +415,12 @@ export const kycAPI = {
       body: JSON.stringify({ bvn }),
     });
   },
+
+  /** Fetch all KYC jobs with optional status filter */
+  async getKYCJobs(status?: 'pending' | 'verified' | 'failed' | 'all') {
+    const qs = status ? `?status=${status}` : '';
+    return apiCall(`get-kyc-jobs${qs}`, { method: 'GET' });
+  },
 };
 
 export const enrollmentAPI = {

@@ -9,6 +9,7 @@ import { CardsScreen } from '../cards/CardsScreen';
 import { TwoFactorSetup } from '../security/TwoFactorSetup';
 import { PINSetup } from '../security/PINSetup';
 import { KYCVerification } from '../kyc/KYCVerification';
+import { KYCJobsScreen } from '../kyc/KYCJobsScreen';
 import { SendMoneyFlow } from '../send/SendMoneyFlow';
 import { TransactionsScreen } from '../transactions/TransactionsScreen';
 import { AddMoneyScreen } from '../deposit/AddMoneyScreen';
@@ -80,7 +81,8 @@ export type AppScreen =
   | 'referral'
   | 'biometric-setup'
   | 'help-center'
-  | 'proof-of-address';
+  | 'proof-of-address'
+  | 'kyc-jobs';
 
 export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('dashboard');
@@ -326,6 +328,9 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
 
       case 'proof-of-address':
         return <ProofOfAddressScreen onBack={navigateBack} />;
+
+      case 'kyc-jobs':
+        return <KYCJobsScreen onBack={navigateBack} />;
 
       case 'referral':
         return <ReferralScreen onBack={navigateBack} />;
