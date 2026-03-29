@@ -443,11 +443,14 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       setStep('doc-select');
     };
 
+    // Listen for both legacy and current SmileID event names
     el.addEventListener('imagesComputed', handleImagesComputed);
+    el.addEventListener('smart-camera-web.publish', handleImagesComputed);
     el.addEventListener('close', handleClose);
 
     return () => {
       el.removeEventListener('imagesComputed', handleImagesComputed);
+      el.removeEventListener('smart-camera-web.publish', handleImagesComputed);
       el.removeEventListener('close', handleClose);
     };
   }, [step, sdkConfig, selectedDoc]);
@@ -785,13 +788,24 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             >
               {/* SmileID smart-camera-web component */}
               <div className="flex-1 bg-white rounded-t-2xl overflow-y-auto" style={{ minHeight: 'calc(100vh - 100px)' }}>
-                {/* @ts-ignore - custom web component */}
-                <smart-camera-web
-                  document-capture-modes="camera,upload"
-                  capture-id="true"
-                  show-attribution="true"
-                  style={{ width: '100%', height: '100%' }}
-                />
+                {selectedDoc === 'PASSPORT' ? (
+                  // @ts-ignore - custom web component
+                  <smart-camera-web
+                    document-capture-modes="camera,upload"
+                    capture-id="true"
+                    hide-back-of-id="true"
+                    show-attribution="true"
+                    style={{ width: '100%', height: '100%' }}
+                  />
+                ) : (
+                  // @ts-ignore - custom web component
+                  <smart-camera-web
+                    document-capture-modes="camera,upload"
+                    capture-id="true"
+                    show-attribution="true"
+                    style={{ width: '100%', height: '100%' }}
+                  />
+                )}
               </div>
             </motion.div>
           )}

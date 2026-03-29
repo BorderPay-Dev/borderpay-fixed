@@ -324,10 +324,12 @@ function AppContent() {
 
   useEffect(() => {
     if (appState === 'dashboard' && user?.id && !lockChecked) {
-      const hasPIN = PINManager.hasPIN(user.id);
-      if (hasPIN) {
-        setAppLocked(true);
-      }
+      try {
+        const hasPIN = PINManager.hasPIN(user.id);
+        if (hasPIN) {
+          setAppLocked(true);
+        }
+      } catch { /* corrupt localStorage — skip lock */ }
       setLockChecked(true);
     }
   }, [appState, user?.id, lockChecked]);
@@ -335,9 +337,11 @@ function AppContent() {
   useEffect(() => {
     if (appState !== 'dashboard' || !user?.id) return;
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && PINManager.hasPIN(user.id)) {
-        setAppLocked(true);
-      }
+      try {
+        if (document.visibilityState === 'visible' && PINManager.hasPIN(user.id)) {
+          setAppLocked(true);
+        }
+      } catch { /* silent */ }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
