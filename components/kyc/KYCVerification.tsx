@@ -411,6 +411,59 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   }, [step, selectedDoc]);
 
   // ─── Handle smart-camera-web events ────────────────────────────────────────
+  // SmileID v11 CDN fires `document-capture.publish` per-image and
+  // `document-capture-review.accepted` when user confirms. The older SDK
+  // fires a single `imagesComputed` at the end. We handle both.
+
+  const capturedImagesRef = useRef<any[]>([]);
+
+  const submitImages = useCallback(async (images: any[]) => {
+    if (images.length === 0) return;
+    setStep('uploading');
+
+    try {
+      const token = authAPI.getToken();
+      const response = await fetch(`${BASE_URL}/smile-callback-handler`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'apikey': ANON_KEY,
+        },
+        body: JSON.stringify({
+          action: 'submit_images',
+          images,
+          id_type: selectedDoc || 'PASSPORT',
+          country: userCountry,
+          job_id: sdkConfig?.job_id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setStep('processing');
+
+        // Send 'submitted' KYC status email (fire-and-forget)
+        fetch(`${BASE_URL}/send-kyc-status-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
+          body: JSON.stringify({ type: 'submitted', userId }),
+        }).catch(() => {});
+
+        setTimeout(() => checkVerificationStatus(), 5000);
+        startPolling();
+      } else {
+        setStep('failed');
+        setError(result.error || 'Upload failed. Please try again.');
+        toast.error('Upload failed');
+      }
+    } catch (err: any) {
+      setStep('failed');
+      setError(err.message || 'Upload failed.');
+      toast.error('Upload failed');
+    }
+  }, [selectedDoc, userCountry, sdkConfig, checkVerificationStatus, startPolling, userId]);
 
   useEffect(() => {
     if (step !== 'capture' || !cameraRef.current) return;
@@ -419,56 +472,39 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     const el = container.querySelector('smart-camera-web');
     if (!el) return;
 
-    const handleImagesComputed = async (event: any) => {
+    // Reset collected images on mount
+    capturedImagesRef.current = [];
+
+    // ── Legacy handler: older SDKs fire a single event with all images ──
+    const handleImagesComputed = (event: any) => {
       const detail = event.detail;
-      // Accept images from either detail.images or detail directly
       const images = detail?.images || (Array.isArray(detail) ? detail : null);
       if (!images) return;
+      submitImages(images);
+    };
 
-      setStep('uploading');
+    // ── V11 handler: each capture step fires document-capture.publish ──
+    const handleDocPublish = (event: any) => {
+      const detail = event.detail;
+      if (detail) {
+        capturedImagesRef.current.push(detail);
+      }
+    };
 
-      try {
-        const token = authAPI.getToken();
-        const response = await fetch(`${BASE_URL}/smile-callback-handler`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-            'apikey': ANON_KEY,
-          },
-          body: JSON.stringify({
-            action: 'submit_images',
-            images,
-            id_type: selectedDoc || 'PASSPORT',
-            country: userCountry,
-            job_id: sdkConfig?.job_id,
-          }),
-        });
+    // ── V11: user confirmed image ("Yes, my ID is readable") ──
+    // The component may not advance internally, so we track accepted
+    // reviews and auto-submit when we have enough images.
+    const acceptCountRef = { count: 0 };
+    const isPassport = selectedDoc === 'PASSPORT';
+    // Passport: selfie + front ID = 2 accepts. Other: selfie + front + back = 3.
+    const requiredAccepts = isPassport ? 2 : 3;
 
-        const result = await response.json();
+    const handleReviewAccepted = () => {
+      acceptCountRef.count += 1;
 
-        if (result.success) {
-          setStep('processing');
-
-          // Send 'submitted' KYC status email (fire-and-forget)
-          fetch(`${BASE_URL}/send-kyc-status-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
-            body: JSON.stringify({ type: 'submitted', userId }),
-          }).catch(() => {});
-
-          // First check after 5s, then poll every 10s (max 12 polls = 2 min)
-          setTimeout(() => checkVerificationStatus(), 5000);
-          startPolling();
-        } else {
-          setStep('failed');
-          setError(result.error || 'Upload failed. Please try again.');
-          toast.error('Upload failed');
-        }
-      } catch (err: any) {
-        setStep('failed');
-        setError(err.message || 'Upload failed.');
-        toast.error('Upload failed');
+      // When all required images are confirmed, submit what we have
+      if (acceptCountRef.count >= requiredAccepts && capturedImagesRef.current.length > 0) {
+        submitImages(capturedImagesRef.current);
       }
     };
 
@@ -476,21 +512,33 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       setStep('doc-select');
     };
 
-    // Listen for all known SmileID event names (varies across SDK versions)
+    // Listen on the element for events that bubble from shadow DOM
     el.addEventListener('imagesComputed', handleImagesComputed);
     el.addEventListener('smart-camera-web.publish', handleImagesComputed);
-    el.addEventListener('publish', handleImagesComputed);
+
+    // V11 event names (fired by document-capture sub-components)
+    el.addEventListener('document-capture.publish', handleDocPublish);
+    el.addEventListener('document-capture-review.accepted', handleReviewAccepted);
+
+    // Close / cancel
     el.addEventListener('close', handleClose);
     el.addEventListener('smart-camera-web.close', handleClose);
+    el.addEventListener('document-capture.close', handleClose);
+    el.addEventListener('document-capture.cancelled', handleClose);
+    el.addEventListener('navigation.close', handleClose);
 
     return () => {
       el.removeEventListener('imagesComputed', handleImagesComputed);
       el.removeEventListener('smart-camera-web.publish', handleImagesComputed);
-      el.removeEventListener('publish', handleImagesComputed);
+      el.removeEventListener('document-capture.publish', handleDocPublish);
+      el.removeEventListener('document-capture-review.accepted', handleReviewAccepted);
       el.removeEventListener('close', handleClose);
       el.removeEventListener('smart-camera-web.close', handleClose);
+      el.removeEventListener('document-capture.close', handleClose);
+      el.removeEventListener('document-capture.cancelled', handleClose);
+      el.removeEventListener('navigation.close', handleClose);
     };
-  }, [step, sdkConfig, selectedDoc]);
+  }, [step, sdkConfig, selectedDoc, submitImages]);
 
   const handleRetry = () => {
     stopPolling();
