@@ -33,11 +33,18 @@ async function apiCall<T = any>(
   try {
     const token = authAPI.getToken();
 
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
+    // When body is FormData, let the browser set Content-Type (multipart boundary)
+    const isFormData = options.body instanceof FormData;
+    const baseHeaders: Record<string, string> = {
       'apikey': ANON_KEY,
       'Authorization': `Bearer ${token || ANON_KEY}`,
       'X-CSRF-Token': CSRF_TOKEN,
+    };
+    if (!isFormData) {
+      baseHeaders['Content-Type'] = 'application/json';
+    }
+    const headers: HeadersInit = {
+      ...baseHeaders,
       ...options.headers,
     } as Record<string, string>;
 

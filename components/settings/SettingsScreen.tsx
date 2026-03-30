@@ -46,30 +46,25 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
   const [suspending, setSuspending] = useState(false);
   const [has2FA, setHas2FA] = useState(false);
   const [hasPIN, setHasPIN] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
 
-  // Load security/activation status for the progress card
+  // Load security status from backend (persists across login/logout)
   useEffect(() => {
     const loadStatus = async () => {
       try {
-        // Load security status from client-side SecurityManager (instant, no network)
-        const secStatus = SecurityStatus.get(userId);
-        setHasPIN(secStatus.hasPIN);
-        setHas2FA(secStatus.has2FA);
-
-        // Load profile from backend for KYC/wallet status
+        // Load profile from backend — now includes pin_set, two_factor_enabled, email_confirmed
         const profileRes = await backendAPI.user.getProfile();
         if (profileRes.success && profileRes.data?.user) {
           const p = profileRes.data.user;
-          setIsVerified(p.kyc_status === 'verified');
-          // Sync 2FA flag from profile if SecurityManager doesn't have it
-          if (!secStatus.has2FA && (p.two_factor_enabled || p.mfa_enabled)) {
-            setHas2FA(true);
-          }
+          setHasPIN(p.pin_set || false);
+          setHas2FA(p.two_factor_enabled || false);
         }
       } catch (e) {
+        // Fallback to client-side SecurityManager if backend fails
+        const secStatus = SecurityStatus.get(userId);
+        setHasPIN(secStatus.hasPIN);
+        setHas2FA(secStatus.has2FA);
       }
     };
     loadStatus();
@@ -89,10 +84,10 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
     {
       title: t('settings.security'),
       items: [
-        { icon: Lock, label: t('settings.changePin'), screen: 'change-pin', color: 'text-yellow-400', requiresKyc: true },
-        { icon: Smartphone, label: t('settings.twoFactor'), screen: 'two-factor-setup', color: 'text-green-400', requiresKyc: true },
+        { icon: Lock, label: t('settings.changePin'), screen: 'change-pin', color: 'text-yellow-400' },
+        { icon: Smartphone, label: t('settings.twoFactor'), screen: 'two-factor-setup', color: 'text-green-400' },
         { icon: Fingerprint, label: 'Biometric Login', screen: 'biometric-setup', color: 'text-[#C7FF00]' },
-        { icon: Shield, label: t('settings.disable2fa'), action: 'disable-2fa', color: 'text-orange-400', requiresKyc: true },
+        { icon: Shield, label: t('settings.disable2fa'), action: 'disable-2fa', color: 'text-orange-400' },
         { icon: Key, label: t('settings.changePassword'), screen: 'change-password', color: 'text-orange-400' },
       ]
     },
@@ -219,7 +214,6 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
             <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden`}>
               {section.items.map((item, itemIndex) => {
                 const Icon = item.icon;
-                const isLocked = (item as any).requiresKyc && !isVerified;
                 return (
                   <button
                     key={itemIndex}
@@ -227,21 +221,13 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
                     disabled={suspending}
                     className={`w-full flex items-center gap-4 p-4 ${tc.hoverBg} transition-colors ${
                       itemIndex !== section.items.length - 1 ? `border-b ${tc.borderLight}` : ''
-                    } ${suspending ? 'opacity-50' : ''} ${isLocked ? 'opacity-50' : ''}`}
+                    } ${suspending ? 'opacity-50' : ''}`}
                   >
-                    <div className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center relative`}>
+                    <div className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center`}>
                       <Icon size={20} className={item.color} />
-                      {isLocked && (
-                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-yellow-500 rounded-full flex items-center justify-center">
-                          <Lock size={8} className="text-black" />
-                        </div>
-                      )}
                     </div>
                     <div className="flex-1 text-left">
                       <span className={`bp-text-body ${tc.text}`}>{item.label}</span>
-                      {isLocked && (
-                        <p className="text-[10px] text-yellow-500/80 mt-0.5">Requires KYC approval</p>
-                      )}
                     </div>
                     <ChevronRight size={20} className={tc.textSecondary} />
                   </button>

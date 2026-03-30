@@ -185,9 +185,10 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     setUploadingPic(true);
     try {
       const result = await backendAPI.user.uploadProfilePicture(file);
-      if (result.success && result.data?.data?.profile_picture_url) {
-        setProfile((p) => ({ ...p, profile_picture_url: result.data.data.profile_picture_url }));
-        setEditedProfile((p) => ({ ...p, profile_picture_url: result.data.data.profile_picture_url }));
+      const picUrl = result.data?.data?.profile_picture_url || result.data?.profile_picture_url;
+      if (result.success && picUrl) {
+        setProfile((p) => ({ ...p, profile_picture_url: picUrl }));
+        setEditedProfile((p) => ({ ...p, profile_picture_url: picUrl }));
         toast.success('Profile picture updated');
       } else {
         toast.error(friendlyError(result.error, 'Failed to upload picture'));
