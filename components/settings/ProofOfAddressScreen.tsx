@@ -39,8 +39,8 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
 
     // Validate by extension if MIME type is missing/wrong (common on mobile)
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    const validExts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    const validExts = ['jpg', 'jpeg', 'png', 'pdf'];
+    const validTypes = ['image/jpeg', 'image/png', 'application/pdf'];
     if (!validTypes.includes(file.type) && !validExts.includes(ext)) {
       toast.error('Invalid file type. Please upload JPG, PNG, or PDF.');
       return;
@@ -189,11 +189,11 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
                 <label className={`block ${tc.card} border-2 border-dashed ${tc.cardBorder} rounded-2xl p-8 text-center cursor-pointer hover:border-[#C7FF00]/30 transition-colors`}>
                   <Upload size={32} className={`${tc.textSecondary} mx-auto mb-3`} />
                   <p className={`text-sm font-semibold ${tc.text} mb-1`}>Tap to upload</p>
-                  <p className={`text-xs ${tc.textSecondary}`}>JPG, PNG or PDF — max 10MB</p>
+                  <p className={`text-xs ${tc.textSecondary}`}>JPG, PNG or PDF only — max 10MB</p>
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf"
                     onChange={handleFileSelect}
                     className="hidden"
                   />
