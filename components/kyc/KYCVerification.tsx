@@ -57,6 +57,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   const [error, setError] = useState<string | null>(null);
   const [smileLinkUrl, setSmileLinkUrl] = useState<string>('');
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -102,16 +103,16 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     try {
       const token = authAPI.getToken();
       if (!token) return;
-      const response = await fetch(
-        `${BASE_URL}/smile-callback-handler?userId=${userId}`,
-        { headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY } }
-      );
+      const response = await fetch(`${BASE_URL}/query-kyc-status`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
+      });
       const data = await response.json();
       if (data.success) {
         if (data.status === 'verified') {
           setStep('success');
         } else if (data.status === 'pending') {
           setStep('under-review');
+          startPolling();
         }
       }
     } catch { /* continue to welcome */ }
@@ -125,19 +126,18 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     pollCountRef.current = 0;
   }, []);
 
-  const checkVerificationStatus = useCallback(async () => {
+  const checkVerificationStatus = useCallback(async (manual = false) => {
     pollCountRef.current += 1;
-    if (pollCountRef.current > 60) {
+    if (!manual && pollCountRef.current > 120) {
       stopPolling();
       return;
     }
     try {
       const token = authAPI.getToken();
       if (!token) return;
-      const response = await fetch(
-        `${BASE_URL}/smile-callback-handler?userId=${userId}`,
-        { headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY } }
-      );
+      const response = await fetch(`${BASE_URL}/query-kyc-status`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
+      });
       const data = await response.json();
       if (data.success) {
         if (data.status === 'verified') {
@@ -159,12 +159,12 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         }
       }
     } catch { /* polling will retry */ }
-  }, [userId, stopPolling]);
+  }, [stopPolling]);
 
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
     pollCountRef.current = 0;
-    pollingRef.current = setInterval(() => checkVerificationStatus(), 10000);
+    pollingRef.current = setInterval(() => checkVerificationStatus(false), 30000);
   }, [checkVerificationStatus]);
 
   const handleSmileIDComplete = () => {
@@ -173,49 +173,33 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     toast.success('Verification submitted! Under review.');
   };
 
-  // ─── Initialize: get Smile Link URL ───────────────────────────────────────
+  // ─── Initialize: build Smile Link URL with user_id + job_id ──────────────
 
   const initializeVerification = async () => {
     setStep('loading');
     setError(null);
     setIframeLoaded(false);
 
-    let linkUrl = '';
+    // Generate a unique job_id for this verification session
+    const jobId = crypto.randomUUID();
 
+    // Build Smile Link URL with user_id and job_id so SmileID tracks under our user
+    const params = new URLSearchParams({ user_id: userId, job_id: jobId });
+    const linkUrl = `${SMILE_LINK_BASE}?${params.toString()}`;
+
+    // Store pending job record in DB (non-blocking)
     try {
       const token = authAPI.getToken();
-      const response = await fetch(`${BASE_URL}/smile-callback-handler`, {
+      await fetch(`${BASE_URL}/query-kyc-status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
           'apikey': ANON_KEY,
         },
-        body: JSON.stringify({
-          product: 'doc_verification',
-          country: readUserProfile()?.country || 'NG',
-        }),
+        body: JSON.stringify({ job_id: jobId }),
       });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (result.data?.already_verified) {
-          setStep('success');
-          return;
-        }
-        linkUrl = result.data?.smile_link || result.data?.consent_url || '';
-      }
-    } catch {
-      // Fall through to default
-    }
-
-    if (!linkUrl) linkUrl = SMILE_LINK_BASE;
-
-    if (!linkUrl) {
-      setStep('failed');
-      setError('Verification link not configured. Please contact support.');
-      return;
-    }
+    } catch { /* non-blocking */ }
 
     setSmileLinkUrl(linkUrl);
     setStep('verifying');
@@ -587,6 +571,22 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   You can continue using BorderPay while we review your documents. Basic features remain available.
                 </p>
               </div>
+
+              <motion.button
+                onClick={async () => {
+                  setIsChecking(true);
+                  await checkVerificationStatus(true);
+                  setIsChecking(false);
+                }}
+                disabled={isChecking}
+                className="w-full max-w-[320px] bg-white/[0.06] border border-white/[0.12] text-white py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 mb-3 disabled:opacity-50"
+                whileTap={{ scale: 0.97 }}
+              >
+                {isChecking
+                  ? <><Loader2 size={16} className="animate-spin" /> Checking...</>
+                  : <><RefreshCw size={16} /> Check Status</>
+                }
+              </motion.button>
 
               <motion.button
                 onClick={onBack}
