@@ -134,7 +134,7 @@ export function AppLockScreen({ userId, onUnlock, onLogout }: AppLockScreenProps
           className="mb-8"
         >
           <div className="w-20 h-20 rounded-3xl bg-[#C7FF00] flex items-center justify-center shadow-lg">
-            <BorderPayLogo size={48} color="#ffffff" />
+            <BorderPayLogo size={48} color="#000000" />
           </div>
         </motion.div>
 

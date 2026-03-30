@@ -37,8 +37,11 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
       return;
     }
 
+    // Validate by extension if MIME type is missing/wrong (common on mobile)
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const validExts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
     const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-    if (!validTypes.includes(file.type)) {
+    if (!validTypes.includes(file.type) && !validExts.includes(ext)) {
       toast.error('Invalid file type. Please upload JPG, PNG, or PDF.');
       return;
     }
@@ -199,24 +202,32 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
             </div>
 
             {/* Submit Button */}
-            <button
-              onClick={handleUpload}
-              disabled={!selectedType || !uploadedFile || uploading}
-              className={`w-full py-4 rounded-2xl font-bold text-sm transition-all ${
-                selectedType && uploadedFile && !uploading
-                  ? 'bg-[#C7FF00] text-black active:scale-[0.98]'
-                  : 'bg-white/10 text-white/30 cursor-not-allowed'
-              }`}
-            >
-              {uploading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <Loader2 size={16} className="animate-spin" />
-                  Uploading...
-                </span>
-              ) : (
-                'Submit Document'
-              )}
-            </button>
+            <div className="relative z-10 pt-2 pb-4">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleUpload();
+                }}
+                disabled={!selectedType || !uploadedFile || uploading}
+                style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
+                className={`w-full py-4 rounded-2xl font-bold text-sm transition-all ${
+                  selectedType && uploadedFile && !uploading
+                    ? 'bg-[#C7FF00] text-black active:scale-[0.98]'
+                    : 'bg-white/10 text-white/30'
+                }`}
+              >
+                {uploading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    Uploading...
+                  </span>
+                ) : (
+                  'Submit Document'
+                )}
+              </button>
+            </div>
           </>
         )}
       </div>
