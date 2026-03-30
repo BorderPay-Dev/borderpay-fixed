@@ -33,7 +33,7 @@ import {
   TrendingDown,
   Activity,
 } from 'lucide-react';
-import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { SecurityStatus } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -65,10 +65,8 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
 };
 
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen }: DashboardProps) {
-  const [userName, setUserName]           = useState('User');
   const [isVerified, setIsVerified]       = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
-  const [greeting, setGreeting]           = useState('Good Morning');
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('starter');
   const [has2FA, setHas2FA]               = useState(false);
   const [hasPIN, setHasPIN]               = useState(false);
@@ -107,21 +105,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     if (onNavigate) onNavigate(screen);
   };
 
-  // ─── greeting ─────────────────────────────────────────────────────────────
-  const setTimeBasedGreeting = useCallback(() => {
-    const h = new Date().getHours();
-    if (h < 12) setGreeting(t('greeting.morning'));
-    else if (h < 18) setGreeting(t('greeting.afternoon'));
-    else setGreeting(t('greeting.evening'));
-  }, [t]);
-
   // ─── data loading ─────────────────────────────────────────────────────────
   const loadDashboardData = useCallback(async () => {
     // Fast path: show cached user data immediately
     const storedUser = authAPI.getStoredUser();
-    if (storedUser) {
-      setUserName(storedUser.full_name || storedUser.email?.split('@')[0] || 'User');
-    }
 
     try {
       // Fire all four requests in parallel via canonical backendAPI
@@ -136,18 +123,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       if (profileRes.status === 'fulfilled' && profileRes.value?.success) {
         const p = profileRes.value.data?.user;
         if (p) {
-          let displayName = p.full_name;
-
-          // If backend profile has no name, get it from Supabase auth metadata
-          if (!displayName || displayName === 'User') {
-            try {
-              const { data: { user: authUser } } = await supabase.auth.getUser();
-              displayName = authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || '';
-              if (displayName) p.full_name = displayName;
-            } catch { /* silent */ }
-          }
-
-          setUserName(displayName || p.email?.split('@')[0] || 'User');
           const verified   = p.kyc_status === 'verified';
           setIsVerified(verified);
           // Don't override 2FA from profile — it doesn't have that column
@@ -209,13 +184,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   }, []);
 
   useEffect(() => {
-    setTimeBasedGreeting();
     loadDashboardData();
-
-    // Refresh greeting every 10 min
-    const greetingInterval = setInterval(setTimeBasedGreeting, 600_000);
-    return () => clearInterval(greetingInterval);
-  }, [loadDashboardData, setTimeBasedGreeting]);
+  }, [loadDashboardData]);
 
   // ─── setup steps ─────────────────────────────────────────────────────
   const setupSteps = [
@@ -277,9 +247,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
             onClick={() => handleNavigate('profile')}
             className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C7FF00] to-[#95E03D] flex items-center justify-center"
           >
-            <span className="text-sm font-black text-black">
-              {userName.charAt(0).toUpperCase()}
-            </span>
+            <User size={18} className="text-black" />
           </motion.button>
 
           {/* Account status badge */}
@@ -290,12 +258,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         </div>
       </div>
 
-      {/* ── Greeting + Balance ── */}
+      {/* ── Balance ── */}
       <div className="px-5 pt-5 pb-2">
-        <p className={`text-sm ${tc.textSecondary}`}>
-          {greeting}, <span className={`font-semibold ${tc.text}`}>{userName.split(' ')[0]}</span>
-        </p>
-
         <div className="flex flex-col items-center py-5">
           <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em] font-semibold mb-2">
             {t('dashboard.totalBalance')}
