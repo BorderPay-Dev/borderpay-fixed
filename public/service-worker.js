@@ -1,5 +1,5 @@
-const CACHE_NAME = 'borderpay-app-v1.1.0';
-const RUNTIME_CACHE = 'borderpay-app-runtime-v1.1.0';
+const CACHE_NAME = 'borderpay-app-v2.0.0';
+const RUNTIME_CACHE = 'borderpay-app-runtime-v2.0.0';
 
 const PRECACHE_URLS = [
   '/',
@@ -66,22 +66,50 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stale-while-revalidate for static assets
+  // Network-first for JS/CSS bundles (always serve latest code)
+  if (event.request.url.match(/\.(js|css)(\?|$)/)) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.status === 200) {
+            const clone = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(event.request).then((cached) =>
+            cached || new Response('Offline', { status: 503 })
+          )
+        )
+    );
+    return;
+  }
+
+  // Network-first for HTML documents
+  if (event.request.destination === 'document') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.status === 200) {
+            const clone = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(event.request).then((cached) =>
+            cached || caches.match('/index.html')
+          )
+        )
+    );
+    return;
+  }
+
+  // Cache-first for images, fonts, and other static assets
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      if (cached) {
-        event.waitUntil(
-          fetch(event.request)
-            .then((response) => {
-              if (response.status === 200) {
-                caches.open(RUNTIME_CACHE).then((cache) => cache.put(event.request, response));
-              }
-            })
-            .catch(() => {})
-        );
-        return cached;
-      }
-
+      if (cached) return cached;
       return fetch(event.request)
         .then((response) => {
           if (response.status !== 200) return response;
@@ -89,12 +117,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(RUNTIME_CACHE).then((cache) => cache.put(event.request, clone));
           return response;
         })
-        .catch(() => {
-          if (event.request.destination === 'document') {
-            return caches.match('/index.html');
-          }
-          return new Response('Offline', { status: 503 });
-        });
+        .catch(() => new Response('Offline', { status: 503 }));
     })
   );
 });
