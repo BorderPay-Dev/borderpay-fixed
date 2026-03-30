@@ -67,6 +67,7 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen }: DashboardProps) {
   const [isVerified, setIsVerified]       = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('starter');
   const [has2FA, setHas2FA]               = useState(false);
   const [hasPIN, setHasPIN]               = useState(false);
@@ -109,6 +110,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const loadDashboardData = useCallback(async () => {
     // Fast path: show cached user data immediately
     const storedUser = authAPI.getStoredUser();
+    if (storedUser?.profile_picture_url) setProfilePicUrl(storedUser.profile_picture_url);
 
     try {
       // Fire all four requests in parallel via canonical backendAPI
@@ -125,8 +127,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         if (p) {
           const verified   = p.kyc_status === 'verified';
           setIsVerified(verified);
-          // Don't override 2FA from profile — it doesn't have that column
-          // 2FA status is set later from security endpoint + client-side merge
+          if (p.profile_picture_url) setProfilePicUrl(p.profile_picture_url);
           if (verified)   setAccountStatus('verified');
           else            setAccountStatus('starter');
           storeUserProfile(p);
@@ -245,9 +246,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => handleNavigate('profile')}
-            className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C7FF00] to-[#95E03D] flex items-center justify-center"
+            className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C7FF00] to-[#95E03D] flex items-center justify-center overflow-hidden"
           >
-            <User size={18} className="text-black" />
+            {profilePicUrl ? (
+              <img src={profilePicUrl} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <User size={18} className="text-black" />
+            )}
           </motion.button>
 
           {/* Account status badge */}
