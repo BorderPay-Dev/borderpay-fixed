@@ -55,61 +55,25 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
     setUploading(true);
     try {
       const token = authAPI.getToken();
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'apikey': ANON_KEY,
-        'Authorization': `Bearer ${token || ANON_KEY}`,
-      };
 
-      // Step 1: Get signed upload URL from poa-upload-url
-      const urlRes = await fetch(`${BASE_URL}/poa-upload-url`, {
+      // Single call: upload file + document_type via FormData
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      formData.append('document_type', selectedType);
+
+      const res = await fetch(`${BASE_URL}/upload-poa`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({
-          filename: uploadedFile.name,
-          folder: 'poa',
-          content_type: uploadedFile.type,
-        }),
+        headers: {
+          'apikey': ANON_KEY,
+          'Authorization': `Bearer ${token || ANON_KEY}`,
+        },
+        body: formData,
       });
 
-      if (!urlRes.ok) {
-        const err = await urlRes.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to get upload URL');
-      }
+      const data = await res.json();
 
-      const urlData = await urlRes.json();
-      const uploadUrl = urlData.upload_url;
-      const filePath = urlData.path;
-
-      if (!uploadUrl || !filePath) {
-        throw new Error('Invalid upload URL response');
-      }
-
-      // Step 2: Upload file directly to Supabase Storage via signed URL
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': uploadedFile.type },
-        body: uploadedFile,
-      });
-
-      if (!uploadRes.ok) {
-        throw new Error('File upload failed');
-      }
-
-      // Step 3: Submit the record via poa-submit
-      const submitRes = await fetch(`${BASE_URL}/poa-submit`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          file_path: filePath,
-          document_type: selectedType,
-        }),
-      });
-
-      const submitData = await submitRes.json();
-
-      if (!submitRes.ok || !submitData.success) {
-        throw new Error(submitData.error || 'Submission failed');
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Upload failed');
       }
 
       setStatus('uploaded');
