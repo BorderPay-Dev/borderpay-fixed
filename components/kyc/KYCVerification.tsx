@@ -1,25 +1,20 @@
 /**
  * BorderPay Africa — KYC Verification Screen
  *
- * Uses SmileID Smile Link (hosted no-code) for document verification:
- *   1. Welcome — overview of benefits + requirements
- *   2. Redirect — opens SmileID hosted page for capture & verification
- *   3. Processing — polls backend for SmileID callback result
- *   4. Result — success or failure
- *
- * Backend: smile-callback-handler receives SmileID callbacks and updates
- * the user's KYC status in the database.
+ * Embeds SmileID Smile Link in an iframe inside the app.
+ * After user completes verification, shows "Under Review" with 2 business day timeline.
+ * No external tabs — user never leaves the app.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BASE_URL, ANON_KEY, storeUserProfile, readUserProfile, dataCache } from '../../utils/supabase/client';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ShieldCheck, ArrowLeft, Camera, FileText, AlertCircle,
+  ShieldCheck, ArrowLeft, FileText, AlertCircle,
   CheckCircle, Loader2, RefreshCw, Fingerprint,
   Lock, Eye, ChevronRight, Wifi, CreditCard, Globe,
-  Smartphone, UserCheck, Scan, Shield, Star,
-  ArrowRight, Zap, BadgeCheck, ExternalLink
+  UserCheck, Scan, Shield, Star,
+  ArrowRight, Zap, BadgeCheck, Clock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
@@ -34,13 +29,10 @@ interface KYCVerificationProps {
   onComplete: () => void;
 }
 
-type KYCStep = 'welcome' | 'loading' | 'redirect' | 'processing' | 'success' | 'failed';
+type KYCStep = 'welcome' | 'loading' | 'verifying' | 'under-review' | 'success' | 'failed';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** SmileID Smile Link URL — set in SmileID portal with callback pointing to
- *  our smile-callback-handler edge function. If the backend returns a
- *  smile_link URL, that takes precedence. */
 const SMILE_LINK_BASE = import.meta.env.VITE_SMILEID_LINK_URL
   || 'https://links.sandbox.usesmileid.com/8077/4ad0eb49-0a5d-45e1-8365-b64c5bc3fe98';
 
@@ -64,13 +56,66 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   const [step, setStep] = useState<KYCStep>('welcome');
   const [error, setError] = useState<string | null>(null);
   const [smileLinkUrl, setSmileLinkUrl] = useState<string>('');
+  const [iframeLoaded, setIframeLoaded] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Cleanup on unmount
+  // Check if user already has pending/verified KYC on mount
   useEffect(() => {
+    checkExistingStatus();
     return () => stopPolling();
   }, []);
+
+  // Listen for SmileID redirect via postMessage or URL detection
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // SmileID may send postMessage when done
+      if (event.data?.type === 'SmileIdentity::Close' ||
+          event.data?.type === 'SmileIdentity::Complete' ||
+          event.data?.status === 'complete') {
+        handleSmileIDComplete();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  // Detect iframe navigating to our redirect URL (same-origin)
+  useEffect(() => {
+    if (step !== 'verifying') return;
+    const checkIframeUrl = setInterval(() => {
+      try {
+        const iframeUrl = iframeRef.current?.contentWindow?.location?.href;
+        if (iframeUrl && iframeUrl.includes('verification-complete')) {
+          clearInterval(checkIframeUrl);
+          handleSmileIDComplete();
+        }
+      } catch {
+        // Cross-origin — expected while on SmileID domain
+      }
+    }, 1000);
+    return () => clearInterval(checkIframeUrl);
+  }, [step]);
+
+  const checkExistingStatus = async () => {
+    try {
+      const token = authAPI.getToken();
+      if (!token) return;
+      const response = await fetch(
+        `${BASE_URL}/smile-callback-handler?userId=${userId}`,
+        { headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY } }
+      );
+      const data = await response.json();
+      if (data.success) {
+        if (data.status === 'verified') {
+          setStep('success');
+        } else if (data.status === 'pending') {
+          setStep('under-review');
+        }
+      }
+    } catch { /* continue to welcome */ }
+  };
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -81,20 +126,11 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   }, []);
 
   const checkVerificationStatus = useCallback(async () => {
-    // Stop after 60 polls (10 minutes at 10s intervals)
     pollCountRef.current += 1;
     if (pollCountRef.current > 60) {
       stopPolling();
-      setStep(current => {
-        if (current === 'processing') {
-          toast.info("Verification is being processed. You'll be notified when complete.");
-          setTimeout(() => onComplete(), 1500);
-        }
-        return current;
-      });
       return;
     }
-
     try {
       const token = authAPI.getToken();
       if (!token) return;
@@ -104,11 +140,26 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       );
       const data = await response.json();
       if (data.success) {
-        if (data.status === 'verified') handleVerificationDone('success');
-        else if (data.status === 'failed') handleVerificationDone('failed');
+        if (data.status === 'verified') {
+          stopPolling();
+          setStep('success');
+          toast.success('Identity verified!');
+          try {
+            const profileResult = await backendAPI.user.getProfile();
+            if (profileResult.success && profileResult.data?.user) {
+              storeUserProfile(profileResult.data.user);
+              dataCache.invalidate('profile');
+            }
+          } catch { /* silent */ }
+        } else if (data.status === 'failed') {
+          stopPolling();
+          setStep('failed');
+          setError('Verification could not be completed. Please try again.');
+          toast.error('Verification failed');
+        }
       }
-    } catch (e) { /* polling will retry */ }
-  }, [userId]);
+    } catch { /* polling will retry */ }
+  }, [userId, stopPolling]);
 
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
@@ -116,35 +167,21 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     pollingRef.current = setInterval(() => checkVerificationStatus(), 10000);
   }, [checkVerificationStatus]);
 
-  const handleVerificationDone = async (result: 'success' | 'failed') => {
-    stopPolling();
-    if (result === 'success') {
-      setStep('success');
-      toast.success('Identity verified!');
-      try {
-        const profileResult = await backendAPI.user.getProfile();
-        if (profileResult.success && profileResult.data?.user) {
-          storeUserProfile(profileResult.data.user);
-          dataCache.invalidate('profile');
-        }
-      } catch (e) { /* silent */ }
-      setTimeout(() => onComplete(), 3500);
-    } else {
-      setStep('failed');
-      setError('Verification could not be completed. Please try again.');
-      toast.error('Verification failed');
-    }
+  const handleSmileIDComplete = () => {
+    setStep('under-review');
+    startPolling();
+    toast.success('Verification submitted! Under review.');
   };
 
-  // ─── Initialize: get Smile Link URL from backend ──────────────────────────
+  // ─── Initialize: get Smile Link URL ───────────────────────────────────────
 
   const initializeVerification = async () => {
     setStep('loading');
     setError(null);
+    setIframeLoaded(false);
 
     let linkUrl = '';
 
-    // Try backend first — it may return a dynamic Smile Link URL
     try {
       const token = authAPI.getToken();
       const response = await fetch(`${BASE_URL}/smile-callback-handler`, {
@@ -163,51 +200,26 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       if (response.ok) {
         const result = await response.json();
         if (result.data?.already_verified) {
-          handleVerificationDone('success');
+          setStep('success');
           return;
         }
         linkUrl = result.data?.smile_link || result.data?.consent_url || '';
       }
     } catch {
-      // Backend unavailable — fall through to default Smile Link
+      // Fall through to default
     }
 
-    // Fall back to configured Smile Link URL
     if (!linkUrl) linkUrl = SMILE_LINK_BASE;
 
     if (!linkUrl) {
       setStep('failed');
       setError('Verification link not configured. Please contact support.');
-      toast.error('Could not start verification');
-      return;
-    }
-
-    // Validate URL origin
-    try {
-      const host = new URL(linkUrl).hostname;
-      const TRUSTED = ['smileidentity.com', 'usesmileid.com', 'sandbox.usesmileid.com', 'supabase.co'];
-      if (!TRUSTED.some(t => host.endsWith(t))) {
-        throw new Error('Untrusted verification URL');
-      }
-    } catch (urlErr: any) {
-      setStep('failed');
-      setError(urlErr.message === 'Untrusted verification URL' ? urlErr.message : 'Invalid verification URL');
-      toast.error('Could not start verification');
       return;
     }
 
     setSmileLinkUrl(linkUrl);
-    setStep('redirect');
-
-    // Start polling for the callback result
-    setTimeout(() => checkVerificationStatus(), 15000);
+    setStep('verifying');
     startPolling();
-  };
-
-  const openSmileLink = () => {
-    if (smileLinkUrl) {
-      window.open(smileLinkUrl, '_blank', 'noopener,noreferrer');
-    }
   };
 
   const handleRetry = () => {
@@ -215,18 +227,32 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     setStep('welcome');
     setError(null);
     setSmileLinkUrl('');
+    setIframeLoaded(false);
+  };
+
+  // Get business day deadline (2 business days from now)
+  const getDeadline = () => {
+    const now = new Date();
+    let days = 0;
+    const deadline = new Date(now);
+    while (days < 2) {
+      deadline.setDate(deadline.getDate() + 1);
+      const dow = deadline.getDay();
+      if (dow !== 0 && dow !== 6) days++;
+    }
+    return deadline.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
 
   // ── Step progress ──
   const activeStepIdx =
     step === 'welcome' ? 0 :
-    step === 'loading' || step === 'redirect' ? 1 :
-    step === 'processing' ? 2 :
+    step === 'loading' || step === 'verifying' ? 1 :
+    step === 'under-review' ? 2 :
     step === 'success' ? 3 : 2;
 
   const progressPct: Record<KYCStep, number> = {
     welcome: 0, loading: 20,
-    redirect: 50, processing: 75, success: 100, failed: 60,
+    verifying: 50, 'under-review': 75, success: 100, failed: 60,
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -236,41 +262,43 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   return (
     <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
-        <div className="flex items-center justify-between px-4 py-3 pt-safe">
-          <button
-            onClick={onBack}
-            className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
-          >
-            <ArrowLeft size={16} />
-          </button>
+      {step !== 'verifying' && (
+        <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
+          <div className="flex items-center justify-between px-4 py-3 pt-safe">
+            <button
+              onClick={onBack}
+              className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
+            >
+              <ArrowLeft size={16} />
+            </button>
 
-          <div className="flex items-center gap-2">
-            <Shield size={14} className="text-[#C7FF00]" />
-            <span className="text-[11px] font-bold tracking-widest uppercase">
-              Identity Verification
-            </span>
+            <div className="flex items-center gap-2">
+              <Shield size={14} className="text-[#C7FF00]" />
+              <span className="text-[11px] font-bold tracking-widest uppercase">
+                Identity Verification
+              </span>
+            </div>
+
+            <div className="w-9 flex items-center justify-center">
+              {(step === 'under-review') && (
+                <div className="w-2 h-2 rounded-full bg-[#C7FF00] animate-pulse" />
+              )}
+            </div>
           </div>
 
-          <div className="w-9 flex items-center justify-center">
-            {(step === 'redirect' || step === 'processing') && (
-              <div className="w-2 h-2 rounded-full bg-[#C7FF00] animate-pulse" />
-            )}
+          {/* Progress bar */}
+          <div className="h-[2px] bg-white/[0.04]">
+            <motion.div
+              className="h-full bg-gradient-to-r from-[#C7FF00] to-[#9BDB00]"
+              animate={{ width: `${progressPct[step]}%` }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+            />
           </div>
         </div>
-
-        {/* Progress bar */}
-        <div className="h-[2px] bg-white/[0.04]">
-          <motion.div
-            className="h-full bg-gradient-to-r from-[#C7FF00] to-[#9BDB00]"
-            animate={{ width: `${progressPct[step]}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-          />
-        </div>
-      </div>
+      )}
 
       {/* ── Step indicators ── */}
-      {step !== 'success' && step !== 'failed' && (
+      {step !== 'success' && step !== 'failed' && step !== 'verifying' && (
         <div className="px-6 pt-4 pb-2">
           <div className="flex items-center justify-between">
             {STEPS_CONFIG.map((s, i) => (
@@ -363,10 +391,10 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
                 <div className="space-y-2">
                   {[
-                    { num: '1', text: 'Tap "Start Verification" — opens SmileID secure page' },
+                    { num: '1', text: 'Tap "Start Verification" below' },
                     { num: '2', text: 'Select your document type (Passport, ID, etc.)' },
                     { num: '3', text: 'Take a selfie & photo of your ID' },
-                    { num: '4', text: 'Come back — we\'ll notify you when verified' },
+                    { num: '4', text: 'Your verification will be reviewed within 2 business days' },
                   ].map((s, i) => (
                     <motion.div
                       key={i}
@@ -432,11 +460,6 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   animate={{ rotate: 360 }}
                   transition={{ repeat: Infinity, duration: 4, ease: 'linear' }}
                 />
-                <motion.div
-                  className="absolute inset-3 rounded-xl border border-[#C7FF00]/15"
-                  animate={{ rotate: -360 }}
-                  transition={{ repeat: Infinity, duration: 6, ease: 'linear' }}
-                />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Scan className="w-10 h-10 text-[#C7FF00]" strokeWidth={1.5} />
                 </div>
@@ -446,120 +469,132 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             </motion.div>
           )}
 
-          {/* ═══ REDIRECT — user opens SmileID hosted page ═══ */}
-          {step === 'redirect' && (
+          {/* ═══ VERIFYING — SmileID embedded in iframe ═══ */}
+          {step === 'verifying' && (
             <motion.div
-              key="redirect"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-              className="flex-1 px-5 py-6 flex flex-col items-center"
-            >
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-600/5 border border-blue-500/20 flex items-center justify-center mb-5">
-                <ExternalLink className="w-10 h-10 text-blue-400" strokeWidth={1.5} />
-              </div>
-
-              <h2 className="text-lg font-bold text-white mb-2 text-center">Complete on SmileID</h2>
-              <p className="text-xs text-gray-400 text-center max-w-[280px] mb-6 leading-relaxed">
-                A secure SmileID page has opened. Complete your verification there, then come back here.
-              </p>
-
-              {/* Open link button */}
-              <motion.button
-                onClick={openSmileLink}
-                className="w-full max-w-[300px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 mb-4"
-                whileTap={{ scale: 0.97 }}
-              >
-                <ExternalLink size={16} />
-                Open SmileID Verification
-              </motion.button>
-
-              {/* Instructions */}
-              <div className="w-full max-w-[300px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-[#C7FF00]/10 flex items-center justify-center">
-                    <Loader2 className="w-4 h-4 text-[#C7FF00] animate-spin" />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold text-white">Waiting for Verification</p>
-                    <p className="text-[9px] text-gray-500">We'll detect when you're done</p>
-                  </div>
-                </div>
-                <div className="space-y-2 text-[10px] text-gray-400 leading-relaxed">
-                  <p>1. Select your document type on the SmileID page</p>
-                  <p>2. Take a selfie and photo of your ID</p>
-                  <p>3. Come back to this screen when finished</p>
-                </div>
-              </div>
-
-              {/* Already done button */}
-              <button
-                onClick={() => {
-                  setStep('processing');
-                  toast.info('Checking verification status...');
-                  checkVerificationStatus();
-                }}
-                className="text-[#C7FF00]/70 text-xs font-semibold hover:text-[#C7FF00] transition-colors"
-              >
-                I've completed verification
-              </button>
-            </motion.div>
-          )}
-
-          {/* ═══ PROCESSING / SUBMITTED ═══ */}
-          {step === 'processing' && (
-            <motion.div
-              key="processing"
+              key="verifying"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col items-center justify-center px-6"
+              className="flex-1 flex flex-col"
+            >
+              {/* Minimal header bar for iframe mode */}
+              <div className="flex items-center justify-between px-4 py-2 bg-[#0B0E11] border-b border-white/[0.06] pt-safe">
+                <button
+                  onClick={() => {
+                    handleSmileIDComplete();
+                  }}
+                  className="flex items-center gap-2 text-[#C7FF00] text-xs font-semibold"
+                >
+                  <ArrowLeft size={14} />
+                  Done
+                </button>
+                <div className="flex items-center gap-1.5">
+                  <Shield size={12} className="text-[#C7FF00]" />
+                  <span className="text-[10px] text-gray-400 font-medium">SmileID Secure</span>
+                </div>
+                <div className="w-12" />
+              </div>
+
+              {/* Loading overlay while iframe loads */}
+              {!iframeLoaded && (
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-[#C7FF00] animate-spin mb-3" />
+                  <p className="text-xs text-gray-500">Loading SmileID...</p>
+                </div>
+              )}
+
+              {/* SmileID iframe */}
+              <iframe
+                ref={iframeRef}
+                src={smileLinkUrl}
+                className={`flex-1 w-full border-0 ${iframeLoaded ? 'block' : 'hidden'}`}
+                style={{ minHeight: 'calc(100vh - 60px)' }}
+                allow="camera; microphone"
+                onLoad={() => setIframeLoaded(true)}
+                title="SmileID Verification"
+              />
+            </motion.div>
+          )}
+
+          {/* ═══ UNDER REVIEW ═══ */}
+          {step === 'under-review' && (
+            <motion.div
+              key="under-review"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3 }}
+              className="flex-1 flex flex-col items-center px-5 py-8"
             >
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ duration: 0.5, ease: 'easeOut' }}
-                className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#C7FF00]/20 to-[#C7FF00]/5 border border-[#C7FF00]/20 flex items-center justify-center mb-5"
+                className="w-24 h-24 rounded-3xl bg-gradient-to-br from-yellow-500/20 to-orange-500/10 border border-yellow-500/20 flex items-center justify-center mb-5"
               >
-                <FileText className="w-12 h-12 text-[#C7FF00]" strokeWidth={1.5} />
+                <Clock className="w-12 h-12 text-yellow-400" strokeWidth={1.5} />
               </motion.div>
 
-              <h2 className="text-lg font-bold text-white mb-2 text-center">Verification In Progress</h2>
-              <p className="text-xs text-gray-400 text-center max-w-[280px] mb-5 leading-relaxed">
-                Your identity document has been submitted for review.
+              <h2 className="text-xl font-black text-white mb-2 text-center">Under Review</h2>
+              <p className="text-xs text-gray-400 text-center max-w-[300px] mb-6 leading-relaxed">
+                Your identity verification has been submitted successfully. Our team is reviewing your documents.
               </p>
 
-              <div className="w-full max-w-[300px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-[#C7FF00]/10 flex items-center justify-center">
-                    <Loader2 className="w-4 h-4 text-[#C7FF00] animate-spin" />
+              {/* Deadline card */}
+              <div className="w-full max-w-[320px] bg-gradient-to-br from-yellow-500/[0.08] to-orange-500/[0.04] border border-yellow-500/20 rounded-2xl p-5 mb-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                    <Clock className="w-5 h-5 text-yellow-400" />
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold text-white">Under Review</p>
-                    <p className="text-[9px] text-gray-500">Usually takes a few minutes</p>
+                    <p className="text-sm font-bold text-white">Estimated Completion</p>
+                    <p className="text-xs text-yellow-400 font-semibold">Within 2 business days</p>
                   </div>
                 </div>
-                <div className="space-y-2 text-[10px] text-gray-400 leading-relaxed">
-                  <p>Our verification team is reviewing your document to ensure it meets all security requirements.</p>
-                  <p>You will receive an <span className="text-[#C7FF00]/80 font-medium">email notification</span> and an <span className="text-[#C7FF00]/80 font-medium">in-app notification</span> once your verification is complete.</p>
+                <div className="flex items-center gap-2 bg-black/20 rounded-xl px-4 py-3">
+                  <CheckCircle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                  <p className="text-[11px] text-gray-300">
+                    Expected by <span className="text-yellow-400 font-bold">{getDeadline()}</span>
+                  </p>
                 </div>
               </div>
 
-              <div className="w-full max-w-[300px] space-y-2">
-                <div className="flex items-center gap-2.5 bg-blue-500/[0.06] border border-blue-500/[0.1] rounded-xl px-3.5 py-2.5">
-                  <CheckCircle className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                  <p className="text-[9px] text-blue-300/80">You can continue using BorderPay while we review your document.</p>
+              {/* What happens next */}
+              <div className="w-full max-w-[320px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
+                <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-3">What happens next</p>
+                <div className="space-y-3">
+                  {[
+                    { icon: Eye, text: 'Our team reviews your ID and selfie' },
+                    { icon: ShieldCheck, text: 'SmileID verifies document authenticity' },
+                    { icon: FileText, text: 'You receive an email + in-app notification' },
+                    { icon: BadgeCheck, text: 'All premium features unlock automatically' },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full bg-white/[0.04] flex items-center justify-center flex-shrink-0">
+                        <item.icon size={13} className="text-gray-400" />
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-relaxed">{item.text}</p>
+                    </div>
+                  ))}
                 </div>
+              </div>
+
+              {/* Info banner */}
+              <div className="w-full max-w-[320px] flex items-start gap-2.5 bg-blue-500/[0.06] border border-blue-500/[0.1] rounded-xl px-3.5 py-3 mb-6">
+                <CheckCircle className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" />
+                <p className="text-[9px] text-blue-300/80 leading-relaxed">
+                  You can continue using BorderPay while we review your documents. Basic features remain available.
+                </p>
               </div>
 
               <motion.button
-                onClick={onComplete}
-                className="mt-6 w-full max-w-[300px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
+                onClick={onBack}
+                className="w-full max-w-[320px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
                 whileTap={{ scale: 0.97 }}
               >
                 <ArrowRight size={16} />
-                Back to Dashboard
+                Back to App
               </motion.button>
             </motion.div>
           )}
@@ -608,10 +643,21 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   Your identity has been confirmed. All premium features are now unlocked.
                 </motion.p>
                 <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.9 }}
-                  className="inline-flex items-center gap-2.5 px-5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-2xl">
+                  className="inline-flex items-center gap-2.5 px-5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-2xl mb-6">
                   <ShieldCheck className="w-4 h-4 text-[#C7FF00]" />
                   <span className="text-xs text-[#C7FF00] font-bold">KYC Level 2 — Fully Verified</span>
                 </motion.div>
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 1.1 }}
+                  onClick={onComplete}
+                  className="w-full max-w-[280px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 mx-auto"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  <ArrowRight size={16} />
+                  Continue
+                </motion.button>
               </div>
             </motion.div>
           )}
