@@ -77,7 +77,6 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
         { icon: User, label: t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
         { icon: CreditCard, label: t('settings.paymentMethods'), screen: 'payment-methods', color: 'text-green-400' },
         { icon: FileText, label: t('settings.kycDocuments'), screen: 'kyc', color: 'text-purple-400' },
-        { icon: Shield, label: 'KYC Jobs (SmileID)', screen: 'kyc-jobs', color: 'text-[#C7FF00]' },
         { icon: Upload, label: 'Proof of Address', screen: 'proof-of-address', color: 'text-indigo-400' },
       ]
     },
