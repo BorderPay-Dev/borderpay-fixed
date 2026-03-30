@@ -3,10 +3,11 @@
  * Upload and manage proof of address documents
  */
 
-import React, { useState } from 'react';
-import { ArrowLeft, Upload, FileText, CheckCircle2, Clock, AlertCircle, X } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { ArrowLeft, Upload, FileText, CheckCircle2, Clock, X, Loader2 } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { toast } from 'sonner';
+import { authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 
 interface ProofOfAddressScreenProps {
   onBack: () => void;
@@ -21,6 +22,7 @@ const documentTypes = [
 
 export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
   const tc = useThemeClasses();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -52,12 +54,69 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
 
     setUploading(true);
     try {
-      // Simulate upload
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const token = authAPI.getToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': ANON_KEY,
+        'Authorization': `Bearer ${token || ANON_KEY}`,
+      };
+
+      // Step 1: Get signed upload URL from poa-upload-url
+      const urlRes = await fetch(`${BASE_URL}/poa-upload-url`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          filename: uploadedFile.name,
+          folder: 'poa',
+          content_type: uploadedFile.type,
+        }),
+      });
+
+      if (!urlRes.ok) {
+        const err = await urlRes.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to get upload URL');
+      }
+
+      const urlData = await urlRes.json();
+      const uploadUrl = urlData.upload_url;
+      const filePath = urlData.path;
+
+      if (!uploadUrl || !filePath) {
+        throw new Error('Invalid upload URL response');
+      }
+
+      // Step 2: Upload file directly to Supabase Storage via signed URL
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': uploadedFile.type },
+        body: uploadedFile,
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error('File upload failed');
+      }
+
+      // Step 3: Submit the record via poa-submit
+      const submitRes = await fetch(`${BASE_URL}/poa-submit`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          file_path: filePath,
+          document_type: selectedType,
+        }),
+      });
+
+      const submitData = await submitRes.json();
+
+      if (!submitRes.ok || !submitData.success) {
+        throw new Error(submitData.error || 'Submission failed');
+      }
+
       setStatus('uploaded');
       toast.success('Document uploaded successfully! Under review.');
-    } catch (error) {
-      toast.error('Upload failed. Please try again.');
+    } catch (error: any) {
+      console.error('POA upload error:', error);
+      toast.error(error.message || 'Upload failed. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -108,79 +167,94 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
         )}
 
         {/* Document Type Selection */}
-        <div>
-          <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-wider mb-3`}>
-            Select Document Type
-          </h2>
-          <div className="space-y-2">
-            {documentTypes.map((doc) => (
-              <button
-                key={doc.id}
-                onClick={() => setSelectedType(doc.id)}
-                className={`w-full text-left p-4 rounded-2xl border transition-all ${
-                  selectedType === doc.id
-                    ? 'bg-[#C7FF00]/10 border-[#C7FF00]/30'
-                    : `${tc.card} ${tc.cardBorder}`
-                }`}
-              >
-                <p className={`text-sm font-semibold ${tc.text}`}>{doc.label}</p>
-                <p className={`text-xs ${tc.textSecondary} mt-0.5`}>{doc.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* File Upload */}
-        <div>
-          <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-wider mb-3`}>
-            Upload Document
-          </h2>
-
-          {uploadedFile ? (
-            <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 flex items-center gap-3`}>
-              <div className="w-10 h-10 rounded-xl bg-[#C7FF00]/20 flex items-center justify-center">
-                <CheckCircle2 size={18} className="text-[#C7FF00]" />
+        {status === 'none' && (
+          <>
+            <div>
+              <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-wider mb-3`}>
+                Select Document Type
+              </h2>
+              <div className="space-y-2">
+                {documentTypes.map((doc) => (
+                  <button
+                    key={doc.id}
+                    onClick={() => setSelectedType(doc.id)}
+                    className={`w-full text-left p-4 rounded-2xl border transition-all ${
+                      selectedType === doc.id
+                        ? 'bg-[#C7FF00]/10 border-[#C7FF00]/30'
+                        : `${tc.card} ${tc.cardBorder}`
+                    }`}
+                  >
+                    <p className={`text-sm font-semibold ${tc.text}`}>{doc.label}</p>
+                    <p className={`text-xs ${tc.textSecondary} mt-0.5`}>{doc.desc}</p>
+                  </button>
+                ))}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-semibold ${tc.text} truncate`}>{uploadedFile.name}</p>
-                <p className={`text-xs ${tc.textSecondary}`}>
-                  {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
-              <button
-                onClick={() => setUploadedFile(null)}
-                className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center"
-              >
-                <X size={14} className="text-red-400" />
-              </button>
             </div>
-          ) : (
-            <label className={`block ${tc.card} border-2 border-dashed ${tc.cardBorder} rounded-2xl p-8 text-center cursor-pointer hover:border-[#C7FF00]/30 transition-colors`}>
-              <Upload size={32} className={`${tc.textSecondary} mx-auto mb-3`} />
-              <p className={`text-sm font-semibold ${tc.text} mb-1`}>Tap to upload</p>
-              <p className={`text-xs ${tc.textSecondary}`}>JPG, PNG or PDF — max 10MB</p>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-            </label>
-          )}
-        </div>
 
-        {/* Submit Button */}
-        <button
-          onClick={handleUpload}
-          disabled={!selectedType || !uploadedFile || uploading || status === 'uploaded'}
-          className={`w-full py-4 rounded-2xl font-bold text-sm transition-all ${
-            selectedType && uploadedFile && !uploading && status !== 'uploaded'
-              ? 'bg-[#C7FF00] text-black active:scale-[0.98]'
-              : 'bg-white/10 text-white/30 cursor-not-allowed'
-          }`}
-        >
-          {uploading ? 'Uploading...' : status === 'uploaded' ? 'Document Submitted' : 'Submit Document'}
-        </button>
+            {/* File Upload */}
+            <div>
+              <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-wider mb-3`}>
+                Upload Document
+              </h2>
+
+              {uploadedFile ? (
+                <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 flex items-center gap-3`}>
+                  <div className="w-10 h-10 rounded-xl bg-[#C7FF00]/20 flex items-center justify-center">
+                    <CheckCircle2 size={18} className="text-[#C7FF00]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold ${tc.text} truncate`}>{uploadedFile.name}</p>
+                    <p className={`text-xs ${tc.textSecondary}`}>
+                      {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setUploadedFile(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                    className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center"
+                  >
+                    <X size={14} className="text-red-400" />
+                  </button>
+                </div>
+              ) : (
+                <label className={`block ${tc.card} border-2 border-dashed ${tc.cardBorder} rounded-2xl p-8 text-center cursor-pointer hover:border-[#C7FF00]/30 transition-colors`}>
+                  <Upload size={32} className={`${tc.textSecondary} mx-auto mb-3`} />
+                  <p className={`text-sm font-semibold ${tc.text} mb-1`}>Tap to upload</p>
+                  <p className={`text-xs ${tc.textSecondary}`}>JPG, PNG or PDF — max 10MB</p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+
+            {/* Submit Button */}
+            <button
+              onClick={handleUpload}
+              disabled={!selectedType || !uploadedFile || uploading}
+              className={`w-full py-4 rounded-2xl font-bold text-sm transition-all ${
+                selectedType && uploadedFile && !uploading
+                  ? 'bg-[#C7FF00] text-black active:scale-[0.98]'
+                  : 'bg-white/10 text-white/30 cursor-not-allowed'
+              }`}
+            >
+              {uploading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 size={16} className="animate-spin" />
+                  Uploading...
+                </span>
+              ) : (
+                'Submit Document'
+              )}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
