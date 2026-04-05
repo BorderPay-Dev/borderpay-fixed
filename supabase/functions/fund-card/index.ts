@@ -46,6 +46,37 @@ serve(async (req) => {
       });
     }
 
+    // ── Verify card belongs to this user ────────────────────────────────────
+    const { data: userProfile } = await supabase
+      .from('user_profiles')
+      .select('maplerad_customer_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile?.maplerad_customer_id) {
+      return new Response(JSON.stringify({ success: false, error: 'User account not fully set up' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Fetch card from Maplerad and verify ownership
+    const cardDetailsRes = await mapleradFetch(`/issuing/${card_id}`);
+    if (!cardDetailsRes.ok) {
+      return new Response(JSON.stringify({ success: false, error: 'Card not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const cardDetails = await cardDetailsRes.json();
+    const cardCustomerId = cardDetails.data?.customer_id || cardDetails.customer_id;
+    if (cardCustomerId !== userProfile.maplerad_customer_id) {
+      return new Response(JSON.stringify({ success: false, error: 'Card not found' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const fundBody: Record<string, unknown> = {
       amount: Math.round(amount * 100), // amount in minor units (cents/kobo)
     };

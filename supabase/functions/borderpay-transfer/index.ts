@@ -13,6 +13,13 @@ const mapleradFetch = (path: string, options: RequestInit = {}) =>
     headers: { 'Authorization': `Bearer ${MAPLERAD_SECRET}`, 'Content-Type': 'application/json', ...options.headers },
   });
 
+async function hashPin(pin: string, salt: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin + salt);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -45,6 +52,44 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // ── Verify transaction PIN against stored hash ──────────────────────────
+    const { data: security, error: secError } = await supabase
+      .from('user_security')
+      .select('pin_hash, failed_pin_attempts, pin_locked_until')
+      .eq('user_id', user.id)
+      .single();
+
+    if (secError || !security?.pin_hash) {
+      return new Response(JSON.stringify({ success: false, error: 'PIN not set up. Please set a transaction PIN first.' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (security.pin_locked_until && new Date(security.pin_locked_until) > new Date()) {
+      return new Response(JSON.stringify({ success: false, error: 'Account locked due to too many failed PIN attempts. Try again later.' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const pinHash = await hashPin(String(transaction_pin), user.id);
+    if (pinHash !== security.pin_hash) {
+      const newAttempts = (security.failed_pin_attempts || 0) + 1;
+      const updateData: Record<string, unknown> = { failed_pin_attempts: newAttempts };
+      if (newAttempts >= 5) {
+        updateData.pin_locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      }
+      await supabase.from('user_security').update(updateData).eq('user_id', user.id);
+      return new Response(JSON.stringify({ success: false, error: 'Invalid PIN' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Reset failed attempts on success
+    await supabase.from('user_security').update({ failed_pin_attempts: 0, pin_locked_until: null }).eq('user_id', user.id);
 
     // Look up recipient
     const { data: recipient, error: recipientError } = await supabase

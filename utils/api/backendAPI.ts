@@ -409,11 +409,8 @@ export const fxAPI = {
 // ============================================================================
 
 export const kycAPI = {
-  async getSmileIdStatus(userId: string) {
-    return apiCall('smile-callback-handler', {
-      method: 'GET',
-      headers: { 'X-User-Id': userId },
-    });
+  async getSmileIdStatus(_userId?: string) {
+    return apiCall('query-kyc-status', { method: 'GET' });
   },
 
   async verifyBVN(bvn: string) {

@@ -11,8 +11,8 @@
 
 export type AppEnvironment = 'sandbox' | 'live';
 
-/** ← Change this to 'live' when going to production */
-export const ENV = 'sandbox' as AppEnvironment;
+/** Reads from VITE_APP_ENV env var. Set to 'live' in Vercel production env. */
+export const ENV = (import.meta.env.VITE_APP_ENV === 'live' ? 'live' : 'sandbox') as AppEnvironment;
 
 // ─── Derived helpers (read-only, DO NOT change) ──────────────────────────────
 

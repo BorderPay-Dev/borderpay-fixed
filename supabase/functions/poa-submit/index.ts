@@ -44,9 +44,6 @@ serve(async (req) => {
       });
 
     // If the table doesn't exist, that's fine — we still update user_profiles
-    if (insertError) {
-      console.log('address_verifications insert skipped:', insertError.message);
-    }
 
     // Update user_profiles with pending status
     const { error: updateError } = await supabase
