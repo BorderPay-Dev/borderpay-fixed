@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Toaster } from 'sonner';
 import { SplashScreen } from './components/onboarding/SplashScreen';
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
@@ -532,6 +533,7 @@ export default function App() {
           visibleToasts={3}
           offset={16}
         />
+        <Analytics />
       </ThemeLanguageProvider>
     </ErrorBoundary>
   );
