@@ -29,6 +29,7 @@ import {
 import { USPaymentDetails } from './USPaymentDetails';
 import { isFullEnrollment } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { getTransferFee, validateTransferAmount, FeeResult } from '../../utils/fees';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -175,6 +176,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
 
+  // Fee & limits
+  const [feeResult, setFeeResult] = useState<FeeResult | null>(null);
+  const [feeLoading, setFeeLoading] = useState(false);
+  const [limitError, setLimitError] = useState<string | null>(null);
+
   // PIN & result
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
@@ -269,6 +275,31 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
   };
 
+  // Validate transfer limits whenever amount/currency/method changes
+  useEffect(() => {
+    const num = parseFloat(amount);
+    if (!num || method === 'borderpay' || method === 'us_ach_wire' || method === 'stablecoin') {
+      setLimitError(null);
+      return;
+    }
+    const channel = method === 'mobile_money' ? 'mobile_money' : 'bank';
+    const symbol = getCurrencySymbol(selectedCurrency);
+    const err = validateTransferAmount(num, selectedCurrency, channel, symbol);
+    setLimitError(err);
+  }, [amount, selectedCurrency, method]);
+
+  // Load fee when entering review step
+  useEffect(() => {
+    if (step !== 'review') return;
+    const num = parseFloat(amount);
+    if (!num) return;
+    setFeeLoading(true);
+    getTransferFee(method, selectedCurrency, num)
+      .then(f => setFeeResult(f))
+      .catch(() => setFeeResult(null))
+      .finally(() => setFeeLoading(false));
+  }, [step]);
+
   // ---------------------------------------------------------------------------
   // Navigation helpers
   // ---------------------------------------------------------------------------
@@ -292,6 +323,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   };
 
   const canProceedAmount = () => {
+    if (limitError) return false;
     const num = parseFloat(amount);
     if (method === 'us_ach_wire') {
       return num > 0 && selectedWallet && num <= selectedWallet.balance && usMemo.trim().length > 0 && reason.trim().length > 0;
@@ -989,6 +1021,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {!selectedWallet && (
                 <p className="text-xs text-red-400 mt-2 px-1">{t('send.noWalletForCurrency')}</p>
               )}
+              {limitError && (
+                <p className="text-xs text-red-400 mt-2 px-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  {limitError}
+                </p>
+              )}
             </div>
 
             {/* Memo (US Payments only) */}
@@ -1152,6 +1190,41 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
               </div>
             </div>
+
+            {/* Fee breakdown */}
+            {(feeLoading || feeResult) && (
+              <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-4`}>
+                {feeLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <Loader2 size={12} className="animate-spin" />
+                    Calculating fee…
+                  </div>
+                ) : feeResult ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className={tc.textMuted}>Amount</span>
+                      <span className={tc.text}>{getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {selectedCurrency}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className={tc.textMuted}>Fee ({feeResult.breakdown})</span>
+                      <span className={feeResult.zero_fee ? 'text-[#C7FF00]' : tc.text}>
+                        {feeResult.zero_fee
+                          ? 'Free'
+                          : `${feeResult.user_pays.toLocaleString(undefined, { minimumFractionDigits: 2 })} ${feeResult.currency}`
+                        }
+                      </span>
+                    </div>
+                    <div className={`h-px ${tc.border} my-1`} />
+                    <div className="flex justify-between text-sm font-bold">
+                      <span className={tc.text}>Total</span>
+                      <span className="text-[#C7FF00]">
+                        {getCurrencySymbol(selectedCurrency)}{(parseFloat(amount) + feeResult.user_pays).toLocaleString(undefined, { minimumFractionDigits: 2 })} {selectedCurrency}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Warning */}
             <div className="flex items-start gap-2 px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl mb-6">

@@ -24,6 +24,7 @@ import { ErrorState } from '../common/ErrorState';
 import { InlineAlert, parseAPIError } from '../common/InlineAlert';
 import { ENV_CONFIG, isFullEnrollment } from '../../utils/config/environment';
 import { authAPI } from '../../utils/supabase/client';
+import { getCardFundingFee, FeeResult } from '../../utils/fees';
 
 interface VirtualCard {
   id: string;
@@ -39,6 +40,8 @@ interface VirtualCard {
   brand: string;
   dailySpendingLimit?: number | null;
   monthlySpendingLimit?: number | null;
+  declineCount?: number | null;
+  lastFundedAt?: string | null;
 }
 
 type ViewMode = 'list' | 'design-selector' | 'card-detail';
@@ -46,6 +49,101 @@ type ActionModal = null | 'fund' | 'withdraw' | 'details' | 'history' | 'digital
 
 interface CardsScreenProps {
   onBack: () => void;
+}
+
+function FundCardModal({ selectedCard, modalAmount, setModalAmount, modalLoading, cardFee, setCardFee, feeLoading, setFeeLoading, requirePinThen, tc, t }: any) {
+  const amt = parseFloat(modalAmount) || 0;
+
+  React.useEffect(() => {
+    if (amt <= 0) { setCardFee(null); return; }
+    setFeeLoading(true);
+    getCardFundingFee(amt)
+      .then(f => setCardFee(f))
+      .catch(() => setCardFee(null))
+      .finally(() => setFeeLoading(false));
+  }, [modalAmount]);
+
+  const exceeds = amt > 10_000;
+  const exceedsCap = selectedCard && (selectedCard.balance + amt) > 100_000;
+  const canFund = !modalLoading && amt >= 10 && !exceeds && !exceedsCap;
+
+  return (
+    <div className="px-5 pb-8">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 rounded-full bg-[#C7FF00]/10 flex items-center justify-center">
+          <Wallet size={20} className="text-[#C7FF00]" />
+        </div>
+        <div>
+          <h3 className={`text-base font-bold ${tc.text}`}>{t('cards.fundCard')}</h3>
+          <p className={`text-xs ${tc.textMuted}`}>{t('cards.fundFromWallet')}</p>
+        </div>
+      </div>
+
+      <div className="relative mb-2">
+        <DollarSign size={18} className={`absolute left-4 top-1/2 -translate-y-1/2 ${tc.textMuted}`} />
+        <input
+          type="number"
+          inputMode="decimal"
+          value={modalAmount}
+          onChange={e => setModalAmount(e.target.value)}
+          placeholder="10.00"
+          className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl pl-10 pr-4 py-4 text-xl font-bold focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+          autoFocus
+        />
+      </div>
+
+      {exceeds && (
+        <p className="text-xs text-red-400 px-1 mb-2 flex items-center gap-1">
+          <AlertCircle size={12} /> Maximum $10,000 per transaction.
+        </p>
+      )}
+      {exceedsCap && !exceeds && (
+        <p className="text-xs text-red-400 px-1 mb-2 flex items-center gap-1">
+          <AlertCircle size={12} /> Card balance cannot exceed $100,000.
+        </p>
+      )}
+
+      {/* Fee breakdown */}
+      {amt >= 10 && !exceeds && !exceedsCap && (
+        <div className={`${tc.card} border ${tc.borderLight} rounded-2xl p-4 mb-4`}>
+          {feeLoading ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <Loader2 size={12} className="animate-spin" /> Calculating fee…
+            </div>
+          ) : cardFee ? (
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className={tc.textMuted}>Amount</span>
+                <span className={tc.text}>${amt.toFixed(2)} USD</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className={tc.textMuted}>Fee ({cardFee.breakdown})</span>
+                <span className={cardFee.zero_fee ? 'text-[#C7FF00]' : tc.text}>
+                  {cardFee.zero_fee ? 'Free' : `$${cardFee.user_pays.toFixed(2)}`}
+                </span>
+              </div>
+              <div className="h-px bg-white/[0.06] my-1" />
+              <div className="flex justify-between text-sm font-bold">
+                <span className={tc.text}>Total</span>
+                <span className="text-[#C7FF00]">${(amt + cardFee.user_pays).toFixed(2)} USD</span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <p className={`text-xs ${tc.textMuted} mb-4 px-1`}>{t('cards.minTopupNote')}</p>
+
+      <button
+        onClick={() => requirePinThen('fund')}
+        disabled={!canFund}
+        className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        {modalLoading ? <Loader2 size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
+        {modalLoading ? t('common.processing') : t('cards.fundCard')}
+      </button>
+    </div>
+  );
 }
 
 export function CardsScreen({ onBack }: CardsScreenProps) {
@@ -69,6 +167,10 @@ export function CardsScreen({ onBack }: CardsScreenProps) {
   const [cardDetails, setCardDetails] = useState<any>(null);
   const [cardTransactions, setCardTransactions] = useState<any[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Card funding fee
+  const [cardFee, setCardFee] = useState<FeeResult | null>(null);
+  const [feeLoading, setFeeLoading] = useState(false);
 
   // PIN verification state
   const [pendingAction, setPendingAction] = useState<null | 'fund' | 'withdraw' | 'create'>(null);
@@ -113,6 +215,8 @@ export function CardsScreen({ onBack }: CardsScreenProps) {
           },
           dailySpendingLimit: c.daily_spending_limit || null,
           monthlySpendingLimit: c.monthly_spending_limit || null,
+          declineCount: c.decline_count ?? c.declineCount ?? null,
+          lastFundedAt: c.last_funded_at ?? c.lastFundedAt ?? null,
         }));
 
         setCards(mapped);
@@ -172,6 +276,14 @@ export function CardsScreen({ onBack }: CardsScreenProps) {
     const amount = parseFloat(modalAmount);
     if (amount < 10) {
       showToast.error(t('cards.minTopup'));
+      return;
+    }
+    if (amount > 10_000) {
+      showToast.error('Maximum $10,000 per funding transaction.');
+      return;
+    }
+    if (selectedCard.balance + amount > 100_000) {
+      showToast.error(`Card balance cannot exceed $100,000. Current balance: $${selectedCard.balance.toFixed(2)}.`);
       return;
     }
     setModalLoading(true);
@@ -588,6 +700,30 @@ export function CardsScreen({ onBack }: CardsScreenProps) {
               </>
             )}
           </div>
+
+          {/* ─── Card rule warnings ─────────────────────────────────── */}
+          {selectedCard.declineCount != null && selectedCard.declineCount >= 2 && (
+            <div className="mx-4 mt-3 flex items-start gap-2.5 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-2xl">
+              <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-300 leading-relaxed">
+                <span className="font-bold">Warning:</span> One more decline terminates this card automatically.
+              </p>
+            </div>
+          )}
+          {(() => {
+            if (!selectedCard.lastFundedAt) return null;
+            const daysSinceFunded = Math.floor((Date.now() - new Date(selectedCard.lastFundedAt).getTime()) / 86_400_000);
+            if (daysSinceFunded < 14) return null;
+            const daysLeft = Math.max(0, 21 - daysSinceFunded);
+            return (
+              <div className="mx-4 mt-3 flex items-start gap-2.5 px-4 py-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+                <AlertCircle size={15} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-300 leading-relaxed">
+                  <span className="font-bold">Action required:</span> Fund your card within {daysLeft} day{daysLeft !== 1 ? 's' : ''} to keep it active.
+                </p>
+              </div>
+            );
+          })()}
         </div>
 
         {/* ─── Modals ─────────────────────────────────────────────────── */}
@@ -615,40 +751,19 @@ export function CardsScreen({ onBack }: CardsScreenProps) {
 
                 {/* Fund Card Modal */}
                 {activeModal === 'fund' && (
-                  <div className="px-5 pb-8">
-                    <div className="flex items-center gap-3 mb-5">
-                      <div className="w-10 h-10 rounded-full bg-[#C7FF00]/10 flex items-center justify-center">
-                        <Wallet size={20} className="text-[#C7FF00]" />
-                      </div>
-                      <div>
-                        <h3 className={`text-base font-bold ${tc.text}`}>{t('cards.fundCard')}</h3>
-                        <p className={`text-xs ${tc.textMuted}`}>{t('cards.fundFromWallet')}</p>
-                      </div>
-                    </div>
-
-                    <div className="relative mb-3">
-                      <DollarSign size={18} className={`absolute left-4 top-1/2 -translate-y-1/2 ${tc.textMuted}`} />
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={modalAmount}
-                        onChange={e => setModalAmount(e.target.value)}
-                        placeholder="10.00"
-                        className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl pl-10 pr-4 py-4 text-xl font-bold focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
-                        autoFocus
-                      />
-                    </div>
-                    <p className={`text-xs ${tc.textMuted} mb-5 px-1`}>{t('cards.minTopupNote')}</p>
-
-                    <button
-                      onClick={() => requirePinThen('fund')}
-                      disabled={modalLoading || !modalAmount || parseFloat(modalAmount) < 10}
-                      className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                      {modalLoading ? <Loader2 size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
-                      {modalLoading ? t('common.processing') : t('cards.fundCard')}
-                    </button>
-                  </div>
+                  <FundCardModal
+                    selectedCard={selectedCard}
+                    modalAmount={modalAmount}
+                    setModalAmount={setModalAmount}
+                    modalLoading={modalLoading}
+                    cardFee={cardFee}
+                    setCardFee={setCardFee}
+                    feeLoading={feeLoading}
+                    setFeeLoading={setFeeLoading}
+                    requirePinThen={requirePinThen}
+                    tc={tc}
+                    t={t}
+                  />
                 )}
 
                 {/* Withdraw Card Modal */}
