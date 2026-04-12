@@ -158,8 +158,8 @@ async function processYouverifyCallback(body: any, rawBody: string, signature: s
       has_data: !!body.data,
     }));
 
-    // Verify HMAC signature if secret is configured
-    const secretKey = Deno.env.get('YOUVERIFY_SECRET_KEY') || '';
+    // Verify HMAC signature using Youverify's "HTTP Webhook Signin Key"
+    const secretKey = Deno.env.get('YOUVERIFY_WEBHOOK_SIGNIN_KEY') || '';
     if (secretKey && signature) {
       const valid = await verifyYouverifySignature(rawBody, signature, secretKey);
       if (!valid) {

@@ -26,9 +26,8 @@ import { supabase, authAPI } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { publicAnonKey } from '../../utils/supabase/info';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { getAllowedCountries, getPopularCountries } from '../../utils/countries/allowedCountries';
+import { getActiveCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import type { Country } from '../../utils/countries/allCountries';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
@@ -46,7 +45,7 @@ interface SignUpData {
   phone: string;
   password: string;
   confirmPassword: string;
-  selectedCountry: Country | null;
+  selectedCountry: CountryConfig | null;
   agreedToTerms: boolean;
   // Step 2: Identity
   dateOfBirth: string; // DD-MM-YYYY
@@ -73,31 +72,17 @@ interface SignUpFlowProps {
 // IDENTITY TYPES BY COUNTRY
 // ============================================================================
 
-const ID_TYPES_BY_COUNTRY: Record<string, Array<{ value: string; label: string }>> = {
-  NG: [
-    { value: 'NIN', label: 'National Identification Number (NIN)' },
-    { value: 'VOTERS_CARD', label: "Voter's Card" },
-    { value: 'DRIVERS_LICENSE', label: "Driver's License" },
-    { value: 'PASSPORT', label: 'International Passport' },
-  ],
-  GH: [
-    { value: 'PASSPORT', label: 'International Passport' },
-    { value: 'DRIVERS_LICENSE', label: "Driver's License" },
-    { value: 'VOTERS_CARD', label: "Voter's ID" },
-  ],
-  KE: [
-    { value: 'NIN', label: 'National ID' },
-    { value: 'PASSPORT', label: 'International Passport' },
-  ],
-  UG: [
-    { value: 'NIN', label: 'National ID' },
-    { value: 'PASSPORT', label: 'International Passport' },
-  ],
-  DEFAULT: [
+/** Get ID types for a country from the master config */
+const getIdTypesForCountry = (countryCode: string): Array<{ value: string; label: string }> => {
+  const country = getCountryByCode(countryCode);
+  if (country && country.idTypes.length > 0) {
+    return country.idTypes.map(t => ({ value: t.code, label: t.label }));
+  }
+  return [
     { value: 'PASSPORT', label: 'International Passport' },
     { value: 'DRIVERS_LICENSE', label: "Driver's License" },
-    { value: 'NIN', label: 'National ID' },
-  ],
+  ];
+
 };
 
 const POA_DOCUMENT_TYPES = [
@@ -703,8 +688,8 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
     if (!formData.selectedCountry) {
       const detectedCode = detectCountryFromTimezone();
       if (detectedCode) {
-        const match = getAllowedCountries().find(c => c.code === detectedCode);
-        if (match) {
+        const match = getCountryByCode(detectedCode);
+        if (match && match.status === 'active') {
           updateForm({ selectedCountry: match });
         }
       }
@@ -714,7 +699,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
   const popularCountries = getPopularCountries();
 
   const filteredCountries = useMemo(() => {
-    const all = getAllowedCountries();
+    const all = getActiveCountries();
     if (!countrySearchQuery) return all;
     const q = countrySearchQuery.toLowerCase();
     return all.filter(c =>
@@ -724,7 +709,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
     );
   }, [countrySearchQuery]);
 
-  const handleSelectCountry = (country: Country) => {
+  const handleSelectCountry = (country: CountryConfig) => {
     updateForm({ selectedCountry: country });
     setShowCountryPicker(false);
     setCountrySearchQuery('');
@@ -1125,8 +1110,8 @@ function StepIdentityInfo({ formData, updateForm, onNext }: {
   updateForm: (u: Partial<SignUpData>) => void;
   onNext: () => void;
 }) {
-  const countryCode = formData.selectedCountry?.code ?? 'DEFAULT';
-  const idTypes = ID_TYPES_BY_COUNTRY[countryCode] || ID_TYPES_BY_COUNTRY.DEFAULT;
+  const countryCode = formData.selectedCountry?.code ?? '';
+  const idTypes = getIdTypesForCountry(countryCode);
 
   const isValid = formData.dateOfBirth && formData.idType && formData.idNumber;
 

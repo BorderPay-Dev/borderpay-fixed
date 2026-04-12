@@ -44,12 +44,35 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading]   = useState(false);
   const [isBiometricLoading, setIsBiometricLoading] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [inlineError, setInlineError] = useState('');
 
   // 2FA state
   const [show2FA, setShow2FA]       = useState(false);
   const [pendingUser, setPendingUser] = useState<any>(null);
 
+  // Check biometric enrollment on mount
+  useEffect(() => {
+    const storedUserId = localStorage.getItem('borderpay_biometric_user_id');
+    if (storedUserId && BiometricManager.isEnrolled(storedUserId)) {
+      setBiometricAvailable(true);
+    }
+  }, []);
+
+  // Auto-enroll biometrics after successful password login
+  const tryBiometricEnrollment = async (userId: string, userName: string) => {
+    try {
+      if (BiometricManager.isEnrolled(userId)) return; // Already enrolled
+      const supported = await BiometricManager.isSupported();
+      if (!supported) return;
+      const available = await window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.();
+      if (!available) return;
+      // Silently enroll — if user cancels the prompt, we just skip
+      await BiometricManager.enroll(userId, userName);
+    } catch {
+      // Non-critical — don't block login
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,6 +123,13 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         }
 
         storeUserProfile(userProfile);
+
+        // Store refresh token + user ID for biometric login
+        localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
+        localStorage.setItem('borderpay_biometric_user_id', data.user.id);
+
+        // Auto-enroll biometrics (non-blocking, fires in background)
+        tryBiometricEnrollment(data.user.id, userProfile.full_name || data.user.email || 'User');
 
         const has2FA      = TOTPManager.isEnabled(userProfile.id);
         const profileHas2FA = userProfile.two_factor_enabled || userProfile.mfa_enabled;
@@ -164,17 +194,23 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
       const userProfile = JSON.parse(storedUser);
 
       // Step 3: WebAuthn device biometric check (Touch ID / Face ID)
-      if (BiometricManager.isEnrolled(storedUserId)) {
-        const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-        if (!available) {
-          toast.info('Platform biometric not available. Please sign in with your password.');
-        } else {
-          const result = await BiometricManager.verify(storedUserId);
-          if (!result.success) {
-            toast.error('Biometric verification failed, try again');
-            return;
-          }
-        }
+      if (!BiometricManager.isEnrolled(storedUserId)) {
+        toast.info('Biometric not set up yet. Sign in with your password — biometrics will be enabled automatically.');
+        if (userProfile.email) setEmail(userProfile.email);
+        return;
+      }
+
+      const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      if (!available) {
+        toast.info('Platform biometric not available. Please sign in with your password.');
+        if (userProfile.email) setEmail(userProfile.email);
+        return;
+      }
+
+      const result = await BiometricManager.verify(storedUserId);
+      if (!result.success) {
+        toast.error('Biometric verification failed, try again');
+        return;
       }
 
       // Step 4: Restore Supabase session via refresh_token (most reliable path)
@@ -351,39 +387,41 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
             )}
           </motion.button>
 
-          {/* Divider */}
-          <div className="flex items-center gap-4 my-6">
-            <div className="flex-1 h-px bg-white/5" />
-            <span className="text-xs text-gray-500 uppercase tracking-[0.2em]">Or</span>
-            <div className="flex-1 h-px bg-white/5" />
-          </div>
+          {/* Biometric Sign-In — only shown when enrolled */}
+          {biometricAvailable && (
+            <>
+              <div className="flex items-center gap-4 my-6">
+                <div className="flex-1 h-px bg-white/5" />
+                <span className="text-xs text-gray-500 uppercase tracking-[0.2em]">Or</span>
+                <div className="flex-1 h-px bg-white/5" />
+              </div>
 
-          {/* Biometric Sign-In */}
-          <motion.button
-            type="button"
-            onClick={handleBiometricLogin}
-            disabled={isBiometricLoading}
-            whileTap={{ scale: 0.98 }}
-            className="w-full bg-white/[0.04] backdrop-blur-md border border-white/[0.08] text-white py-4 rounded-2xl font-semibold text-base flex items-center justify-center gap-3 transition-all hover:border-[#C7FF00] hover:bg-white/[0.07] disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ letterSpacing: '0.025em' }}
-          >
-            {isBiometricLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin text-[#C7FF00]" />
-                Authenticating...
-              </>
-            ) : (
-              <>
-                <Fingerprint className="w-6 h-6 text-[#C7FF00]" />
-                Biometric Sign-In
-              </>
-            )}
-          </motion.button>
+              <motion.button
+                type="button"
+                onClick={handleBiometricLogin}
+                disabled={isBiometricLoading}
+                whileTap={{ scale: 0.98 }}
+                className="w-full bg-white/[0.04] backdrop-blur-md border border-white/[0.08] text-white py-4 rounded-2xl font-semibold text-base flex items-center justify-center gap-3 transition-all hover:border-[#C7FF00] hover:bg-white/[0.07] disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ letterSpacing: '0.025em' }}
+              >
+                {isBiometricLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin text-[#C7FF00]" />
+                    Authenticating...
+                  </>
+                ) : (
+                  <>
+                    <Fingerprint className="w-6 h-6 text-[#C7FF00]" />
+                    Biometric Sign-In
+                  </>
+                )}
+              </motion.button>
 
-          {/* Biometric hint */}
-          <p className="text-center text-[10px] text-gray-600 -mt-2">
-            Uses Face ID or Touch ID for quick sign-in
-          </p>
+              <p className="text-center text-[10px] text-gray-600 -mt-2">
+                Uses Face ID or Touch ID for quick sign-in
+              </p>
+            </>
+          )}
         </form>
 
         {/* Footer */}

@@ -29,7 +29,7 @@ import {
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { KYC_COUNTRIES, type KYCCountry, type KYCIdType } from '../../src/lib/kycCountries';
+import { COUNTRY_CONFIG, getActiveCountries, getCountryByCode, type CountryConfig, type IDType } from '../../src/lib/countries';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -90,8 +90,8 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   const pollCountRef = useRef(0);
 
   // Country & ID selection
-  const [selectedCountry, setSelectedCountry] = useState<KYCCountry | null>(null);
-  const [selectedIdType, setSelectedIdType] = useState<KYCIdType | null>(null);
+  const [selectedCountry, setSelectedCountry] = useState<CountryConfig | null>(null);
+  const [selectedIdType, setSelectedIdType] = useState<IDType | null>(null);
   const [countrySearch, setCountrySearch] = useState('');
 
   // Form data
@@ -239,51 +239,77 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     }
   };
 
-  // ─── Youverify Liveness SDK launch ────────────────────────────────────────
+  // ─── Youverify Liveness SDK launch (youverify-liveness-web) ────────────────
 
   const launchYouverifyLiveness = async () => {
     try {
-      // Youverify SDK is loaded dynamically
-      const YouverifySDK = (window as any).YouverifySDK;
+      setError(null);
 
-      if (YouverifySDK) {
-        const livenessModule = new YouverifySDK.liveness({
-          publicMerchantKey: (import.meta as any).env.VITE_YOUVERIFY_PUBLIC_KEY || '',
-          personalInformation: {
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-          },
+      // Step 1: Get session credentials from our backend edge function
+      const token = localStorage.getItem('borderpay_token') || '';
+      const sessionResponse = await fetch(`${BASE_URL}/functions/v1/youverify-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'apikey': ANON_KEY,
+        },
+        body: JSON.stringify({
           metadata: {
-            userId: userId,
+            userId,
             country: formData.country,
             idType: formData.idType,
           },
-          onSuccess: async () => {
-            setStep('under-review');
-            startPolling();
-            toast.success('Verification submitted! Under review.');
-          },
-          onFailure: () => {
-            setError('Liveness check failed. Please try again.');
-            toast.error('Liveness check failed');
-          },
-        });
+        }),
+      });
 
-        await livenessModule.initialize();
-        livenessModule.start();
-      } else {
-        // SDK not loaded — fallback: just move to under-review
-        // The webhook will still process the result
-        console.warn('[KYC] Youverify SDK not loaded — proceeding to under-review');
-        setStep('under-review');
-        startPolling();
-        toast.info('Verification submitted. We\'ll notify you when complete.');
+      const sessionData = await sessionResponse.json();
+
+      if (!sessionData.success || !sessionData.sessionId || !sessionData.sessionToken) {
+        throw new Error(sessionData.error || 'Failed to create verification session');
       }
-    } catch (err) {
-      console.error('[KYC] Youverify SDK error:', err);
-      // Fallback: move to under-review anyway
-      setStep('under-review');
-      startPolling();
+
+      // Step 2: Dynamically import and launch the liveness SDK
+      const YouverifyLiveness = (await import('youverify-liveness-web')).default;
+
+      const yvLiveness = new YouverifyLiveness({
+        sessionId: sessionData.sessionId,
+        sessionToken: sessionData.sessionToken,
+        sandboxEnvironment: false,
+        presentation: 'modal',
+        user: {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+        },
+        tasks: [{ id: 'complete-the-circle' }],
+        onSuccess: async (data: any) => {
+          console.log('[KYC] Liveness check passed:', data);
+          setStep('under-review');
+          startPolling();
+          toast.success('Verification submitted! Under review.');
+        },
+        onFailure: (data: any) => {
+          console.error('[KYC] Liveness check failed:', data);
+          const errorKey = data?.error?.key;
+          if (errorKey === 'invalid_or_expired_session' || errorKey === 'session_token_error') {
+            setError('Session expired. Please try again.');
+          } else {
+            setError('Liveness check failed. Please ensure good lighting and try again.');
+          }
+          toast.error('Liveness check failed');
+        },
+        onClose: () => {
+          console.log('[KYC] Liveness modal closed');
+        },
+      });
+
+      yvLiveness.start();
+
+    } catch (err: any) {
+      console.error('[KYC] Youverify liveness error:', err);
+      setError(err.message || 'Failed to start liveness verification. Please try again.');
+      toast.error('Failed to start verification');
     }
   };
 
@@ -317,13 +343,13 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
   // Filter countries for search
   const filteredCountries = countrySearch
-    ? KYC_COUNTRIES.filter(c =>
+    ? COUNTRY_CONFIG.filter(c =>
         c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
         c.code.toLowerCase().includes(countrySearch.toLowerCase())
       )
-    : KYC_COUNTRIES;
+    : COUNTRY_CONFIG;
 
-  const supportedCountries = filteredCountries.filter(c => c.status === 'supported');
+  const supportedCountries = filteredCountries.filter(c => c.status === 'active');
   const comingSoonCountries = filteredCountries.filter(c => c.status === 'coming_soon');
 
   // Form validation
@@ -589,10 +615,10 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               <div className="space-y-2">
                 {selectedCountry.idTypes.map((idType) => (
                   <button
-                    key={idType.id}
+                    key={idType.code}
                     onClick={() => {
                       setSelectedIdType(idType);
-                      updateForm({ idType: idType.id });
+                      updateForm({ idType: idType.code });
                       setStep('details');
                     }}
                     className="w-full flex items-center gap-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl px-4 py-4 transition-all active:scale-[0.98]"
