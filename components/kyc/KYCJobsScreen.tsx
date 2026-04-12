@@ -1,6 +1,6 @@
 /**
  * BorderPay Africa — KYC Jobs List
- * Displays all SmileID verification jobs with status, filtering, and details.
+ * Displays all Youverify verification jobs with status, filtering, and details.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -36,20 +36,17 @@ interface KYCJob {
     confidence_score: number | null;
     result_code: string | null;
     result_text: string | null;
-    smile_job_id: string | null;
+    verification_id: string | null;
     full_name: string | null;
     id_type: string | null;
     country: string | null;
     created_at: string;
     updated_at: string;
   }>;
-  smile_job: {
-    job_complete: boolean;
-    job_success: boolean;
-    result_code: string;
-    result_text: string;
-    confidence: string;
-    smile_job_id: string;
+  verification_result: {
+    status: string;
+    verification_id: string;
+    provider: string;
   } | null;
 }
 
@@ -341,24 +338,23 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
                             <DetailRow icon={Clock} label="Registered" value={formatDate(job.created_at)} />
                           </div>
 
-                          {/* SmileID Job Data */}
-                          {job.smile_job && (
+                          {/* Verification Result */}
+                          {job.verification_result && (
                             <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-3 mb-3">
                               <div className="flex items-center gap-2 mb-2">
                                 <Shield size={12} className="text-[#C7FF00]" />
                                 <span className="text-[9px] font-bold text-[#C7FF00] uppercase tracking-wider">
-                                  SmileID Result
+                                  Verification Result
                                 </span>
                               </div>
                               <div className="grid grid-cols-2 gap-2">
                                 <MiniStat
                                   label="Status"
-                                  value={job.smile_job.job_success ? 'Success' : job.smile_job.job_complete ? 'Failed' : 'Processing'}
-                                  color={job.smile_job.job_success ? 'text-green-400' : 'text-yellow-400'}
+                                  value={job.verification_result.status}
+                                  color={job.verification_result.status === 'approved' ? 'text-green-400' : 'text-yellow-400'}
                                 />
-                                <MiniStat label="Result" value={job.smile_job.result_text || '—'} />
-                                <MiniStat label="Confidence" value={job.smile_job.confidence ? `${job.smile_job.confidence}%` : '—'} />
-                                <MiniStat label="Job ID" value={job.smile_job.smile_job_id?.slice(0, 12) || '—'} />
+                                <MiniStat label="Provider" value={job.verification_result.provider || 'youverify'} />
+                                <MiniStat label="ID" value={job.verification_result.verification_id?.slice(0, 12) || '—'} />
                               </div>
                             </div>
                           )}
@@ -391,7 +387,7 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
                                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-gray-500">
                                         {v.result_code && <span>Code: {v.result_code}</span>}
                                         {v.confidence_score && <span>Confidence: {v.confidence_score}%</span>}
-                                        {v.smile_job_id && <span>Job: {v.smile_job_id.slice(0, 12)}</span>}
+                                        {v.verification_id && <span>ID: {v.verification_id.slice(0, 12)}</span>}
                                         {v.result_text && <span>{v.result_text}</span>}
                                       </div>
                                       <p className="text-[8px] text-gray-600 mt-1">

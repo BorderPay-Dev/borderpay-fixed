@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "rewrites": [
+    {
+      "source": "/youverify-callback",
+      "destination": "https://orwrcpwsffjlvzuraxjc.supabase.co/functions/v1/youverify-callback"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

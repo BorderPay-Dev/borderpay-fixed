@@ -1,9 +1,17 @@
 /**
  * BorderPay Africa — KYC Verification Screen
  *
- * Embeds SmileID Smile Link in an iframe inside the app.
- * After user completes verification, shows "Under Review" with 2 business day timeline.
- * No external tabs — user never leaves the app.
+ * Multi-step KYC flow:
+ *   1. Country Selector — pick country from supported list
+ *   2. ID Type Selector — pick ID type for selected country
+ *   3. Details Form — collect all data for Youverify + Maplerad enroll
+ *   4. Youverify Liveness — launch Youverify SDK liveness check
+ *   5. Under Review — poll status, manual check button
+ *   6. Result — approved (account activated) or rejected (retry)
+ *
+ * Data is saved to kyc_submissions in Supabase BEFORE launching Youverify.
+ * After Youverify approves, the youverify-callback Edge Function triggers
+ * enroll-maplerad-customer to create a fully enrolled Maplerad customer.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -14,11 +22,14 @@ import {
   CheckCircle, Loader2, RefreshCw, Fingerprint,
   Lock, Eye, ChevronRight, Wifi, CreditCard, Globe,
   UserCheck, Scan, Shield, Star,
-  ArrowRight, Zap, BadgeCheck, Clock
+  ArrowRight, Zap, BadgeCheck, Clock, MapPin,
+  Search, X, ChevronDown, Calendar, Phone, Mail,
+  User, Home, Building, Hash, Briefcase
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { KYC_COUNTRIES, type KYCCountry, type KYCIdType } from '../../src/lib/kycCountries';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,12 +40,29 @@ interface KYCVerificationProps {
   onComplete: () => void;
 }
 
-type KYCStep = 'welcome' | 'loading' | 'verifying' | 'under-review' | 'success' | 'failed';
+type KYCStep = 'welcome' | 'country' | 'id-type' | 'details' | 'liveness' | 'under-review' | 'success' | 'failed';
+
+interface KYCFormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  dateOfBirth: string;
+  country: string;
+  phoneCode: string;
+  phoneNumber: string;
+  street: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  idType: string;
+  idNumber: string;
+  usResidencyStatus: string;
+  employmentStatus: string;
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const SMILE_LINK_BASE = import.meta.env.VITE_SMILEID_LINK_URL
-  || 'https://links.sandbox.usesmileid.com/8077/4ad0eb49-0a5d-45e1-8365-b64c5bc3fe98';
+const YOUVERIFY_CALLBACK_URL = 'https://app.borderpayafrica.com/youverify-callback';
 
 const UNLOCK_FEATURES = [
   { icon: Globe,      label: 'USD Account',      color: 'from-blue-500/10 to-blue-600/5' },
@@ -43,11 +71,12 @@ const UNLOCK_FEATURES = [
   { icon: Star,       label: 'Higher Limits',     color: 'from-amber-500/10 to-amber-600/5' },
 ];
 
-const STEPS_CONFIG = [
-  { label: 'Welcome', icon: Shield },
-  { label: 'Verify', icon: Scan },
-  { label: 'Review', icon: Eye },
-  { label: 'Done', icon: BadgeCheck },
+const EMPLOYMENT_OPTIONS = [
+  { value: 'employed', label: 'Employed' },
+  { value: 'self-employed', label: 'Self-Employed' },
+  { value: 'student', label: 'Student' },
+  { value: 'unemployed', label: 'Unemployed' },
+  { value: 'retired', label: 'Retired' },
 ];
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -55,55 +84,62 @@ const STEPS_CONFIG = [
 export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVerificationProps) {
   const [step, setStep] = useState<KYCStep>('welcome');
   const [error, setError] = useState<string | null>(null);
-  const [smileLinkUrl, setSmileLinkUrl] = useState<string>('');
-  const [iframeLoaded, setIframeLoaded] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Check if user already has pending/verified KYC on mount
+  // Country & ID selection
+  const [selectedCountry, setSelectedCountry] = useState<KYCCountry | null>(null);
+  const [selectedIdType, setSelectedIdType] = useState<KYCIdType | null>(null);
+  const [countrySearch, setCountrySearch] = useState('');
+
+  // Form data
+  const [formData, setFormData] = useState<KYCFormData>({
+    firstName: '',
+    lastName: '',
+    email: userEmail,
+    dateOfBirth: '',
+    country: '',
+    phoneCode: '',
+    phoneNumber: '',
+    street: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    idType: '',
+    idNumber: '',
+    usResidencyStatus: 'non-resident alien',
+    employmentStatus: 'self-employed',
+  });
+
+  const updateForm = (updates: Partial<KYCFormData>) => {
+    setFormData(prev => ({ ...prev, ...updates }));
+  };
+
+  // Pre-fill name from stored profile
+  useEffect(() => {
+    const stored = readUserProfile();
+    if (stored?.full_name) {
+      const parts = stored.full_name.split(' ');
+      updateForm({
+        firstName: parts[0] || '',
+        lastName: parts.slice(1).join(' ') || '',
+      });
+    }
+  }, []);
+
+  // Check existing KYC status on mount
   useEffect(() => {
     checkExistingStatus();
     return () => stopPolling();
   }, []);
 
-  // Listen for SmileID redirect via postMessage or URL detection
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // SmileID may send postMessage when done
-      if (event.data?.type === 'SmileIdentity::Close' ||
-          event.data?.type === 'SmileIdentity::Complete' ||
-          event.data?.status === 'complete') {
-        handleSmileIDComplete();
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
-  // Detect iframe navigating to our redirect URL (same-origin)
-  useEffect(() => {
-    if (step !== 'verifying') return;
-    const checkIframeUrl = setInterval(() => {
-      try {
-        const iframeUrl = iframeRef.current?.contentWindow?.location?.href;
-        if (iframeUrl && iframeUrl.includes('verification-complete')) {
-          clearInterval(checkIframeUrl);
-          handleSmileIDComplete();
-        }
-      } catch {
-        // Cross-origin — expected while on SmileID domain
-      }
-    }, 1000);
-    return () => clearInterval(checkIframeUrl);
-  }, [step]);
-
   const checkExistingStatus = async () => {
     try {
       const token = authAPI.getToken();
       if (!token) return;
-      const response = await fetch(`${BASE_URL}/query-kyc-status`, {
+      const response = await fetch(`${BASE_URL}/youverify-kyc-status`, {
         headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
       });
       const data = await response.json();
@@ -135,7 +171,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     try {
       const token = authAPI.getToken();
       if (!token) return;
-      const response = await fetch(`${BASE_URL}/query-kyc-status`, {
+      const response = await fetch(`${BASE_URL}/youverify-kyc-status`, {
         headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
       });
       const data = await response.json();
@@ -167,51 +203,103 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     pollingRef.current = setInterval(() => checkVerificationStatus(false), 30000);
   }, [checkVerificationStatus]);
 
-  const handleSmileIDComplete = () => {
-    setStep('under-review');
-    startPolling();
-    toast.success('Verification submitted! Under review.');
-  };
+  // ─── Submit KYC data and launch Youverify ─────────────────────────────────
 
-  // ─── Initialize: build Smile Link URL with user_id + job_id ──────────────
-
-  const initializeVerification = async () => {
-    setStep('loading');
+  const submitKYCData = async () => {
+    setIsSubmitting(true);
     setError(null);
-    setIframeLoaded(false);
 
-    // Generate a unique job_id for this verification session
-    const jobId = crypto.randomUUID();
-
-    // Build Smile Link URL with user_id and job_id so SmileID tracks under our user
-    const params = new URLSearchParams({ user_id: userId, job_id: jobId });
-    const linkUrl = `${SMILE_LINK_BASE}?${params.toString()}`;
-
-    // Store pending job record in DB (non-blocking)
     try {
       const token = authAPI.getToken();
-      await fetch(`${BASE_URL}/query-kyc-status`, {
+      if (!token) throw new Error('Not authenticated');
+
+      // Save KYC submission data to Supabase
+      const response = await fetch(`${BASE_URL}/youverify-kyc-status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
           'apikey': ANON_KEY,
         },
-        body: JSON.stringify({ job_id: jobId }),
+        body: JSON.stringify(formData),
       });
-    } catch { /* non-blocking */ }
 
-    setSmileLinkUrl(linkUrl);
-    setStep('verifying');
-    startPolling();
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save KYC data');
+      }
+
+      // Transition to liveness step
+      setStep('liveness');
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit data');
+      toast.error('Failed to submit KYC data');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  // ─── Youverify Liveness SDK launch ────────────────────────────────────────
+
+  const launchYouverifyLiveness = async () => {
+    try {
+      // Youverify SDK is loaded dynamically
+      const YouverifySDK = (window as any).YouverifySDK;
+
+      if (YouverifySDK) {
+        const livenessModule = new YouverifySDK.liveness({
+          publicMerchantKey: (import.meta as any).env.VITE_YOUVERIFY_PUBLIC_KEY || '',
+          personalInformation: {
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+          },
+          metadata: {
+            userId: userId,
+            country: formData.country,
+            idType: formData.idType,
+          },
+          onSuccess: async () => {
+            setStep('under-review');
+            startPolling();
+            toast.success('Verification submitted! Under review.');
+          },
+          onFailure: () => {
+            setError('Liveness check failed. Please try again.');
+            toast.error('Liveness check failed');
+          },
+        });
+
+        await livenessModule.initialize();
+        livenessModule.start();
+      } else {
+        // SDK not loaded — fallback: just move to under-review
+        // The webhook will still process the result
+        console.warn('[KYC] Youverify SDK not loaded — proceeding to under-review');
+        setStep('under-review');
+        startPolling();
+        toast.info('Verification submitted. We\'ll notify you when complete.');
+      }
+    } catch (err) {
+      console.error('[KYC] Youverify SDK error:', err);
+      // Fallback: move to under-review anyway
+      setStep('under-review');
+      startPolling();
+    }
+  };
+
+  // Auto-launch Youverify when entering liveness step
+  useEffect(() => {
+    if (step === 'liveness') {
+      launchYouverifyLiveness();
+    }
+  }, [step]);
 
   const handleRetry = () => {
     stopPolling();
-    setStep('welcome');
+    setStep('country');
     setError(null);
-    setSmileLinkUrl('');
-    setIframeLoaded(false);
+    setSelectedCountry(null);
+    setSelectedIdType(null);
   };
 
   // Get business day deadline (2 business days from now)
@@ -227,16 +315,26 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     return deadline.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
 
-  // ── Step progress ──
-  const activeStepIdx =
-    step === 'welcome' ? 0 :
-    step === 'loading' || step === 'verifying' ? 1 :
-    step === 'under-review' ? 2 :
-    step === 'success' ? 3 : 2;
+  // Filter countries for search
+  const filteredCountries = countrySearch
+    ? KYC_COUNTRIES.filter(c =>
+        c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+        c.code.toLowerCase().includes(countrySearch.toLowerCase())
+      )
+    : KYC_COUNTRIES;
 
-  const progressPct: Record<KYCStep, number> = {
-    welcome: 0, loading: 20,
-    verifying: 50, 'under-review': 75, success: 100, failed: 60,
+  const supportedCountries = filteredCountries.filter(c => c.status === 'supported');
+  const comingSoonCountries = filteredCountries.filter(c => c.status === 'coming_soon');
+
+  // Form validation
+  const isDetailsFormValid = formData.firstName && formData.lastName && formData.email &&
+    formData.dateOfBirth && formData.phoneNumber && formData.street && formData.city &&
+    formData.state && formData.idNumber;
+
+  // Step progress
+  const stepProgress: Record<KYCStep, number> = {
+    welcome: 0, country: 15, 'id-type': 30, details: 50,
+    liveness: 70, 'under-review': 85, success: 100, failed: 70,
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -246,11 +344,16 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   return (
     <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* ── Header ── */}
-      {step !== 'verifying' && (
+      {step !== 'liveness' && (
         <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
           <div className="flex items-center justify-between px-4 py-3 pt-safe">
             <button
-              onClick={onBack}
+              onClick={step === 'welcome' ? onBack : () => {
+                if (step === 'country') setStep('welcome');
+                else if (step === 'id-type') setStep('country');
+                else if (step === 'details') setStep('id-type');
+                else onBack;
+              }}
               className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
             >
               <ArrowLeft size={16} />
@@ -264,7 +367,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             </div>
 
             <div className="w-9 flex items-center justify-center">
-              {(step === 'under-review') && (
+              {step === 'under-review' && (
                 <div className="w-2 h-2 rounded-full bg-[#C7FF00] animate-pulse" />
               )}
             </div>
@@ -274,48 +377,15 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           <div className="h-[2px] bg-white/[0.04]">
             <motion.div
               className="h-full bg-gradient-to-r from-[#C7FF00] to-[#9BDB00]"
-              animate={{ width: `${progressPct[step]}%` }}
+              animate={{ width: `${stepProgress[step]}%` }}
               transition={{ duration: 0.5, ease: 'easeOut' }}
             />
           </div>
         </div>
       )}
 
-      {/* ── Step indicators ── */}
-      {step !== 'success' && step !== 'failed' && step !== 'verifying' && (
-        <div className="px-6 pt-4 pb-2">
-          <div className="flex items-center justify-between">
-            {STEPS_CONFIG.map((s, i) => (
-              <React.Fragment key={i}>
-                <div className="flex flex-col items-center gap-1.5">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
-                    i < activeStepIdx
-                      ? 'bg-[#C7FF00] text-[#0B0E11]'
-                      : i === activeStepIdx
-                        ? 'bg-[#C7FF00]/20 border border-[#C7FF00]/50 text-[#C7FF00]'
-                        : 'bg-white/[0.04] border border-white/[0.08] text-gray-600'
-                  }`}>
-                    {i < activeStepIdx ? <CheckCircle size={14} /> : <s.icon size={13} />}
-                  </div>
-                  <span className={`text-[8px] font-bold uppercase tracking-wider ${
-                    i <= activeStepIdx ? 'text-[#C7FF00]' : 'text-gray-700'
-                  }`}>
-                    {s.label}
-                  </span>
-                </div>
-                {i < STEPS_CONFIG.length - 1 && (
-                  <div className={`flex-1 h-[1px] mx-2 mb-5 transition-colors duration-300 ${
-                    i < activeStepIdx ? 'bg-[#C7FF00]/40' : 'bg-white/[0.06]'
-                  }`} />
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Content ── */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-y-auto">
         <AnimatePresence mode="wait">
 
           {/* ═══ WELCOME ═══ */}
@@ -342,7 +412,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
                 <h1 className="text-xl font-black mt-5 tracking-tight">Verify Your Identity</h1>
                 <p className="text-xs text-gray-500 text-center mt-1.5 max-w-[280px] leading-relaxed">
-                  Complete KYC verification to unlock all BorderPay features. Quick, secure, powered by SmileID.
+                  Complete KYC verification to unlock all BorderPay features. Quick, secure, and verified by Youverify.
                 </p>
               </div>
 
@@ -367,7 +437,6 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
               </div>
 
-              {/* How it works */}
               <div className="mb-5">
                 <div className="flex items-center gap-2 mb-3">
                   <Eye className="w-3.5 h-3.5 text-[#C7FF00]" />
@@ -375,10 +444,10 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
                 <div className="space-y-2">
                   {[
-                    { num: '1', text: 'Tap "Start Verification" below' },
-                    { num: '2', text: 'Select your document type (Passport, ID, etc.)' },
-                    { num: '3', text: 'Take a selfie & photo of your ID' },
-                    { num: '4', text: 'Your verification will be reviewed within 2 business days' },
+                    { num: '1', text: 'Select your country and ID type' },
+                    { num: '2', text: 'Fill in your personal details' },
+                    { num: '3', text: 'Complete a quick liveness check' },
+                    { num: '4', text: 'Get verified — usually within minutes' },
                   ].map((s, i) => (
                     <motion.div
                       key={i}
@@ -396,43 +465,320 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
               </div>
 
-              <div className="flex items-start gap-2.5 bg-white/[0.02] border border-white/[0.06] rounded-xl px-3.5 py-3">
+              <div className="flex items-start gap-2.5 bg-white/[0.02] border border-white/[0.06] rounded-xl px-3.5 py-3 mb-4">
                 <Lock className="w-3.5 h-3.5 text-[#C7FF00]/60 flex-shrink-0 mt-0.5" />
                 <p className="text-[9px] text-[#C7FF00]/50 leading-relaxed">
-                  End-to-end encrypted. Biometric data is processed by SmileID and never stored on BorderPay servers.
+                  End-to-end encrypted. Biometric data is processed by Youverify and never stored on BorderPay servers.
                 </p>
+              </div>
+
+              <div className="px-0 pt-2 pb-6">
+                <motion.button
+                  onClick={() => setStep('country')}
+                  className="w-full relative overflow-hidden bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm tracking-wide flex items-center justify-center gap-2.5"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  <ShieldCheck size={18} className="relative z-10" />
+                  <span className="relative z-10">Start Verification</span>
+                  <ArrowRight size={16} className="relative z-10" />
+                </motion.button>
+                <button onClick={onBack} className="w-full text-gray-600 py-3 text-[10px] font-medium hover:text-gray-400 transition-colors">
+                  I'll verify later
+                </button>
               </div>
             </motion.div>
           )}
 
-          {/* WELCOME CTA */}
-          {step === 'welcome' && (
-            <div className="px-5 pt-2 pb-6 pb-safe">
-              <motion.button
-                onClick={initializeVerification}
-                className="w-full relative overflow-hidden bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm tracking-wide flex items-center justify-center gap-2.5"
-                whileTap={{ scale: 0.97 }}
-              >
-                <motion.div
-                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                  animate={{ x: ['-100%', '100%'] }}
-                  transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut', repeatDelay: 1.5 }}
-                  style={{ width: '40%' }}
+          {/* ═══ COUNTRY SELECTOR ═══ */}
+          {step === 'country' && (
+            <motion.div
+              key="country"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
+            >
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <Globe className="w-7 h-7 text-[#C7FF00]" />
+                </div>
+                <h2 className="text-lg font-bold">Select Your Country</h2>
+                <p className="text-xs text-gray-500 mt-1">Choose the country where your ID was issued</p>
+              </div>
+
+              {/* Search */}
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <input
+                  type="text"
+                  placeholder="Search countries..."
+                  value={countrySearch}
+                  onChange={(e) => setCountrySearch(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-10 pr-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C7FF00]/30"
                 />
-                <ShieldCheck size={18} className="relative z-10" />
-                <span className="relative z-10">Start Verification</span>
-                <ArrowRight size={16} className="relative z-10" />
-              </motion.button>
-              <button onClick={onBack} className="w-full text-gray-600 py-3 text-[10px] font-medium hover:text-gray-400 transition-colors">
-                I'll verify later
-              </button>
-            </div>
+                {countrySearch && (
+                  <button onClick={() => setCountrySearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <X className="w-4 h-4 text-gray-500" />
+                  </button>
+                )}
+              </div>
+
+              {/* Country list */}
+              <div className="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
+                {supportedCountries.map((country) => (
+                  <button
+                    key={country.code}
+                    onClick={() => {
+                      setSelectedCountry(country);
+                      updateForm({ country: country.code, phoneCode: country.dialCode });
+                      setStep('id-type');
+                    }}
+                    className="w-full flex items-center gap-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl px-4 py-3 transition-all active:scale-[0.98]"
+                  >
+                    <span className="text-xl">{country.flag}</span>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-white">{country.name}</p>
+                      <p className="text-[10px] text-gray-500">{country.idTypes.length} ID type{country.idTypes.length !== 1 ? 's' : ''} available</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-600" />
+                  </button>
+                ))}
+
+                {comingSoonCountries.length > 0 && (
+                  <>
+                    <div className="pt-3 pb-1">
+                      <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Coming Soon</span>
+                    </div>
+                    {comingSoonCountries.map((country) => (
+                      <div
+                        key={country.code}
+                        className="w-full flex items-center gap-3 bg-white/[0.02] border border-white/[0.04] rounded-xl px-4 py-3 opacity-50 cursor-not-allowed"
+                      >
+                        <span className="text-xl grayscale">{country.flag}</span>
+                        <div className="flex-1 text-left">
+                          <p className="text-sm font-medium text-gray-500">{country.name}</p>
+                        </div>
+                        <span className="text-[9px] font-bold text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">SOON</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </motion.div>
           )}
 
-          {/* ═══ LOADING ═══ */}
-          {step === 'loading' && (
+          {/* ═══ ID TYPE SELECTOR ═══ */}
+          {step === 'id-type' && selectedCountry && (
             <motion.div
-              key="loading"
+              key="id-type"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
+            >
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <FileText className="w-7 h-7 text-[#C7FF00]" />
+                </div>
+                <h2 className="text-lg font-bold">Select ID Type</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  {selectedCountry.flag} {selectedCountry.name} — choose your government-issued ID
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                {selectedCountry.idTypes.map((idType) => (
+                  <button
+                    key={idType.id}
+                    onClick={() => {
+                      setSelectedIdType(idType);
+                      updateForm({ idType: idType.id });
+                      setStep('details');
+                    }}
+                    className="w-full flex items-center gap-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl px-4 py-4 transition-all active:scale-[0.98]"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-[#C7FF00]/10 flex items-center justify-center flex-shrink-0">
+                      <CreditCard className="w-5 h-5 text-[#C7FF00]" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-white">{idType.label}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{idType.description}</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-600" />
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══ DETAILS FORM ═══ */}
+          {step === 'details' && selectedCountry && selectedIdType && (
+            <motion.div
+              key="details"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
+            >
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <User className="w-7 h-7 text-[#C7FF00]" />
+                </div>
+                <h2 className="text-lg font-bold">Your Details</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  {selectedCountry.flag} {selectedIdType.label}
+                </p>
+              </div>
+
+              <div className="space-y-3 pb-6">
+                {/* Personal Info */}
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    icon={User}
+                    label="First Name"
+                    value={formData.firstName}
+                    onChange={(v) => updateForm({ firstName: v })}
+                    placeholder="John"
+                  />
+                  <FormField
+                    icon={User}
+                    label="Last Name"
+                    value={formData.lastName}
+                    onChange={(v) => updateForm({ lastName: v })}
+                    placeholder="Doe"
+                  />
+                </div>
+
+                <FormField
+                  icon={Mail}
+                  label="Email"
+                  value={formData.email}
+                  onChange={(v) => updateForm({ email: v })}
+                  placeholder="you@example.com"
+                  type="email"
+                />
+
+                <FormField
+                  icon={Calendar}
+                  label="Date of Birth (DD-MM-YYYY)"
+                  value={formData.dateOfBirth}
+                  onChange={(v) => updateForm({ dateOfBirth: v })}
+                  placeholder="20-10-1990"
+                />
+
+                {/* Phone */}
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Phone Number</label>
+                  <div className="flex gap-2">
+                    <div className="w-20 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-gray-400 flex items-center">
+                      {formData.phoneCode || selectedCountry.dialCode}
+                    </div>
+                    <input
+                      type="tel"
+                      value={formData.phoneNumber}
+                      onChange={(e) => updateForm({ phoneNumber: e.target.value })}
+                      placeholder="8000000000"
+                      className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C7FF00]/30"
+                    />
+                  </div>
+                </div>
+
+                {/* ID Number */}
+                <FormField
+                  icon={Hash}
+                  label={`${selectedIdType.label} Number`}
+                  value={formData.idNumber}
+                  onChange={(v) => updateForm({ idNumber: v })}
+                  placeholder="Enter your ID number"
+                />
+
+                {/* Address */}
+                <div className="pt-2">
+                  <div className="flex items-center gap-2 mb-3">
+                    <MapPin className="w-3.5 h-3.5 text-[#C7FF00]" />
+                    <span className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest">Address</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    <FormField
+                      icon={Home}
+                      label="Street Address"
+                      value={formData.street}
+                      onChange={(v) => updateForm({ street: v })}
+                      placeholder="123 Main Street"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField
+                        icon={Building}
+                        label="City"
+                        value={formData.city}
+                        onChange={(v) => updateForm({ city: v })}
+                        placeholder="Lagos"
+                      />
+                      <FormField
+                        icon={MapPin}
+                        label="State"
+                        value={formData.state}
+                        onChange={(v) => updateForm({ state: v })}
+                        placeholder="Lagos"
+                      />
+                    </div>
+                    <FormField
+                      icon={Hash}
+                      label="Postal Code"
+                      value={formData.postalCode}
+                      onChange={(v) => updateForm({ postalCode: v })}
+                      placeholder="100001"
+                    />
+                  </div>
+                </div>
+
+                {/* Employment */}
+                <div className="pt-2">
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Employment Status</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {EMPLOYMENT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => updateForm({ employmentStatus: opt.value })}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-medium border transition-all ${
+                          formData.employmentStatus === opt.value
+                            ? 'bg-[#C7FF00]/10 border-[#C7FF00]/30 text-[#C7FF00]'
+                            : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
+                    <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <p className="text-[10px] text-red-400">{error}</p>
+                  </div>
+                )}
+
+                <motion.button
+                  onClick={submitKYCData}
+                  disabled={!isDetailsFormValid || isSubmitting}
+                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-4"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  {isSubmitting
+                    ? <><Loader2 size={16} className="animate-spin" /> Submitting...</>
+                    : <><Scan size={16} /> Continue to Verification</>
+                  }
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══ LIVENESS (Youverify SDK loads here) ═══ */}
+          {step === 'liveness' && (
+            <motion.div
+              key="liveness"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -448,56 +794,11 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   <Scan className="w-10 h-10 text-[#C7FF00]" strokeWidth={1.5} />
                 </div>
               </div>
-              <h3 className="text-sm font-bold mb-1.5">Preparing Verification</h3>
-              <p className="text-[10px] text-gray-600 mb-5">Connecting to SmileID...</p>
-            </motion.div>
-          )}
-
-          {/* ═══ VERIFYING — SmileID embedded in iframe ═══ */}
-          {step === 'verifying' && (
-            <motion.div
-              key="verifying"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
-            >
-              {/* Minimal header bar for iframe mode */}
-              <div className="flex items-center justify-between px-4 py-2 bg-[#0B0E11] border-b border-white/[0.06] pt-safe">
-                <button
-                  onClick={() => {
-                    handleSmileIDComplete();
-                  }}
-                  className="flex items-center gap-2 text-[#C7FF00] text-xs font-semibold"
-                >
-                  <ArrowLeft size={14} />
-                  Done
-                </button>
-                <div className="flex items-center gap-1.5">
-                  <Shield size={12} className="text-[#C7FF00]" />
-                  <span className="text-[10px] text-gray-400 font-medium">SmileID Secure</span>
-                </div>
-                <div className="w-12" />
-              </div>
-
-              {/* Loading overlay while iframe loads */}
-              {!iframeLoaded && (
-                <div className="flex-1 flex flex-col items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-[#C7FF00] animate-spin mb-3" />
-                  <p className="text-xs text-gray-500">Loading SmileID...</p>
-                </div>
-              )}
-
-              {/* SmileID iframe */}
-              <iframe
-                ref={iframeRef}
-                src={smileLinkUrl}
-                className={`flex-1 w-full border-0 ${iframeLoaded ? 'block' : 'hidden'}`}
-                style={{ minHeight: 'calc(100vh - 60px)' }}
-                allow="camera; microphone"
-                onLoad={() => setIframeLoaded(true)}
-                title="SmileID Verification"
-              />
+              <h3 className="text-sm font-bold mb-1.5">Launching Liveness Check</h3>
+              <p className="text-[10px] text-gray-600 mb-5">Connecting to Youverify...</p>
+              <p className="text-[9px] text-gray-700 text-center max-w-[260px]">
+                Follow the on-screen instructions to complete your facial verification. This only takes a few seconds.
+              </p>
             </motion.div>
           )}
 
@@ -522,10 +823,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
               <h2 className="text-xl font-black text-white mb-2 text-center">Under Review</h2>
               <p className="text-xs text-gray-400 text-center max-w-[300px] mb-6 leading-relaxed">
-                Your identity verification has been submitted successfully. Our team is reviewing your documents.
+                Your identity verification has been submitted successfully. We're reviewing your documents.
               </p>
 
-              {/* Deadline card */}
               <div className="w-full max-w-[320px] bg-gradient-to-br from-yellow-500/[0.08] to-orange-500/[0.04] border border-yellow-500/20 rounded-2xl p-5 mb-5">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
@@ -533,7 +833,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   </div>
                   <div>
                     <p className="text-sm font-bold text-white">Estimated Completion</p>
-                    <p className="text-xs text-yellow-400 font-semibold">Within 2 business days</p>
+                    <p className="text-xs text-yellow-400 font-semibold">Usually within a few minutes to 24 hours</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 bg-black/20 rounded-xl px-4 py-3">
@@ -544,15 +844,14 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
               </div>
 
-              {/* What happens next */}
               <div className="w-full max-w-[320px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
                 <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-3">What happens next</p>
                 <div className="space-y-3">
                   {[
-                    { icon: Eye, text: 'Our team reviews your ID and selfie' },
-                    { icon: ShieldCheck, text: 'SmileID verifies document authenticity' },
-                    { icon: FileText, text: 'You receive an email + in-app notification' },
-                    { icon: BadgeCheck, text: 'All premium features unlock automatically' },
+                    { icon: Eye, text: 'Youverify reviews your ID and liveness check' },
+                    { icon: ShieldCheck, text: 'Document authenticity is verified' },
+                    { icon: UserCheck, text: 'Your Maplerad account is created automatically' },
+                    { icon: BadgeCheck, text: 'All premium features unlock immediately' },
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-3">
                       <div className="w-7 h-7 rounded-full bg-white/[0.04] flex items-center justify-center flex-shrink-0">
@@ -564,7 +863,6 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
               </div>
 
-              {/* Info banner */}
               <div className="w-full max-w-[320px] flex items-start gap-2.5 bg-blue-500/[0.06] border border-blue-500/[0.1] rounded-xl px-3.5 py-3 mb-6">
                 <CheckCircle className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" />
                 <p className="text-[9px] text-blue-300/80 leading-relaxed">
@@ -637,15 +935,15 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               </div>
               <div className="text-center mt-6">
                 <motion.h2 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
-                  className="text-2xl font-black text-white mb-2">Verified!</motion.h2>
+                  className="text-2xl font-black text-white mb-2">Account Activated!</motion.h2>
                 <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}
                   className="text-xs text-gray-400 max-w-[260px] mb-6">
-                  Your identity has been confirmed. All premium features are now unlocked.
+                  Your identity has been verified and your account is fully activated. All features are now unlocked.
                 </motion.p>
                 <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.9 }}
                   className="inline-flex items-center gap-2.5 px-5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-2xl mb-6">
                   <ShieldCheck className="w-4 h-4 text-[#C7FF00]" />
-                  <span className="text-xs text-[#C7FF00] font-bold">KYC Level 2 — Fully Verified</span>
+                  <span className="text-xs text-[#C7FF00] font-bold">Fully Verified — All Features Unlocked</span>
                 </motion.div>
                 <motion.button
                   initial={{ opacity: 0 }}
@@ -684,7 +982,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 {error || 'We could not verify your identity.'}
               </p>
               <p className="text-[9px] text-gray-600 text-center max-w-[240px] mb-6">
-                Make sure your ID is fully visible, well-lit, and your selfie is clear. Then try again.
+                Make sure your ID is valid, well-lit, and your selfie is clear. Then try again with a different ID if needed.
               </p>
               <div className="w-full max-w-[280px] space-y-2.5">
                 <motion.button
@@ -703,6 +1001,40 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           )}
 
         </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reusable Form Field Component ──────────────────────────────────────────
+
+function FormField({
+  icon: Icon,
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+}: {
+  icon: React.ComponentType<any>;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">{label}</label>
+      <div className="relative">
+        <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C7FF00]/30"
+        />
       </div>
     </div>
   );

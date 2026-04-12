@@ -132,7 +132,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
 
           <h3 className="text-white font-bold text-sm mb-3">2.2 Verification Process</h3>
           <p className="text-white/70 text-sm leading-relaxed mb-3">
-            Identity verification is powered by Smile ID, a Mastercard partner and leading African RegTech provider. The verification process:
+            Identity verification is powered by Youverify, a leading African RegTech provider. The verification process:
           </p>
           <ul className="space-y-2">
             {[
@@ -361,7 +361,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
 
           <div className="bg-gradient-to-r from-[#C7FF00]/10 to-transparent border border-[#C7FF00]/20 rounded-2xl p-4 mt-4">
             <p className="text-xs text-white/70">
-              <strong className="text-[#C7FF00]">Identity Verification by:</strong> Smile ID (Mastercard Partner)
+              <strong className="text-[#C7FF00]">Identity Verification by:</strong> Youverify
             </p>
           </div>
         </>

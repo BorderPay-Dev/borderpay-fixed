@@ -9,19 +9,15 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
  * 1. User clicks "Sign in with biometrics"
  * 2. WebAuthn device check (Touch ID / Face ID) — fast path
  * 3. Refresh Supabase session via stored refresh_token
- * 4. If no refresh_token / expired → trigger SmileID liveness verification
- * 5. SmileID success → session restored → dashboard
- * 6. SmileID fail → "Verification failed, try again"
- * 7. DO NOT create new user — only authenticate existing users
+ * 4. If refresh token expired → prompt for password
+ * 5. DO NOT create new user — only authenticate existing users
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { BASE_URL, ANON_KEY } from '../../utils/supabase/client';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mail, Lock, Eye, EyeOff, Fingerprint, Loader2,
-  ShieldCheck, X, Camera, AlertCircle, CheckCircle,
-  RefreshCw,
+  X, AlertCircle,
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase/client';
 import { sessionAPI } from '../../utils/api/sessionAPI';
@@ -41,229 +37,6 @@ interface LoginScreenProps {
   onNavigateToForgotPassword?: () => void;
 }
 
-// ── SmileID Biometric Auth Modal ─────────────────────────────────────────────
-interface SmileIDAuthModalProps {
-  userId: string;
-  onSuccess: () => void;
-  onFail: () => void;
-  onClose: () => void;
-}
-
-function SmileIDAuthModal({ userId, onSuccess, onFail, onClose }: SmileIDAuthModalProps) {
-  const [status, setStatus] = useState<'loading' | 'widget' | 'polling' | 'success' | 'failed'>('loading');
-  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-
-  const stopPolling = () => {
-    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-  };
-
-  // Load SmileID widget for liveness verification (NOT enrollment)
-  useEffect(() => {
-    loadWidget();
-    return () => stopPolling();
-  }, []);
-
-  // Listen for postMessage from SmileID widget
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      if (!event.data) return;
-      const data = typeof event.data === 'string'
-        ? (() => { try { return JSON.parse(event.data); } catch { return null; } })()
-        : event.data;
-      if (!data) return;
-
-      if (
-        data.event === 'smileid:complete' ||
-        data.status === 'complete'        ||
-        data.ResultCode === '1012'        ||
-        data.SmileJobID
-      ) {
-        handleVerificationResult('success');
-      }
-      if (data.event === 'smileid:error') {
-        handleVerificationResult('failed');
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, []);
-
-  const loadWidget = async () => {
-    setStatus('loading');
-    try {
-      const token = authAPI.getToken();
-      const response = await fetch(
-        `${BASE_URL}/smile-callback-handler`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token || ANON_KEY}`,
-            'apikey': ANON_KEY,
-          },
-          body: JSON.stringify({
-            job_id: `biometric-signin-${userId}-${Date.now()}`,
-            product: 'biometric_kyc',
-            user_id: userId,
-            mode: 'authentication', // NOT enrollment
-          }),
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        const link = data.data?.web_url || data.data?.mobile_url ||
-                     data.data?.smile_link || data.data?.verification_url || data.data?.link;
-        if (link) {
-          const url = new URL(link);
-          url.searchParams.set('theme_color', 'C7FF00');
-          url.searchParams.set('partner_name', 'BorderPay Africa');
-          setVerificationUrl(url.toString());
-          setStatus('widget');
-          startPolling();
-          return;
-        }
-      }
-    } catch (e) {
-    }
-
-    // No fallback — backend must provide the URL
-    setStatus('failed');
-    onFail();
-  };
-
-  const startPolling = () => {
-    if (pollingRef.current) return;
-    pollingRef.current = setInterval(async () => {
-      try {
-        const token = authAPI.getToken();
-        const res = await fetch(
-          `${BASE_URL}/smile-callback-handler?userId=${userId}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${token || ANON_KEY}`,
-              'apikey': ANON_KEY,
-            },
-          }
-        );
-        const data = await res.json();
-        if (data.success) {
-          if (data.status === 'verified') handleVerificationResult('success');
-          else if (data.status === 'failed') handleVerificationResult('failed');
-        }
-      } catch { /* silent */ }
-    }, 3000);
-  };
-
-  const handleVerificationResult = (result: 'success' | 'failed') => {
-    stopPolling();
-    if (result === 'success') {
-      setStatus('success');
-      setTimeout(() => onSuccess(), 1500);
-    } else {
-      setStatus('failed');
-      setTimeout(() => onFail(), 2000);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-sm flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={16} className="text-[#C7FF00]" />
-          <span className="text-xs font-bold text-white tracking-wide uppercase">
-            {status === 'success' ? 'VERIFIED' : status === 'failed' ? 'FAILED' : 'IDENTITY VERIFICATION'}
-          </span>
-        </div>
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center"
-        >
-          <X size={14} className="text-white" />
-        </button>
-      </div>
-
-      {/* Info strip */}
-      <div className="px-4 py-2 bg-[#C7FF00]/5 border-b border-[#C7FF00]/10">
-        <p className="text-[10px] text-[#C7FF00]/80 text-center">
-          Quick face scan to verify your identity — this is NOT a new enrollment
-        </p>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 relative overflow-hidden">
-        {status === 'loading' && (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <div className="relative w-16 h-16">
-              <div className="absolute inset-0 rounded-full border-2 border-[#C7FF00]/30 animate-ping" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Fingerprint className="w-8 h-8 text-[#C7FF00]" />
-              </div>
-            </div>
-            <p className="text-sm text-gray-400">Preparing verification...</p>
-          </div>
-        )}
-
-        {(status === 'widget' || status === 'polling') && verificationUrl && (
-          <iframe
-            ref={iframeRef}
-            src={verificationUrl}
-            className="w-full h-full border-0"
-            allow="camera; microphone; geolocation"
-            title="SmileID Identity Verification"
-          />
-        )}
-
-        {status === 'success' && (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <div className="w-20 h-20 rounded-full bg-[#C7FF00]/20 flex items-center justify-center">
-              <CheckCircle className="w-10 h-10 text-[#C7FF00]" />
-            </div>
-            <p className="text-lg font-bold text-white">Identity Verified!</p>
-            <p className="text-sm text-gray-400">Signing you in...</p>
-          </div>
-        )}
-
-        {status === 'failed' && (
-          <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
-            <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center">
-              <AlertCircle className="w-10 h-10 text-red-400" />
-            </div>
-            <p className="text-lg font-bold text-white">Verification Failed</p>
-            <p className="text-sm text-gray-400 text-center">
-              Verification failed. Please try again or sign in with your email and password.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Bottom controls */}
-      {status === 'widget' && (
-        <div className="px-4 py-3 border-t border-white/10">
-          <div className="flex gap-2">
-            <button
-              onClick={() => loadWidget()}
-              className="flex-1 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-gray-400 flex items-center justify-center gap-2"
-            >
-              <RefreshCw size={12} />
-              Reload
-            </button>
-            <button
-              onClick={onClose}
-              className="flex-1 py-2.5 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-xl text-xs text-[#C7FF00] font-semibold"
-            >
-              Use Password Instead
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main Login Screen ─────────────────────────────────────────────────────────
 export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToForgotPassword }: LoginScreenProps) {
   const [email, setEmail]           = useState('');
@@ -277,9 +50,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
   const [show2FA, setShow2FA]       = useState(false);
   const [pendingUser, setPendingUser] = useState<any>(null);
 
-  // SmileID biometric auth modal
-  const [showSmileIDModal, setShowSmileIDModal] = useState(false);
-  const [smileIDUserId, setSmileIDUserId]       = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -397,7 +167,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
       if (BiometricManager.isEnrolled(storedUserId)) {
         const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         if (!available) {
-          toast.info('Platform biometric not available. Using SmileID verification...');
+          toast.info('Platform biometric not available. Please sign in with your password.');
         } else {
           const result = await BiometricManager.verify(storedUserId);
           if (!result.success) {
@@ -440,11 +210,9 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
       }
 
-      // Step 5: Refresh token exhausted or missing → SmileID liveness check
-      // This verifies the user's identity via facial recognition (NOT enrollment)
-      toast.info('Session expired. Verifying identity via SmileID...');
-      setSmileIDUserId(storedUserId);
-      setShowSmileIDModal(true);
+      // Step 5: Refresh token exhausted or missing → prompt for password
+      toast.info('Session expired. Please sign in with your password.');
+      if (userProfile.email) setEmail(userProfile.email);
 
     } catch (error: any) {
       const msg = error.name === 'NotAllowedError'
@@ -455,45 +223,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
     } finally {
       setIsBiometricLoading(false);
     }
-  };
-
-  // ── SmileID verification success → try Supabase session restore ──────────
-  const handleSmileIDSuccess = async () => {
-    setShowSmileIDModal(false);
-
-    const storedUser   = localStorage.getItem('borderpay_user');
-    const refreshToken = localStorage.getItem('borderpay_refresh_token');
-
-    if (!storedUser) {
-      toast.error('Session expired. Please sign in with email and password.');
-      return;
-    }
-
-    const userProfile = JSON.parse(storedUser);
-
-    // Attempt one more session refresh after SmileID proof-of-liveness
-    if (refreshToken) {
-      const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-      if (data?.session && !error) {
-        localStorage.setItem('borderpay_token', data.session.access_token);
-        localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
-        toast.success('Identity verified! Welcome back.');
-        onLoginSuccess(userProfile);
-        return;
-      }
-    }
-
-    // If still can't refresh, tell user to re-enter password
-    toast.info('Identity verified! Please enter your password to complete sign-in.');
-    // Pre-fill email if available
-    if (userProfile.email) setEmail(userProfile.email);
-  };
-
-  const handleSmileIDFail = () => {
-    setShowSmileIDModal(false);
-    const msg = 'Biometric verification failed. Please try again or sign in with your password.';
-    setInlineError(msg);
-    toast.error(msg);
   };
 
   // Show 2FA screen
@@ -653,7 +382,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
           {/* Biometric hint */}
           <p className="text-center text-[10px] text-gray-600 -mt-2">
-            Uses Face ID, Touch ID, or SmileID facial verification
+            Uses Face ID or Touch ID for quick sign-in
           </p>
         </form>
 
@@ -673,24 +402,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         </div>
       </div>
 
-      {/* SmileID Biometric Auth Modal */}
-      <AnimatePresence>
-        {showSmileIDModal && smileIDUserId && (
-          <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 40 }}
-            className="fixed inset-0 z-[9999]"
-          >
-            <SmileIDAuthModal
-              userId={smileIDUserId}
-              onSuccess={handleSmileIDSuccess}
-              onFail={handleSmileIDFail}
-              onClose={() => setShowSmileIDModal(false)}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

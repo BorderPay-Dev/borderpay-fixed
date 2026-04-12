@@ -60,7 +60,7 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
                 'Identity Documents: African government-issued ID only',
                 'Financial Information: Transaction history, wallet balances',
                 'Device Information: IP address, device type, operating system',
-                'Biometric Data: Selfies for identity verification (Smile ID)',
+                'Biometric Data: Selfies for identity verification (Youverify)',
               ].map((item, index) => (
                 <li key={index} className="flex items-start gap-2">
                   <div className="w-1.5 h-1.5 bg-[#C7FF00] rounded-full flex-shrink-0 mt-2" />
@@ -109,8 +109,8 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
                 <p className="text-white/70 text-xs">Payment processing, virtual cards, wallet infrastructure</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                <p className="text-white font-semibold text-sm mb-1">Smile ID</p>
-                <p className="text-white/70 text-xs">KYC/AML identity verification (Mastercard partner)</p>
+                <p className="text-white font-semibold text-sm mb-1">Youverify</p>
+                <p className="text-white/70 text-xs">KYC/AML identity verification provider</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                 <p className="text-white font-semibold text-sm mb-1">Regulatory Authorities</p>

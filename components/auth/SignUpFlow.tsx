@@ -1,16 +1,17 @@
 import { BorderPayLogo } from '../cards/BorderPayLogo';
 /**
  * BorderPay Africa - Complete Signup Flow
- * Multi-step registration: Personal Info → DOB/ID → SmileID → Address → PoA Upload → Pending
- * 
+ * Multi-step registration: Personal Info → DOB/ID → Address → PoA Upload → Pending
+ *
  * Flow:
  * 1. Basic Info (name, email, phone, country, password)
  * 2. Date of Birth + ID document type selection
- * 3. SmileID verification (ID + selfie) - embedded iframe
- * 4. Address details (street, city, state, postal)
- * 5. Proof of Address upload (utility bill, bank statement, etc.)
- * 6. Review & Submit → enroll-customer-full
- * 7. Pending → Dashboard
+ * 3. Address details (street, city, state, postal)
+ * 4. Proof of Address upload (utility bill, bank statement, etc.)
+ * 5. Review & Submit
+ * 6. Pending → Dashboard
+ *
+ * KYC verification (via Youverify) happens AFTER signup from the dashboard.
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -31,13 +32,12 @@ import type { Country } from '../../utils/countries/allCountries';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
-import { KYCVerification } from '../kyc/KYCVerification';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'smile-id' | 'address' | 'proof-of-address' | 'review' | 'pending';
+type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'address' | 'proof-of-address' | 'review' | 'pending';
 
 interface SignUpData {
   // Step 1: Personal
@@ -52,8 +52,6 @@ interface SignUpData {
   dateOfBirth: string; // DD-MM-YYYY
   idType: 'NIN' | 'PASSPORT' | 'VOTERS_CARD' | 'DRIVERS_LICENSE' | '';
   idNumber: string;
-  // Step 3: SmileID status
-  smileIdStatus: 'pending' | 'verified' | 'failed' | 'not_started';
   // Step 4: Address
   street: string;
   street2: string;
@@ -133,7 +131,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     dateOfBirth: '',
     idType: '',
     idNumber: '',
-    smileIdStatus: 'not_started',
     street: '',
     street2: '',
     city: '',
@@ -148,9 +145,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     setFormData(prev => ({ ...prev, ...updates }));
   };
 
-  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'smile-id', 'address', 'proof-of-address', 'review', 'pending'];
+  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'proof-of-address', 'review', 'pending'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 7; // Don't count 'pending'
+  const totalSteps = 6; // Don't count 'pending'
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)
@@ -224,21 +221,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   };
 
   // ============================================================================
-  // STEP 3: SmileID completion handler
+  // STEP 3: Identity → Address (KYC done from dashboard)
   // ============================================================================
 
-  const handleSmileIdComplete = (status: 'verified' | 'failed' | 'pending') => {
-    updateForm({ smileIdStatus: status });
-    if (status === 'verified' || status === 'pending') {
-      // Even if pending (SmileID processes async), move forward to address
-      toast.success(status === 'verified' 
-        ? 'Identity verified! Now add your address.' 
-        : 'Verification submitted! Continue with your address while we process.');
-      setCurrentStep('address');
-    } else {
-      toast.error('Verification failed. You can retry or continue.');
-    }
-  };
 
   // ============================================================================
   // STEP 5: Upload Proof of Address
@@ -311,7 +296,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         identity: {
           type: formData.idType,
           number: formData.idNumber,
-          image: '', // SmileID provides this via their dashboard
+          image: '',
           country: formData.selectedCountry?.code,
         },
         address: {
@@ -507,19 +492,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               <StepIdentityInfo
                 formData={formData}
                 updateForm={updateForm}
-                onNext={() => setCurrentStep('smile-id')}
-              />
-            )}
-
-            {currentStep === 'smile-id' && (
-              <StepSmileID
-                formData={formData}
-                userId={createdUserId || ''}
-                onComplete={handleSmileIdComplete}
-                onSkip={() => {
-                  updateForm({ smileIdStatus: 'pending' });
-                  setCurrentStep('address');
-                }}
+                onNext={() => setCurrentStep('address')}
               />
             )}
 
@@ -1246,28 +1219,7 @@ function StepIdentityInfo({ formData, updateForm, onNext }: {
 }
 
 // ============================================================================
-// STEP 3: SMILE ID VERIFICATION
-// ============================================================================
-
-function StepSmileID({ formData, userId, onComplete, onSkip }: {
-  formData: SignUpData;
-  userId: string;
-  onComplete: (status: 'verified' | 'failed' | 'pending') => void;
-  onSkip: () => void;
-}) {
-  return (
-    <KYCVerification
-      userId={userId}
-      userEmail={formData.email}
-      onBack={onSkip}
-      onComplete={() => onComplete('verified')}
-    />
-  );
-}
-
-
-// ============================================================================
-// STEP 4: ADDRESS DETAILS
+// STEP 3: ADDRESS DETAILS
 // ============================================================================
 
 function StepAddress({ formData, updateForm, onNext }: {
@@ -1535,15 +1487,6 @@ function StepReview({ formData, onSubmit, isLoading }: {
         <h3 className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2">Identity</h3>
         <ReviewRow label="ID Type" value={formData.idType} icon={CreditCard} />
         <ReviewRow label="ID Number" value={formData.idNumber.replace(/(.{4})/g, '$1 ').trim()} icon={Hash} />
-        <ReviewRow 
-          label="SmileID Verification" 
-          value={
-            formData.smileIdStatus === 'verified' ? 'Verified' 
-            : formData.smileIdStatus === 'pending' ? 'Processing...' 
-            : 'Not started'
-          } 
-          icon={Shield} 
-        />
       </div>
 
       <div className="bg-white/[0.04] backdrop-blur-md border border-white/[0.08] rounded-2xl p-4 mb-4">

@@ -1,0 +1,20 @@
+# Supabase local/CI configuration for BorderPay Africa
+# This file configures edge functions — remote deploys use these settings too.
+
+project_id = "orwrcpwsffjlvzuraxjc"
+
+# ── Edge function-specific overrides ────────────────────────────────────────
+
+# Youverify posts callbacks server-to-server with no JWT in the Authorization
+# header, so we must disable JWT verification on this endpoint. The handler
+# itself verifies the Youverify HMAC signature instead.
+[functions.youverify-callback]
+verify_jwt = false
+
+# Maplerad enrollment — called by youverify-callback (server-to-server)
+[functions.enroll-maplerad-customer]
+verify_jwt = true
+
+# KYC status polling — authenticated frontend endpoint
+[functions.youverify-kyc-status]
+verify_jwt = true

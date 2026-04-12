@@ -34,9 +34,9 @@ export const ENV_CONFIG = {
   betaAccessText:      'Beta Access Enabled',
 
   /**
-   * KYC tier constants
+   * KYC status constants
    * 0 = not verified (blocks wallet/account/card creation)
-   * 2 = Full Enrollment via enroll-customer-full (unlocks all features)
+   * 2 = Fully enrolled via Maplerad enroll (unlocks all features)
    */
   kycTier: {
     NONE:            0,
