@@ -101,17 +101,16 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
   const tc = useThemeClasses();
 
   // KYC gate
-  const [kycStatus, setKycStatus] = useState<string>('pending');
-
-  useEffect(() => {
+  const [kycStatus] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
       if (stored) {
         const user = JSON.parse(stored);
-        setKycStatus(user.kyc_status || 'pending');
+        return user.kyc_status || 'pending';
       }
     } catch {}
-  }, []);
+    return 'pending';
+  });
 
   const [wallets, setWallets] = useState<WalletData[]>([]);
   const [loading, setLoading] = useState(true);

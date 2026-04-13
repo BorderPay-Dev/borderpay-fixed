@@ -41,17 +41,16 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
   const tc = useThemeClasses();
 
   // KYC gate
-  const [kycStatus, setKycStatus] = useState<string>('pending');
-
-  useEffect(() => {
+  const [kycStatus] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
       if (stored) {
         const user = JSON.parse(stored);
-        setKycStatus(user.kyc_status || 'pending');
+        return user.kyc_status || 'pending';
       }
     } catch {}
-  }, []);
+    return 'pending';
+  });
 
   const [selectedMethod, setSelectedMethod] = useState<FundingMethod | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);

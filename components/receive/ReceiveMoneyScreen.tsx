@@ -60,18 +60,17 @@ export function ReceiveMoneyScreen({ onBack, preSelectedWalletId }: ReceiveMoney
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
 
-  // KYC gate
-  const [kycStatus, setKycStatus] = useState<string>('pending');
-
-  useEffect(() => {
+  // KYC gate — read synchronously to avoid flash
+  const [kycStatus] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
       if (stored) {
         const user = JSON.parse(stored);
-        setKycStatus(user.kyc_status || 'pending');
+        return user.kyc_status || 'pending';
       }
     } catch {}
-  }, []);
+    return 'pending';
+  });
 
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);

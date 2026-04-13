@@ -32,7 +32,6 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
-  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingPic, setUploadingPic] = useState(false);
@@ -40,38 +39,31 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
 
-  const [profile, setProfile] = useState({
-    full_name: '',
-    email: '',
-    phone: '',
-    address: '',
-    city: '',
-    country: '',
-    postal_code: '',
-    date_of_birth: '',
-    kyc_status: 'pending',
-    account_type: 'individual',
-    is_unlocked: false,
-    email_confirmed: false,
-    last_sign_in_at: null as string | null,
-    created_at: '',
-    profile_picture_url: null as string | null,
-    two_factor_enabled: false,
-  });
-
-  const [editedProfile, setEditedProfile] = useState({ ...profile });
-
-  useEffect(() => {
-    loadProfile();
-  }, [userId]);
-
-  const loadProfile = async () => {
-    // Fast path: show cached user data immediately so the screen never feels empty
+  // Read cached user data synchronously to avoid blank/flash on mount
+  const [profile, setProfile] = useState(() => {
+    const defaults = {
+      full_name: '',
+      email: '',
+      phone: '',
+      address: '',
+      city: '',
+      country: '',
+      postal_code: '',
+      date_of_birth: '',
+      kyc_status: 'pending',
+      account_type: 'individual',
+      is_unlocked: false,
+      email_confirmed: false,
+      last_sign_in_at: null as string | null,
+      created_at: '',
+      profile_picture_url: null as string | null,
+      two_factor_enabled: false,
+    };
     try {
       const cached = localStorage.getItem('borderpay_user');
       if (cached) {
         const u = JSON.parse(cached);
-        const cachedData = {
+        return {
           full_name: u.full_name || '',
           email: u.email || '',
           phone: u.phone || '',
@@ -89,13 +81,22 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           profile_picture_url: u.profile_picture_url || null,
           two_factor_enabled: u.two_factor_enabled || false,
         };
-        setProfile(cachedData);
-        setEditedProfile(cachedData);
-        setLoading(false);
       }
-    } catch (_) { /* ignore parse errors */ }
+    } catch {}
+    return defaults;
+  });
+  const [loading, setLoading] = useState(() => {
+    try { return !localStorage.getItem('borderpay_user'); } catch { return true; }
+  });
 
-    // Then fetch fresh data from backend silently
+  const [editedProfile, setEditedProfile] = useState({ ...profile });
+
+  useEffect(() => {
+    loadProfile();
+  }, [userId]);
+
+  const loadProfile = async () => {
+    // Fetch fresh data from backend (cached data already loaded synchronously in useState)
     try {
       const result = await backendAPI.user.getProfile();
 

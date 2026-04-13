@@ -69,7 +69,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [isVerified, setIsVerified]       = useState(false);
   const { prefs, updatePrefs } = usePreferences();
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
-  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => {
+    try {
+      const stored = localStorage.getItem('borderpay_user');
+      if (stored) return JSON.parse(stored).profile_picture_url || null;
+    } catch {}
+    return null;
+  });
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('starter');
   const [has2FA, setHas2FA]               = useState(false);
   const [hasPIN, setHasPIN]               = useState(false);
