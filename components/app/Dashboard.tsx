@@ -40,6 +40,7 @@ import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { usePreferences } from '../../utils/hooks/usePreferences';
+import { AffiliateBanner } from '../referral/AffiliateBanner';
 
 interface DashboardProps {
   userId: string;
@@ -78,6 +79,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   });
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('starter');
   const [has2FA, setHas2FA]               = useState(false);
+  const [mapleradStatus, setMapleradStatus] = useState(() => {
+    try { const u = localStorage.getItem('borderpay_user'); return u ? JSON.parse(u).maplerad_status || '' : ''; } catch { return ''; }
+  });
+  const [userEmail, setUserEmail]         = useState(() => {
+    try { const u = localStorage.getItem('borderpay_user'); return u ? JSON.parse(u).email || '' : ''; } catch { return ''; }
+  });
   const [hasPIN, setHasPIN]               = useState(false);
   const [wallets, setWallets]             = useState<Array<{ currency: string; balance: number; symbol: string; color: string }>>([]);
   const [totalBalance, setTotalBalance]   = useState(0);
@@ -136,6 +143,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           const verified   = p.kyc_status === 'verified';
           setIsVerified(verified);
           if (p.profile_picture_url) setProfilePicUrl(p.profile_picture_url);
+          if (p.email) setUserEmail(p.email);
+          if (p.maplerad_status) setMapleradStatus(p.maplerad_status);
           if (verified)   setAccountStatus('verified');
           else            setAccountStatus('starter');
           storeUserProfile(p);
@@ -270,6 +279,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <NotificationBell />
         </div>
       </div>
+
+      {/* ── Affiliate Banner ── */}
+      <AffiliateBanner kycStatus={isVerified ? 'verified' : 'pending'} mapleradStatus={mapleradStatus} userEmail={userEmail} />
 
       {/* ── Balance ── */}
       <div className="px-5 pt-5 pb-2">

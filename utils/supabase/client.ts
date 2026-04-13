@@ -57,7 +57,7 @@ const USER_STORAGE_KEY = 'borderpay_user';
 const SAFE_FIELDS = [
   'id', 'email', 'full_name', 'country', 'phone', 'kyc_status',
   'kyc_level', 'avatar_url', 'profile_picture_url', 'currency', 'maplerad_customer_id',
-  'created_at', 'date_of_birth', 'address', 'city', 'state', 'postal_code',
+  'maplerad_status', 'created_at', 'date_of_birth', 'address', 'city', 'state', 'postal_code',
 ];
 
 export function storeUserProfile(profile: any): void {
