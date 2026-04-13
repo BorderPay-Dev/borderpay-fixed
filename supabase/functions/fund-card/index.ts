@@ -6,19 +6,25 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const MAPLERAD_SECRET = Deno.env.get('MAPLERAD_SECRET_KEY_LIVE')!;
-const mapleradFetch = (path: string, options: RequestInit = {}) =>
-  fetch(`https://api.maplerad.com/v1${path}`, {
-    ...options,
-    headers: { 'Authorization': `Bearer ${MAPLERAD_SECRET}`, 'Content-Type': 'application/json', ...options.headers },
-  });
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
+    const mapleradKey = Deno.env.get('MAPLERAD_SECRET_KEY_LIVE');
+    if (!mapleradKey) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Maplerad API key not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+    const mapleradFetch = (path: string, options: RequestInit = {}) =>
+      fetch(`https://api.maplerad.com/v1${path}`, {
+        ...options,
+        headers: { 'Authorization': `Bearer ${mapleradKey}`, 'Content-Type': 'application/json', ...options.headers },
+      });
+
     const authHeader = req.headers.get('Authorization')!;
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const token = authHeader.replace('Bearer ', '');

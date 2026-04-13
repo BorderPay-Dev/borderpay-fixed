@@ -26,7 +26,6 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
-import { projectId } from '../../utils/supabase/info';
 import { authAPI, storeUserProfile } from '../../utils/supabase/client';
 import { ENV_CONFIG } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';

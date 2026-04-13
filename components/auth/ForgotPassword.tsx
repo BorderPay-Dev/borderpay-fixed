@@ -6,7 +6,6 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { ArrowLeft, Mail, CheckCircle } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
 
 /**
  * BorderPay Africa - Forgot Password Component

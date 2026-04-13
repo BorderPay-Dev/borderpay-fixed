@@ -11,9 +11,10 @@ project_id = "orwrcpwsffjlvzuraxjc"
 [functions.youverify-callback]
 verify_jwt = false
 
-# Maplerad enrollment — called by youverify-callback (server-to-server)
+# Maplerad enrollment — called server-to-server by youverify-callback (no user
+# JWT available in that context). The function validates userId internally.
 [functions.enroll-maplerad-customer]
-verify_jwt = true
+verify_jwt = false
 
 # Youverify session generation — authenticated frontend endpoint
 # (function does its own JWT verification internally)

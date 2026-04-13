@@ -24,7 +24,6 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../../utils/supabase/info';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface ResetPasswordScreenProps {

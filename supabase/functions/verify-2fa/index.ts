@@ -6,6 +6,101 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============================================================================
+// TOTP verification helpers (RFC 6238 / RFC 4226)
+// ============================================================================
+
+const BASE32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Decode(input: string): Uint8Array {
+  const cleaned = input.replace(/[=\s]/g, '').toUpperCase();
+  const bytes: number[] = [];
+  let bits = 0;
+  let value = 0;
+
+  for (const char of cleaned) {
+    const idx = BASE32_CHARS.indexOf(char);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+
+  return new Uint8Array(bytes);
+}
+
+function intToBytes(num: number): Uint8Array {
+  const bytes = new Uint8Array(8);
+  for (let i = 7; i >= 0; i--) {
+    bytes[i] = num & 0xff;
+    num = Math.floor(num / 256);
+  }
+  return bytes;
+}
+
+async function hmacSha1(key: Uint8Array, message: Uint8Array): Promise<ArrayBuffer> {
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    key as BufferSource,
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign']
+  );
+  return crypto.subtle.sign('HMAC', cryptoKey, message as BufferSource);
+}
+
+/**
+ * Verify a TOTP token against a base32-encoded secret.
+ * Checks the current time step and ±1 step for clock drift tolerance.
+ * Returns true only if the token matches one of the valid time windows.
+ */
+async function verifyTOTP(secret: string, token: string, window = 1): Promise<boolean> {
+  const secretBytes = base32Decode(secret);
+  const timeStep = 30;
+  const now = Math.floor(Date.now() / 1000 / timeStep);
+
+  for (let i = -window; i <= window; i++) {
+    const counter = now + i;
+    const counterBytes = intToBytes(counter);
+    const hmac = await hmacSha1(secretBytes, counterBytes);
+    const hmacBytes = new Uint8Array(hmac);
+
+    // Dynamic truncation (RFC 4226 Section 5.4)
+    const offset = hmacBytes[hmacBytes.length - 1] & 0x0f;
+    const code =
+      ((hmacBytes[offset] & 0x7f) << 24) |
+      ((hmacBytes[offset + 1] & 0xff) << 16) |
+      ((hmacBytes[offset + 2] & 0xff) << 8) |
+      (hmacBytes[offset + 3] & 0xff);
+
+    const otp = (code % 1000000).toString().padStart(6, '0');
+
+    // Constant-time comparison to prevent timing attacks
+    if (constantTimeEqual(otp, token)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Constant-time string comparison to prevent timing side-channel attacks. */
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+// ============================================================================
+// Edge function handler
+// ============================================================================
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -35,7 +130,7 @@ serve(async (req) => {
       );
     }
 
-    // Verify user has a 2FA secret set up
+    // Fetch the user's stored TOTP secret
     const { data: security, error: fetchError } = await supabase
       .from('user_security')
       .select('two_factor_secret')
@@ -49,7 +144,18 @@ serve(async (req) => {
       );
     }
 
-    // Mark 2FA as enabled (simplified verification - accepts valid 6-digit token)
+    // Verify the submitted token against the stored TOTP secret
+    // Uses RFC 6238 TOTP with HMAC-SHA1, 30s period, ±1 step drift tolerance
+    const isValid = await verifyTOTP(security.two_factor_secret, totpToken);
+
+    if (!isValid) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid verification code' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Token is valid — mark 2FA as enabled
     const { error: updateError } = await supabase
       .from('user_security')
       .update({ two_factor_enabled: true })

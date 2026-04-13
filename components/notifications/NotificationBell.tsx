@@ -19,7 +19,6 @@ import {
   Megaphone
 } from 'lucide-react';
 import { authAPI } from '../../utils/supabase/client';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 

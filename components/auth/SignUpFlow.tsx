@@ -22,9 +22,8 @@ import {
   Shield, MapPin, Upload, FileText, CheckCircle, Camera, Clock,
   AlertCircle, Home, Building, Hash
 } from 'lucide-react';
-import { supabase, authAPI } from '../../utils/supabase/client';
+import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { toast } from 'sonner';
-import { publicAnonKey } from '../../utils/supabase/info';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { getActiveCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -172,7 +171,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         full_name: fullName,
         phone_number: `${selectedCountry?.dialCode}${phone}`,
         country_code: selectedCountry?.code,
-      }, publicAnonKey);
+      }, ANON_KEY);
 
       if (!result.success) {
         throw new Error(result.error || 'Signup failed');
@@ -187,9 +186,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       // Try to send branded confirmation email via Resend
       try {
         const confirmUrl = `${window.location.origin}/auth/confirm?email=${encodeURIComponent(email)}`;
-        await fetch(`${import.meta.env.VITE_SUPABASE_URL || `https://orwrcpwsffjlvzuraxjc.supabase.co`}/functions/v1/send-confirmation-email`, {
+        await fetch(`${BASE_URL}/send-confirmation-email`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+          headers: { 'Content-Type': 'application/json', apikey: ANON_KEY },
           body: JSON.stringify({ email, full_name: fullName, confirmation_url: confirmUrl }),
         });
       } catch { /* Supabase default email will be sent as fallback */ }
@@ -459,9 +458,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                 onResend={async () => {
                   try {
                     const confirmUrl = `${window.location.origin}/auth/confirm?email=${encodeURIComponent(formData.email)}`;
-                    await fetch(`${import.meta.env.VITE_SUPABASE_URL || `https://orwrcpwsffjlvzuraxjc.supabase.co`}/functions/v1/send-confirmation-email`, {
+                    await fetch(`${BASE_URL}/send-confirmation-email`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+                      headers: { 'Content-Type': 'application/json', apikey: ANON_KEY },
                       body: JSON.stringify({ email: formData.email, full_name: formData.fullName, confirmation_url: confirmUrl }),
                     });
                     toast.success('Confirmation email resent!');
