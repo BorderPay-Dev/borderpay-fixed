@@ -246,6 +246,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       setError(null);
 
       // Step 1: Get session credentials from our backend edge function
+      console.log('[KYC] Step 1: Requesting session from youverify-session edge function');
       const token = localStorage.getItem('borderpay_token') || '';
       const sessionResponse = await fetch(`${BASE_URL}/youverify-session`, {
         method: 'POST',
@@ -263,19 +264,30 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         }),
       });
 
+      console.log('[KYC] Step 1: Response status:', sessionResponse.status);
       const sessionData = await sessionResponse.json();
+      console.log('[KYC] Step 1: Response data:', {
+        success: sessionData.success,
+        hasSessionId: !!sessionData.sessionId,
+        hasSessionToken: !!sessionData.sessionToken,
+        sandbox: sessionData.sandbox,
+        error: sessionData.error,
+      });
 
       if (!sessionData.success || !sessionData.sessionId || !sessionData.sessionToken) {
         throw new Error(sessionData.error || 'Failed to create verification session');
       }
 
       // Step 2: Dynamically import and launch the liveness SDK
+      // Use sandbox flag from backend so frontend and backend always match
+      const isSandbox = sessionData.sandbox === true;
+      console.log('[KYC] Step 2: Launching liveness SDK (sandbox:', isSandbox, ')');
       const YouverifyLiveness = (await import('youverify-liveness-web')).default;
 
       const yvLiveness = new YouverifyLiveness({
         sessionId: sessionData.sessionId,
         sessionToken: sessionData.sessionToken,
-        sandboxEnvironment: false,
+        sandboxEnvironment: isSandbox,
         presentation: 'modal',
         user: {
           firstName: formData.firstName,
@@ -304,6 +316,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         },
       });
 
+      console.log('[KYC] Step 3: Calling yvLiveness.start()');
       yvLiveness.start();
 
     } catch (err: any) {

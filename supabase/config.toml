@@ -15,6 +15,11 @@ verify_jwt = false
 [functions.enroll-maplerad-customer]
 verify_jwt = true
 
+# Youverify session generation — authenticated frontend endpoint
+# (function does its own JWT verification internally)
+[functions.youverify-session]
+verify_jwt = true
+
 # KYC status polling — authenticated frontend endpoint
 [functions.youverify-kyc-status]
 verify_jwt = true
