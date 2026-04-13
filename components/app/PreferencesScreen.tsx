@@ -4,79 +4,90 @@
  * Wired to ThemeLanguageContext for live theme/language switching
  */
 
-import React, { useState, useEffect } from 'react';
-import { 
-  ChevronLeft, 
-  Palette, 
-  Globe, 
-  Eye, 
-  Fingerprint, 
-  Lock, 
-  Volume2, 
+import React, { useState } from 'react';
+import {
+  ChevronLeft,
+  Palette,
+  Globe,
+  Eye,
+  Fingerprint,
+  Lock,
+  Volume2,
   Vibrate,
   Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { LANGUAGE_LABELS, Language } from '../../utils/i18n/translations';
+import { usePreferences, hapticFeedback, soundFeedback } from '../../utils/hooks/usePreferences';
+import { BiometricManager } from '../../utils/security/SecurityManager';
 
 interface PreferencesScreenProps {
   onBack: () => void;
 }
 
-const PREFS_STORAGE_KEY = 'borderpay_preferences';
-
-interface LocalPrefs {
-  hide_balance: boolean;
-  biometric_enabled: boolean;
-  pin_enabled: boolean;
-  sound_enabled: boolean;
-  haptic_enabled: boolean;
-  currency_display: 'symbol' | 'code';
-}
-
-const DEFAULT_LOCAL: LocalPrefs = {
-  hide_balance: false,
-  biometric_enabled: false,
-  pin_enabled: true,
-  sound_enabled: true,
-  haptic_enabled: true,
-  currency_display: 'symbol',
-};
-
 export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
   const { theme, language, setTheme, setLanguage, t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const [local, setLocal] = useState<LocalPrefs>(DEFAULT_LOCAL);
+  const { prefs, updatePrefs } = usePreferences();
+  const [biometricLoading, setBiometricLoading] = useState(false);
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(PREFS_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setLocal(prev => ({ ...prev, ...parsed }));
-      }
-    } catch (_e) { /* ignore */ }
-  }, []);
-
-  const updateLocal = (updates: Partial<LocalPrefs>) => {
-    const updated = { ...local, ...updates };
-    setLocal(updated);
-    try {
-      const stored = localStorage.getItem(PREFS_STORAGE_KEY);
-      const existing = stored ? JSON.parse(stored) : {};
-      localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify({ ...existing, ...updates }));
-    } catch (_e) { /* ignore */ }
+  const handleToggle = (key: keyof typeof prefs, value: boolean) => {
+    updatePrefs({ [key]: value });
+    hapticFeedback();
+    soundFeedback();
     toast.success(t('prefs.updated'));
+  };
+
+  const handleBiometricToggle = async () => {
+    setBiometricLoading(true);
+    try {
+      const userId = localStorage.getItem('borderpay_biometric_user_id') || '';
+      if (!userId) {
+        toast.error('Please sign in first to enable biometric lock.');
+        return;
+      }
+
+      if (prefs.biometric_enabled) {
+        // Disable
+        BiometricManager.disable(userId);
+        updatePrefs({ biometric_enabled: false });
+        hapticFeedback();
+        toast.success('Biometric lock disabled');
+      } else {
+        // Enable — enroll WebAuthn
+        const supported = await BiometricManager.isSupported();
+        if (!supported) {
+          toast.error('Biometric authentication is not supported on this device.');
+          return;
+        }
+        const user = localStorage.getItem('borderpay_user');
+        const userName = user ? JSON.parse(user).full_name || 'User' : 'User';
+        const result = await BiometricManager.enroll(userId, userName);
+        if (result.success) {
+          updatePrefs({ biometric_enabled: true });
+          hapticFeedback();
+          toast.success('Biometric lock enabled');
+        } else {
+          toast.error(result.error || 'Biometric enrollment failed');
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Biometric setup failed');
+    } finally {
+      setBiometricLoading(false);
+    }
   };
 
   const handleThemeChange = (newTheme: 'dark' | 'light' | 'auto') => {
     setTheme(newTheme);
+    hapticFeedback();
     toast.success(t('prefs.updated'));
   };
 
   const handleLanguageChange = (newLang: Language) => {
     setLanguage(newLang);
+    hapticFeedback();
     toast.success(t('prefs.updated'));
   };
 
@@ -84,8 +95,14 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
     if (!confirm('Reset all preferences to defaults?')) return;
     setTheme('dark');
     setLanguage('en');
-    setLocal(DEFAULT_LOCAL);
-    localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify({ theme: 'dark', language: 'en', ...DEFAULT_LOCAL }));
+    updatePrefs({
+      hide_balance: false,
+      biometric_enabled: false,
+      pin_enabled: true,
+      sound_enabled: true,
+      haptic_enabled: true,
+      currency_display: 'symbol',
+    });
     toast.success(t('prefs.updated'));
   };
 
@@ -209,16 +226,16 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
                 {(['symbol', 'code'] as const).map((mode) => (
                   <button
                     key={mode}
-                    onClick={() => updateLocal({ currency_display: mode })}
+                    onClick={() => { updatePrefs({ currency_display: mode }); hapticFeedback(); toast.success(t('prefs.updated')); }}
                     className={`p-3 rounded-xl border transition-all ${
-                      local.currency_display === mode
+                      prefs.currency_display === mode
                         ? 'bg-[#C7FF00]/20 border-[#C7FF00]'
                         : `${tc.card} ${tc.cardBorder} ${tc.hoverBg}`
                     }`}
                   >
                     <div className="text-lg mb-1">{mode === 'symbol' ? '$' : 'USD'}</div>
                     <div className={`text-xs font-medium ${
-                      local.currency_display === mode ? 'text-[#C7FF00]' : tc.textMuted
+                      prefs.currency_display === mode ? 'text-[#C7FF00]' : tc.textMuted
                     }`}>
                       {t(`prefs.${mode}`)}
                     </div>
@@ -249,7 +266,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
                   <div className={`${tc.textMuted} text-xs`}>{t('prefs.hideBalanceDesc')}</div>
                 </div>
               </div>
-              <Toggle on={local.hide_balance} onToggle={() => updateLocal({ hide_balance: !local.hide_balance })} />
+              <Toggle on={prefs.hide_balance} onToggle={() => handleToggle('hide_balance', !prefs.hide_balance)} />
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -259,7 +276,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
                   <div className={`${tc.textMuted} text-xs`}>{t('prefs.biometricDesc')}</div>
                 </div>
               </div>
-              <Toggle on={local.biometric_enabled} onToggle={() => updateLocal({ biometric_enabled: !local.biometric_enabled })} />
+              <Toggle on={prefs.biometric_enabled} onToggle={handleBiometricToggle} />
             </div>
           </div>
         </div>
@@ -284,7 +301,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
                   <div className={`${tc.textMuted} text-xs`}>{t('prefs.soundDesc')}</div>
                 </div>
               </div>
-              <Toggle on={local.sound_enabled} onToggle={() => updateLocal({ sound_enabled: !local.sound_enabled })} />
+              <Toggle on={prefs.sound_enabled} onToggle={() => handleToggle('sound_enabled', !prefs.sound_enabled)} />
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -294,7 +311,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
                   <div className={`${tc.textMuted} text-xs`}>{t('prefs.hapticDesc')}</div>
                 </div>
               </div>
-              <Toggle on={local.haptic_enabled} onToggle={() => updateLocal({ haptic_enabled: !local.haptic_enabled })} />
+              <Toggle on={prefs.haptic_enabled} onToggle={() => handleToggle('haptic_enabled', !prefs.haptic_enabled)} />
             </div>
           </div>
         </div>

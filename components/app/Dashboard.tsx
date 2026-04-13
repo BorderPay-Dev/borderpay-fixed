@@ -39,6 +39,7 @@ import { SecurityStatus } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { usePreferences } from '../../utils/hooks/usePreferences';
 
 interface DashboardProps {
   userId: string;
@@ -66,7 +67,8 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
 
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen }: DashboardProps) {
   const [isVerified, setIsVerified]       = useState(false);
-  const [balanceHidden, setBalanceHidden] = useState(false);
+  const { prefs, updatePrefs } = usePreferences();
+  const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('starter');
   const [has2FA, setHas2FA]               = useState(false);
@@ -281,7 +283,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               )}
             </h1>
             <button
-              onClick={() => setBalanceHidden(!balanceHidden)}
+              onClick={() => {
+                const next = !balanceHidden;
+                setBalanceHidden(next);
+                updatePrefs({ hide_balance: next });
+              }}
               className="p-1 hover:bg-white/5 rounded-lg transition-colors"
             >
               {balanceHidden
