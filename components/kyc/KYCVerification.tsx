@@ -247,7 +247,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
       // Step 1: Get session credentials from our backend edge function
       const token = localStorage.getItem('borderpay_token') || '';
-      const sessionResponse = await fetch(`${BASE_URL}/functions/v1/youverify-session`, {
+      const sessionResponse = await fetch(`${BASE_URL}/youverify-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
