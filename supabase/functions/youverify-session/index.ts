@@ -212,7 +212,7 @@ serve(async (req) => {
     console.log(`[youverify-session] Success: user=${user.id}, sessionId=${sessionId}, sandbox=${isSandbox}`);
 
     return new Response(
-      JSON.stringify({ success: true, sessionId, sessionToken, sandbox: isSandbox }),
+      JSON.stringify({ success: true, sessionId, sessionToken, sandbox: isSandbox, publicMerchantKey: PUBLIC_MERCHANT_ID }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
 

@@ -5,9 +5,11 @@
  *   1. Country Selector — pick country from supported list
  *   2. ID Type Selector — pick ID type for selected country
  *   3. Details Form — collect all data for Youverify + Maplerad enroll
- *   4. Youverify Liveness — launch Youverify SDK liveness check
- *   5. Under Review — poll status, manual check button
- *   6. Result — approved (account activated) or rejected (retry)
+ *   4. Document Scan — capture ID document via youverify-sdk documentCapture
+ *   5. Face Scan Prep — instructions before liveness
+ *   6. Youverify Liveness — launch youverify-liveness-web face scan
+ *   7. Under Review — poll status, manual check button
+ *   8. Result — approved (account activated) or rejected (retry)
  *
  * Data is saved to kyc_submissions in Supabase BEFORE launching Youverify.
  * After Youverify approves, the youverify-callback Edge Function triggers
@@ -24,12 +26,13 @@ import {
   UserCheck, Scan, Shield, Star,
   ArrowRight, Zap, BadgeCheck, Clock, MapPin,
   Search, X, ChevronDown, Calendar, Phone, Mail,
-  User, Home, Building, Hash, Briefcase
+  User, Home, Building, Hash, Briefcase, Camera
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { COUNTRY_CONFIG, getActiveCountries, getCountryByCode, type CountryConfig, type IDType } from '../../src/lib/countries';
+import { getYouverifyDocumentType } from '../../src/lib/youverifyDocTypes';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -40,7 +43,7 @@ interface KYCVerificationProps {
   onComplete: () => void;
 }
 
-type KYCStep = 'welcome' | 'country' | 'id-type' | 'details' | 'liveness' | 'under-review' | 'success' | 'failed';
+type KYCStep = 'welcome' | 'country' | 'id-type' | 'details' | 'document-scan' | 'face-scan-prep' | 'liveness' | 'under-review' | 'success' | 'failed';
 
 interface KYCFormData {
   firstName: string;
@@ -88,6 +91,10 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   const [isSubmitting, setIsSubmitting] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
+
+  // Document capture state
+  const [documentReference, setDocumentReference] = useState<string | null>(null);
+  const [publicMerchantKey, setPublicMerchantKey] = useState<string | null>(null);
 
   // Country & ID selection
   const [selectedCountry, setSelectedCountry] = useState<CountryConfig | null>(null);
@@ -229,13 +236,99 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         throw new Error(result.error || 'Failed to save KYC data');
       }
 
-      // Transition to liveness step
-      setStep('liveness');
+      // Transition to document scan step (before liveness)
+      setStep('document-scan');
     } catch (err: any) {
       setError(err.message || 'Failed to submit data');
       toast.error('Failed to submit KYC data');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // ─── Youverify Document Capture SDK (youverify-sdk) ────────────────────────
+
+  const startDocumentCapture = async () => {
+    try {
+      setError(null);
+      console.log('[KYC] Starting document capture');
+      console.log('[KYC] Country:', formData.country, 'ID Type:', formData.idType);
+
+      // Get publicMerchantKey from backend if not cached
+      let merchantKey = publicMerchantKey;
+      if (!merchantKey) {
+        const token = localStorage.getItem('borderpay_token') || '';
+        const res = await fetch(`${BASE_URL}/youverify-session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'apikey': ANON_KEY,
+          },
+          body: JSON.stringify({ metadata: { userId, country: formData.country, idType: formData.idType } }),
+        });
+        const data = await res.json();
+        if (data.publicMerchantKey) {
+          merchantKey = data.publicMerchantKey;
+          setPublicMerchantKey(merchantKey);
+        } else {
+          throw new Error('Could not retrieve merchant key for document capture');
+        }
+      }
+
+      // Import youverify-sdk (attaches to window.YouverifySDK)
+      await import('youverify-sdk');
+      const YouverifySDK = (window as any).YouverifySDK;
+      if (!YouverifySDK?.documentCapture) {
+        throw new Error('Document capture module not available');
+      }
+
+      const docType = getYouverifyDocumentType(formData.country, formData.idType);
+      console.log('[KYC] Document type for SDK:', docType);
+
+      const docModule = new YouverifySDK.documentCapture({
+        publicMerchantKey: merchantKey,
+        type: docType,
+        personalInformation: {
+          firstName: formData.firstName,
+        },
+        metadata: {
+          userId,
+          country: formData.country,
+          idType: formData.idType,
+          idNumber: formData.idNumber,
+        },
+        onSuccess: (data: any) => {
+          console.log('[KYC] Document capture success:', data);
+          const docRef = data?.id || data?.referenceId || data?.verificationId || 'doc-captured';
+          setDocumentReference(docRef);
+          toast.success('Document scanned successfully!');
+          setStep('face-scan-prep');
+        },
+        onFailure: (error: any) => {
+          console.error('[KYC] Document capture failed:', error);
+          setError('Document scan failed. Please ensure good lighting and try again.');
+          toast.error('Document scan failed');
+          setStep('document-scan');
+        },
+        onCancel: () => {
+          console.log('[KYC] Document capture cancelled');
+          setStep('document-scan');
+        },
+        onClose: () => {
+          console.log('[KYC] Document capture closed');
+          if (!documentReference) {
+            setStep('document-scan');
+          }
+        },
+      });
+
+      docModule.initialize();
+      docModule.start();
+    } catch (err: any) {
+      console.error('[KYC] startDocumentCapture error:', err);
+      setError(err.message || 'Failed to start document scan. Please try again.');
+      toast.error('Failed to start document scan');
     }
   };
 
@@ -326,7 +419,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     }
   };
 
-  // Auto-launch Youverify when entering liveness step
+  // Auto-launch Youverify liveness when entering liveness step
   useEffect(() => {
     if (step === 'liveness') {
       launchYouverifyLiveness();
@@ -372,8 +465,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
   // Step progress
   const stepProgress: Record<KYCStep, number> = {
-    welcome: 0, country: 15, 'id-type': 30, details: 50,
-    liveness: 70, 'under-review': 85, success: 100, failed: 70,
+    welcome: 0, country: 12, 'id-type': 25, details: 40,
+    'document-scan': 55, 'face-scan-prep': 70, liveness: 80,
+    'under-review': 90, success: 100, failed: 70,
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -383,7 +477,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   return (
     <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* ── Header ── */}
-      {step !== 'liveness' && (
+      {step !== 'liveness' && step !== 'document-scan' && (
         <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
           <div className="flex items-center justify-between px-4 py-3 pt-safe">
             <button
@@ -391,7 +485,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 if (step === 'country') setStep('welcome');
                 else if (step === 'id-type') setStep('country');
                 else if (step === 'details') setStep('id-type');
-                else onBack;
+                else if (step === 'document-scan') setStep('details');
+                else if (step === 'face-scan-prep') setStep('document-scan');
+                else onBack();
               }}
               className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
             >
@@ -485,8 +581,9 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   {[
                     { num: '1', text: 'Select your country and ID type' },
                     { num: '2', text: 'Fill in your personal details' },
-                    { num: '3', text: 'Complete a quick liveness check' },
-                    { num: '4', text: 'Get verified — usually within minutes' },
+                    { num: '3', text: 'Scan your ID document' },
+                    { num: '4', text: 'Complete a face scan' },
+                    { num: '5', text: 'Get verified — usually within minutes' },
                   ].map((s, i) => (
                     <motion.div
                       key={i}
@@ -814,6 +911,144 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             </motion.div>
           )}
 
+          {/* ═══ DOCUMENT SCAN ═══ */}
+          {step === 'document-scan' && (
+            <motion.div
+              key="document-scan"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="flex-1 flex flex-col items-center px-5 py-6"
+            >
+              {/* Step indicator */}
+              <div className="flex items-center gap-2 mb-6">
+                <div className="flex items-center gap-1.5">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className={`w-2.5 h-2.5 rounded-full ${n <= 1 ? 'bg-[#C7FF00]' : 'bg-white/[0.1]'}`} />
+                  ))}
+                </div>
+                <span className="text-[10px] text-gray-500 font-medium">Step 1 of 3</span>
+              </div>
+
+              <div className="w-20 h-20 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4">
+                <FileText className="w-10 h-10 text-blue-400" strokeWidth={1.5} />
+              </div>
+
+              <h2 className="text-lg font-bold text-white mb-1.5">Scan Your ID Document</h2>
+              <p className="text-xs text-gray-500 text-center max-w-[280px] mb-5 leading-relaxed">
+                Get your {selectedIdType?.label || 'ID'} ready. Place it on a flat surface with good lighting.
+              </p>
+
+              <div className="w-full max-w-[320px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
+                <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-3">Make sure</p>
+                <div className="space-y-2.5">
+                  {[
+                    'All 4 corners are visible',
+                    'Text is clear and readable',
+                    'No glare or shadows on the document',
+                  ].map((tip, i) => (
+                    <div key={i} className="flex items-center gap-2.5">
+                      <CheckCircle className="w-3.5 h-3.5 text-[#C7FF00] flex-shrink-0" />
+                      <p className="text-[11px] text-gray-400">{tip}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {error && (
+                <div className="w-full max-w-[320px] flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 mb-4">
+                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <p className="text-[10px] text-red-400">{error}</p>
+                </div>
+              )}
+
+              <motion.button
+                onClick={startDocumentCapture}
+                className="w-full max-w-[320px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2.5"
+                whileTap={{ scale: 0.97 }}
+              >
+                <Camera size={16} />
+                Start Document Scan
+              </motion.button>
+
+              <button
+                onClick={() => setStep('details')}
+                className="mt-3 text-gray-600 text-[10px] font-medium hover:text-gray-400 transition-colors"
+              >
+                Back
+              </button>
+            </motion.div>
+          )}
+
+          {/* ═══ FACE SCAN PREP ═══ */}
+          {step === 'face-scan-prep' && (
+            <motion.div
+              key="face-scan-prep"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="flex-1 flex flex-col items-center px-5 py-6"
+            >
+              {/* Step indicator */}
+              <div className="flex items-center gap-2 mb-6">
+                <div className="flex items-center gap-1.5">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className={`w-2.5 h-2.5 rounded-full ${n <= 2 ? 'bg-[#C7FF00]' : 'bg-white/[0.1]'}`} />
+                  ))}
+                </div>
+                <span className="text-[10px] text-gray-500 font-medium">Step 2 of 3</span>
+              </div>
+
+              <div className="w-20 h-20 bg-purple-500/10 rounded-2xl flex items-center justify-center mb-4">
+                <Fingerprint className="w-10 h-10 text-purple-400" strokeWidth={1.5} />
+              </div>
+
+              <h2 className="text-lg font-bold text-white mb-1.5">Face Scan</h2>
+
+              {/* Document captured badge */}
+              <div className="flex items-center gap-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-full px-3.5 py-1.5 mb-4">
+                <CheckCircle className="w-3.5 h-3.5 text-[#C7FF00]" />
+                <span className="text-[10px] text-[#C7FF00] font-semibold">Document scan complete</span>
+              </div>
+
+              <p className="text-xs text-gray-500 text-center max-w-[280px] mb-5 leading-relaxed">
+                Now we need to confirm it's you. We'll ask you to look at the camera and follow simple instructions.
+              </p>
+
+              <div className="w-full max-w-[320px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
+                <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-3">Make sure</p>
+                <div className="space-y-2.5">
+                  {[
+                    "You're in good lighting",
+                    'Camera is at eye level',
+                    'Remove glasses if wearing any',
+                  ].map((tip, i) => (
+                    <div key={i} className="flex items-center gap-2.5">
+                      <CheckCircle className="w-3.5 h-3.5 text-[#C7FF00] flex-shrink-0" />
+                      <p className="text-[11px] text-gray-400">{tip}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {error && (
+                <div className="w-full max-w-[320px] flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 mb-4">
+                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <p className="text-[10px] text-red-400">{error}</p>
+                </div>
+              )}
+
+              <motion.button
+                onClick={() => setStep('liveness')}
+                className="w-full max-w-[320px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2.5"
+                whileTap={{ scale: 0.97 }}
+              >
+                <Scan size={16} />
+                Start Face Scan
+              </motion.button>
+            </motion.div>
+          )}
+
           {/* ═══ LIVENESS (Youverify SDK loads here) ═══ */}
           {step === 'liveness' && (
             <motion.div
@@ -833,7 +1068,16 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   <Scan className="w-10 h-10 text-[#C7FF00]" strokeWidth={1.5} />
                 </div>
               </div>
-              <h3 className="text-sm font-bold mb-1.5">Launching Liveness Check</h3>
+              {/* Step indicator */}
+              <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-1.5">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="w-2.5 h-2.5 rounded-full bg-[#C7FF00]" />
+                  ))}
+                </div>
+                <span className="text-[10px] text-gray-500 font-medium">Step 3 of 3</span>
+              </div>
+              <h3 className="text-sm font-bold mb-1.5">Launching Face Scan</h3>
               <p className="text-[10px] text-gray-600 mb-5">Connecting to Youverify...</p>
               <p className="text-[9px] text-gray-700 text-center max-w-[260px]">
                 Follow the on-screen instructions to complete your facial verification. This only takes a few seconds.

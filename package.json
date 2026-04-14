@@ -70,7 +70,8 @@
     "sonner": "^2.0.3",
     "tailwind-merge": "^2.5.4",
     "vaul": "^1.1.2",
-    "youverify-liveness-web": "^1.0.10"
+    "youverify-liveness-web": "^1.0.10",
+    "youverify-sdk": "^1.0.13"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
