@@ -293,6 +293,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
   const startCamera = async () => {
     setError(null);
@@ -302,29 +303,49 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
-      }
+      setCameraStream(stream);
       setCameraOn(true);
     } catch (err: any) {
-      setError('Camera unavailable. You can upload a selfie instead.');
+      setError('Camera unavailable. Please allow camera access or upload a selfie instead.');
     }
   };
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
+    setCameraStream(null);
     setCameraOn(false);
-  };
+  }, []);
 
-  useEffect(() => () => stopCamera(), []);
+  // Attach stream to <video> once both the element and the stream exist.
+  // (Fixes black-screen bug where srcObject was set before the element mounted.)
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!cameraOn || !cameraStream || !el) return;
+    el.srcObject = cameraStream;
+    const p = el.play();
+    if (p && typeof p.catch === 'function') p.catch(() => { /* ignore autoplay reject */ });
+  }, [cameraOn, cameraStream]);
+
+  // Stop the camera when leaving the selfie step or unmounting.
+  useEffect(() => {
+    if (step !== 'selfie' && cameraOn) stopCamera();
+  }, [step, cameraOn, stopCamera]);
+
+  useEffect(() => () => stopCamera(), [stopCamera]);
 
   const captureSelfie = async () => {
     const video = videoRef.current;
-    if (!video || !streamRef.current) return;
+    if (!video || !streamRef.current) {
+      toast.error('Camera not ready — try again');
+      return;
+    }
+    if (!video.videoWidth || !video.videoHeight) {
+      toast.error('Camera still loading — please wait a moment');
+      return;
+    }
     const canvas = document.createElement('canvas');
-    const size = Math.min(video.videoWidth, video.videoHeight) || 720;
+    const size = Math.min(video.videoWidth, video.videoHeight);
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
@@ -422,7 +443,8 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     formData.lastName.trim().length >= 2 &&
     /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(formData.email) &&
     /^\d{2}-\d{2}-\d{4}$/.test(formData.dateOfBirth) &&
-    formData.phoneNumber.trim().length >= 6;
+    /^\+?\d{1,4}$/.test(formData.phoneCode.trim()) &&
+    /^\d{6,15}$/.test(formData.phoneNumber.trim());
 
   const addressValid =
     !!selectedCountry &&
@@ -876,25 +898,28 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
               <div className="pb-6">
                 <div className="bg-black/40 border border-white/[0.08] rounded-2xl overflow-hidden aspect-square flex items-center justify-center relative">
+                  {/* Video element is always mounted while on the selfie step so
+                      the ref exists when startCamera() runs. Visibility is
+                      toggled via the class list. */}
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    muted
+                    autoPlay
+                    className={`absolute inset-0 w-full h-full object-cover scale-x-[-1] ${cameraOn && !uploads.selfiePath ? '' : 'hidden'}`}
+                  />
                   {uploads.selfiePath ? (
-                    <div className="flex flex-col items-center justify-center text-center px-4">
+                    <div className="flex flex-col items-center justify-center text-center px-4 relative z-10">
                       <CheckCircle className="w-10 h-10 text-[#C7FF00] mb-2" />
                       <p className="text-xs font-semibold text-white">Selfie uploaded</p>
                       <p className="text-[10px] text-gray-500 mt-1">You can retake it below</p>
                     </div>
-                  ) : cameraOn ? (
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover scale-x-[-1]"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-center px-4">
+                  ) : !cameraOn ? (
+                    <div className="flex flex-col items-center justify-center text-center px-4 relative z-10">
                       <Camera className="w-10 h-10 text-gray-500 mb-2" />
                       <p className="text-xs text-gray-400">Turn on the camera or upload a photo</p>
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="flex gap-2 mt-3">
@@ -1297,9 +1322,15 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                     key={c.code}
                     onClick={() => {
                       setSelectedCountry(c);
-                      updateForm({ country: c.code, phoneCode: formData.phoneCode || c.dialCode });
                       setSelectedIdType(null);
-                      updateForm({ idType: '', idNumber: '', mapleradIdentityType: '' });
+                      updateForm({
+                        country: c.code,
+                        phoneCode: formData.phoneCode || c.dialCode,
+                        idType: '',
+                        idNumber: '',
+                        mapleradIdentityType: '',
+                      });
+                      setCountrySearch('');
                       setCountryPickerOpen(false);
                     }}
                     className="w-full flex items-center gap-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl px-4 py-3 transition-all"
