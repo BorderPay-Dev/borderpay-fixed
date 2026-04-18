@@ -1,23 +1,21 @@
 /**
  * BorderPay Africa — KYC Verification Screen
  *
- * Multi-step KYC flow:
- *   1. Country Selector — pick country from supported list
- *   2. ID Type Selector — pick ID type for selected country
- *   3. Details Form — collect all data for Youverify + Maplerad enroll
- *   4. Document Scan — capture ID document via youverify-sdk documentCapture
- *   5. Face Scan Prep — instructions before liveness
- *   6. Youverify Liveness — launch youverify-liveness-web face scan
- *   7. Under Review — poll status, manual check button
- *   8. Result — approved (account activated) or rejected (retry)
+ * 6-step KYC flow backed entirely by the Maplerad edge functions
+ * (kyc-submit + kyc-status). Documents are uploaded directly to the
+ * private Supabase Storage bucket `kyc-documents` under the caller's
+ * user_id prefix, and only the storage paths are sent to the backend.
  *
- * Data is saved to kyc_submissions in Supabase BEFORE launching Youverify.
- * After Youverify approves, the youverify-callback Edge Function triggers
- * enroll-maplerad-customer to create a fully enrolled Maplerad customer.
+ *   Step 1 — Personal info (name, email, DOB, phone)
+ *   Step 2 — Home address
+ *   Step 3 — Identity document (country + ID type + number + front/back)
+ *   Step 4 — Selfie (live camera capture with manual upload fallback)
+ *   Step 5 — Proof of address upload
+ *   Step 6 — Review & submit  → kyc-submit → poll kyc-status every 30s
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { BASE_URL, ANON_KEY, storeUserProfile, readUserProfile, dataCache } from '../../utils/supabase/client';
+import { BASE_URL, ANON_KEY, supabase, storeUserProfile, readUserProfile, dataCache } from '../../utils/supabase/client';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck, ArrowLeft, FileText, AlertCircle,
@@ -26,13 +24,12 @@ import {
   UserCheck, Scan, Shield, Star,
   ArrowRight, Zap, BadgeCheck, Clock, MapPin,
   Search, X, ChevronDown, Calendar, Phone, Mail,
-  User, Home, Building, Hash, Briefcase, Camera
+  User, Home, Building, Hash, Upload, Camera, Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { COUNTRY_CONFIG, getActiveCountries, getCountryByCode, type CountryConfig, type IDType } from '../../src/lib/countries';
-import { getYouverifyDocumentType } from '../../src/lib/youverifyDocTypes';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -43,63 +40,91 @@ interface KYCVerificationProps {
   onComplete: () => void;
 }
 
-type KYCStep = 'welcome' | 'country' | 'id-type' | 'details' | 'document-scan' | 'face-scan-prep' | 'liveness' | 'under-review' | 'success' | 'failed';
+type KYCStep =
+  | 'welcome'
+  | 'personal'
+  | 'address'
+  | 'identity'
+  | 'selfie'
+  | 'poa'
+  | 'review'
+  | 'under-review'
+  | 'success'
+  | 'failed';
 
 interface KYCFormData {
   firstName: string;
   lastName: string;
   email: string;
   dateOfBirth: string;
-  country: string;
   phoneCode: string;
   phoneNumber: string;
+  country: string;
   street: string;
+  street2: string;
   city: string;
   state: string;
   postalCode: string;
   idType: string;
   idNumber: string;
-  usResidencyStatus: string;
-  employmentStatus: string;
+  mapleradIdentityType: string;
+  poaDocumentType: 'utility_bill' | 'bank_statement' | 'lease' | 'tax_document' | '';
+}
+
+interface UploadState {
+  idFrontPath: string | null;
+  idBackPath: string | null;
+  selfiePath: string | null;
+  poaPath: string | null;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const YOUVERIFY_CALLBACK_URL = 'https://app.borderpayafrica.com/youverify-callback';
+const KYC_BUCKET = 'kyc-documents';
 
 const UNLOCK_FEATURES = [
-  { icon: Globe,      label: 'USD Account',      color: 'from-blue-500/10 to-blue-600/5' },
-  { icon: CreditCard, label: 'Virtual Cards',     color: 'from-purple-500/10 to-purple-600/5' },
-  { icon: Wifi,       label: 'SWIFT Transfers',   color: 'from-green-500/10 to-green-600/5' },
-  { icon: Star,       label: 'Higher Limits',     color: 'from-amber-500/10 to-amber-600/5' },
+  { icon: Globe,      label: 'USD Account',    color: 'from-blue-500/10 to-blue-600/5' },
+  { icon: CreditCard, label: 'Virtual Cards',  color: 'from-purple-500/10 to-purple-600/5' },
+  { icon: Wifi,       label: 'SWIFT Transfers', color: 'from-green-500/10 to-green-600/5' },
+  { icon: Star,       label: 'Higher Limits',  color: 'from-amber-500/10 to-amber-600/5' },
 ];
 
-const EMPLOYMENT_OPTIONS = [
-  { value: 'employed', label: 'Employed' },
-  { value: 'self-employed', label: 'Self-Employed' },
-  { value: 'student', label: 'Student' },
-  { value: 'unemployed', label: 'Unemployed' },
-  { value: 'retired', label: 'Retired' },
+const POA_TYPES: { value: KYCFormData['poaDocumentType']; label: string; hint: string }[] = [
+  { value: 'utility_bill',  label: 'Utility Bill',    hint: 'Electricity, water, or internet — within last 3 months' },
+  { value: 'bank_statement', label: 'Bank Statement',  hint: 'Dated within the last 3 months' },
+  { value: 'lease',          label: 'Lease Agreement', hint: 'Current residential lease' },
+  { value: 'tax_document',   label: 'Tax Document',    hint: 'Issued within the last 12 months' },
 ];
 
-// ─── Main Component ──────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function extFor(file: File): string {
+  const fromName = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+  if (fromName) return fromName;
+  if (file.type === 'image/png')  return 'png';
+  if (file.type === 'image/jpeg') return 'jpg';
+  if (file.type === 'application/pdf') return 'pdf';
+  return 'bin';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVerificationProps) {
   const [step, setStep] = useState<KYCStep>('welcome');
   const [error, setError] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
-
-  // Document capture state
-  const [documentReference, setDocumentReference] = useState<string | null>(null);
-  const [publicMerchantKey, setPublicMerchantKey] = useState<string | null>(null);
 
   // Country & ID selection
   const [selectedCountry, setSelectedCountry] = useState<CountryConfig | null>(null);
   const [selectedIdType, setSelectedIdType] = useState<IDType | null>(null);
   const [countrySearch, setCountrySearch] = useState('');
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
 
   // Form data
   const [formData, setFormData] = useState<KYCFormData>({
@@ -107,22 +132,29 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     lastName: '',
     email: userEmail,
     dateOfBirth: '',
-    country: '',
     phoneCode: '',
     phoneNumber: '',
+    country: '',
     street: '',
+    street2: '',
     city: '',
     state: '',
     postalCode: '',
     idType: '',
     idNumber: '',
-    usResidencyStatus: 'non-resident alien',
-    employmentStatus: 'self-employed',
+    mapleradIdentityType: '',
+    poaDocumentType: '',
   });
 
-  const updateForm = (updates: Partial<KYCFormData>) => {
+  const [uploads, setUploads] = useState<UploadState>({
+    idFrontPath: null,
+    idBackPath: null,
+    selfiePath: null,
+    poaPath: null,
+  });
+
+  const updateForm = (updates: Partial<KYCFormData>) =>
     setFormData(prev => ({ ...prev, ...updates }));
-  };
 
   // Pre-fill name from stored profile
   useEffect(() => {
@@ -136,30 +168,13 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     }
   }, []);
 
-  // Check existing KYC status on mount
+  // Check existing status on mount
   useEffect(() => {
     checkExistingStatus();
     return () => stopPolling();
   }, []);
 
-  const checkExistingStatus = async () => {
-    try {
-      const token = authAPI.getToken();
-      if (!token) return;
-      const response = await fetch(`${BASE_URL}/youverify-kyc-status`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
-      });
-      const data = await response.json();
-      if (data.success) {
-        if (data.status === 'verified') {
-          setStep('success');
-        } else if (data.status === 'pending') {
-          setStep('under-review');
-          startPolling();
-        }
-      }
-    } catch { /* continue to welcome */ }
-  };
+  // ─── Status polling ──────────────────────────────────────────────────────
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -169,6 +184,24 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     pollCountRef.current = 0;
   }, []);
 
+  const checkExistingStatus = async () => {
+    try {
+      const result = await backendAPI.kyc.getKYCStatus();
+      if (!result.success) return;
+      const status = (result as any).status;
+      if (status === 'approved') {
+        setStep('success');
+      } else if (status === 'under_review') {
+        setStep('under-review');
+        startPolling();
+      } else if (status === 'rejected') {
+        const reason = (result as any).rejection_reason;
+        if (reason) setError(reason);
+        setStep('failed');
+      }
+    } catch { /* stay on welcome */ }
+  };
+
   const checkVerificationStatus = useCallback(async (manual = false) => {
     pollCountRef.current += 1;
     if (!manual && pollCountRef.current > 120) {
@@ -176,32 +209,28 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
       return;
     }
     try {
-      const token = authAPI.getToken();
-      if (!token) return;
-      const response = await fetch(`${BASE_URL}/youverify-kyc-status`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'apikey': ANON_KEY },
-      });
-      const data = await response.json();
-      if (data.success) {
-        if (data.status === 'verified') {
-          stopPolling();
-          setStep('success');
-          toast.success('Identity verified!');
-          try {
-            const profileResult = await backendAPI.user.getProfile();
-            if (profileResult.success && profileResult.data?.user) {
-              storeUserProfile(profileResult.data.user);
-              dataCache.invalidate('profile');
-            }
-          } catch { /* silent */ }
-        } else if (data.status === 'failed') {
-          stopPolling();
-          setStep('failed');
-          setError('Verification could not be completed. Please try again.');
-          toast.error('Verification failed');
-        }
+      const result = await backendAPI.kyc.getKYCStatus();
+      if (!result.success) return;
+      const status = (result as any).status;
+      if (status === 'approved') {
+        stopPolling();
+        setStep('success');
+        toast.success('Identity verified!');
+        try {
+          const profileResult = await backendAPI.user.getProfile();
+          if (profileResult.success && profileResult.data?.user) {
+            storeUserProfile(profileResult.data.user);
+            dataCache.invalidate('profile');
+          }
+        } catch { /* silent */ }
+      } else if (status === 'rejected') {
+        stopPolling();
+        const reason = (result as any).rejection_reason;
+        setError(reason || 'Verification could not be completed. Please try again.');
+        setStep('failed');
+        toast.error('Verification failed');
       }
-    } catch { /* polling will retry */ }
+    } catch { /* polling retries */ }
   }, [stopPolling]);
 
   const startPolling = useCallback(() => {
@@ -210,265 +239,248 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
     pollingRef.current = setInterval(() => checkVerificationStatus(false), 30000);
   }, [checkVerificationStatus]);
 
-  // ─── Submit KYC data and launch Youverify ─────────────────────────────────
+  // ─── Uploads to kyc-documents bucket ─────────────────────────────────────
 
-  const submitKYCData = async () => {
+  const uploadFile = async (file: File, slot: 'id-front' | 'id-back' | 'selfie' | 'poa'): Promise<string | null> => {
+    setError(null);
+    setIsUploading(true);
+    try {
+      const path = `${userId}/${slot}-${Date.now()}.${extFor(file)}`;
+      const { error: upErr } = await supabase.storage
+        .from(KYC_BUCKET)
+        .upload(path, file, { upsert: true, contentType: file.type || undefined });
+      if (upErr) throw upErr;
+      return path;
+    } catch (err: any) {
+      console.error('[KYC] Upload failed:', err?.message);
+      setError(err?.message || 'Upload failed. Please try again.');
+      toast.error('Upload failed');
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>, slot: 'id-front' | 'id-back' | 'selfie' | 'poa') => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    // Size / type guards
+    const maxBytes = 10 * 1024 * 1024;
+    if (file.size > maxBytes) { toast.error('File too large (max 10MB)'); return; }
+
+    const isPoa = slot === 'poa';
+    const acceptable = isPoa
+      ? ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+      : ['image/jpeg', 'image/png', 'image/webp'];
+    if (!acceptable.includes(file.type)) {
+      toast.error(isPoa ? 'Use JPG, PNG, WEBP or PDF' : 'Use JPG, PNG or WEBP');
+      return;
+    }
+
+    const path = await uploadFile(file, slot);
+    if (!path) return;
+
+    if (slot === 'id-front') setUploads(u => ({ ...u, idFrontPath: path }));
+    else if (slot === 'id-back') setUploads(u => ({ ...u, idBackPath: path }));
+    else if (slot === 'selfie') setUploads(u => ({ ...u, selfiePath: path }));
+    else if (slot === 'poa') setUploads(u => ({ ...u, poaPath: path }));
+  };
+
+  // ─── Camera (selfie) ─────────────────────────────────────────────────────
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraOn, setCameraOn] = useState(false);
+
+  const startCamera = async () => {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setCameraOn(true);
+    } catch (err: any) {
+      setError('Camera unavailable. You can upload a selfie instead.');
+    }
+  };
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setCameraOn(false);
+  };
+
+  useEffect(() => () => stopCamera(), []);
+
+  const captureSelfie = async () => {
+    const video = videoRef.current;
+    if (!video || !streamRef.current) return;
+    const canvas = document.createElement('canvas');
+    const size = Math.min(video.videoWidth, video.videoHeight) || 720;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
+    if (!blob) { toast.error('Capture failed'); return; }
+    const file = new File([blob], `selfie.jpg`, { type: 'image/jpeg' });
+    stopCamera();
+    const path = await uploadFile(file, 'selfie');
+    if (path) setUploads(u => ({ ...u, selfiePath: path }));
+  };
+
+  // ─── Final submission ────────────────────────────────────────────────────
+
+  const handleSubmit = async () => {
+    if (!uploads.idFrontPath || !uploads.selfiePath) {
+      toast.error('Missing required documents');
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
-
     try {
-      const token = authAPI.getToken();
-      if (!token) throw new Error('Not authenticated');
+      const payload = {
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email.trim(),
+        dateOfBirth: formData.dateOfBirth.trim(),
+        phoneCode: formData.phoneCode,
+        phoneNumber: formData.phoneNumber.trim(),
+        country: formData.country,
+        street: formData.street.trim(),
+        street2: formData.street2.trim() || undefined,
+        city: formData.city.trim(),
+        state: formData.state.trim(),
+        postalCode: formData.postalCode.trim() || undefined,
+        idType: formData.idType,
+        idNumber: formData.idNumber.trim(),
+        mapleradIdentityType: formData.mapleradIdentityType,
+        idFrontPath: uploads.idFrontPath!,
+        idBackPath: uploads.idBackPath || null,
+        selfiePath: uploads.selfiePath!,
+        poaPath: uploads.poaPath || null,
+        poaDocumentType: formData.poaDocumentType || null,
+      };
 
-      // Save KYC submission data to Supabase
-      const response = await fetch(`${BASE_URL}/youverify-kyc-status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'apikey': ANON_KEY,
-        },
-        body: JSON.stringify(formData),
-      });
+      const result = await backendAPI.kyc.submit(payload);
+      const body = result as any;
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to save KYC data');
+      if (!body.success) {
+        setError(body.error || 'Submission failed. Please try again.');
+        toast.error('Submission failed');
+        setStep('failed');
+        return;
       }
 
-      // Transition to document scan step (before liveness)
-      setStep('document-scan');
+      if (body.status === 'approved') {
+        setStep('success');
+        toast.success('Identity verified!');
+        try {
+          const profileResult = await backendAPI.user.getProfile();
+          if (profileResult.success && profileResult.data?.user) {
+            storeUserProfile(profileResult.data.user);
+            dataCache.invalidate('profile');
+          }
+        } catch { /* silent */ }
+        return;
+      }
+
+      // Under review — kick off polling
+      setStep('under-review');
+      startPolling();
+      toast.success('Submitted for review');
     } catch (err: any) {
-      setError(err.message || 'Failed to submit data');
-      toast.error('Failed to submit KYC data');
+      setError(err?.message || 'Submission failed');
+      toast.error('Submission failed');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ─── Youverify Document Capture SDK (youverify-sdk) ────────────────────────
-
-  const startDocumentCapture = async () => {
-    try {
-      setError(null);
-      console.log('[KYC] Starting document capture');
-      console.log('[KYC] Country:', formData.country, 'ID Type:', formData.idType);
-
-      // Get publicMerchantKey from backend if not cached
-      let merchantKey = publicMerchantKey;
-      if (!merchantKey) {
-        const token = localStorage.getItem('borderpay_token') || '';
-        const res = await fetch(`${BASE_URL}/youverify-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-            'apikey': ANON_KEY,
-          },
-          body: JSON.stringify({ metadata: { userId, country: formData.country, idType: formData.idType } }),
-        });
-        const data = await res.json();
-        if (data.publicMerchantKey) {
-          merchantKey = data.publicMerchantKey;
-          setPublicMerchantKey(merchantKey);
-        } else {
-          throw new Error('Could not retrieve merchant key for document capture');
-        }
-      }
-
-      // Import youverify-sdk (attaches to window.YouverifySDK)
-      await import('youverify-sdk');
-      const YouverifySDK = (window as any).YouverifySDK;
-      if (!YouverifySDK?.documentCapture) {
-        throw new Error('Document capture module not available');
-      }
-
-      const docType = getYouverifyDocumentType(formData.country, formData.idType);
-      console.log('[KYC] Document type for SDK:', docType);
-
-      const docModule = new YouverifySDK.documentCapture({
-        publicMerchantKey: merchantKey,
-        type: docType,
-        personalInformation: {
-          firstName: formData.firstName,
-        },
-        metadata: {
-          userId,
-          country: formData.country,
-          idType: formData.idType,
-          idNumber: formData.idNumber,
-        },
-        onSuccess: (data: any) => {
-          console.log('[KYC] Document capture success:', data);
-          const docRef = data?.id || data?.referenceId || data?.verificationId || 'doc-captured';
-          setDocumentReference(docRef);
-          toast.success('Document scanned successfully!');
-          setStep('face-scan-prep');
-        },
-        onFailure: (error: any) => {
-          console.error('[KYC] Document capture failed:', error);
-          setError('Document scan failed. Please ensure good lighting and try again.');
-          toast.error('Document scan failed');
-          setStep('document-scan');
-        },
-        onCancel: () => {
-          console.log('[KYC] Document capture cancelled');
-          setStep('document-scan');
-        },
-        onClose: () => {
-          console.log('[KYC] Document capture closed');
-          if (!documentReference) {
-            setStep('document-scan');
-          }
-        },
-      });
-
-      docModule.initialize();
-      docModule.start();
-    } catch (err: any) {
-      console.error('[KYC] startDocumentCapture error:', err);
-      setError(err.message || 'Failed to start document scan. Please try again.');
-      toast.error('Failed to start document scan');
-    }
-  };
-
-  // ─── Youverify Liveness SDK launch (youverify-liveness-web) ────────────────
-
-  const launchYouverifyLiveness = async () => {
-    try {
-      setError(null);
-
-      // Step 1: Get session credentials from our backend edge function
-      console.log('[KYC] Step 1: Requesting session from youverify-session edge function');
-      const token = localStorage.getItem('borderpay_token') || '';
-      const sessionResponse = await fetch(`${BASE_URL}/youverify-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'apikey': ANON_KEY,
-        },
-        body: JSON.stringify({
-          metadata: {
-            userId,
-            country: formData.country,
-            idType: formData.idType,
-          },
-        }),
-      });
-
-      console.log('[KYC] Step 1: Response status:', sessionResponse.status);
-      const sessionData = await sessionResponse.json();
-      console.log('[KYC] Step 1: Response data:', {
-        success: sessionData.success,
-        hasSessionId: !!sessionData.sessionId,
-        hasSessionToken: !!sessionData.sessionToken,
-        sandbox: sessionData.sandbox,
-        error: sessionData.error,
-      });
-
-      if (!sessionData.success || !sessionData.sessionId || !sessionData.sessionToken) {
-        throw new Error(sessionData.error || 'Failed to create verification session');
-      }
-
-      // Step 2: Dynamically import and launch the liveness SDK
-      // Use sandbox flag from backend so frontend and backend always match
-      const isSandbox = sessionData.sandbox === true;
-      console.log('[KYC] Step 2: Launching liveness SDK (sandbox:', isSandbox, ')');
-      const YouverifyLiveness = (await import('youverify-liveness-web')).default;
-
-      const yvLiveness = new YouverifyLiveness({
-        sessionId: sessionData.sessionId,
-        sessionToken: sessionData.sessionToken,
-        sandboxEnvironment: isSandbox,
-        presentation: 'modal',
-        user: {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-        },
-        tasks: [{ id: 'complete-the-circle' }],
-        onSuccess: async (data: any) => {
-          console.log('[KYC] Liveness check passed:', data);
-          setStep('under-review');
-          startPolling();
-          toast.success('Verification submitted! Under review.');
-        },
-        onFailure: (data: any) => {
-          console.error('[KYC] Liveness check failed:', data);
-          const errorKey = data?.error?.key;
-          if (errorKey === 'invalid_or_expired_session' || errorKey === 'session_token_error') {
-            setError('Session expired. Please try again.');
-          } else {
-            setError('Liveness check failed. Please ensure good lighting and try again.');
-          }
-          toast.error('Liveness check failed');
-        },
-        onClose: () => {
-          console.log('[KYC] Liveness modal closed');
-        },
-      });
-
-      console.log('[KYC] Step 3: Calling yvLiveness.start()');
-      yvLiveness.start();
-
-    } catch (err: any) {
-      console.error('[KYC] Youverify liveness error:', err);
-      setError(err.message || 'Failed to start liveness verification. Please try again.');
-      toast.error('Failed to start verification');
-    }
-  };
-
-  // Auto-launch Youverify liveness when entering liveness step
-  useEffect(() => {
-    if (step === 'liveness') {
-      launchYouverifyLiveness();
-    }
-  }, [step]);
-
   const handleRetry = () => {
     stopPolling();
-    setStep('country');
     setError(null);
-    setSelectedCountry(null);
-    setSelectedIdType(null);
+    setUploads({ idFrontPath: null, idBackPath: null, selfiePath: null, poaPath: null });
+    setStep('personal');
   };
 
-  // Get business day deadline (2 business days from now)
-  const getDeadline = () => {
-    const now = new Date();
-    let days = 0;
-    const deadline = new Date(now);
-    while (days < 2) {
-      deadline.setDate(deadline.getDate() + 1);
-      const dow = deadline.getDay();
-      if (dow !== 0 && dow !== 6) days++;
-    }
-    return deadline.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  // ─── Derived state / validation ──────────────────────────────────────────
+
+  const personalValid =
+    formData.firstName.trim().length >= 2 &&
+    formData.lastName.trim().length >= 2 &&
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(formData.email) &&
+    /^\d{2}-\d{2}-\d{4}$/.test(formData.dateOfBirth) &&
+    formData.phoneNumber.trim().length >= 6;
+
+  const addressValid =
+    !!selectedCountry &&
+    formData.street.trim().length >= 2 &&
+    formData.city.trim().length >= 2 &&
+    formData.state.trim().length >= 2;
+
+  const identityValid =
+    !!selectedIdType &&
+    formData.idNumber.trim().length >= 3 &&
+    !!uploads.idFrontPath;
+
+  const selfieValid = !!uploads.selfiePath;
+  const poaValid = !!uploads.poaPath && !!formData.poaDocumentType;
+
+  const stepProgress: Record<KYCStep, number> = {
+    welcome: 0,
+    personal: 15,
+    address: 30,
+    identity: 50,
+    selfie: 65,
+    poa: 80,
+    review: 92,
+    'under-review': 95,
+    success: 100,
+    failed: 50,
   };
 
-  // Filter countries for search
+  const stepIndex = (() => {
+    const order: KYCStep[] = ['personal', 'address', 'identity', 'selfie', 'poa', 'review'];
+    return order.indexOf(step) + 1;
+  })();
+
+  const goBackFromStep = () => {
+    if (step === 'welcome') onBack();
+    else if (step === 'personal') setStep('welcome');
+    else if (step === 'address') setStep('personal');
+    else if (step === 'identity') setStep('address');
+    else if (step === 'selfie') setStep('identity');
+    else if (step === 'poa') setStep('selfie');
+    else if (step === 'review') setStep('poa');
+    else onBack();
+  };
+
+  // Coming-soon filter
   const filteredCountries = countrySearch
     ? COUNTRY_CONFIG.filter(c =>
         c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
-        c.code.toLowerCase().includes(countrySearch.toLowerCase())
-      )
+        c.code.toLowerCase().includes(countrySearch.toLowerCase()))
     : COUNTRY_CONFIG;
-
   const supportedCountries = filteredCountries.filter(c => c.status === 'active');
-  const comingSoonCountries = filteredCountries.filter(c => c.status === 'coming_soon');
 
-  // Form validation
-  const isDetailsFormValid = formData.firstName && formData.lastName && formData.email &&
-    formData.dateOfBirth && formData.phoneNumber && formData.street && formData.city &&
-    formData.state && formData.idNumber;
-
-  // Step progress
-  const stepProgress: Record<KYCStep, number> = {
-    welcome: 0, country: 12, 'id-type': 25, details: 40,
-    'document-scan': 55, 'face-scan-prep': 70, liveness: 80,
-    'under-review': 90, success: 100, failed: 70,
-  };
+  // Filter ID types for country. Rule: BVN visible only for Nigeria (config
+  // already restricts this, but enforce defensively). Passport is always shown
+  // when present in the country's idTypes.
+  const allowedIdTypes: IDType[] = selectedCountry
+    ? selectedCountry.idTypes.filter(t => t.code !== 'BVN' || selectedCountry.code === 'NG')
+    : [];
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -477,47 +489,33 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
   return (
     <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* ── Header ── */}
-      {step !== 'liveness' && step !== 'document-scan' && (
-        <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
-          <div className="flex items-center justify-between px-4 py-3 pt-safe">
-            <button
-              onClick={step === 'welcome' ? onBack : () => {
-                if (step === 'country') setStep('welcome');
-                else if (step === 'id-type') setStep('country');
-                else if (step === 'details') setStep('id-type');
-                else if (step === 'document-scan') setStep('details');
-                else if (step === 'face-scan-prep') setStep('document-scan');
-                else onBack();
-              }}
-              className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
-            >
-              <ArrowLeft size={16} />
-            </button>
-
-            <div className="flex items-center gap-2">
-              <Shield size={14} className="text-[#C7FF00]" />
-              <span className="text-[11px] font-bold tracking-widest uppercase">
-                Identity Verification
-              </span>
-            </div>
-
-            <div className="w-9 flex items-center justify-center">
-              {step === 'under-review' && (
-                <div className="w-2 h-2 rounded-full bg-[#C7FF00] animate-pulse" />
-              )}
-            </div>
+      <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
+        <div className="flex items-center justify-between px-4 py-3 pt-safe">
+          <button
+            onClick={goBackFromStep}
+            className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
+          >
+            <ArrowLeft size={16} />
+          </button>
+          <div className="flex items-center gap-2">
+            <Shield size={14} className="text-[#C7FF00]" />
+            <span className="text-[11px] font-bold tracking-widest uppercase">
+              {stepIndex > 0 ? `Step ${stepIndex} of 6` : 'Identity Verification'}
+            </span>
           </div>
-
-          {/* Progress bar */}
-          <div className="h-[2px] bg-white/[0.04]">
-            <motion.div
-              className="h-full bg-gradient-to-r from-[#C7FF00] to-[#9BDB00]"
-              animate={{ width: `${stepProgress[step]}%` }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-            />
+          <div className="w-9 flex items-center justify-center">
+            {step === 'under-review' && <div className="w-2 h-2 rounded-full bg-[#C7FF00] animate-pulse" />}
           </div>
         </div>
-      )}
+
+        <div className="h-[2px] bg-white/[0.04]">
+          <motion.div
+            className="h-full bg-gradient-to-r from-[#C7FF00] to-[#9BDB00]"
+            animate={{ width: `${stepProgress[step]}%` }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+          />
+        </div>
+      </div>
 
       {/* ── Content ── */}
       <div className="flex-1 flex flex-col overflow-y-auto">
@@ -527,9 +525,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           {step === 'welcome' && (
             <motion.div
               key="welcome"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
               className="flex-1 px-5 py-4"
             >
@@ -547,7 +543,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
                 <h1 className="text-xl font-black mt-5 tracking-tight">Verify Your Identity</h1>
                 <p className="text-xs text-gray-500 text-center mt-1.5 max-w-[280px] leading-relaxed">
-                  Complete KYC verification to unlock all BorderPay features. Quick, secure, and verified by Youverify.
+                  Complete KYC verification to unlock all BorderPay features. Secured by BorderPay Africa.
                 </p>
               </div>
 
@@ -560,8 +556,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   {UNLOCK_FEATURES.map((f, i) => (
                     <motion.div
                       key={i}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.1 + i * 0.07 }}
                       className={`flex items-center gap-2.5 bg-gradient-to-br ${f.color} border border-white/[0.06] rounded-xl px-3 py-2.5`}
                     >
@@ -579,17 +574,17 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 </div>
                 <div className="space-y-2">
                   {[
-                    { num: '1', text: 'Select your country and ID type' },
-                    { num: '2', text: 'Fill in your personal details' },
-                    { num: '3', text: 'Scan your ID document' },
-                    { num: '4', text: 'Complete a face scan' },
-                    { num: '5', text: 'Get verified — usually within minutes' },
+                    { num: '1', text: 'Tell us about yourself' },
+                    { num: '2', text: 'Add your home address' },
+                    { num: '3', text: 'Upload your ID document' },
+                    { num: '4', text: 'Take a quick selfie' },
+                    { num: '5', text: 'Upload proof of address' },
+                    { num: '6', text: 'Review and submit' },
                   ].map((s, i) => (
                     <motion.div
                       key={i}
-                      initial={{ opacity: 0, x: -12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.3 + i * 0.08 }}
+                      initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.3 + i * 0.06 }}
                       className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.04] rounded-xl px-3.5 py-2.5"
                     >
                       <div className="w-6 h-6 rounded-full bg-[#C7FF00]/10 flex items-center justify-center flex-shrink-0">
@@ -604,13 +599,13 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
               <div className="flex items-start gap-2.5 bg-white/[0.02] border border-white/[0.06] rounded-xl px-3.5 py-3 mb-4">
                 <Lock className="w-3.5 h-3.5 text-[#C7FF00]/60 flex-shrink-0 mt-0.5" />
                 <p className="text-[9px] text-[#C7FF00]/50 leading-relaxed">
-                  End-to-end encrypted. Biometric data is processed by Youverify and never stored on BorderPay servers.
+                  End-to-end encrypted. Your documents are stored securely and used only for identity verification.
                 </p>
               </div>
 
               <div className="px-0 pt-2 pb-6">
                 <motion.button
-                  onClick={() => setStep('country')}
+                  onClick={() => setStep('personal')}
                   className="w-full relative overflow-hidden bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm tracking-wide flex items-center justify-center gap-2.5"
                   whileTap={{ scale: 0.97 }}
                 >
@@ -625,190 +620,42 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
             </motion.div>
           )}
 
-          {/* ═══ COUNTRY SELECTOR ═══ */}
-          {step === 'country' && (
+          {/* ═══ STEP 1 — PERSONAL ═══ */}
+          {step === 'personal' && (
             <motion.div
-              key="country"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              className="flex-1 px-5 py-4"
-            >
-              <div className="text-center mb-5">
-                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                  <Globe className="w-7 h-7 text-[#C7FF00]" />
-                </div>
-                <h2 className="text-lg font-bold">Select Your Country</h2>
-                <p className="text-xs text-gray-500 mt-1">Choose the country where your ID was issued</p>
-              </div>
-
-              {/* Search */}
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Search countries..."
-                  value={countrySearch}
-                  onChange={(e) => setCountrySearch(e.target.value)}
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-10 pr-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C7FF00]/30"
-                />
-                {countrySearch && (
-                  <button onClick={() => setCountrySearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <X className="w-4 h-4 text-gray-500" />
-                  </button>
-                )}
-              </div>
-
-              {/* Country list */}
-              <div className="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
-                {supportedCountries.map((country) => (
-                  <button
-                    key={country.code}
-                    onClick={() => {
-                      setSelectedCountry(country);
-                      updateForm({ country: country.code, phoneCode: country.dialCode });
-                      setStep('id-type');
-                    }}
-                    className="w-full flex items-center gap-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl px-4 py-3 transition-all active:scale-[0.98]"
-                  >
-                    <span className="text-xl">{country.flag}</span>
-                    <div className="flex-1 text-left">
-                      <p className="text-sm font-semibold text-white">{country.name}</p>
-                      <p className="text-[10px] text-gray-500">{country.idTypes.length} ID type{country.idTypes.length !== 1 ? 's' : ''} available</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
-                  </button>
-                ))}
-
-                {comingSoonCountries.length > 0 && (
-                  <>
-                    <div className="pt-3 pb-1">
-                      <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Coming Soon</span>
-                    </div>
-                    {comingSoonCountries.map((country) => (
-                      <div
-                        key={country.code}
-                        className="w-full flex items-center gap-3 bg-white/[0.02] border border-white/[0.04] rounded-xl px-4 py-3 opacity-50 cursor-not-allowed"
-                      >
-                        <span className="text-xl grayscale">{country.flag}</span>
-                        <div className="flex-1 text-left">
-                          <p className="text-sm font-medium text-gray-500">{country.name}</p>
-                        </div>
-                        <span className="text-[9px] font-bold text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">SOON</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {/* ═══ ID TYPE SELECTOR ═══ */}
-          {step === 'id-type' && selectedCountry && (
-            <motion.div
-              key="id-type"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              className="flex-1 px-5 py-4"
-            >
-              <div className="text-center mb-5">
-                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                  <FileText className="w-7 h-7 text-[#C7FF00]" />
-                </div>
-                <h2 className="text-lg font-bold">Select ID Type</h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  {selectedCountry.flag} {selectedCountry.name} — choose your government-issued ID
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                {selectedCountry.idTypes.map((idType) => (
-                  <button
-                    key={idType.code}
-                    onClick={() => {
-                      setSelectedIdType(idType);
-                      updateForm({ idType: idType.code });
-                      setStep('details');
-                    }}
-                    className="w-full flex items-center gap-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl px-4 py-4 transition-all active:scale-[0.98]"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-[#C7FF00]/10 flex items-center justify-center flex-shrink-0">
-                      <CreditCard className="w-5 h-5 text-[#C7FF00]" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <p className="text-sm font-semibold text-white">{idType.label}</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">{idType.description}</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
-          {/* ═══ DETAILS FORM ═══ */}
-          {step === 'details' && selectedCountry && selectedIdType && (
-            <motion.div
-              key="details"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
+              key="personal"
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
               className="flex-1 px-5 py-4"
             >
               <div className="text-center mb-5">
                 <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
                   <User className="w-7 h-7 text-[#C7FF00]" />
                 </div>
-                <h2 className="text-lg font-bold">Your Details</h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  {selectedCountry.flag} {selectedIdType.label}
-                </p>
+                <h2 className="text-lg font-bold">Personal Info</h2>
+                <p className="text-xs text-gray-500 mt-1">Tell us a bit about yourself</p>
               </div>
 
               <div className="space-y-3 pb-6">
-                {/* Personal Info */}
                 <div className="grid grid-cols-2 gap-3">
-                  <FormField
-                    icon={User}
-                    label="First Name"
-                    value={formData.firstName}
-                    onChange={(v) => updateForm({ firstName: v })}
-                    placeholder="John"
-                  />
-                  <FormField
-                    icon={User}
-                    label="Last Name"
-                    value={formData.lastName}
-                    onChange={(v) => updateForm({ lastName: v })}
-                    placeholder="Doe"
-                  />
+                  <FormField icon={User} label="First Name" value={formData.firstName}
+                    onChange={(v) => updateForm({ firstName: v })} placeholder="John" />
+                  <FormField icon={User} label="Last Name" value={formData.lastName}
+                    onChange={(v) => updateForm({ lastName: v })} placeholder="Doe" />
                 </div>
+                <FormField icon={Mail} label="Email" value={formData.email}
+                  onChange={(v) => updateForm({ email: v })} placeholder="you@example.com" type="email" />
+                <FormField icon={Calendar} label="Date of Birth (DD-MM-YYYY)" value={formData.dateOfBirth}
+                  onChange={(v) => updateForm({ dateOfBirth: v })} placeholder="20-10-1990" />
 
-                <FormField
-                  icon={Mail}
-                  label="Email"
-                  value={formData.email}
-                  onChange={(v) => updateForm({ email: v })}
-                  placeholder="you@example.com"
-                  type="email"
-                />
-
-                <FormField
-                  icon={Calendar}
-                  label="Date of Birth (DD-MM-YYYY)"
-                  value={formData.dateOfBirth}
-                  onChange={(v) => updateForm({ dateOfBirth: v })}
-                  placeholder="20-10-1990"
-                />
-
-                {/* Phone */}
                 <div>
                   <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Phone Number</label>
                   <div className="flex gap-2">
-                    <div className="w-20 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-gray-400 flex items-center">
-                      {formData.phoneCode || selectedCountry.dialCode}
-                    </div>
+                    <input
+                      value={formData.phoneCode}
+                      onChange={(e) => updateForm({ phoneCode: e.target.value })}
+                      placeholder="+234"
+                      className="w-24 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C7FF00]/30"
+                    />
                     <input
                       type="tel"
                       value={formData.phoneNumber}
@@ -819,269 +666,434 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   </div>
                 </div>
 
-                {/* ID Number */}
-                <FormField
-                  icon={Hash}
-                  label={`${selectedIdType.label} Number`}
-                  value={formData.idNumber}
-                  onChange={(v) => updateForm({ idNumber: v })}
-                  placeholder="Enter your ID number"
-                />
-
-                {/* Address */}
-                <div className="pt-2">
-                  <div className="flex items-center gap-2 mb-3">
-                    <MapPin className="w-3.5 h-3.5 text-[#C7FF00]" />
-                    <span className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest">Address</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <FormField
-                      icon={Home}
-                      label="Street Address"
-                      value={formData.street}
-                      onChange={(v) => updateForm({ street: v })}
-                      placeholder="123 Main Street"
-                    />
-                    <div className="grid grid-cols-2 gap-3">
-                      <FormField
-                        icon={Building}
-                        label="City"
-                        value={formData.city}
-                        onChange={(v) => updateForm({ city: v })}
-                        placeholder="Lagos"
-                      />
-                      <FormField
-                        icon={MapPin}
-                        label="State"
-                        value={formData.state}
-                        onChange={(v) => updateForm({ state: v })}
-                        placeholder="Lagos"
-                      />
-                    </div>
-                    <FormField
-                      icon={Hash}
-                      label="Postal Code"
-                      value={formData.postalCode}
-                      onChange={(v) => updateForm({ postalCode: v })}
-                      placeholder="100001"
-                    />
-                  </div>
-                </div>
-
-                {/* Employment */}
-                <div className="pt-2">
-                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Employment Status</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {EMPLOYMENT_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => updateForm({ employmentStatus: opt.value })}
-                        className={`px-3 py-2.5 rounded-xl text-xs font-medium border transition-all ${
-                          formData.employmentStatus === opt.value
-                            ? 'bg-[#C7FF00]/10 border-[#C7FF00]/30 text-[#C7FF00]'
-                            : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
-                    <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                    <p className="text-[10px] text-red-400">{error}</p>
-                  </div>
-                )}
+                {error && <ErrorBanner text={error} />}
 
                 <motion.button
-                  onClick={submitKYCData}
-                  disabled={!isDetailsFormValid || isSubmitting}
+                  onClick={() => setStep('address')}
+                  disabled={!personalValid}
                   className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-4"
                   whileTap={{ scale: 0.97 }}
                 >
-                  {isSubmitting
-                    ? <><Loader2 size={16} className="animate-spin" /> Submitting...</>
-                    : <><Scan size={16} /> Continue to Verification</>
-                  }
+                  Continue <ArrowRight size={16} />
                 </motion.button>
               </div>
             </motion.div>
           )}
 
-          {/* ═══ DOCUMENT SCAN ═══ */}
-          {step === 'document-scan' && (
+          {/* ═══ STEP 2 — ADDRESS ═══ */}
+          {step === 'address' && (
             <motion.div
-              key="document-scan"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              className="flex-1 flex flex-col items-center px-5 py-6"
+              key="address"
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
             >
-              {/* Step indicator */}
-              <div className="flex items-center gap-2 mb-6">
-                <div className="flex items-center gap-1.5">
-                  {[1, 2, 3].map((n) => (
-                    <div key={n} className={`w-2.5 h-2.5 rounded-full ${n <= 1 ? 'bg-[#C7FF00]' : 'bg-white/[0.1]'}`} />
-                  ))}
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <Home className="w-7 h-7 text-[#C7FF00]" />
                 </div>
-                <span className="text-[10px] text-gray-500 font-medium">Step 1 of 3</span>
+                <h2 className="text-lg font-bold">Home Address</h2>
+                <p className="text-xs text-gray-500 mt-1">Where do you currently live?</p>
               </div>
 
-              <div className="w-20 h-20 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4">
-                <FileText className="w-10 h-10 text-blue-400" strokeWidth={1.5} />
-              </div>
-
-              <h2 className="text-lg font-bold text-white mb-1.5">Scan Your ID Document</h2>
-              <p className="text-xs text-gray-500 text-center max-w-[280px] mb-5 leading-relaxed">
-                Get your {selectedIdType?.label || 'ID'} ready. Place it on a flat surface with good lighting.
-              </p>
-
-              <div className="w-full max-w-[320px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
-                <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-3">Make sure</p>
-                <div className="space-y-2.5">
-                  {[
-                    'All 4 corners are visible',
-                    'Text is clear and readable',
-                    'No glare or shadows on the document',
-                  ].map((tip, i) => (
-                    <div key={i} className="flex items-center gap-2.5">
-                      <CheckCircle className="w-3.5 h-3.5 text-[#C7FF00] flex-shrink-0" />
-                      <p className="text-[11px] text-gray-400">{tip}</p>
-                    </div>
-                  ))}
+              <div className="space-y-3 pb-6">
+                {/* Country picker */}
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Country</label>
+                  <button
+                    onClick={() => setCountryPickerOpen(true)}
+                    className="w-full flex items-center gap-3 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-left"
+                  >
+                    {selectedCountry ? (
+                      <>
+                        <span className="text-xl">{selectedCountry.flag}</span>
+                        <span className="flex-1 text-white">{selectedCountry.name}</span>
+                        <ChevronDown className="w-4 h-4 text-gray-500" />
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="w-4 h-4 text-gray-500" />
+                        <span className="flex-1 text-gray-500">Select your country</span>
+                        <ChevronDown className="w-4 h-4 text-gray-500" />
+                      </>
+                    )}
+                  </button>
                 </div>
-              </div>
 
-              {error && (
-                <div className="w-full max-w-[320px] flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 mb-4">
-                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                  <p className="text-[10px] text-red-400">{error}</p>
+                <FormField icon={Home} label="Street Address" value={formData.street}
+                  onChange={(v) => updateForm({ street: v })} placeholder="123 Main Street" />
+                <FormField icon={Home} label="Apt / Suite (optional)" value={formData.street2}
+                  onChange={(v) => updateForm({ street2: v })} placeholder="Apt 4B" />
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField icon={Building} label="City" value={formData.city}
+                    onChange={(v) => updateForm({ city: v })} placeholder="Lagos" />
+                  <FormField icon={MapPin} label="State" value={formData.state}
+                    onChange={(v) => updateForm({ state: v })} placeholder="Lagos" />
                 </div>
-              )}
+                <FormField icon={Hash} label="Postal Code (optional)" value={formData.postalCode}
+                  onChange={(v) => updateForm({ postalCode: v })} placeholder="100001" />
 
-              <motion.button
-                onClick={startDocumentCapture}
-                className="w-full max-w-[320px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2.5"
-                whileTap={{ scale: 0.97 }}
-              >
-                <Camera size={16} />
-                Start Document Scan
-              </motion.button>
+                {error && <ErrorBanner text={error} />}
 
-              <button
-                onClick={() => setStep('details')}
-                className="mt-3 text-gray-600 text-[10px] font-medium hover:text-gray-400 transition-colors"
-              >
-                Back
-              </button>
+                <motion.button
+                  onClick={() => setStep('identity')}
+                  disabled={!addressValid}
+                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-4"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  Continue <ArrowRight size={16} />
+                </motion.button>
+              </div>
             </motion.div>
           )}
 
-          {/* ═══ FACE SCAN PREP ═══ */}
-          {step === 'face-scan-prep' && (
+          {/* ═══ STEP 3 — IDENTITY DOCUMENT ═══ */}
+          {step === 'identity' && (
             <motion.div
-              key="face-scan-prep"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              className="flex-1 flex flex-col items-center px-5 py-6"
+              key="identity"
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
             >
-              {/* Step indicator */}
-              <div className="flex items-center gap-2 mb-6">
-                <div className="flex items-center gap-1.5">
-                  {[1, 2, 3].map((n) => (
-                    <div key={n} className={`w-2.5 h-2.5 rounded-full ${n <= 2 ? 'bg-[#C7FF00]' : 'bg-white/[0.1]'}`} />
-                  ))}
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <FileText className="w-7 h-7 text-[#C7FF00]" />
                 </div>
-                <span className="text-[10px] text-gray-500 font-medium">Step 2 of 3</span>
+                <h2 className="text-lg font-bold">Identity Document</h2>
+                <p className="text-xs text-gray-500 mt-1">Choose your ID type and upload a clear photo</p>
               </div>
 
-              <div className="w-20 h-20 bg-purple-500/10 rounded-2xl flex items-center justify-center mb-4">
-                <Fingerprint className="w-10 h-10 text-purple-400" strokeWidth={1.5} />
-              </div>
-
-              <h2 className="text-lg font-bold text-white mb-1.5">Face Scan</h2>
-
-              {/* Document captured badge */}
-              <div className="flex items-center gap-2 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-full px-3.5 py-1.5 mb-4">
-                <CheckCircle className="w-3.5 h-3.5 text-[#C7FF00]" />
-                <span className="text-[10px] text-[#C7FF00] font-semibold">Document scan complete</span>
-              </div>
-
-              <p className="text-xs text-gray-500 text-center max-w-[280px] mb-5 leading-relaxed">
-                Now we need to confirm it's you. We'll ask you to look at the camera and follow simple instructions.
-              </p>
-
-              <div className="w-full max-w-[320px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
-                <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-3">Make sure</p>
-                <div className="space-y-2.5">
-                  {[
-                    "You're in good lighting",
-                    'Camera is at eye level',
-                    'Remove glasses if wearing any',
-                  ].map((tip, i) => (
-                    <div key={i} className="flex items-center gap-2.5">
-                      <CheckCircle className="w-3.5 h-3.5 text-[#C7FF00] flex-shrink-0" />
-                      <p className="text-[11px] text-gray-400">{tip}</p>
-                    </div>
-                  ))}
+              <div className="space-y-3 pb-6">
+                {/* ID type selector */}
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">ID Type</label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {allowedIdTypes.map((t) => (
+                      <button
+                        key={t.code}
+                        onClick={() => {
+                          setSelectedIdType(t);
+                          updateForm({
+                            idType: t.code,
+                            mapleradIdentityType: t.mapleradIdentityType,
+                          });
+                        }}
+                        className={`flex items-center gap-3 border rounded-xl px-3.5 py-3 text-left transition-all ${
+                          formData.idType === t.code
+                            ? 'bg-[#C7FF00]/10 border-[#C7FF00]/30'
+                            : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[#C7FF00]/10 flex items-center justify-center flex-shrink-0">
+                          <CreditCard className="w-4 h-4 text-[#C7FF00]" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-xs font-semibold text-white">{t.label}</p>
+                          <p className="text-[10px] text-gray-500">{t.description}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedCountry && allowedIdTypes.length === 0 && (
+                    <p className="text-[10px] text-gray-500 mt-2">No ID types configured for {selectedCountry.name}.</p>
+                  )}
                 </div>
+
+                {selectedIdType && (
+                  <FormField
+                    icon={Hash}
+                    label={`${selectedIdType.label} Number`}
+                    value={formData.idNumber}
+                    onChange={(v) => updateForm({ idNumber: v })}
+                    placeholder="Enter your ID number"
+                  />
+                )}
+
+                {/* ID front */}
+                <UploadCard
+                  title="ID Front"
+                  subtitle="Clear photo of the front of your ID"
+                  done={!!uploads.idFrontPath}
+                  onClear={() => setUploads(u => ({ ...u, idFrontPath: null }))}
+                >
+                  <input
+                    id="id-front-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => handleFileInput(e, 'id-front')}
+                    className="hidden"
+                  />
+                  <label htmlFor="id-front-input" className="flex items-center justify-center gap-2 text-xs font-semibold text-[#C7FF00] cursor-pointer">
+                    <Upload size={14} /> {uploads.idFrontPath ? 'Replace' : 'Upload'}
+                  </label>
+                </UploadCard>
+
+                {/* ID back (optional for passports) */}
+                <UploadCard
+                  title="ID Back (optional)"
+                  subtitle="Only if the reverse of your ID contains info"
+                  done={!!uploads.idBackPath}
+                  onClear={() => setUploads(u => ({ ...u, idBackPath: null }))}
+                >
+                  <input
+                    id="id-back-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => handleFileInput(e, 'id-back')}
+                    className="hidden"
+                  />
+                  <label htmlFor="id-back-input" className="flex items-center justify-center gap-2 text-xs font-semibold text-[#C7FF00] cursor-pointer">
+                    <Upload size={14} /> {uploads.idBackPath ? 'Replace' : 'Upload'}
+                  </label>
+                </UploadCard>
+
+                {error && <ErrorBanner text={error} />}
+
+                <motion.button
+                  onClick={() => setStep('selfie')}
+                  disabled={!identityValid || isUploading}
+                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-4"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  Continue <ArrowRight size={16} />
+                </motion.button>
               </div>
-
-              {error && (
-                <div className="w-full max-w-[320px] flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 mb-4">
-                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                  <p className="text-[10px] text-red-400">{error}</p>
-                </div>
-              )}
-
-              <motion.button
-                onClick={() => setStep('liveness')}
-                className="w-full max-w-[320px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2.5"
-                whileTap={{ scale: 0.97 }}
-              >
-                <Scan size={16} />
-                Start Face Scan
-              </motion.button>
             </motion.div>
           )}
 
-          {/* ═══ LIVENESS (Youverify SDK loads here) ═══ */}
-          {step === 'liveness' && (
+          {/* ═══ STEP 4 — SELFIE ═══ */}
+          {step === 'selfie' && (
             <motion.div
-              key="liveness"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col items-center justify-center px-6"
+              key="selfie"
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
             >
-              <div className="relative w-28 h-28 mb-6">
-                <motion.div
-                  className="absolute inset-0 rounded-2xl border-2 border-[#C7FF00]/20"
-                  animate={{ rotate: 360 }}
-                  transition={{ repeat: Infinity, duration: 4, ease: 'linear' }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Scan className="w-10 h-10 text-[#C7FF00]" strokeWidth={1.5} />
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <Scan className="w-7 h-7 text-[#C7FF00]" />
                 </div>
+                <h2 className="text-lg font-bold">Selfie</h2>
+                <p className="text-xs text-gray-500 mt-1">Snap a clear photo of your face</p>
               </div>
-              {/* Step indicator */}
-              <div className="flex items-center gap-2 mb-4">
-                <div className="flex items-center gap-1.5">
-                  {[1, 2, 3].map((n) => (
-                    <div key={n} className="w-2.5 h-2.5 rounded-full bg-[#C7FF00]" />
-                  ))}
+
+              <div className="pb-6">
+                <div className="bg-black/40 border border-white/[0.08] rounded-2xl overflow-hidden aspect-square flex items-center justify-center relative">
+                  {uploads.selfiePath ? (
+                    <div className="flex flex-col items-center justify-center text-center px-4">
+                      <CheckCircle className="w-10 h-10 text-[#C7FF00] mb-2" />
+                      <p className="text-xs font-semibold text-white">Selfie uploaded</p>
+                      <p className="text-[10px] text-gray-500 mt-1">You can retake it below</p>
+                    </div>
+                  ) : cameraOn ? (
+                    <video
+                      ref={videoRef}
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover scale-x-[-1]"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center px-4">
+                      <Camera className="w-10 h-10 text-gray-500 mb-2" />
+                      <p className="text-xs text-gray-400">Turn on the camera or upload a photo</p>
+                    </div>
+                  )}
                 </div>
-                <span className="text-[10px] text-gray-500 font-medium">Step 3 of 3</span>
+
+                <div className="flex gap-2 mt-3">
+                  {cameraOn ? (
+                    <>
+                      <motion.button
+                        onClick={captureSelfie}
+                        disabled={isUploading}
+                        className="flex-1 bg-[#C7FF00] text-[#0B0E11] py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                        Capture
+                      </motion.button>
+                      <button
+                        onClick={stopCamera}
+                        className="px-4 bg-white/[0.06] border border-white/[0.1] rounded-xl text-xs font-semibold"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <motion.button
+                        onClick={startCamera}
+                        className="flex-1 bg-[#C7FF00] text-[#0B0E11] py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        <Camera size={14} /> {uploads.selfiePath ? 'Retake' : 'Open Camera'}
+                      </motion.button>
+                      <input
+                        id="selfie-upload"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={(e) => handleFileInput(e, 'selfie')}
+                        className="hidden"
+                      />
+                      <label htmlFor="selfie-upload" className="px-4 bg-white/[0.06] border border-white/[0.1] rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer">
+                        <Upload size={14} /> Upload
+                      </label>
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-4 bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+                  <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-2">Tips</p>
+                  <ul className="space-y-1.5">
+                    {['Use good lighting', 'Face the camera directly', 'Remove glasses if wearing any'].map((t, i) => (
+                      <li key={i} className="flex items-center gap-2 text-[10px] text-gray-400">
+                        <CheckCircle className="w-3 h-3 text-[#C7FF00]" /> {t}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {error && <ErrorBanner text={error} />}
+
+                <motion.button
+                  onClick={() => setStep('poa')}
+                  disabled={!selfieValid || isUploading}
+                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-4"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  Continue <ArrowRight size={16} />
+                </motion.button>
               </div>
-              <h3 className="text-sm font-bold mb-1.5">Launching Face Scan</h3>
-              <p className="text-[10px] text-gray-600 mb-5">Connecting to Youverify...</p>
-              <p className="text-[9px] text-gray-700 text-center max-w-[260px]">
-                Follow the on-screen instructions to complete your facial verification. This only takes a few seconds.
-              </p>
+            </motion.div>
+          )}
+
+          {/* ═══ STEP 5 — PROOF OF ADDRESS ═══ */}
+          {step === 'poa' && (
+            <motion.div
+              key="poa"
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
+            >
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <ImageIcon className="w-7 h-7 text-[#C7FF00]" />
+                </div>
+                <h2 className="text-lg font-bold">Proof of Address</h2>
+                <p className="text-xs text-gray-500 mt-1">Pick a document type and upload it</p>
+              </div>
+
+              <div className="space-y-3 pb-6">
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Document Type</label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {POA_TYPES.map((t) => (
+                      <button
+                        key={t.value}
+                        onClick={() => updateForm({ poaDocumentType: t.value as KYCFormData['poaDocumentType'] })}
+                        className={`flex items-center gap-3 border rounded-xl px-3.5 py-3 text-left transition-all ${
+                          formData.poaDocumentType === t.value
+                            ? 'bg-[#C7FF00]/10 border-[#C7FF00]/30'
+                            : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[#C7FF00]/10 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-4 h-4 text-[#C7FF00]" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-xs font-semibold text-white">{t.label}</p>
+                          <p className="text-[10px] text-gray-500">{t.hint}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <UploadCard
+                  title="Upload document"
+                  subtitle="JPG, PNG, WEBP or PDF up to 10MB"
+                  done={!!uploads.poaPath}
+                  onClear={() => setUploads(u => ({ ...u, poaPath: null }))}
+                >
+                  <input
+                    id="poa-upload"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={(e) => handleFileInput(e, 'poa')}
+                    className="hidden"
+                  />
+                  <label htmlFor="poa-upload" className="flex items-center justify-center gap-2 text-xs font-semibold text-[#C7FF00] cursor-pointer">
+                    <Upload size={14} /> {uploads.poaPath ? 'Replace' : 'Upload'}
+                  </label>
+                </UploadCard>
+
+                {error && <ErrorBanner text={error} />}
+
+                <motion.button
+                  onClick={() => setStep('review')}
+                  disabled={!poaValid || isUploading}
+                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-4"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  Continue <ArrowRight size={16} />
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══ STEP 6 — REVIEW & SUBMIT ═══ */}
+          {step === 'review' && (
+            <motion.div
+              key="review"
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              className="flex-1 px-5 py-4"
+            >
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <BadgeCheck className="w-7 h-7 text-[#C7FF00]" />
+                </div>
+                <h2 className="text-lg font-bold">Review &amp; Submit</h2>
+                <p className="text-xs text-gray-500 mt-1">Confirm everything looks right</p>
+              </div>
+
+              <div className="space-y-3 pb-6">
+                <ReviewSection title="Personal">
+                  <ReviewRow label="Name" value={`${formData.firstName} ${formData.lastName}`} />
+                  <ReviewRow label="Email" value={formData.email} />
+                  <ReviewRow label="DOB" value={formData.dateOfBirth} />
+                  <ReviewRow label="Phone" value={`${formData.phoneCode} ${formData.phoneNumber}`} />
+                </ReviewSection>
+
+                <ReviewSection title="Address">
+                  <ReviewRow label="Country" value={selectedCountry ? `${selectedCountry.flag} ${selectedCountry.name}` : '—'} />
+                  <ReviewRow label="Street" value={[formData.street, formData.street2].filter(Boolean).join(', ')} />
+                  <ReviewRow label="City / State" value={`${formData.city}, ${formData.state}`} />
+                  {formData.postalCode && <ReviewRow label="Postal" value={formData.postalCode} />}
+                </ReviewSection>
+
+                <ReviewSection title="Identity">
+                  <ReviewRow label="Type" value={selectedIdType?.label || '—'} />
+                  <ReviewRow label="Number" value={formData.idNumber} />
+                  <ReviewRow label="ID front" value={uploads.idFrontPath ? 'Uploaded' : 'Missing'} ok={!!uploads.idFrontPath} />
+                  {uploads.idBackPath && <ReviewRow label="ID back" value="Uploaded" ok />}
+                </ReviewSection>
+
+                <ReviewSection title="Selfie &amp; Proof of Address">
+                  <ReviewRow label="Selfie" value={uploads.selfiePath ? 'Uploaded' : 'Missing'} ok={!!uploads.selfiePath} />
+                  <ReviewRow label="POA type" value={POA_TYPES.find(p => p.value === formData.poaDocumentType)?.label || '—'} />
+                  <ReviewRow label="POA file" value={uploads.poaPath ? 'Uploaded' : 'Missing'} ok={!!uploads.poaPath} />
+                </ReviewSection>
+
+                {error && <ErrorBanner text={error} />}
+
+                <motion.button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || !uploads.idFrontPath || !uploads.selfiePath}
+                  className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-4"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  {isSubmitting
+                    ? <><Loader2 size={16} className="animate-spin" /> Submitting your verification...</>
+                    : <><ShieldCheck size={16} /> Submit Verification</>
+                  }
+                </motion.button>
+              </div>
             </motion.div>
           )}
 
@@ -1089,15 +1101,12 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           {step === 'under-review' && (
             <motion.div
               key="under-review"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.3 }}
               className="flex-1 flex flex-col items-center px-5 py-8"
             >
               <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
+                initial={{ scale: 0 }} animate={{ scale: 1 }}
                 transition={{ duration: 0.5, ease: 'easeOut' }}
                 className="w-24 h-24 rounded-3xl bg-gradient-to-br from-yellow-500/20 to-orange-500/10 border border-yellow-500/20 flex items-center justify-center mb-5"
               >
@@ -1106,35 +1115,17 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
               <h2 className="text-xl font-black text-white mb-2 text-center">Under Review</h2>
               <p className="text-xs text-gray-400 text-center max-w-[300px] mb-6 leading-relaxed">
-                Your identity verification has been submitted successfully. We're reviewing your documents.
+                Your submission is being reviewed. We'll update this screen automatically — you can also check manually.
               </p>
-
-              <div className="w-full max-w-[320px] bg-gradient-to-br from-yellow-500/[0.08] to-orange-500/[0.04] border border-yellow-500/20 rounded-2xl p-5 mb-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                    <Clock className="w-5 h-5 text-yellow-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-white">Estimated Completion</p>
-                    <p className="text-xs text-yellow-400 font-semibold">Usually within a few minutes to 24 hours</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 bg-black/20 rounded-xl px-4 py-3">
-                  <CheckCircle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                  <p className="text-[11px] text-gray-300">
-                    Expected by <span className="text-yellow-400 font-bold">{getDeadline()}</span>
-                  </p>
-                </div>
-              </div>
 
               <div className="w-full max-w-[320px] bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
                 <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-3">What happens next</p>
                 <div className="space-y-3">
                   {[
-                    { icon: Eye, text: 'Youverify reviews your ID and liveness check' },
-                    { icon: ShieldCheck, text: 'Document authenticity is verified' },
-                    { icon: UserCheck, text: 'Your Maplerad account is created automatically' },
-                    { icon: BadgeCheck, text: 'All premium features unlock immediately' },
+                    { icon: Eye, text: 'Our team reviews your ID and documents' },
+                    { icon: ShieldCheck, text: 'Identity is verified against issuer records' },
+                    { icon: UserCheck, text: 'Your Maplerad account is provisioned' },
+                    { icon: BadgeCheck, text: 'All premium features unlock' },
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-3">
                       <div className="w-7 h-7 rounded-full bg-white/[0.04] flex items-center justify-center flex-shrink-0">
@@ -1144,13 +1135,6 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                     </div>
                   ))}
                 </div>
-              </div>
-
-              <div className="w-full max-w-[320px] flex items-start gap-2.5 bg-blue-500/[0.06] border border-blue-500/[0.1] rounded-xl px-3.5 py-3 mb-6">
-                <CheckCircle className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" />
-                <p className="text-[9px] text-blue-300/80 leading-relaxed">
-                  You can continue using BorderPay while we review your documents. Basic features remain available.
-                </p>
               </div>
 
               <motion.button
@@ -1174,8 +1158,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 className="w-full max-w-[320px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
                 whileTap={{ scale: 0.97 }}
               >
-                <ArrowRight size={16} />
-                Back to App
+                <ArrowRight size={16} /> Back to App
               </motion.button>
             </motion.div>
           )}
@@ -1184,9 +1167,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           {step === 'success' && (
             <motion.div
               key="success"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="flex-1 flex flex-col items-center justify-center px-6"
             >
               <div className="relative">
@@ -1208,8 +1189,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   />
                 ))}
                 <motion.div
-                  initial={{ scale: 0, rotate: -180 }}
-                  animate={{ scale: 1, rotate: 0 }}
+                  initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }}
                   transition={{ duration: 0.5, ease: 'easeOut', delay: 0.1 }}
                   className="w-28 h-28 rounded-3xl bg-gradient-to-br from-[#C7FF00]/25 to-[#C7FF00]/5 border-2 border-[#C7FF00]/30 flex items-center justify-center relative z-10"
                 >
@@ -1226,18 +1206,15 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                 <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.9 }}
                   className="inline-flex items-center gap-2.5 px-5 py-3 bg-[#C7FF00]/10 border border-[#C7FF00]/20 rounded-2xl mb-6">
                   <ShieldCheck className="w-4 h-4 text-[#C7FF00]" />
-                  <span className="text-xs text-[#C7FF00] font-bold">Fully Verified — All Features Unlocked</span>
+                  <span className="text-xs text-[#C7FF00] font-bold">Secured by BorderPay Africa</span>
                 </motion.div>
                 <motion.button
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 1.1 }}
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.1 }}
                   onClick={onComplete}
                   className="w-full max-w-[280px] bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 mx-auto"
                   whileTap={{ scale: 0.97 }}
                 >
-                  <ArrowRight size={16} />
-                  Continue
+                  <ArrowRight size={16} /> Continue
                 </motion.button>
               </div>
             </motion.div>
@@ -1247,14 +1224,11 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
           {step === 'failed' && (
             <motion.div
               key="failed"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="flex-1 flex flex-col items-center justify-center px-6"
             >
               <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
+                initial={{ scale: 0 }} animate={{ scale: 1 }}
                 transition={{ duration: 0.4, ease: 'easeOut' }}
                 className="w-24 h-24 rounded-3xl bg-red-500/10 border border-red-500/15 flex items-center justify-center mb-5"
               >
@@ -1273,8 +1247,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
                   className="w-full bg-[#C7FF00] text-[#0B0E11] py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
                   whileTap={{ scale: 0.97 }}
                 >
-                  <RefreshCw size={15} />
-                  Try Again
+                  <RefreshCw size={15} /> Try Again
                 </motion.button>
                 <button onClick={onBack} className="w-full text-gray-500 py-3 text-[10px] font-medium hover:text-gray-300 transition-colors">
                   Go Back
@@ -1285,19 +1258,73 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
         </AnimatePresence>
       </div>
+
+      {/* ── Country picker modal ── */}
+      <AnimatePresence>
+        {countryPickerOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col"
+            onClick={() => setCountryPickerOpen(false)}
+          >
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30 }}
+              className="mt-auto bg-[#0B0E11] border-t border-white/[0.06] rounded-t-3xl max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+                <h3 className="text-sm font-bold">Select country</h3>
+                <button onClick={() => setCountryPickerOpen(false)} className="w-8 h-8 rounded-lg bg-white/[0.06] flex items-center justify-center">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="px-5 pb-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input
+                    type="text"
+                    placeholder="Search countries..."
+                    value={countrySearch}
+                    onChange={(e) => setCountrySearch(e.target.value)}
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C7FF00]/30"
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 pb-6 space-y-1.5">
+                {supportedCountries.map((c) => (
+                  <button
+                    key={c.code}
+                    onClick={() => {
+                      setSelectedCountry(c);
+                      updateForm({ country: c.code, phoneCode: formData.phoneCode || c.dialCode });
+                      setSelectedIdType(null);
+                      updateForm({ idType: '', idNumber: '', mapleradIdentityType: '' });
+                      setCountryPickerOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl px-4 py-3 transition-all"
+                  >
+                    <span className="text-xl">{c.flag}</span>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-white">{c.name}</p>
+                      <p className="text-[10px] text-gray-500">{c.idTypes.length} ID types available</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-600" />
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-// ─── Reusable Form Field Component ──────────────────────────────────────────
+// ─── Reusable bits ──────────────────────────────────────────────────────────
 
 function FormField({
-  icon: Icon,
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
+  icon: Icon, label, value, onChange, placeholder, type = 'text',
 }: {
   icon: React.ComponentType<any>;
   label: string;
@@ -1319,6 +1346,65 @@ function FormField({
           className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C7FF00]/30"
         />
       </div>
+    </div>
+  );
+}
+
+function UploadCard({
+  title, subtitle, done, onClear, children,
+}: {
+  title: string;
+  subtitle: string;
+  done: boolean;
+  onClear: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`border rounded-xl px-4 py-3 ${done ? 'bg-[#C7FF00]/10 border-[#C7FF00]/30' : 'bg-white/[0.03] border-white/[0.06]'}`}>
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <p className="text-xs font-semibold text-white">{title}</p>
+          <p className="text-[10px] text-gray-500">{subtitle}</p>
+        </div>
+        {done ? (
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-[#C7FF00]" />
+            <button onClick={onClear} className="text-[10px] text-gray-500 hover:text-gray-300">Clear</button>
+          </div>
+        ) : (
+          <div className="w-6 h-6 rounded-full border border-white/[0.08]" />
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ReviewSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3">
+      <p className="text-[10px] font-bold text-[#C7FF00] uppercase tracking-widest mb-2">{title}</p>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function ReviewRow({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[10px] text-gray-500">{label}</span>
+      <span className={`text-[11px] font-semibold text-right ${ok === false ? 'text-red-400' : 'text-white'}`}>
+        {value || '—'}
+      </span>
+    </div>
+  );
+}
+
+function ErrorBanner({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
+      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+      <p className="text-[10px] text-red-400 leading-relaxed">{text}</p>
     </div>
   );
 }

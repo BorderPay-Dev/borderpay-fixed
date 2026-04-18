@@ -712,7 +712,7 @@ const en: TranslationDict = {
   'scheduled.confirmDelete': 'Are you sure you want to delete this scheduled transfer?',
   // ── KYC Verification ──
   'kyc.verifyIdentity': 'Verify Your Identity',
-  'kyc.quickSecure': 'Quick & secure ID verification powered by Youverify',
+  'kyc.quickSecure': 'Quick & secure identity verification',
   'kyc.unlockPremium': 'Unlock Premium',
   'kyc.virtualCards': 'Virtual Cards',
   'kyc.intlTransfers': "Int'l Transfers",
@@ -725,7 +725,7 @@ const en: TranslationDict = {
   'kyc.idTypes': 'Passport, National ID, or License',
   'kyc.stableConnection': 'Stable Connection',
   'kyc.forVerification': 'For real-time verification',
-  'kyc.securityNote': 'End-to-end encrypted. Your biometric data is processed by Youverify and never stored on our servers.',
+  'kyc.securityNote': 'End-to-end encrypted. Your documents are stored securely and only used for verification.',
   'kyc.beginVerification': 'Begin Verification',
   'kyc.doLater': "I'll do this later",
   'kyc.cameraRequired': 'Camera Access Required',

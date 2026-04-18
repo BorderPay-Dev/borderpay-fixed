@@ -1,6 +1,6 @@
 /**
  * BorderPay Africa — KYC Jobs List
- * Displays all Youverify verification jobs with status, filtering, and details.
+ * Displays all KYC verification jobs with status, filtering, and details.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -353,7 +353,7 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
                                   value={job.verification_result.status}
                                   color={job.verification_result.status === 'approved' ? 'text-green-400' : 'text-yellow-400'}
                                 />
-                                <MiniStat label="Provider" value={job.verification_result.provider || 'youverify'} />
+                                <MiniStat label="Provider" value={job.verification_result.provider || 'maplerad'} />
                                 <MiniStat label="ID" value={job.verification_result.verification_id?.slice(0, 12) || '—'} />
                               </div>
                             </div>

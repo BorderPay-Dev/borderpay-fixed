@@ -11,7 +11,7 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
  * 5. Review & Submit
  * 6. Pending → Dashboard
  *
- * KYC verification (via Youverify) happens AFTER signup from the dashboard.
+ * KYC verification happens AFTER signup from the dashboard.
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';

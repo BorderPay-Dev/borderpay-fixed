@@ -5,22 +5,13 @@ project_id = "orwrcpwsffjlvzuraxjc"
 
 # ── Edge function-specific overrides ────────────────────────────────────────
 
-# Youverify posts callbacks server-to-server with no JWT in the Authorization
-# header, so we must disable JWT verification on this endpoint. The handler
-# itself verifies the Youverify HMAC signature instead.
-[functions.youverify-callback]
-verify_jwt = false
-
-# Maplerad enrollment — called server-to-server by youverify-callback (no user
-# JWT available in that context). The function validates userId internally.
-[functions.enroll-maplerad-customer]
-verify_jwt = false
-
-# Youverify session generation — authenticated frontend endpoint
-# (function does its own JWT verification internally)
-[functions.youverify-session]
+# KYC submission — authenticated frontend endpoint. The function validates the
+# caller's JWT internally, validates payload + storage path ownership,
+# generates 24h signed URLs for selfie/ID front, and POSTs to Maplerad's
+# /v1/customers/enroll. Rate-limited to 3 attempts per user per 24h.
+[functions.kyc-submit]
 verify_jwt = true
 
-# KYC status polling — authenticated frontend endpoint
-[functions.youverify-kyc-status]
+# KYC status — authenticated polling endpoint used by the under_review screen.
+[functions.kyc-status]
 verify_jwt = true

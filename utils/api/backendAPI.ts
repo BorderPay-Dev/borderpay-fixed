@@ -409,8 +409,38 @@ export const fxAPI = {
 // ============================================================================
 
 export const kycAPI = {
+  /** Submit a complete KYC application (Personal info + address + ID + selfie + POA paths). */
+  async submit(payload: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    dateOfBirth: string; // DD-MM-YYYY
+    phoneCode: string;
+    phoneNumber: string;
+    country: string;
+    street: string;
+    street2?: string;
+    city: string;
+    state: string;
+    postalCode?: string;
+    idType: string;
+    idNumber: string;
+    mapleradIdentityType: string;
+    idFrontPath: string;
+    idBackPath?: string | null;
+    selfiePath: string;
+    poaPath?: string | null;
+    poaDocumentType?: string | null;
+  }) {
+    return apiCall('kyc-submit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /** Poll the current KYC status for the authenticated user. */
   async getKYCStatus(_userId?: string) {
-    return apiCall('youverify-kyc-status', { method: 'GET' });
+    return apiCall('kyc-status', { method: 'GET' });
   },
 
   async verifyBVN(bvn: string) {
@@ -424,15 +454,6 @@ export const kycAPI = {
   async getKYCJobs(status?: 'pending' | 'verified' | 'failed' | 'all') {
     const qs = status ? `?status=${status}` : '';
     return apiCall(`get-kyc-jobs${qs}`, { method: 'GET' });
-  },
-};
-
-export const enrollmentAPI = {
-  async enrollCustomer(data: any) {
-    return apiCall('enroll-customer-full', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
   },
 };
 
@@ -733,7 +754,6 @@ export const backendAPI = {
   cards: cardAPI,
   fx: fxAPI,
   kyc: kycAPI,
-  enrollment: enrollmentAPI,
   proofOfAddress: proofOfAddressAPI,
   localPayments: localPaymentsAPI,
   usPayments: usPaymentsAPI,

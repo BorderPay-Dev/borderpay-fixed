@@ -92,13 +92,13 @@ serve(async (req) => {
         updated_at: profile.updated_at,
         verifications: userVerifications.map((v: any) => ({
           job_id: v.job_id,
-          provider: v.provider || 'youverify',
+          provider: v.provider || 'maplerad',
           status: v.status,
           document_type: v.document_type,
           confidence_score: v.confidence_score,
           result_code: v.result_data?.result_code || null,
           result_text: v.result_data?.result_text || null,
-          verification_id: v.verification_id || v.result_data?.youverify_id || null,
+          verification_id: v.verification_id || v.result_data?.maplerad_customer_id || null,
           full_name: v.result_data?.full_name || null,
           id_type: v.id_type || v.result_data?.id_type || null,
           country: v.country_code || v.result_data?.country || null,
@@ -108,7 +108,7 @@ serve(async (req) => {
         verification_result: latestVerification ? {
           status: latestVerification.status,
           verification_id: latestVerification.verification_id || '',
-          provider: latestVerification.provider || 'youverify',
+          provider: latestVerification.provider || 'maplerad',
         } : null,
       };
     });

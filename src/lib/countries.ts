@@ -7,12 +7,11 @@
  *
  * Built from:
  *  - Maplerad restricted jurisdictions (44 countries/territories)
- *  - Youverify eIDV coverage (NG, GH, KE, ZA)
- *  - Youverify document capture coverage (134+ countries)
+ *  - Maplerad-supported issuing/identity coverage
  *
  * Rules:
- *  - status: 'active'      → Maplerad accepts enrollment + Youverify can verify
- *  - status: 'coming_soon' → Maplerad allows but no Youverify coverage yet
+ *  - status: 'active'      → Maplerad accepts enrollment from this country
+ *  - status: 'coming_soon' → Maplerad does not yet support this country
  *  - status: 'restricted'  → Maplerad banned — NEVER show to users
  */
 
@@ -34,7 +33,11 @@ export interface CountryConfig {
   dialCode: string;
   currency: string;
   mapleradSupported: boolean;
-  youverifySupported: boolean;
+  /**
+   * Hint for what kind of identity capture this country needs. The custom
+   * KYC flow always collects an ID image + selfie + POA regardless, but this
+   * tag is kept so the UI can tailor copy ("scan your ID" vs "type your BVN").
+   */
   verificationMethod: 'eidv' | 'document_capture' | 'none';
   idTypes: IDType[];
   status: 'active' | 'coming_soon' | 'restricted';
@@ -59,7 +62,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
 
   {
     code: 'NG', name: 'Nigeria', flag: '🇳🇬', dialCode: '+234', currency: 'NGN',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'eidv',
+    mapleradSupported: true, verificationMethod: 'eidv',
     status: 'active',
     idTypes: [
       { code: 'BVN', label: 'Bank Verification Number (BVN)', description: '11-digit BVN linked to your bank account', fields: ['idNumber'], mapleradIdentityType: 'BVN' },
@@ -72,7 +75,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'GH', name: 'Ghana', flag: '🇬🇭', dialCode: '+233', currency: 'GHS',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'eidv',
+    mapleradSupported: true, verificationMethod: 'eidv',
     status: 'active',
     idTypes: [
       { code: 'SSNIT', label: 'SSNIT Number', description: 'Social Security and National Insurance Trust number', fields: ['idNumber'], mapleradIdentityType: 'SSNIT' },
@@ -83,7 +86,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'KE', name: 'Kenya', flag: '🇰🇪', dialCode: '+254', currency: 'KES',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'eidv',
+    mapleradSupported: true, verificationMethod: 'eidv',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National Identity Number', description: 'Kenyan national identity card number', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -94,7 +97,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'ZA', name: 'South Africa', flag: '🇿🇦', dialCode: '+27', currency: 'ZAR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'eidv',
+    mapleradSupported: true, verificationMethod: 'eidv',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'South African ID Number', description: '13-digit SA ID number', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -103,12 +106,12 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // AFRICA — document capture (Youverify SDK scan)
+  // AFRICA — document capture (manual upload + selfie)
   // ═══════════════════════════════════════════════════════════════════════════
 
   {
     code: 'TZ', name: 'Tanzania', flag: '🇹🇿', dialCode: '+255', currency: 'TZS',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: 'Tanzanian national ID (NIDA)', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -117,7 +120,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'UG', name: 'Uganda', flag: '🇺🇬', dialCode: '+256', currency: 'UGX',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: 'Ugandan national ID (Ndaga Muntu)', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -126,7 +129,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'RW', name: 'Rwanda', flag: '🇷🇼', dialCode: '+250', currency: 'RWF',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: 'Rwandan national ID', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -135,7 +138,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'CM', name: 'Cameroon', flag: '🇨🇲', dialCode: '+237', currency: 'XAF',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card (CNI)', description: 'Cameroon national ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -144,7 +147,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'SN', name: 'Senegal', flag: '🇸🇳', dialCode: '+221', currency: 'XOF',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: "Carte nationale d'identite", fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -153,7 +156,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'BW', name: 'Botswana', flag: '🇧🇼', dialCode: '+267', currency: 'BWP',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card (Omang)', description: 'Botswana national ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -162,7 +165,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'MU', name: 'Mauritius', flag: '🇲🇺', dialCode: '+230', currency: 'MUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: 'Mauritian national identity card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -171,7 +174,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'EG', name: 'Egypt', flag: '🇪🇬', dialCode: '+20', currency: 'EGP',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: 'Egyptian national ID', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -180,7 +183,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'MA', name: 'Morocco', flag: '🇲🇦', dialCode: '+212', currency: 'MAD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card (CNIE)', description: 'Moroccan CNIE card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -189,7 +192,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'TN', name: 'Tunisia', flag: '🇹🇳', dialCode: '+216', currency: 'TND',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card (CIN)', description: 'Tunisian CIN', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -198,7 +201,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'DZ', name: 'Algeria', flag: '🇩🇿', dialCode: '+213', currency: 'DZD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: 'Algerian national ID', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -207,7 +210,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'BF', name: 'Burkina Faso', flag: '🇧🇫', dialCode: '+226', currency: 'XOF',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card (CNIB)', description: 'Burkinabe CNIB card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -216,7 +219,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'MZ', name: 'Mozambique', flag: '🇲🇿', dialCode: '+258', currency: 'MZN',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'International Passport', description: 'Mozambican passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -224,7 +227,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'SZ', name: 'Eswatini', flag: '🇸🇿', dialCode: '+268', currency: 'SZL',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID', description: 'Eswatini national ID', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -238,7 +241,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
 
   {
     code: 'US', name: 'United States', flag: '🇺🇸', dialCode: '+1', currency: 'USD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'US Passport', description: 'United States passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -247,7 +250,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'GB', name: 'United Kingdom', flag: '🇬🇧', dialCode: '+44', currency: 'GBP',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'UK Passport', description: 'British passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -256,7 +259,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'CA', name: 'Canada', flag: '🇨🇦', dialCode: '+1', currency: 'CAD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Canadian Passport', description: 'Canadian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -265,7 +268,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'FR', name: 'France', flag: '🇫🇷', dialCode: '+33', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: "Carte d'identite", description: "Carte nationale d'identite", fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -274,7 +277,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'DE', name: 'Germany', flag: '🇩🇪', dialCode: '+49', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'Personalausweis', description: 'German national ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -283,7 +286,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'IN', name: 'India', flag: '🇮🇳', dialCode: '+91', currency: 'INR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Indian Passport', description: 'Indian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -291,7 +294,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'AE', name: 'United Arab Emirates', flag: '🇦🇪', dialCode: '+971', currency: 'AED',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'Emirates ID', description: 'UAE Emirates ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -300,7 +303,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'SA', name: 'Saudi Arabia', flag: '🇸🇦', dialCode: '+966', currency: 'SAR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID', description: 'Saudi national ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -309,7 +312,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'TR', name: 'Turkey', flag: '🇹🇷', dialCode: '+90', currency: 'TRY',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'TC Kimlik', description: 'Turkish national ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -318,7 +321,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'IL', name: 'Israel', flag: '🇮🇱', dialCode: '+972', currency: 'ILS',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'Teudat Zehut', description: 'Israeli identity card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -327,7 +330,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'JO', name: 'Jordan', flag: '🇯🇴', dialCode: '+962', currency: 'JOD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID', description: 'Jordanian national ID', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -336,7 +339,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'KW', name: 'Kuwait', flag: '🇰🇼', dialCode: '+965', currency: 'KWD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'Civil ID', description: 'Kuwaiti civil identity card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -344,7 +347,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'QA', name: 'Qatar', flag: '🇶🇦', dialCode: '+974', currency: 'QAR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'QID', description: 'Qatar ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -353,7 +356,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'OM', name: 'Oman', flag: '🇴🇲', dialCode: '+968', currency: 'OMR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'Civil ID', description: 'Omani civil ID card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -361,7 +364,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'BH', name: 'Bahrain', flag: '🇧🇭', dialCode: '+973', currency: 'BHD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'CPR Card', description: 'Bahraini Central Population Registry card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -374,7 +377,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
 
   {
     code: 'BR', name: 'Brazil', flag: '🇧🇷', dialCode: '+55', currency: 'BRL',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Brazilian Passport', description: 'Brazilian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -382,7 +385,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'MX', name: 'Mexico', flag: '🇲🇽', dialCode: '+52', currency: 'MXN',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Mexican Passport', description: 'Mexican passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -390,7 +393,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'CO', name: 'Colombia', flag: '🇨🇴', dialCode: '+57', currency: 'COP',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Colombian Passport', description: 'Colombian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -398,7 +401,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'AR', name: 'Argentina', flag: '🇦🇷', dialCode: '+54', currency: 'ARS',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Argentine Passport', description: 'Argentine passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -406,7 +409,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'CL', name: 'Chile', flag: '🇨🇱', dialCode: '+56', currency: 'CLP',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Chilean Passport', description: 'Chilean passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -414,7 +417,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'PE', name: 'Peru', flag: '🇵🇪', dialCode: '+51', currency: 'PEN',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Peruvian Passport', description: 'Peruvian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -422,7 +425,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'JM', name: 'Jamaica', flag: '🇯🇲', dialCode: '+1-876', currency: 'JMD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Jamaican Passport', description: 'Jamaican passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -430,7 +433,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'TT', name: 'Trinidad and Tobago', flag: '🇹🇹', dialCode: '+1-868', currency: 'TTD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'National ID Card', description: 'TT national ID', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -444,7 +447,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
 
   {
     code: 'NL', name: 'Netherlands', flag: '🇳🇱', dialCode: '+31', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'ID Card', description: 'Dutch identity card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -453,7 +456,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'IT', name: 'Italy', flag: '🇮🇹', dialCode: '+39', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: "Carta d'identita", description: 'Italian identity card', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -462,7 +465,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'ES', name: 'Spain', flag: '🇪🇸', dialCode: '+34', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'NATIONAL_ID', label: 'DNI', description: 'Documento Nacional de Identidad', fields: ['idNumber'], mapleradIdentityType: 'NATIONAL_ID' },
@@ -471,7 +474,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'PT', name: 'Portugal', flag: '🇵🇹', dialCode: '+351', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Passaporte', description: 'Portuguese passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -479,7 +482,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'SE', name: 'Sweden', flag: '🇸🇪', dialCode: '+46', currency: 'SEK',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Pass', description: 'Swedish passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -487,7 +490,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'NO', name: 'Norway', flag: '🇳🇴', dialCode: '+47', currency: 'NOK',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Norwegian Passport', description: 'Norwegian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -495,7 +498,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'DK', name: 'Denmark', flag: '🇩🇰', dialCode: '+45', currency: 'DKK',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Danish Passport', description: 'Danish passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -503,7 +506,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'CH', name: 'Switzerland', flag: '🇨🇭', dialCode: '+41', currency: 'CHF',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Passport', description: 'Swiss passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -511,7 +514,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'AT', name: 'Austria', flag: '🇦🇹', dialCode: '+43', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Reisepass', description: 'Austrian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -519,7 +522,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'BE', name: 'Belgium', flag: '🇧🇪', dialCode: '+32', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Passport', description: 'Belgian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -527,7 +530,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'IE', name: 'Ireland', flag: '🇮🇪', dialCode: '+353', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Irish Passport', description: 'Irish passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -535,7 +538,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'PL', name: 'Poland', flag: '🇵🇱', dialCode: '+48', currency: 'PLN',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Paszport', description: 'Polish passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -543,7 +546,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'FI', name: 'Finland', flag: '🇫🇮', dialCode: '+358', currency: 'EUR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Passi', description: 'Finnish passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -556,7 +559,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
 
   {
     code: 'AU', name: 'Australia', flag: '🇦🇺', dialCode: '+61', currency: 'AUD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Australian Passport', description: 'Australian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -564,7 +567,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'NZ', name: 'New Zealand', flag: '🇳🇿', dialCode: '+64', currency: 'NZD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'NZ Passport', description: 'New Zealand passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -572,7 +575,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'SG', name: 'Singapore', flag: '🇸🇬', dialCode: '+65', currency: 'SGD',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Singapore Passport', description: 'Singaporean passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -580,7 +583,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'JP', name: 'Japan', flag: '🇯🇵', dialCode: '+81', currency: 'JPY',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Japanese Passport', description: 'Japanese passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -588,7 +591,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'KR', name: 'South Korea', flag: '🇰🇷', dialCode: '+82', currency: 'KRW',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Korean Passport', description: 'Republic of Korea passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -596,7 +599,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'MY', name: 'Malaysia', flag: '🇲🇾', dialCode: '+60', currency: 'MYR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Malaysian Passport', description: 'Malaysian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -604,7 +607,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'PH', name: 'Philippines', flag: '🇵🇭', dialCode: '+63', currency: 'PHP',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Philippine Passport', description: 'Philippine passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -612,7 +615,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'TH', name: 'Thailand', flag: '🇹🇭', dialCode: '+66', currency: 'THB',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Thai Passport', description: 'Thai passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -620,7 +623,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'ID', name: 'Indonesia', flag: '🇮🇩', dialCode: '+62', currency: 'IDR',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Indonesian Passport', description: 'Indonesian passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
@@ -628,7 +631,7 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
   },
   {
     code: 'BD', name: 'Bangladesh', flag: '🇧🇩', dialCode: '+880', currency: 'BDT',
-    mapleradSupported: true, youverifySupported: true, verificationMethod: 'document_capture',
+    mapleradSupported: true, verificationMethod: 'document_capture',
     status: 'active',
     idTypes: [
       { code: 'PASSPORT', label: 'Bangladeshi Passport', description: 'Bangladeshi passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
