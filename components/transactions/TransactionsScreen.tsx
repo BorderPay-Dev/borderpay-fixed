@@ -134,26 +134,24 @@ export function TransactionsScreen({ userId, customerId, onBack }: TransactionsS
 
   return (
     <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
-      {/* Header */}
-      <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
-        <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={onBack}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center ${tc.hoverBg} transition-colors`}
-          >
-            <ArrowLeft size={20} className={tc.text} />
-          </button>
-          <h1 className={`bp-text-h3 font-bold ${tc.text}`}>{t('transactions.title')}</h1>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center ${tc.hoverBg} transition-colors`}
-          >
-            <Filter size={20} className={tc.text} />
-          </button>
-        </div>
+      {/* Inline eyebrow + filter toggle. AppShell owns the top chrome
+          for top-level routes; no duplicate sticky header here. */}
+      <div className="max-w-2xl mx-auto px-5 pt-5 flex items-center justify-between">
+        <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
+          {t('transactions.title')}
+        </p>
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          aria-label="Filters"
+          className={`p-2 -mr-2 rounded-full ${tc.hoverBg} transition-colors`}
+        >
+          <Filter size={16} className={tc.text} />
+        </button>
+      </div>
+      <div className="max-w-2xl mx-auto">
 
         {/* Search Bar */}
-        <div className="px-6 pb-4">
+        <div className="px-5 pt-4 pb-2">
           <div className="relative">
             <Search className={`absolute left-4 top-1/2 -translate-y-1/2 ${tc.textSecondary}`} size={20} />
             <input

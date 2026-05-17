@@ -234,75 +234,89 @@ async function verifyTOTPCode(secret: Uint8Array, inputCode: string, window: num
 // PIN MANAGEMENT
 // ============================================================================
 
+// PIN MANAGEMENT — server is the source of truth.
+//
+// SECURITY: the PIN hash is NEVER stored in localStorage. setup/verify/change
+// all round-trip through the backend (setup-pin / verify-pin / change-pin
+// edge functions), so a malicious browser extension cannot extract the hash
+// and brute-force a 6-digit PIN offline.
+//
+// `hasPIN` reads only the boolean `pin_set` flag from the cached profile
+// (mirrored from `user_security.pin_set`). The actual hash never touches
+// the client.
+//
+// KNOWN LIMITATIONS (tracked for hardening):
+//   • The server-side hash uses single-round SHA-256 with user.id as salt.
+//     Should migrate to PBKDF2(100k iters) or Argon2id with a random salt.
+//   • verify-pin has no rate-limit / lockout. Should add per-user attempt
+//     counter with exponential backoff.
+// These are tracked as P1 follow-ups; switching the source-of-truth away
+// from localStorage is the high-impact fix shipped today.
 export const PINManager = {
-  /** Check if user has a PIN set up */
-  hasPIN(userId: string): boolean {
-    const state = loadState(userId);
-    return !!state.pinHash && !!state.pinSalt;
+  hasPIN(_userId: string): boolean {
+    try {
+      const stored = localStorage.getItem('borderpay_user');
+      if (stored) {
+        const p = JSON.parse(stored);
+        return !!(p?.pin_set);
+      }
+    } catch { /* ignore */ }
+    return false;
   },
 
-  /** Set up a new PIN (first time or reset) */
   async setupPIN(userId: string, pin: string): Promise<{ success: boolean; error?: string }> {
-    if (!/^\d{6}$/.test(pin)) {
-      return { success: false, error: 'PIN must be exactly 6 digits' };
+    if (!/^\d{4,6}$/.test(pin)) {
+      return { success: false, error: 'PIN must be 4 to 6 digits' };
     }
-
     const weakPins = ['000000', '111111', '222222', '333333', '444444', '555555',
       '666666', '777777', '888888', '999999', '123456', '654321', '123123'];
     if (weakPins.includes(pin)) {
       return { success: false, error: 'Please choose a stronger PIN' };
     }
-
     try {
-      const salt = arrayBufferToHex(generateRandomBytes(32).buffer as ArrayBuffer);
-      const hash = await sha256(pin, salt);
-
-      const state = loadState(userId);
-      state.pinHash = hash;
-      state.pinSalt = salt;
-      if (!state.createdAt || state.createdAt === DEFAULT_STATE.createdAt) {
-        state.createdAt = new Date().toISOString();
-      }
-      saveState(userId, state);
-
-      // Sync to backend DB
-      syncSecurityToBackend({ pin_set: true });
-
+      const { backendAPI } = await import('../api/backendAPI');
+      const r: any = await backendAPI.auth.setupPIN(userId, pin);
+      if (!r?.success) return { success: false, error: r?.error || 'Could not set PIN' };
+      // Mirror the boolean into the cached profile so hasPIN sees it.
+      try {
+        const stored = localStorage.getItem('borderpay_user');
+        if (stored) {
+          const p = JSON.parse(stored); p.pin_set = true;
+          localStorage.setItem('borderpay_user', JSON.stringify(p));
+        }
+      } catch { /* ignore */ }
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to set up PIN' };
+      return { success: false, error: err?.message || 'Failed to set up PIN' };
     }
   },
 
-  /** Verify a PIN against the stored hash */
-  async verifyPIN(userId: string, pin: string): Promise<boolean> {
-    const state = loadState(userId);
-    if (!state.pinHash || !state.pinSalt) return false;
-
+  async verifyPIN(_userId: string, pin: string): Promise<boolean> {
     try {
-      const hash = await sha256(pin, state.pinSalt);
-      return hash === state.pinHash;
+      const { backendAPI } = await import('../api/backendAPI');
+      const r: any = await backendAPI.auth.verifyPIN(pin);
+      return !!r?.success;
     } catch {
       return false;
     }
   },
 
-  /** Change PIN (requires current PIN verification) */
-  async changePIN(userId: string, currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> {
-    const isValid = await this.verifyPIN(userId, currentPin);
-    if (!isValid) {
-      return { success: false, error: 'Current PIN is incorrect' };
+  async changePIN(_userId: string, currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> {
+    if (!/^\d{4,6}$/.test(newPin)) return { success: false, error: 'PIN must be 4 to 6 digits' };
+    try {
+      const { backendAPI } = await import('../api/backendAPI');
+      const r: any = await backendAPI.auth.changePIN(currentPin, newPin);
+      if (!r?.success) return { success: false, error: r?.error || 'Could not change PIN' };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to change PIN' };
     }
-    return this.setupPIN(userId, newPin);
   },
 
-  /** Remove PIN */
-  removePIN(userId: string): void {
-    const state = loadState(userId);
-    state.pinHash = null;
-    state.pinSalt = null;
-    saveState(userId, state);
-    syncSecurityToBackend({ pin_set: false });
+  removePIN(_userId: string): void {
+    // PIN removal is intentionally NOT exposed to the client. Removing a
+    // PIN should require a fresh login + email confirmation; if you need
+    // to drop one, contact support. Method is a no-op for caller stability.
   },
 };
 
@@ -310,8 +324,24 @@ export const PINManager = {
 // TOTP 2FA MANAGEMENT
 // ============================================================================
 
+// TOTP 2FA MANAGEMENT
+//
+// SECURITY DEBT (P1, scheduled for next batch): The TOTP secret is
+// currently generated and stored client-side in localStorage. A malicious
+// browser extension could extract the secret and generate valid codes
+// without the user's authenticator app. The migration plan is:
+//
+//   1. setup-2fa edge function generates the TOTP secret server-side,
+//      stores it encrypted in `user_security.totp_secret_encrypted`, and
+//      returns only the otpauth:// QR URL to the client.
+//   2. verify-2fa edge function verifies user-entered codes server-side.
+//   3. Client TOTPManager becomes a thin wrapper, just like PINManager.
+//
+// Until then, this manager still holds the secret client-side. Treat
+// 2FA as a UX layer, not a hardened auth factor. The PIN flow (which IS
+// now server-backed, see PINManager) is the authoritative gate for
+// money-movement operations.
 export const TOTPManager = {
-  /** Check if 2FA is enabled */
   isEnabled(userId: string): boolean {
     const state = loadState(userId);
     return state.totpEnabled && !!state.totpSecret;

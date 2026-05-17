@@ -228,24 +228,20 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         onChange={handleFileChange}
       />
 
-      {/* Header */}
-      <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
-        <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={onBack}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center ${tc.hoverBg} transition-colors`}
-          >
-            <ArrowLeft size={20} className={tc.text} />
-          </button>
-          <h1 className={`bp-text-h3 font-bold ${tc.text}`}>{t('profile.title')}</h1>
-          <button
-            onClick={() => (editing ? handleCancel() : setEditing(true))}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center ${tc.hoverBg} transition-colors`}
-            disabled={saving}
-          >
-            {editing ? <X size={20} className={tc.text} /> : <Edit2 size={20} className={tc.text} />}
-          </button>
-        </div>
+      {/* Inline section eyebrow + edit toggle. AppShell owns the top chrome
+          for top-level routes; we no longer render a duplicate sticky bar. */}
+      <div className="max-w-2xl mx-auto px-5 pt-5 flex items-center justify-between">
+        <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
+          {t('profile.title')}
+        </p>
+        <button
+          onClick={() => (editing ? handleCancel() : setEditing(true))}
+          disabled={saving}
+          className={`p-2 -mr-2 rounded-full ${tc.hoverBg} transition-colors`}
+          aria-label={editing ? 'Cancel edit' : 'Edit profile'}
+        >
+          {editing ? <X size={16} className={tc.text} /> : <Edit2 size={16} className={tc.text} />}
+        </button>
       </div>
 
       {/* Content */}

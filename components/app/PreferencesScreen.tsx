@@ -128,21 +128,16 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
   );
 
   return (
-    <div className={`min-h-screen pb-safe ${tc.bg}`}>
-      {/* Header */}
-      <div className={`${tc.bgAlt} border-b ${tc.border} px-4 py-4 pt-safe sticky top-0 z-10`}>
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className={`p-2 ${tc.hoverBg} rounded-lg transition-colors`}>
-            <ChevronLeft className={`w-6 h-6 ${tc.text}`} />
-          </button>
-          <div>
-            <h1 className={`${tc.text} text-xl font-bold`}>{t('prefs.title')}</h1>
-            <p className={`${tc.textMuted} text-xs`}>{t('prefs.subtitle')}</p>
-          </div>
-        </div>
+    <div className={`min-h-screen ${tc.bg}`}>
+      {/* AppShell owns top chrome; preferences renders body-only. */}
+      <div className="max-w-2xl mx-auto px-5 pt-5">
+        <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-1`}>
+          {t('prefs.title')}
+        </p>
+        <p className={`${tc.textMuted} text-[11px] mb-4`}>{t('prefs.subtitle')}</p>
       </div>
 
-      <div className="p-4 space-y-6">
+      <div className="max-w-2xl mx-auto p-4 space-y-6">
         {/* Appearance */}
         <div className={`${tc.cardSolid} border rounded-2xl p-4`}>
           <div className="flex items-center gap-3 mb-4">

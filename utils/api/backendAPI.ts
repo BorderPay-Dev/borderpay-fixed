@@ -425,30 +425,26 @@ export const cardAPI = {
 // FX / EXCHANGE
 // ============================================================================
 
+// QUARANTINED — `getQuote` and `convert` previously called the `fx` edge
+// function, which has been retired. Currency convert (fiat ↔ fiat and
+// fiat ↔ stablecoin) is routed through the partner's transfer endpoint
+// in a future release; until then both methods short-circuit so the
+// Exchange screen can render a clear "coming soon" state instead of a 404.
+// `getHistory` returns whatever audit rows exist; `getLiveRates` is
+// client-side indicative fallback.
 export const fxAPI = {
-  async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
-    return apiCall('fx', {
-      method: 'POST',
-      body: JSON.stringify({
-        action: 'quote',
-        source_currency: sourceCurrency,
-        target_currency: targetCurrency,
-        amount,
-      }),
-    });
+  async getQuote(_sourceCurrency: string, _targetCurrency: string, _amount: number) {
+    return RAILS_FUTURE_STATE;
   },
 
-  async convert(data: {
+  async convert(_data: {
     quote_reference: string | null;
     source_wallet_id: string;
     destination_wallet_id: string;
     amount: number;
     transaction_pin: string;
   }) {
-    return apiCall('fx', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'convert', ...data }),
-    });
+    return RAILS_FUTURE_STATE;
   },
 
   async getHistory() {
