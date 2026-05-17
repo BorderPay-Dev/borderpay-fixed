@@ -29,29 +29,44 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-    const [{ data: sub }, { data: profile }] = await Promise.all([
+    // Provider-neutral KYC status surface. Reads Bridge KYC/KYB from the
+    // canonical fields; the legacy `kyc_submissions` row may still exist
+    // for users who went through the previous-provider flow, so we still
+    // derive a coarse status from it when present.
+    const [{ data: sub }, { data: profile }, { data: biz }] = await Promise.all([
       supabase.from('kyc_submissions')
-        .select('submission_status, rejection_reason, submitted_at, updated_at, maplerad_customer_id, country, id_type')
+        .select('submission_status, rejection_reason, submitted_at, updated_at, country, id_type')
         .eq('user_id', user.id)
         .maybeSingle(),
       supabase.from('user_profiles')
-        .select('kyc_status, maplerad_customer_id, account_status')
+        .select('kyc_status, account_type, account_status, bridge_customer_id, bridge_kyc_status')
         .eq('id', user.id)
+        .maybeSingle(),
+      supabase.from('business_profiles')
+        .select('bridge_kyb_status')
+        .eq('user_id', user.id)
         .maybeSingle(),
     ]);
 
+    const bridgeStatus =
+      profile?.account_type === 'business'
+        ? (biz?.bridge_kyb_status ?? null)
+        : (profile?.bridge_kyc_status ?? null);
+
     let status: 'none' | 'draft' | 'under_review' | 'approved' | 'rejected' = 'none';
-    if (profile?.kyc_status === 'verified' || sub?.submission_status === 'approved') status = 'approved';
-    else if (sub?.submission_status === 'rejected') status = 'rejected';
-    else if (sub?.submission_status === 'under_review') status = 'under_review';
-    else if (sub?.submission_status === 'draft') status = 'draft';
+    if (bridgeStatus === 'approved' || profile?.kyc_status === 'verified' || sub?.submission_status === 'approved') status = 'approved';
+    else if (bridgeStatus === 'rejected' || sub?.submission_status === 'rejected') status = 'rejected';
+    else if (bridgeStatus === 'under_review' || sub?.submission_status === 'under_review') status = 'under_review';
+    else if (bridgeStatus === 'pending' || sub?.submission_status === 'draft') status = 'draft';
 
     return new Response(JSON.stringify({
       success: true,
       status,
-      rejection_reason: sub?.rejection_reason || null,
-      submitted_at: sub?.submitted_at || null,
-      maplerad_customer_id: sub?.maplerad_customer_id || profile?.maplerad_customer_id || null,
+      rejection_reason:    sub?.rejection_reason || null,
+      submitted_at:        sub?.submitted_at || null,
+      account_type:        profile?.account_type ?? 'individual',
+      bridge_customer_id:  profile?.bridge_customer_id || null,
+      bridge_kyc_status:   bridgeStatus,
     }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (err) {

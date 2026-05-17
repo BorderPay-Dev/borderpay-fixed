@@ -16,7 +16,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 type TxType = 'deposit' | 'send' | 'receive' | 'swap';
-type StablecoinCurrency = 'USDC' | 'USDT' | 'PYUSD';
+type StablecoinCurrency = 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
 
 interface StablecoinConfirmScreenProps {
   onBack: () => void;
@@ -31,9 +31,10 @@ interface StablecoinConfirmScreenProps {
 }
 
 const COIN_CONFIG: Record<StablecoinCurrency, { name: string; color: string; bgColor: string; icon: string }> = {
-  USDC: { name: 'USD Coin', color: '#2775CA', bgColor: '#2775CA20', icon: '$' },
-  USDT: { name: 'Tether', color: '#26A17B', bgColor: '#26A17B20', icon: '₮' },
+  USDC:  { name: 'USD Coin',   color: '#2775CA', bgColor: '#2775CA20', icon: '$' },
+  USDT:  { name: 'Tether',     color: '#26A17B', bgColor: '#26A17B20', icon: '₮' },
   PYUSD: { name: 'PayPal USD', color: '#0074D9', bgColor: '#0074D920', icon: '$' },
+  USDB:  { name: 'Backed USD', color: '#0052FF', bgColor: '#0052FF20', icon: '$' },
 };
 
 const TX_TYPE_CONFIG: Record<TxType, { label: string; pastTense: string; icon: typeof ArrowDownLeft; color: string }> = {

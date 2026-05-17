@@ -1,0 +1,126 @@
+// bridge-ping — non-mutating sanity check for the BRIDGE_API_KEY secret.
+//
+// Auth: accepts EITHER the project's service-role token (exact string
+// match against SUPABASE_SERVICE_ROLE_KEY), OR an admin user JWT
+// validated through supabase.auth.getUser(token) AND found in admin_users.
+//
+// We deliberately do NOT decode JWT payloads ourselves — a caller could
+// craft a payload with `{ role: "service_role" }` and bypass admin
+// verification. Authorization is always derived from either a verified
+// service-role secret comparison or a server-validated user JWT.
+//
+// Calls a read-only Bridge endpoint (GET /v0/customers?limit=1) and
+// reports reachability + key_kind + latency WITHOUT echoing the key
+// value back to the caller.
+
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const CORS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+const json = (b: unknown, s = 200) =>
+  new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST")    return json({ ok: false, error: "POST only" }, 405);
+
+  const auth  = req.headers.get("Authorization") || "";
+  const token = auth.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return json({ ok: false, error: "Authorization required" }, 401);
+
+  const SUPABASE_URL          = Deno.env.get("SUPABASE_URL")!;
+  const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  // ── Authorize: service role (exact secret match) OR admin user ──────
+  const isServiceRole = SUPABASE_SERVICE_ROLE.length > 0 && token === SUPABASE_SERVICE_ROLE;
+
+  if (!isServiceRole) {
+    const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
+    if (authErr || !userInfo?.user) return json({ ok: false, error: "Unauthorized" }, 401);
+
+    const { data: adminRow } = await supa
+      .from("admin_users")
+      .select("user_id")
+      .eq("user_id", userInfo.user.id)
+      .maybeSingle();
+    if (!adminRow) return json({ ok: false, error: "admin only" }, 403);
+  }
+
+  const apiKey  = Deno.env.get("BRIDGE_API_KEY") ?? "";
+  const baseUrl = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
+  if (!apiKey) return json({ ok: false, error: "BRIDGE_API_KEY not set on this project" }, 500);
+
+  // Surface only a prefix and the inferred environment — never the full key.
+  const keyPrefix = apiKey.slice(0, 8) + "…";
+  const keyKind   = apiKey.startsWith("sk-live") ? "live"
+                  : apiKey.startsWith("sk-test") ? "sandbox"
+                  : "unknown";
+
+  const url = `${baseUrl}/v0/customers?limit=1`;
+  const t0  = Date.now();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method:  "GET",
+      headers: {
+        "Api-Key":    apiKey,
+        "Accept":     "application/json",
+        "User-Agent": "borderpay-edge/bridge-ping",
+      },
+    });
+  } catch (e) {
+    return json({
+      ok: false, key_prefix: keyPrefix, key_kind: keyKind,
+      stage: "network", error: (e as Error).message,
+      latency_ms: Date.now() - t0,
+    }, 502);
+  }
+  const latencyMs = Date.now() - t0;
+  const requestId = res.headers.get("x-request-id") || res.headers.get("request-id") || null;
+  const text = await res.text();
+
+  let sampleCount: number | null = null;
+  try {
+    const parsed = JSON.parse(text || "{}");
+    if (Array.isArray(parsed?.data))           sampleCount = parsed.data.length;
+    else if (Array.isArray(parsed))            sampleCount = parsed.length;
+    else if (typeof parsed?.count === "number") sampleCount = parsed.count;
+  } catch { /* ignore */ }
+
+  if (!res.ok) {
+    return json({
+      ok:         false,
+      stage:      "bridge_http",
+      status:     res.status,
+      key_prefix: keyPrefix,
+      key_kind:   keyKind,
+      base_url:   baseUrl,
+      request_id: requestId,
+      latency_ms: latencyMs,
+      hint: res.status === 401 ? "Bridge rejected the key. Verify the secret value matches the intended environment."
+          : res.status === 403 ? "Key valid but lacks scope. Check the API key permissions in the Bridge dashboard."
+          : res.status === 429 ? "Rate limited. Retry shortly."
+          : null,
+    }, res.status === 401 ? 401 : 502);
+  }
+
+  return json({
+    ok:           true,
+    stage:        "reachable",
+    status:       res.status,
+    key_prefix:   keyPrefix,
+    key_kind:     keyKind,
+    base_url:     baseUrl,
+    request_id:   requestId,
+    latency_ms:   latencyMs,
+    sample_count: sampleCount,
+  });
+});

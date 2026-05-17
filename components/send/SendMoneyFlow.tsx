@@ -355,7 +355,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         });
       } else if (method === 'us_ach_wire') {
         result = await backendAPI.usPayments.transfer({
-          counterparty_id: selectedCounterparty.id || selectedCounterparty.maplerad_id,
+          counterparty_id: selectedCounterparty.id,
           amount: parseFloat(amount),
           payment_rail: paymentRail,
           memo: usMemo || 'invoice #1',
@@ -385,15 +385,30 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
 
       if (result.success) {
-        setTransactionId(result.data?.transaction_id || '');
-        setTransactionRef(result.data?.reference || '');
+        // bridge-transfer returns { transfer_id, state }; legacy paths return
+        // { transaction_id, reference, new_balance }. Surface whichever exists.
+        setTransactionId(result.data?.transaction_id || result.data?.transfer_id || '');
+        setTransactionRef(result.data?.reference || result.data?.transfer_id || '');
         setNewBalance(result.data?.new_balance ?? null);
         setStep('success');
         toast.success(t('send.txSuccessful'));
       } else {
-        setErrorMessage(result.error || t('send.txFailed'));
+        // Map structured server codes to friendly user-facing messages.
+        // 402 plan_required is intercepted globally by apiCall and pops
+        // UpgradeModal; we don't surface it as a transfer failure.
+        const code = (result as any)?.code;
+        const friendly =
+          code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
+        : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through our African partner.')
+        : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
+        : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
+        : code === 'no_customer'          ? 'Set up your Bridge account before sending funds.'
+        : code === 'plan_required'        ? ''      // UpgradeModal handles it; suppress duplicate toast
+        : (result.error || t('send.txFailed'));
+
+        setErrorMessage(friendly || t('send.txFailed'));
         setStep('error');
-        toast.error(friendlyError(result.error, t('send.txFailed')));
+        if (friendly) toast.error(friendlyError(friendly, t('send.txFailed')));
       }
     } catch (error: any) {
       setErrorMessage(error.message || t('send.txFailed'));
@@ -496,7 +511,24 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             exit={{ opacity: 0, x: 20 }}
             className="px-5 py-6"
           >
-            <p className={`text-sm ${tc.textSecondary} mb-5`}>{t('send.chooseMethod')}</p>
+            <p className={`text-sm ${tc.textSecondary} mb-3`}>{t('send.chooseMethod')}</p>
+
+            {/* Live-rail banner — only Stablecoin is wired today.
+                Bank/Mobile Money/US ACH/BorderPay-to-BorderPay return
+                rails_future_state until our African on/off-ramp partner ships. */}
+            <div className="mb-5 rounded-2xl bg-[#C7FF00]/10 border border-[#C7FF00]/25 px-4 py-3 flex items-start gap-3">
+              <span className="text-[#C7FF00] mt-0.5">✦</span>
+              <div className="min-w-0">
+                <p className={`text-xs font-semibold ${tc.text}`}>
+                  Stablecoin transfers are live now
+                </p>
+                <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
+                  Bank, mobile money, US ACH, and BorderPay-to-BorderPay are
+                  launching soon through our African rails partner. You can
+                  still preview the flow.
+                </p>
+              </div>
+            </div>
 
             <div className="space-y-3">
               {/* Bank Transfer (NGN only) */}

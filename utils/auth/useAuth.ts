@@ -15,15 +15,47 @@ interface AuthState {
 }
 
 /**
- * Centralized auth hook with automatic session sync
- * Follows Supabase v2 best practices
+ * Read Supabase session synchronously from localStorage.
+ * Avoids the login flicker caused by awaiting getSession() then getUser() on every mount.
+ * Returns null if no session is stored or it has expired.
+ */
+function readSessionSync(): { session: Session | null; user: User | null } {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+        const raw = localStorage.getItem(k);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (parsed?.access_token && parsed?.user) {
+          const exp = parsed.expires_at ? parsed.expires_at * 1000 : 0;
+          if (exp && Date.now() >= exp) return { session: null, user: null };
+          return { session: parsed as Session, user: parsed.user as User };
+        }
+      }
+    }
+  } catch { /* silent */ }
+  return { session: null, user: null };
+}
+
+/**
+ * Centralized auth hook with automatic session sync.
+ * Hydrates synchronously from localStorage first (no flicker),
+ * then background-refreshes via Supabase.
  */
 export function useAuth() {
+  // Synchronous hydration from localStorage — kills the "briefly logged-out" flicker
+  const initial = (() => {
+    try { return readSessionSync(); } catch { return { session: null, user: null }; }
+  })();
+
   const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    session: null,
-    loading: true,
-    isAuthenticated: false,
+    user: initial.user,
+    session: initial.session,
+    // If we found a valid local session, skip the "loading" splash entirely.
+    // Background refresh will confirm/correct below.
+    loading: !initial.user,
+    isAuthenticated: !!initial.user && !!initial.session,
   });
 
   const loadAuth = useCallback(async () => {

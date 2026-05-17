@@ -448,6 +448,9 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
                   <div className="px-3 py-1 bg-[#0074D9]/20 border border-[#0074D9]/40 rounded-full">
                     <span className="bp-text-tiny text-[#0074D9] font-bold">PYUSD</span>
                   </div>
+                  <div className="px-3 py-1 bg-[#0052FF]/20 border border-[#0052FF]/40 rounded-full">
+                    <span className="bp-text-tiny text-[#0052FF] font-bold">USDB</span>
+                  </div>
                 </div>
 
                 <div className="bg-white p-6 rounded-3xl flex justify-center mb-6">

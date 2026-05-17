@@ -27,6 +27,7 @@ import {
   Fingerprint,
   Upload,
   Mail,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
@@ -75,6 +76,10 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
       title: t('settings.account'),
       items: [
         { icon: User, label: t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
+        // Plans & pricing — single entry-point into the wallet-debit upgrade flow.
+        // Tapping routes to the /pricing in-app screen, where the user can
+        // pick a paid plan and open the UpgradeModal.
+        { icon: Sparkles, label: 'Plans & pricing', screen: 'pricing', color: 'text-[#C7FF00]' },
         { icon: CreditCard, label: t('settings.paymentMethods'), screen: 'payment-methods', color: 'text-green-400' },
         { icon: FileText, label: t('settings.kycDocuments'), screen: 'kyc', color: 'text-purple-400' },
         { icon: Upload, label: 'Proof of Address', screen: 'proof-of-address', color: 'text-indigo-400' },
@@ -188,57 +193,73 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
   };
 
   return (
-    <div className={`min-h-screen ${tc.bg} text-white pb-safe`}>
-      {/* Header */}
-      <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
-        <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={onBack}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center ${tc.hoverBg} transition-colors`}
-          >
-            <ArrowLeft size={20} className={tc.text} />
-          </button>
-          <h1 className={`bp-text-h3 font-bold ${tc.text}`}>{t('settings.title')}</h1>
-          <div className="w-10" />
-        </div>
-      </div>
+    // AppShell owns the top chrome (avatar / plan badge / bell / menu).
+    // Settings renders body-only. The inline section eyebrow replaces the
+    // old sticky header.
+    <div className={`min-h-screen ${tc.bg}`}>
+      <div className="max-w-2xl mx-auto px-5 pt-5 pb-10">
+        <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
+          {t('settings.title')}
+        </p>
 
-      {/* Content */}
-      <div className="px-6 py-6 space-y-8">
-        {settingsSections.map((section, index) => (
-          <div key={index}>
-            <h2 className={`bp-text-small ${tc.textSecondary} font-semibold mb-3 uppercase tracking-wider`}>
-              {section.title}
-            </h2>
-            <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden`}>
-              {section.items.map((item, itemIndex) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={itemIndex}
-                    onClick={() => handleItemClick(item)}
-                    disabled={suspending}
-                    className={`w-full flex items-center gap-4 p-4 ${tc.hoverBg} transition-colors ${
-                      itemIndex !== section.items.length - 1 ? `border-b ${tc.borderLight}` : ''
-                    } ${suspending ? 'opacity-50' : ''}`}
-                  >
-                    <div className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center`}>
-                      <Icon size={20} className={item.color} />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <span className={`bp-text-body ${tc.text}`}>{item.label}</span>
-                    </div>
-                    <ChevronRight size={20} className={tc.textSecondary} />
-                  </button>
-                );
-              })}
-            </div>
+        {/* Plans & billing entry — pulled out of the list as a Revolut-style
+            tile so it's the first thing the user sees on Settings. */}
+        <button
+          onClick={() => onNavigate('pricing')}
+          className={`w-full mb-6 rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
+        >
+          <div className="w-10 h-10 rounded-full bg-[#C7FF00] flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-4 h-4 text-black" />
           </div>
-        ))}
+          <div className="flex-1 min-w-0">
+            <p className={`text-sm font-semibold ${tc.text}`}>Plans & billing</p>
+            <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
+              View tiers, upgrade from your USD balance, see invoices
+            </p>
+          </div>
+          <ChevronRight size={18} className={tc.textMuted} />
+        </button>
+
+        {/* Sections */}
+        <div className="space-y-7">
+          {settingsSections.map((section, index) => (
+            <div key={index}>
+              <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
+                {section.title}
+              </h2>
+              <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl overflow-hidden`}>
+                {section.items.map((item, itemIndex) => {
+                  const Icon = item.icon;
+                  const isDanger = item.color === 'text-red-400' || item.color === 'text-red-500';
+                  return (
+                    <button
+                      key={itemIndex}
+                      onClick={() => handleItemClick(item)}
+                      disabled={suspending}
+                      className={`w-full flex items-center gap-3 px-4 py-3 ${tc.hoverBg} transition-colors ${
+                        itemIndex !== section.items.length - 1 ? `border-b ${tc.borderLight}` : ''
+                      } ${suspending ? 'opacity-50' : ''}`}
+                    >
+                      <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
+                        <Icon size={16} className={item.color} />
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <span className={`text-sm font-medium ${isDanger ? item.color : tc.text}`}>
+                          {item.label}
+                        </span>
+                      </div>
+                      {!isDanger && <ChevronRight size={16} className={tc.textMuted} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
 
         {/* App Version */}
-        <div className="text-center">
-          <p className={`bp-text-small ${tc.textMuted}`}>{t('settings.version')}</p>
+        <div className="text-center pt-8">
+          <p className={`text-[10px] ${tc.textMuted}`}>{t('settings.version')}</p>
         </div>
       </div>
     </div>

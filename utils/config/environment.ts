@@ -36,7 +36,7 @@ export const ENV_CONFIG = {
   /**
    * KYC status constants
    * 0 = not verified (blocks wallet/account/card creation)
-   * 2 = Fully enrolled via Maplerad enroll (unlocks all features)
+   * 2 = Fully verified via Bridge KYC/KYB (unlocks all features)
    */
   kycTier: {
     NONE:            0,
@@ -46,12 +46,22 @@ export const ENV_CONFIG = {
 
 /**
  * Returns true if the given kyc_status string represents Full Enrollment.
- * Accepts: 'verified' | 'approved' | 'tier2' | 'full_enrollment'
+ *
+ * Accepts every canonical form: 'verified' | 'approved' | 'tier2' |
+ * 'full_enrollment' | 'full enrollment'. Trims and lowercases so a row
+ * with stray whitespace (legacy data wrote "Approved " with a trailing
+ * space) doesn't make the entire app render the "starter" state.
  */
 export function isFullEnrollment(kycStatus: string | null | undefined): boolean {
   if (!kycStatus) return false;
-  const s = kycStatus.toLowerCase();
-  return s === 'verified' || s === 'approved' || s === 'tier2' || s === 'full_enrollment';
+  const s = String(kycStatus).trim().toLowerCase();
+  return (
+    s === 'verified' ||
+    s === 'approved' ||
+    s === 'tier2' ||
+    s === 'full_enrollment' ||
+    s === 'full enrollment'
+  );
 }
 
 /**

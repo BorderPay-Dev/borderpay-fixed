@@ -46,6 +46,11 @@ interface SignUpData {
   confirmPassword: string;
   selectedCountry: CountryConfig | null;
   agreedToTerms: boolean;
+  // ─── ADDITIVE: account type (default 'individual' so existing flow is unchanged) ───
+  accountType: 'individual' | 'business';
+  // Business-only (collected when accountType === 'business')
+  companyName: string;
+  registrationNumber: string;
   // Step 2: Identity
   dateOfBirth: string; // DD-MM-YYYY
   idType: 'NIN' | 'PASSPORT' | 'VOTERS_CARD' | 'DRIVERS_LICENSE' | '';
@@ -112,6 +117,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     confirmPassword: '',
     selectedCountry: null, // No default - user must explicitly select their country
     agreedToTerms: false,
+    accountType: 'individual', // default = unchanged behaviour
+    companyName: '',
+    registrationNumber: '',
     dateOfBirth: '',
     idType: '',
     idNumber: '',
@@ -138,7 +146,10 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   // ============================================================================
 
   const handleCreateAccount = async () => {
-    const { fullName, email, phone, password, confirmPassword, selectedCountry, agreedToTerms } = formData;
+    const {
+      fullName, email, phone, password, confirmPassword, selectedCountry, agreedToTerms,
+      accountType, companyName, registrationNumber,
+    } = formData;
 
     setFormError('');
 
@@ -162,38 +173,63 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       const msg = 'Please agree to the Terms & Conditions to continue.';
       setFormError(msg); toast.error(msg); return;
     }
+    if (accountType === 'business' && !companyName.trim()) {
+      const msg = 'Please enter your company name.';
+      setFormError(msg); toast.error(msg); return;
+    }
 
     setIsLoading(true);
     try {
+      // CTA review note: account_type MUST be on the signup payload so that
+      // auth.users.raw_user_meta_data carries it from the moment the user
+      // is created. The business_profiles INSERT later in this flow flips
+      // user_profiles.account_type via trigger, but having the meta on
+      // auth.users gives us a second, immutable source of truth for audits.
       const result = await backendAPI.auth.signup({
         email,
         password,
-        full_name: fullName,
+        full_name:    fullName,
         phone_number: `${selectedCountry?.dialCode}${phone}`,
         country_code: selectedCountry?.code,
-      }, ANON_KEY);
+        account_type: accountType,
+        // Business-only meta (server-side trigger will store these on
+        // user_profiles + business_profiles when present)
+        ...(accountType === 'business' ? {
+          company_name:        companyName.trim(),
+          registration_number: registrationNumber.trim() || undefined,
+        } : {}),
+      } as any, ANON_KEY);
 
       if (!result.success) {
         throw new Error(result.error || 'Signup failed');
       }
 
-      // Store signup data temporarily for after email confirmation
+      // Store signup data temporarily for after email confirmation. We
+      // include account_type + business fields so MainApp can finalize the
+      // business_profiles row on first sign-in.
       localStorage.setItem('borderpay_pending_signup', JSON.stringify({
         email,
         full_name: fullName,
+        account_type: accountType,
+        business: accountType === 'business' ? {
+          company_name:        companyName.trim(),
+          registration_number: registrationNumber.trim() || null,
+          country:             selectedCountry?.code || null,
+        } : null,
       }));
 
-      // Try to send branded confirmation email via Resend
-      try {
-        const confirmUrl = `${window.location.origin}/auth/confirm?email=${encodeURIComponent(email)}`;
-        await fetch(`${BASE_URL}/send-confirmation-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: ANON_KEY },
-          body: JSON.stringify({ email, full_name: fullName, confirmation_url: confirmUrl }),
-        });
-      } catch { /* Supabase default email will be sent as fallback */ }
-
-      toast.success('Account created! Check your email to verify.');
+      // auth-signup v88 sends the verification email itself (via the
+      // unified send-email function). Inspect the result so the UI never
+      // claims an email was sent if delivery actually failed.
+      const emailSent  = (result as any)?.data?.email_sent;
+      const emailError = (result as any)?.data?.email_error;
+      if (emailSent === false) {
+        // The user account was created, but Resend failed. Tell the truth
+        // and offer a resend button — don't show "Check your email".
+        toast.error(`Account created, but we couldn't send the verification email${emailError ? ` (${emailError})` : ''}. Tap "Resend" on the next screen.`);
+      } else {
+        toast.success('Account created! Check your email to verify.');
+      }
       setCurrentStep('confirm-email');
     } catch (error: any) {
       const msg = friendlyError(error, 'Failed to create account. Please try again.');
@@ -259,53 +295,18 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   // ============================================================================
 
   const handleEnrollCustomer = async () => {
+    // No legacy enrollment endpoint here — signup is provider-neutral.
+    // Bridge customer creation happens later, only when the user clicks
+    // Start KYC/KYB in KYCVerification (via bridge-customer / bridge-kyc-link
+    // / bridge-kyb-link). This handler just transitions the UI into the
+    // pending-review state.
     setIsLoading(true);
     try {
-      const token = authAPI.getToken();
-      const nameParts = formData.fullName.trim().split(' ');
-      const firstName = nameParts[0];
-      const lastName = nameParts.slice(1).join(' ') || nameParts[0];
-
-      const enrollPayload = {
-        first_name: firstName,
-        last_name: lastName,
-        email: formData.email,
-        country: formData.selectedCountry?.code,
-        identification_number: formData.idNumber,
-        dob: formData.dateOfBirth, // DD-MM-YYYY
-        phone: {
-          phone_country_code: formData.selectedCountry?.dialCode,
-          phone_number: formData.phone,
-        },
-        identity: {
-          type: formData.idType,
-          number: formData.idNumber,
-          image: '',
-          country: formData.selectedCountry?.code,
-        },
-        address: {
-          street: formData.street,
-          street2: formData.street2 || undefined,
-          city: formData.city,
-          state: formData.state,
-          country: formData.selectedCountry?.code,
-          postal_code: formData.postalCode,
-        },
-      };
-
-      const result = await backendAPI.enrollment.enrollCustomer(enrollPayload);
-
-      if (!result.success) {
-        // Don't block - user can proceed to dashboard, enrollment can be retried
-        toast.error(friendlyError(result.error, 'Enrollment submitted with issues. Our team will follow up.'));
-      } else {
-        toast.success('Registration complete! Your account is under review.');
-        setEnrollmentComplete(true);
-      }
-
+      toast.success('Registration complete! Your account is under review.');
+      setEnrollmentComplete(true);
       setCurrentStep('pending');
-    } catch (error: any) {
-      toast.error('Submission error. You can proceed - our team will complete your setup.');
+    } catch (_error: any) {
+      toast.error('Submission error. You can proceed — our team will complete your setup.');
       setCurrentStep('pending');
     } finally {
       setIsLoading(false);
@@ -437,6 +438,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         email: data.user.email,
                         full_name: formData.fullName,
                         kyc_status: 'pending',
+                        account_type: formData.accountType,
                       }));
                       if (data.session?.access_token) {
                         localStorage.setItem('borderpay_token', data.session.access_token);
@@ -446,6 +448,85 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                       }
                       localStorage.setItem('borderpay_biometric_user_id', data.user.id);
                       localStorage.removeItem('borderpay_pending_signup');
+
+                      if (formData.accountType === 'business') {
+                        // ─── Business signup finalisation ──────────────────
+                        // Per the locked-down RLS model, authenticated users
+                        // cannot INSERT into business_profiles directly.
+                        // The canonical path is for `auth-signup` (running
+                        // as service_role) to create the row at signup.
+                        //
+                        // Strategy:
+                        //   1. VERIFY: call getProfile() to see if the row
+                        //      already exists. If yes → success path.
+                        //   2. FALLBACK: if missing (e.g. v86 still
+                        //      deployed), call the SECURITY DEFINER RPC
+                        //      `complete_business_signup(...)`. The RPC
+                        //      enforces the signup-window guard, so this
+                        //      is NOT a self-promotion vector.
+                        //   3. RE-VERIFY: confirm the row now exists.
+                        //   4. On any failure: sign out + clear local
+                        //      state + show recovery error.
+
+                        const verify = async () => {
+                          try {
+                            const r: any = await backendAPI.business.getProfile();
+                            return !!(r?.success && r.data);
+                          } catch { return false; }
+                        };
+
+                        let durable = await verify();
+
+                        if (!durable) {
+                          // Server didn't create it — call the finalise RPC.
+                          let rpcResult: any = null;
+                          let rpcError: string | null = null;
+                          for (let attempt = 0; attempt < 2; attempt++) {
+                            try {
+                              rpcResult = await backendAPI.business.completeSignup({
+                                company_name:        formData.companyName,
+                                registration_number: formData.registrationNumber || undefined,
+                                country:             formData.selectedCountry?.code,
+                              });
+                              if (rpcResult?.success) { rpcError = null; break; }
+                              rpcError = rpcResult?.error || 'Unknown error finalising business signup';
+                            } catch (e: any) {
+                              rpcError = e?.message || 'Network error finalising business signup';
+                            }
+                            if (attempt === 0) await new Promise(r => setTimeout(r, 800));
+                          }
+
+                          if (rpcResult?.success) {
+                            durable = await verify();
+                          }
+
+                          if (!durable) {
+                            // Hard failure — roll back the local session so
+                            // we don't leave the user split-brain.
+                            try { await supabase.auth.signOut(); } catch { /* ignore */ }
+                            [
+                              'borderpay_user',
+                              'borderpay_token',
+                              'borderpay_refresh_token',
+                              'borderpay_biometric_user_id',
+                              'borderpay_pending_signup',
+                            ].forEach(k => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
+                            const detail = rpcError ?? 'business profile not created';
+                            const msg = `We couldn't finalise your business account (${detail}). Please retry signup or contact support@borderpayafrica.com.`;
+                            setFormError(msg);
+                            toast.error(msg);
+                            return;
+                          }
+                        }
+
+                        toast.success(`Welcome, ${formData.companyName}!`);
+                        // Hand off — MainApp routes business accounts to
+                        // BusinessDashboard automatically.
+                        onSignUpSuccess(data.user);
+                        return;
+                      }
+
+                      // ─── Individual signup (unchanged) ──────────────────
                       toast.success('Email verified! Continue with verification.');
                       setCurrentStep('identity');
                     }
@@ -456,16 +537,28 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                   }
                 }}
                 onResend={async () => {
+                  // Server-side rate limit: 60s cooldown + 3-per-hour cap
+                  // (issue_email_token RPC). The function returns 429 with
+                  // a friendly code so we surface a precise message.
                   try {
-                    const confirmUrl = `${window.location.origin}/auth/confirm?email=${encodeURIComponent(formData.email)}`;
-                    await fetch(`${BASE_URL}/send-confirmation-email`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', apikey: ANON_KEY },
-                      body: JSON.stringify({ email: formData.email, full_name: formData.fullName, confirmation_url: confirmUrl }),
-                    });
-                    toast.success('Confirmation email resent!');
-                  } catch {
-                    toast.error('Failed to resend. Please try again.');
+                    const r: any = await backendAPI.auth.resendVerification(formData.email);
+                    if (r?.success) {
+                      const already = r?.data?.already_verified;
+                      toast.success(already
+                        ? 'Email already verified — you can sign in now.'
+                        : 'Verification email sent. Check your inbox.');
+                      return;
+                    }
+                    const code = (r?.code || r?.body?.code) as string | undefined;
+                    if (code === 'cooldown') {
+                      toast.error('Hold on — wait a minute before requesting another email.');
+                    } else if (code === 'rate_limit') {
+                      toast.error('Too many requests. Try again in an hour.');
+                    } else {
+                      toast.error(r?.error || 'Failed to resend. Please try again.');
+                    }
+                  } catch (e: any) {
+                    toast.error(e?.message || 'Failed to resend. Please try again.');
                   }
                 }}
                 isLoading={isLoading}
@@ -739,6 +832,45 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
       )}
 
       <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="space-y-3.5">
+        {/* Account type toggle — additive. Default 'individual' so the
+            existing flow renders identically for users who don't change it. */}
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-gray-300">I'm signing up as</label>
+          <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={formData.accountType === 'individual'}
+              onClick={() => updateForm({ accountType: 'individual' })}
+              className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${
+                formData.accountType === 'individual'
+                  ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
+                  : 'bg-white/[0.04] text-gray-300 border-white/10 hover:border-white/20'
+              }`}
+            >
+              <User className="w-4 h-4" /> Individual
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={formData.accountType === 'business'}
+              onClick={() => updateForm({ accountType: 'business' })}
+              className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${
+                formData.accountType === 'business'
+                  ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
+                  : 'bg-white/[0.04] text-gray-300 border-white/10 hover:border-white/20'
+              }`}
+            >
+              <Building className="w-4 h-4" /> Business
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-500">
+            {formData.accountType === 'individual'
+              ? 'Personal wallet, cards, transfers — KYC required.'
+              : 'For registered companies. We collect company name + registration number.'}
+          </p>
+        </div>
+
         <FormInput
           label="Full Name (as on ID)"
           icon={User}
@@ -746,6 +878,26 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
           onChange={(e) => updateForm({ fullName: e.target.value })}
           placeholder="John Doe"
         />
+
+        {/* Business-only fields — shown when 'business' is selected */}
+        {formData.accountType === 'business' && (
+          <>
+            <FormInput
+              label="Company Name"
+              icon={Building}
+              value={formData.companyName}
+              onChange={(e) => updateForm({ companyName: e.target.value })}
+              placeholder="Acme Africa Ltd"
+            />
+            <FormInput
+              label="Registration Number (optional)"
+              icon={Hash}
+              value={formData.registrationNumber}
+              onChange={(e) => updateForm({ registrationNumber: e.target.value })}
+              placeholder="RC-1234567"
+            />
+          </>
+        )}
 
         <FormInput
           label="Email Address"

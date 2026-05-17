@@ -41,9 +41,10 @@ const FX_CURRENCIES: Currency[] = [
 
 // Stablecoins (1:1 with USD, no FX quote needed)
 const STABLECOIN_CURRENCIES: Currency[] = [
-  { code: 'USDT', name: 'Tether', symbol: '₮', flag: '₮' },
-  { code: 'USDC', name: 'USD Coin', symbol: '$', flag: '💵' },
+  { code: 'USDT',  name: 'Tether',     symbol: '₮', flag: '₮' },
+  { code: 'USDC',  name: 'USD Coin',   symbol: '$', flag: '💵' },
   { code: 'PYUSD', name: 'PayPal USD', symbol: '$', flag: '💳' },
+  { code: 'USDB',  name: 'Backed USD', symbol: '$', flag: '💵' },
 ];
 
 const ALL_CURRENCIES = [...FX_CURRENCIES, ...STABLECOIN_CURRENCIES];
@@ -95,7 +96,7 @@ export function CurrencyConverter({ userId, onConvert, standalone, onBack }: Cur
       if (result.success && result.data) {
         const data = result.data;
         setExchangeRate(data.rate || 0);
-        setRateSource(data.source === 'maplerad' ? 'live' : (data.source || 'live'));
+        setRateSource(data.source ?? 'live');
         setFee(data.fee || 0);
 
         // Use converted_amount if available, otherwise calculate from rate

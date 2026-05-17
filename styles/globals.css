@@ -1,5 +1,6 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+/* Claude design system fonts: Syne (display), Epilogue (body), DM Mono (numerals) */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Epilogue:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
@@ -10,7 +11,9 @@
 
 :root {
   --font-size: 16px;
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-family: 'Epilogue', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Syne', 'Epilogue', -apple-system, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, 'SFMono-Regular', monospace;
   
   /* Safe Area Insets for notched devices */
   --sat: env(safe-area-inset-top, 0px);
@@ -91,46 +94,53 @@
   --bottom-nav-spacing: calc(var(--bottom-nav-height) + var(--safe-bottom));
   
   /* ============================================
-     BORDERPAY AFRICA COLOR SYSTEM
-     Primary: Lemon Green #C7FF00 on Black
+     BORDERPAY AFRICA COLOR SYSTEM — CLAUDE TOKENS
+     Dark-first: near-black bg, emerald accent, gold highlight
+     Reference palette:
+       bg #06080C · card #0D1117 · border rgba(199,255,0,0.12)
+       accent #C7FF00 · gold #E8A923 · text #EEF2F7 · muted #6B7A8D
+     Fonts: Syne (display) · Epilogue (body) · DM Mono (numerals)
+     Radius: 4px · Transitions: 200ms
      ============================================ */
-  
+
   /* Base colors */
-  --background: #000000;
-  --foreground: #FFFFFF;
-  --card: #1A1A1A;
-  --card-foreground: #FFFFFF;
-  --popover: #1A1A1A;
-  --popover-foreground: #FFFFFF;
-  
-  /* Primary CTA - Lemon Green #C7FF00 */
+  --background: #06080C;
+  --foreground: #EEF2F7;
+  --card: #0D1117;
+  --card-foreground: #EEF2F7;
+  --popover: #0D1117;
+  --popover-foreground: #EEF2F7;
+
+  /* Primary CTA — Emerald #C7FF00 */
   --primary: #C7FF00;
-  --primary-foreground: #000000;
+  --primary-foreground: #06080C;
   --primary-hover: #D4FF33;
-  
+
   /* Secondary colors */
-  --secondary: #1A1A1A;
-  --secondary-foreground: #FFFFFF;
-  --muted: #1A1A1A;
-  --muted-foreground: #6B7280;
-  
+  --secondary: #0D1117;
+  --secondary-foreground: #EEF2F7;
+  --muted: #0D1117;
+  --muted-foreground: #6B7A8D;
+
   /* Accent colors */
   --accent: #C7FF00;
-  --accent-foreground: #000000;
-  
+  --accent-foreground: #06080C;
+  --gold: #E8A923;
+  --gold-foreground: #06080C;
+
   /* Status colors */
-  --success: #10B981;
-  --success-foreground: #FFFFFF;
-  --destructive: #EF4444;
+  --success: #C7FF00;
+  --success-foreground: #06080C;
+  --destructive: #FF5A5A;
   --destructive-foreground: #FFFFFF;
-  --warning: #F59E0B;
-  --warning-foreground: #FFFFFF;
-  
+  --warning: #E8A923;
+  --warning-foreground: #06080C;
+
   /* Border & Input */
-  --border: #E5E7EB;
-  --input: #FFFFFF;
-  --input-border: #D1D5DB;
-  --ring: rgba(164, 243, 77, 0.2);
+  --border: rgba(199, 255, 0, 0.12);
+  --input: #0D1117;
+  --input-border: rgba(199, 255, 0, 0.18);
+  --ring: rgba(199, 255, 0, 0.24);
   
   /* Shadows - Soft, professional */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -142,18 +152,23 @@
   --card-shadow: rgba(0, 0, 0, 0.04);
   --card-shadow-hover: rgba(0, 0, 0, 0.08);
   
-  /* Virtual Card - Black with gold accent */
-  --card-bg: #000000;
-  --card-text: #FFFFFF;
-  --card-accent: #D4AF37;
-  
-  /* Radius - Clean, modern */
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  /* Virtual Card — Onyx with emerald accent */
+  --card-bg: #06080C;
+  --card-text: #EEF2F7;
+  --card-accent: #C7FF00;
+  --card-gold: #E8A923;
+
+  /* Radius — Sharp, clean (Claude system: 4px) */
+  --radius: 4px;
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
   --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 200ms;
+  --transition-base: 200ms cubic-bezier(0.2, 0, 0, 1);
   
   /* Typography weights */
   --font-weight-light: 300;
@@ -182,60 +197,57 @@
   --sidebar-ring: rgba(0, 102, 255, 0.2);
 }
 
-/* Dark theme variant (optional) */
+/* Dark theme variant (Claude tokens) */
 .dark {
-  --background: #000000;
-  --foreground: #FFFFFF;
-  --card: #111111;
-  --card-foreground: #FFFFFF;
-  --border: rgba(255, 255, 255, 0.1);
-  --muted-foreground: rgba(255, 255, 255, 0.6);
+  --background: #06080C;
+  --foreground: #EEF2F7;
+  --card: #0D1117;
+  --card-foreground: #EEF2F7;
+  --border: rgba(199, 255, 0, 0.12);
+  --muted-foreground: #6B7A8D;
 }
 
 /* ============================================
-   LIGHT THEME - White bg, black text, lime CTA
-   Applied via .theme-light class on <html>
+   LIGHT THEME — Claude tokens inverted
+   (Dark-first app; light is a fallback only)
    ============================================ */
 .theme-light {
-  --background: #FFFFFF;
-  --foreground: #111827;
-  --card: #F9FAFB;
-  --card-foreground: #111827;
+  --background: #F5F7FA;
+  --foreground: #06080C;
+  --card: #FFFFFF;
+  --card-foreground: #06080C;
   --popover: #FFFFFF;
-  --popover-foreground: #111827;
-  --primary: #C7FF00;
-  --primary-foreground: #000000;
-  --primary-hover: #B8F000;
-  --secondary: #F3F4F6;
-  --secondary-foreground: #111827;
-  --muted: #F3F4F6;
-  --muted-foreground: #6B7280;
-  --accent: #C7FF00;
-  --accent-foreground: #000000;
-  --border: #E5E7EB;
+  --popover-foreground: #06080C;
+  --primary: #B8F000;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #00B06A;
+  --secondary: #EEF2F7;
+  --secondary-foreground: #06080C;
+  --muted: #EEF2F7;
+  --muted-foreground: #6B7A8D;
+  --accent: #B8F000;
+  --accent-foreground: #FFFFFF;
+  --border: rgba(199, 255, 0, 0.24);
   --input: #FFFFFF;
-  --input-border: #D1D5DB;
-  --ring: rgba(199, 255, 0, 0.25);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
+  --input-border: rgba(199, 255, 0, 0.32);
+  --ring: rgba(199, 255, 0, 0.28);
 }
 
 .theme-light body {
-  background: #FFFFFF;
-  color: #111827;
+  background: #F5F7FA;
+  color: #06080C;
 }
 
 /* ============================================
-   DARK THEME - explicit class
+   DARK THEME (explicit class) — Claude tokens
    ============================================ */
 .theme-dark {
-  --background: #000000;
-  --foreground: #FFFFFF;
-  --card: #111111;
-  --card-foreground: #FFFFFF;
-  --border: rgba(255, 255, 255, 0.1);
-  --muted-foreground: rgba(255, 255, 255, 0.6);
+  --background: #06080C;
+  --foreground: #EEF2F7;
+  --card: #0D1117;
+  --card-foreground: #EEF2F7;
+  --border: rgba(199, 255, 0, 0.12);
+  --muted-foreground: #6B7A8D;
 }
 
 @theme inline {

@@ -62,5 +62,4 @@ Run `utils/supabase/schema.sql` in your Supabase SQL editor to create all tables
 - Supabase (Auth + DB + Edge Functions)
 - Framer Motion
 - Lucide Icons
-- SmileID (KYC/biometric)
-- Maplerad (payments backbone)
+- Maplerad (KYC, virtual accounts, cards, cross-border)

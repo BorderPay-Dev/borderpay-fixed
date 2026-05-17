@@ -891,7 +891,7 @@ export function ExchangeScreen({ onBack, preSelectedWalletId }: ExchangeScreenPr
             })}
 
             <div className={`text-center mt-4 py-3`}>
-              <p className={`text-[10px] ${tc.textMuted}`}>Rates refresh automatically • Powered by Maplerad FX</p>
+              <p className={`text-[10px] ${tc.textMuted}`}>Rates refresh automatically</p>
             </div>
           </motion.div>
         )}

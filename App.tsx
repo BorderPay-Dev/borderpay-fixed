@@ -6,6 +6,7 @@ import { LoginScreen } from './components/auth/LoginScreen';
 import { SignUpFlow } from './components/auth/SignUpFlow';
 import { ForgotPassword } from './components/auth/ForgotPassword';
 import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
+import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
 import { MainApp } from './components/app/MainApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { sessionAPI } from './utils/api/sessionAPI';
@@ -13,12 +14,13 @@ import { backendAPI } from './utils/api/backendAPI';
 import { readUserProfile } from './utils/supabase/client';
 import { useAuth } from './utils/auth/useAuth';
 import { ThemeLanguageProvider } from './utils/i18n/ThemeLanguageContext';
+import { AppProvider } from './utils/app/AppContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useInactivityTimer } from './utils/auth/useInactivityTimer';
 import { PINManager } from './utils/security/SecurityManager';
 import { AppLockScreen } from './components/security/AppLockScreen';
 
-type AppState = 'splash' | 'onboarding' | 'login' | 'signup' | 'forgot-password' | 'reset-password' | 'dashboard' | 'loading';
+type AppState = 'splash' | 'onboarding' | 'login' | 'signup' | 'forgot-password' | 'reset-password' | 'dashboard' | 'loading' | 'verify-email';
 
 // ── Device fingerprinting ──
 // Uses a persistent random device ID (survives IP/UA changes) combined with
@@ -129,12 +131,31 @@ function AppContent() {
   // Check for password reset token in URL hash
   // Detect password reset tokens in URL hash — but don't change state until splash is done
   const [pendingResetPassword, setPendingResetPassword] = useState(false);
+
+  // Detect /auth/verify?token=…&purpose=… — extracted once on mount and
+  // forwarded to <EmailVerificationLanding>. Stored in state so we don't
+  // re-parse the URL on every render.
+  const [pendingVerify, setPendingVerify] = useState<{ token: string; purpose: 'signup_individual' | 'signup_business' | 'password_reset' | 'email_change' } | null>(null);
+
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes('token=') || hash.includes('access_token=')) {
       setPendingResetPassword(true);
     }
+    if (window.location.pathname === '/auth/verify') {
+      const sp = new URLSearchParams(window.location.search);
+      const t  = sp.get('token') || '';
+      const p  = (sp.get('purpose') || 'signup_individual') as any;
+      if (t) setPendingVerify({ token: t, purpose: p });
+    }
   }, []);
+
+  // Apply verify-email state once splash + auth load have settled.
+  useEffect(() => {
+    if (pendingVerify && !showSplash && !authLoading) {
+      setAppState('verify-email');
+    }
+  }, [pendingVerify, showSplash, authLoading]);
 
   // Apply pending reset-password state only after splash + auth have finished
   useEffect(() => {
@@ -398,6 +419,21 @@ function AppContent() {
     );
   }
 
+  if (appState === 'verify-email' && pendingVerify) {
+    return (
+      <EmailVerificationLanding
+        token={pendingVerify.token}
+        purpose={pendingVerify.purpose}
+        onNavigateToLogin={() => {
+          setPendingVerify(null);
+          // Clean the URL so a refresh doesn't re-trigger verification.
+          try { window.history.replaceState({}, '', '/'); } catch { /* ignore */ }
+          handleNavigateToLogin();
+        }}
+      />
+    );
+  }
+
   if (appState === 'dashboard' && user?.id) {
     // Show app lock screen if locked
     if (appLocked && PINManager.hasPIN(user.id)) {
@@ -470,6 +506,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeLanguageProvider>
+        <AppProvider>
         <AppContent />
         <Toaster
           position="top-center"
@@ -490,6 +527,7 @@ export default function App() {
           visibleToasts={3}
           offset={16}
         />
+        </AppProvider>
       </ThemeLanguageProvider>
     </ErrorBoundary>
   );

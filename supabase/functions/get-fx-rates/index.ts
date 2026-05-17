@@ -1,71 +1,30 @@
-import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// get-fx-rates — REMOVED (legacy provider).
+//
+// This endpoint proxied a legacy provider's FX rate feed. The replacement
+// FX source has not yet been wired (planned: Bridge FX or a neutral feed).
+// Until that ships, this endpoint returns HTTP 410 Gone. The dashboard rate
+// widget gracefully falls back to its FALLBACK_PAIRS constants when the
+// network call fails.
+//
+// CurrencyConverter will surface the failure to the user — acceptable as a
+// short-term gap; tracked as a launch blocker in the removal report.
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+
+const CORS = {
+  'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type':                 'application/json',
 };
 
-const FALLBACK_RATES = [
-  { source_currency: 'USD', target_currency: 'NGN', rate: 1580.0 },
-  { source_currency: 'USD', target_currency: 'KES', rate: 153.5 },
-  { source_currency: 'USD', target_currency: 'GHS', rate: 14.8 },
-  { source_currency: 'USD', target_currency: 'ZAR', rate: 18.2 },
-  { source_currency: 'USD', target_currency: 'UGX', rate: 3780.0 },
-  { source_currency: 'USD', target_currency: 'TZS', rate: 2650.0 },
-  { source_currency: 'USD', target_currency: 'XOF', rate: 610.0 },
-  { source_currency: 'USD', target_currency: 'XAF', rate: 610.0 },
-  { source_currency: 'EUR', target_currency: 'NGN', rate: 1720.0 },
-  { source_currency: 'GBP', target_currency: 'NGN', rate: 2000.0 },
-];
+const GONE_BODY = JSON.stringify({
+  success: false,
+  code:    'provider_removed',
+  error:   'get-fx-rates has been removed. A replacement FX rate feed is pending.',
+});
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-
-  try {
-    const mapleradKey = Deno.env.get('MAPLERAD_SECRET_KEY_LIVE');
-    if (!mapleradKey) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Maplerad API key not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
-    }
-    const mapleradFetch = (path: string, options: RequestInit = {}) =>
-      fetch(`https://api.maplerad.com/v1${path}`, {
-        ...options,
-        headers: { 'Authorization': `Bearer ${mapleradKey}`, 'Content-Type': 'application/json', ...options.headers },
-      });
-
-    const authHeader = req.headers.get('Authorization')!;
-    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const res = await mapleradFetch('/fx/rates');
-    if (!res.ok) {
-      return new Response(JSON.stringify({ success: true, data: FALLBACK_RATES, fallback: true }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const body = await res.json();
-    return new Response(JSON.stringify({ success: true, data: body.data ?? body }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ success: true, data: FALLBACK_RATES, fallback: true }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  return new Response(GONE_BODY, { status: 410, headers: CORS });
 });

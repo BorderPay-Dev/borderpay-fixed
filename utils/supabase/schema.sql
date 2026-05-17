@@ -1,160 +1,204 @@
--- BorderPay Africa – Supabase Schema
--- Run this in your Supabase SQL editor to set up all tables.
--- All tables use RLS (Row Level Security) with user-scoped policies.
+-- ============================================================================
+-- BorderPay Africa — Supabase canonical schema
+-- ----------------------------------------------------------------------------
+-- This file is a SOURCE-CONTROLLED SNAPSHOT of the production schema. It
+-- intentionally aligns with what is actually deployed (public.user_profiles,
+-- public.users, public.kyc_submissions, etc.) — NOT the historical
+-- public.profiles draft that lived here before.
+--
+-- For day-to-day schema changes use a timestamped file in
+-- /supabase/migrations/. This snapshot exists so a fresh project can be
+-- spun up cleanly + so reviewers can see the truthful target.
+--
+-- Reading order:
+--   1. Extensions
+--   2. Helper functions / enums
+--   3. user_profiles  (canonical profile table — read by every app surface)
+--   4. users          (legacy profile mirror — kept in sync via trigger)
+--   5. business_profiles
+--   6. wallets / transactions / cards / kyc_submissions / kyc_documents
+--   7. RLS policies
+--   8. Triggers (sync, guards, mirrors)
+--   9. Compatibility view: public.profiles → public.user_profiles
+-- ============================================================================
 
--- ── Extensions ───────────────────────────────────────────────────────────────
+-- ─── 1. Extensions ───────────────────────────────────────────────────────────
 create extension if not exists "uuid-ossp";
+create extension if not exists "pgcrypto";
 
--- ── Profiles ─────────────────────────────────────────────────────────────────
-create table if not exists public.profiles (
-  id               uuid primary key references auth.users(id) on delete cascade,
-  full_name        text,
-  phone            text,
-  country          text,
-  date_of_birth    text,
-  kyc_status       text default 'pending',
-  account_type     text default 'individual',
-  is_unlocked      boolean default false,
-  two_factor_enabled boolean default false,
-  referral_code    text unique,
-  session_data     jsonb,
-  session_history  jsonb,
-  created_at       timestamptz default now(),
-  updated_at       timestamptz default now()
-);
-
-alter table public.profiles enable row level security;
-create policy "Users can view own profile"   on public.profiles for select using (auth.uid() = id);
-create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
-create policy "Users can insert own profile" on public.profiles for insert with check (auth.uid() = id);
-
--- ── Wallets ───────────────────────────────────────────────────────────────────
-create table if not exists public.wallets (
-  id           uuid primary key default uuid_generate_v4(),
-  user_id      uuid not null references public.profiles(id) on delete cascade,
-  currency     text not null,
-  balance      numeric(18,6) default 0,
-  symbol       text,
-  color        text,
-  is_active    boolean default true,
-  provider_ref text,
-  created_at   timestamptz default now(),
-  updated_at   timestamptz default now(),
-  unique(user_id, currency)
-);
-
-alter table public.wallets enable row level security;
-create policy "Users can view own wallets"   on public.wallets for select using (auth.uid() = user_id);
-create policy "Users can update own wallets" on public.wallets for update using (auth.uid() = user_id);
-create policy "Users can insert own wallets" on public.wallets for insert with check (auth.uid() = user_id);
-
--- ── Transactions ──────────────────────────────────────────────────────────────
-create table if not exists public.transactions (
-  id              uuid primary key default uuid_generate_v4(),
-  user_id         uuid not null references public.profiles(id) on delete cascade,
-  type            text not null,         -- deposit | withdrawal | transfer | exchange | card_debit
-  status          text default 'pending', -- pending | completed | failed
-  amount          numeric(18,6),
-  currency        text,
-  fee             numeric(18,6) default 0,
-  description     text,
-  reference       text unique,
-  provider_ref    text,
-  metadata        jsonb,
-  created_at      timestamptz default now()
-);
-
-alter table public.transactions enable row level security;
-create policy "Users can view own transactions" on public.transactions for select using (auth.uid() = user_id);
-create policy "Users can insert own transactions" on public.transactions for insert with check (auth.uid() = user_id);
-
--- ── Cards ─────────────────────────────────────────────────────────────────────
-create table if not exists public.cards (
-  id               uuid primary key default uuid_generate_v4(),
-  user_id          uuid not null references public.profiles(id) on delete cascade,
-  card_name        text,
-  design_id        text default 'neon-surge',
-  brand            text default 'VISA',
-  status           text default 'active',  -- active | frozen | terminated
-  balance          numeric(18,6) default 0,
-  currency         text default 'USD',
-  provider_ref     text,
-  daily_limit      numeric(18,6) default 500,
-  monthly_limit    numeric(18,6) default 5000,
-  created_at       timestamptz default now(),
-  updated_at       timestamptz default now()
-);
-
-alter table public.cards enable row level security;
-create policy "Users can view own cards"   on public.cards for select using (auth.uid() = user_id);
-create policy "Users can update own cards" on public.cards for update using (auth.uid() = user_id);
-create policy "Users can insert own cards" on public.cards for insert with check (auth.uid() = user_id);
-
--- ── Notifications ─────────────────────────────────────────────────────────────
-create table if not exists public.notifications (
-  id         uuid primary key default uuid_generate_v4(),
-  user_id    uuid not null references public.profiles(id) on delete cascade,
-  title      text,
-  body       text,
-  type       text,
-  is_read    boolean default false,
-  metadata   jsonb,
-  created_at timestamptz default now()
-);
-
-alter table public.notifications enable row level security;
-create policy "Users can view own notifications"   on public.notifications for select using (auth.uid() = user_id);
-create policy "Users can update own notifications" on public.notifications for update using (auth.uid() = user_id);
-create policy "Users can insert own notifications" on public.notifications for insert with check (auth.uid() = user_id);
-
--- ── KYC Documents ────────────────────────────────────────────────────────────
-create table if not exists public.kyc_documents (
-  id              uuid primary key default uuid_generate_v4(),
-  user_id         uuid not null references public.profiles(id) on delete cascade,
-  document_type   text,  -- id_card | passport | drivers_license | utility_bill | bank_statement
-  status          text default 'pending',  -- pending | approved | rejected
-  storage_path    text,
-  provider_ref    text,
-  rejection_reason text,
-  created_at      timestamptz default now(),
-  updated_at      timestamptz default now()
-);
-
-alter table public.kyc_documents enable row level security;
-create policy "Users can view own kyc docs"   on public.kyc_documents for select using (auth.uid() = user_id);
-create policy "Users can insert own kyc docs" on public.kyc_documents for insert with check (auth.uid() = user_id);
-
--- ── Add session columns to profiles (migration) ───────────────────────────────
-alter table public.profiles
-  add column if not exists session_data    jsonb,
-  add column if not exists session_history jsonb;
-
--- ── Auto-update updated_at ────────────────────────────────────────────────────
-create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
-begin new.updated_at = now(); return new; end; $$;
-
-create or replace trigger profiles_updated_at    before update on public.profiles    for each row execute function public.set_updated_at();
-create or replace trigger wallets_updated_at     before update on public.wallets     for each row execute function public.set_updated_at();
-create or replace trigger cards_updated_at       before update on public.cards       for each row execute function public.set_updated_at();
-create or replace trigger kyc_docs_updated_at    before update on public.kyc_documents for each row execute function public.set_updated_at();
-
--- ── Auto-create profile on signup ─────────────────────────────────────────────
-create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer as $$
+-- ─── 2. Enums ────────────────────────────────────────────────────────────────
+do $$
 begin
-  insert into public.profiles (id, full_name, phone, country, kyc_status)
-  values (
-    new.id,
-    new.raw_user_meta_data->>'full_name',
-    new.raw_user_meta_data->>'phone',
-    new.raw_user_meta_data->>'country',
-    coalesce(new.raw_user_meta_data->>'kyc_status', 'pending')
-  )
-  on conflict (id) do nothing;
-  return new;
-end; $$;
+  if not exists (select 1 from pg_type where typname = 'account_type') then
+    create type public.account_type as enum ('individual', 'business');
+  end if;
+  if not exists (select 1 from pg_type where typname = 'kyc_status') then
+    create type public.kyc_status as enum ('unverified','pending','submitted','under_review','verified','approved','rejected','failed');
+  end if;
+end $$;
 
-create or replace trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
+-- ─── 3. user_profiles (CANONICAL) ────────────────────────────────────────────
+-- Used by every app surface (Dashboard, Profile, KYC, Cards, Wallets, etc.)
+-- and by every deployed edge function. Treat as the single source of truth.
+create table if not exists public.user_profiles (
+  id                              uuid        primary key references auth.users(id) on delete cascade,
+  email                           text        not null,
+  full_name                       text,
+  phone                           text,
+  country                         text,
+  account_type                    public.account_type not null default 'individual',
+  kyc_status                      public.kyc_status   not null default 'unverified',
+  kyc_level                       integer     not null default 0,
+  maplerad_customer_id            text,
+  is_admin                        boolean     not null default false,
+  address                         text,
+  city                            text,
+  state                           text,
+  postal_code                     text,
+  date_of_birth                   date,
+  language                        text        default 'en',
+  profile_picture_url             text,
+  address_verification_status     text        default 'none',
+  kyc_verified_at                 timestamptz,
+  id_number                       text,
+  gender                          text,
+  maplerad_status                 text,
+  account_status                  text,
+  enrolled_at                     timestamptz,
+  maplerad_sandbox_customer_id    text,
+  maplerad_tier                   smallint,
+  maplerad_tier0_enrolled_at      timestamptz,
+  maplerad_tier2_enrolled_at      timestamptz,
+  tier0_email_sent_at             timestamptz,
+  admin_kyc_approved_at           timestamptz,
+  admin_kyc_reviewer              uuid,
+  admin_kyc_decision              text,
+  admin_kyc_notes                 text,
+  maplerad_environment            text,
+  created_at                      timestamptz not null default now(),
+  updated_at                      timestamptz not null default now()
+);
+
+-- ─── 4. users (legacy mirror; kept in sync by trigger) ───────────────────────
+create table if not exists public.users (
+  id                   uuid primary key references auth.users(id) on delete cascade,
+  email                text not null,
+  full_name            text,
+  phone                text,
+  country              text,
+  account_type         public.account_type not null default 'individual',
+  kyc_status           public.kyc_status   default 'unverified',
+  wallet_activated     boolean default false,
+  maplerad_customer_id text,
+  created_at           timestamptz default now(),
+  updated_at           timestamptz default now()
+);
+
+-- ─── 5. business_profiles ────────────────────────────────────────────────────
+create table if not exists public.business_profiles (
+  id                   uuid        primary key default gen_random_uuid(),
+  user_id              uuid        not null unique references auth.users(id) on delete cascade,
+  company_name         text        not null,
+  registration_number  text,
+  country              text,
+  company_email        text,
+  company_phone        text,
+  industry             text,
+  website              text,
+  address              text,
+  city                 text,
+  state                text,
+  postal_code          text,
+  status               text        not null default 'active'
+                        check (status in ('active','suspended','closed')),
+  metadata             jsonb       not null default '{}'::jsonb,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+-- ─── 6. wallets / transactions / cards / kyc_documents / kyc_submissions ─────
+-- These tables already exist in production with their full shape. Re-creating
+-- them here exactly is unnecessary (and risks divergence). Refer to the
+-- migration files in /supabase/migrations for column-level history.
+
+-- ─── 7. RLS policies (canonical, summary) ────────────────────────────────────
+alter table public.user_profiles      enable row level security;
+alter table public.users              enable row level security;
+alter table public.business_profiles  enable row level security;
+
+-- user_profiles
+drop policy if exists profiles_own              on public.user_profiles;
+create policy profiles_own              on public.user_profiles for all to authenticated
+  using (auth.uid() = id) with check (auth.uid() = id);
+drop policy if exists admin_read_all_profiles   on public.user_profiles;
+create policy admin_read_all_profiles   on public.user_profiles for select to authenticated
+  using (public.is_borderpay_admin());
+drop policy if exists admin_update_profiles     on public.user_profiles;
+create policy admin_update_profiles     on public.user_profiles for update to authenticated
+  using (public.is_borderpay_admin())
+  with check (public.is_borderpay_admin());
+
+-- business_profiles  (LOCKED DOWN — see migration 20260507_lock_down_business_promotion.sql)
+--
+--   • SELECT/UPDATE for owner
+--   • ALL  for admin (is_borderpay_admin) and service_role
+--   • NO  INSERT for owner. Authenticated users CANNOT create their own
+--          business_profiles row directly. INSERT goes through:
+--            – `auth-signup` v87 (service_role)
+--            – `complete_business_signup(...)` SECURITY DEFINER RPC
+--              (signup-window guarded)
+--            – `admin_promote_to_business(...)` SECURITY DEFINER RPC
+--              (admin only)
+drop policy if exists business_profiles_owner_select  on public.business_profiles;
+create policy business_profiles_owner_select  on public.business_profiles for select to authenticated using (auth.uid() = user_id);
+
+-- Explicitly drop any legacy owner-INSERT policy so a fresh-project apply
+-- of this snapshot lands in the same locked-down state as production.
+drop policy if exists business_profiles_owner_insert  on public.business_profiles;
+
+drop policy if exists business_profiles_owner_update  on public.business_profiles;
+create policy business_profiles_owner_update  on public.business_profiles for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists business_profiles_admin_all     on public.business_profiles;
+create policy business_profiles_admin_all     on public.business_profiles for all to authenticated using (public.is_borderpay_admin()) with check (public.is_borderpay_admin());
+
+drop policy if exists business_profiles_service_role  on public.business_profiles;
+create policy business_profiles_service_role  on public.business_profiles for all to service_role using (true) with check (true);
+
+-- ─── 8. updated_at touch helper (used by multiple triggers) ──────────────────
+create or replace function public.touch_updated_at()
+returns trigger language plpgsql as $$
+begin NEW.updated_at = now(); return NEW; end; $$;
+
+drop trigger if exists trg_user_profiles_touch on public.user_profiles;
+create trigger trg_user_profiles_touch     before update on public.user_profiles     for each row execute function public.touch_updated_at();
+drop trigger if exists trg_business_profiles_touch on public.business_profiles;
+create trigger trg_business_profiles_touch before update on public.business_profiles for each row execute function public.touch_updated_at();
+
+-- ─── 9. Compatibility view: legacy `public.profiles` -> public.user_profiles
+-- Some older code paths may still reference public.profiles. The view keeps
+-- them functional WITHOUT writing to a separate table — every read reflects
+-- canonical user_profiles state.
+do $$
+begin
+  if exists (select 1 from pg_class where relname = 'profiles' and relkind = 'r') then
+    raise notice 'public.profiles is a TABLE — leaving it alone (legacy data).';
+  else
+    -- create a view if neither table nor view exists
+    if not exists (select 1 from pg_class where relname = 'profiles' and relkind = 'v') then
+      execute 'create view public.profiles as
+        select id, full_name, phone, country,
+               kyc_status::text, account_type::text,
+               profile_picture_url,
+               created_at, updated_at
+          from public.user_profiles';
+    end if;
+  end if;
+end $$;
+
+-- ============================================================================
+-- For the full set of triggers (sync_account_type_to_business,
+-- guard_user_profile_account_type, mirror_user_profile_to_users,
+-- is_borderpay_admin), see migrations/20260507_account_type_business_profiles.sql
+-- and migrations/20260409_fix_rls_admin_policies.sql.
+-- ============================================================================

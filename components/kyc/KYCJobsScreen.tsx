@@ -23,14 +23,22 @@ interface KYCJob {
   email: string;
   phone: string;
   country: string;
+  account_type?: 'individual' | 'business';
   kyc_status: string;
   kyc_level: number;
   kyc_verified_at: string | null;
   created_at: string;
   updated_at: string;
-  verifications: Array<{
+  bridge?: {
+    customer_id: string | null;
+    review_status: string | null;
+    kyb_completed_at: string | null;
+    company_name: string | null;
+    registration_number: string | null;
+  };
+  legacy_verifications: Array<{
     job_id: string;
-    provider: string;
+    provider: string | null;
     status: string;
     document_type: string;
     confidence_score: number | null;
@@ -46,7 +54,7 @@ interface KYCJob {
   verification_result: {
     status: string;
     verification_id: string;
-    provider: string;
+    provider: string | null;
   } | null;
 }
 
@@ -353,23 +361,39 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
                                   value={job.verification_result.status}
                                   color={job.verification_result.status === 'approved' ? 'text-green-400' : 'text-yellow-400'}
                                 />
-                                <MiniStat label="Provider" value={job.verification_result.provider || 'maplerad'} />
+                                <MiniStat label="Provider" value={job.verification_result.provider || 'legacy'} />
                                 <MiniStat label="ID" value={job.verification_result.verification_id?.slice(0, 12) || '—'} />
                               </div>
                             </div>
                           )}
 
-                          {/* Verifications */}
-                          {job.verifications.length > 0 && (
+                          {/* Bridge KYC/KYB state */}
+                          {job.bridge && (job.bridge.customer_id || job.bridge.review_status) && (
+                            <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-3 mb-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Shield size={12} className="text-[#C7FF00]" />
+                                <span className="text-[9px] font-bold text-[#C7FF00] uppercase tracking-wider">
+                                  Bridge {job.account_type === 'business' ? 'KYB' : 'KYC'}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <MiniStat label="Status" value={job.bridge.review_status || 'not_started'} />
+                                <MiniStat label="Customer ID" value={job.bridge.customer_id?.slice(0, 12) || '—'} />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Legacy verifications (pre-Bridge submissions) */}
+                          {job.legacy_verifications.length > 0 && (
                             <div>
                               <div className="flex items-center gap-2 mb-2">
                                 <FileText size={12} className="text-gray-400" />
                                 <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">
-                                  Verifications ({job.verifications.length})
+                                  Legacy verifications ({job.legacy_verifications.length})
                                 </span>
                               </div>
                               <div className="space-y-1.5">
-                                {job.verifications.map((v, i) => {
+                                {job.legacy_verifications.map((v, i) => {
                                   const vsc = getStatusConfig(v.status);
                                   return (
                                     <div

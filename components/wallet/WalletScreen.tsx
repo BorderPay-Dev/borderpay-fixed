@@ -72,9 +72,10 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; flag: string; name: stri
   SLE: { symbol: 'Le', flag: '🇸🇱', name: 'Sierra Leonean Leone', color: '#22D3EE' },
   MZN: { symbol: 'MT', flag: '🇲🇿', name: 'Mozambican Metical', color: '#F97316' },
   MWK: { symbol: 'MK', flag: '🇲🇼', name: 'Malawian Kwacha', color: '#14B8A6' },
-  USDT: { symbol: '$', flag: '₮', name: 'Tether USD', color: '#26A17B' },
-  USDC: { symbol: '$', flag: '◈', name: 'USD Coin', color: '#2775CA' },
+  USDT:  { symbol: '$', flag: '₮', name: 'Tether USD', color: '#26A17B' },
+  USDC:  { symbol: '$', flag: '◈', name: 'USD Coin',   color: '#2775CA' },
   PYUSD: { symbol: '$', flag: '◇', name: 'PayPal USD', color: '#0074D9' },
+  USDB:  { symbol: '$', flag: '◆', name: 'Backed USD', color: '#0052FF' },
 };
 
 
@@ -129,7 +130,7 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
         if (Array.isArray(raw) && raw.length > 0) {
           const mapped: WalletData[] = raw.map((w: any) => {
             const cur = w.currency;
-            const isStable = ['USDT', 'USDC', 'PYUSD'].includes(cur);
+            const isStable = ['USDT', 'USDC', 'PYUSD', 'USDB'].includes(cur);
             const isUsd = cur === 'USD';
             return {
               id: w.id,
@@ -185,7 +186,7 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
   const stablecoinWallets = wallets.filter(w => w.type === 'stablecoin');
 
   const totalBalance = wallets.reduce((sum, w) => {
-    if (w.currency === 'USD' || ['USDT', 'USDC', 'PYUSD'].includes(w.currency)) return sum + w.balance;
+    if (w.currency === 'USD' || ['USDT', 'USDC', 'PYUSD', 'USDB'].includes(w.currency)) return sum + w.balance;
     return sum; // skip non-USD for total
   }, 0);
 
@@ -579,7 +580,7 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
 
         {/* Footer */}
         <div className="text-center pt-2 pb-4">
-          <p className={`text-[10px] ${tc.textMuted}`}>All wallets powered by Maplerad • FDIC insured (USD)</p>
+          <p className={`text-[10px] ${tc.textMuted}`}>Wallets powered by our banking-as-a-service partners</p>
         </div>
       </div>
     </div>

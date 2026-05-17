@@ -13,6 +13,7 @@ import { ArrowLeft, DollarSign, AlertCircle, Info, CheckCircle, ShieldAlert } fr
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BorderPayLogo } from './BorderPayLogo';
 import { motion, AnimatePresence } from 'motion/react';
+import { isFullEnrollment } from '../../utils/config/environment';
 
 export interface CardDesign {
   id: string;
@@ -95,9 +96,18 @@ interface CardDesignSelectorProps {
   onCancel: () => void;
   isActivating?: boolean;
   onNavigateToKYC?: () => void;
+  /**
+   * Authoritative verification flag passed by the parent CardsScreen, which
+   * already does a fresh getProfile() on mount. If undefined, fall back to
+   * localStorage (old behaviour) — but the parent SHOULD always pass it so
+   * the Activate button never dead-ends on a stale cache.
+   */
+  isVerified?: boolean;
 }
 
-export function CardDesignSelector({ onSelectDesign, onCancel, isActivating = false, onNavigateToKYC }: CardDesignSelectorProps) {
+export function CardDesignSelector({
+  onSelectDesign, onCancel, isActivating = false, onNavigateToKYC, isVerified: isVerifiedProp,
+}: CardDesignSelectorProps) {
   const [viewedIndex, setViewedIndex] = useState(0);
   const [confirmedIndex, setConfirmedIndex] = useState<number | null>(null);
   const [brand, setBrand] = useState<'VISA' | 'MASTERCARD'>('VISA');
@@ -107,15 +117,18 @@ export function CardDesignSelector({ onSelectDesign, onCancel, isActivating = fa
   const tc = useThemeClasses();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Check KYC status from cached user profile
-  const isVerified = (() => {
-    try {
-      const stored = localStorage.getItem('borderpay_user');
-      if (!stored) return false;
-      const user = JSON.parse(stored);
-      return user.kyc_status === 'verified';
-    } catch { return false; }
-  })();
+  // Source of truth: prop from parent (live profile state). Fall back to
+  // localStorage only when the prop wasn't passed.
+  const isVerified = isVerifiedProp !== undefined
+    ? isVerifiedProp
+    : (() => {
+        try {
+          const stored = localStorage.getItem('borderpay_user');
+          if (!stored) return false;
+          const user = JSON.parse(stored);
+          return isFullEnrollment(user?.kyc_status);
+        } catch { return false; }
+      })();
 
   const hasSelected = confirmedIndex !== null;
   const selectedDesign = hasSelected ? CARD_DESIGNS[confirmedIndex] : null;

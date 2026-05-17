@@ -53,11 +53,26 @@ export const supabase = getOrCreateClient();
 // Strips internal Supabase metadata before caching to limit PII exposure.
 const USER_STORAGE_KEY = 'borderpay_user';
 
-/** Fields safe to cache locally. Everything else is fetched on demand. */
+/**
+ * Fields safe to cache locally. Everything else is fetched on demand.
+ *
+ * Includes `account_type` so the business/individual route doesn't fall
+ * back to 'individual' on every refresh, plus the other fields that the
+ * Dashboard / KYC / admin guard hooks read synchronously at first paint.
+ */
 const SAFE_FIELDS = [
-  'id', 'email', 'full_name', 'country', 'phone', 'kyc_status',
-  'kyc_level', 'avatar_url', 'profile_picture_url', 'currency', 'maplerad_customer_id',
-  'maplerad_status', 'created_at', 'date_of_birth', 'address', 'city', 'state', 'postal_code',
+  'id', 'email', 'full_name', 'country', 'phone',
+  'account_type',                    // ← business vs individual routing
+  'kyc_status',
+  'kyc_level',
+  'avatar_url', 'profile_picture_url', 'currency',
+  'bridge_customer_id',              // Bridge identity, used by KYC/KYB flows
+  'bridge_kyc_status',               // Bridge KYC status badge on dashboards
+  'admin_kyc_decision',              // KYC review screen reads this
+  'is_admin',                        // admin panel routing
+  'account_status',
+  'created_at',
+  'date_of_birth', 'address', 'city', 'state', 'postal_code',
 ];
 
 export function storeUserProfile(profile: any): void {

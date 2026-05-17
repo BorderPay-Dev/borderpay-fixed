@@ -5,14 +5,29 @@
  * Used by: signup, KYC country selector, profile, everywhere.
  * NEVER create another country list anywhere in the codebase.
  *
- * Built from:
- *  - Maplerad restricted jurisdictions (44 countries/territories)
- *  - Maplerad-supported issuing/identity coverage
+ * Provider neutrality:
+ *   The active financial provider is Bridge. The data shape below was
+ *   originally built around a legacy provider (Maplerad). Field names
+ *   `mapleradSupported`, `mapleradIdentityType`, and the constant
+ *   `MAPLERAD_RESTRICTED` are retained TEMPORARILY to avoid a sprawling
+ *   rename across every country entry in this file in the same gate as
+ *   the §3 Bridge deploy.
  *
- * Rules:
- *  - status: 'active'      → Maplerad accepts enrollment from this country
- *  - status: 'coming_soon' → Maplerad does not yet support this country
- *  - status: 'restricted'  → Maplerad banned — NEVER show to users
+ *   TODO (separate cleanup chunk after §6 sandbox smoke passes):
+ *     • `mapleradSupported`     → `providerSupported`
+ *     • `mapleradIdentityType`  → `identityType`
+ *     • `MAPLERAD_RESTRICTED`   → `LEGACY_RESTRICTED_COUNTRIES`
+ *
+ *   Authoritative country-eligibility for Bridge today lives in
+ *   `supabase/functions/_shared/providers/bridge-country-policy.ts`. This
+ *   file's `mapleradSupported` flag is NOT consulted by Bridge edge
+ *   functions; it only informs the legacy KYC-submit form, which is
+ *   itself a 410 stub.
+ *
+ * status semantics (provider-neutral):
+ *  - status: 'active'      → country shown in signup country selectors
+ *  - status: 'coming_soon' → country visible with future-state label
+ *  - status: 'restricted'  → country NEVER shown to users
  */
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
@@ -22,7 +37,12 @@ export interface IDType {
   label: string;
   description: string;
   fields: string[];
-  /** Exact value to send to Maplerad enroll API identity.type */
+  /**
+   * Legacy field name (kept for backwards compatibility with existing
+   * country rows). TODO: rename to `identityType`. Currently consulted
+   * only by the quarantined legacy KYC submission path; the active Bridge
+   * KYC flow uses hosted links and does not read this value.
+   */
   mapleradIdentityType: string;
 }
 
@@ -32,18 +52,27 @@ export interface CountryConfig {
   flag: string;
   dialCode: string;
   currency: string;
+  /**
+   * Legacy field name. TODO: rename to `providerSupported`. Today the
+   * value reflects whether the country was supported by the previous
+   * provider; Bridge eligibility is determined by
+   * `bridge-country-policy.ts`, not this flag.
+   */
   mapleradSupported: boolean;
   /**
-   * Hint for what kind of identity capture this country needs. The custom
-   * KYC flow always collects an ID image + selfie + POA regardless, but this
-   * tag is kept so the UI can tailor copy ("scan your ID" vs "type your BVN").
+   * Hint for what kind of identity capture a future provider may need.
+   * The active KYC flow uses Bridge hosted links and does not branch on
+   * this tag for production traffic.
    */
   verificationMethod: 'eidv' | 'document_capture' | 'none';
   idTypes: IDType[];
   status: 'active' | 'coming_soon' | 'restricted';
 }
 
-// ── Maplerad Restricted Jurisdictions ────────────────────────────────────────
+// ── Legacy restricted-jurisdiction list ─────────────────────────────────────
+// TODO: rename to LEGACY_RESTRICTED_COUNTRIES once callers (currently zero
+// in the codebase) are accounted for. Bridge-prohibited jurisdictions are
+// enforced by `bridge-country-policy.ts`, not this list.
 
 export const MAPLERAD_RESTRICTED: string[] = [
   'AF','AL','AO','BY','BA','MM','BI','CF','CU','KP',
@@ -636,6 +665,22 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
     idTypes: [
       { code: 'PASSPORT', label: 'Bangladeshi Passport', description: 'Bangladeshi passport', fields: ['idNumber'], mapleradIdentityType: 'PASSPORT' },
     ],
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AFRICA — future-state via planned local rails partner (NOT Bridge)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Bridge's supported-countries list categorises COD (DRC) as PROHIBITED
+  // (no US ACH / FedWire / SEPA / FPS support). We allow account signup so
+  // DRC residents can register, but Bridge KYC/KYB and money-movement flows
+  // are blocked server-side. See bridge-customer / bridge-kyc-link /
+  // bridge-kyb-link for the `country_not_supported` 403 guard.
+  {
+    code: 'CD', name: 'Democratic Republic of the Congo', flag: '🇨🇩', dialCode: '+243', currency: 'CDF',
+    mapleradSupported: false, verificationMethod: 'none',
+    status: 'active',
+    idTypes: [],
   },
 ];
 

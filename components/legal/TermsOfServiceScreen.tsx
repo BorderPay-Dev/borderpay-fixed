@@ -132,7 +132,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
 
           <h3 className="text-white font-bold text-sm mb-3">2.2 Verification Process</h3>
           <p className="text-white/70 text-sm leading-relaxed mb-3">
-            Identity verification is powered by Maplerad, our licensed banking-as-a-service partner. The verification process:
+            Identity verification is powered by our licensed banking-as-a-service partner. The verification process:
           </p>
           <ul className="space-y-2">
             {[
@@ -192,7 +192,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
               'Multi-currency wallets (USD + African currencies)',
               'Virtual card issuance — $3.50 one-time issuance fee',
               'Apple Pay & Google Pay integration',
-              'Stablecoin support (USDT, USDC)',
+              'Stablecoin support (USDT, USDC, PYUSD, USDB)',
               'Mobile money integration',
               'Customer support',
             ].map((item, index) => (
@@ -361,7 +361,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
 
           <div className="bg-gradient-to-r from-[#C7FF00]/10 to-transparent border border-[#C7FF00]/20 rounded-2xl p-4 mt-4">
             <p className="text-xs text-white/70">
-              <strong className="text-[#C7FF00]">Identity Verification by:</strong> Maplerad
+              <strong className="text-[#C7FF00]">Identity Verification by:</strong> our licensed banking-as-a-service partner
             </p>
           </div>
         </>

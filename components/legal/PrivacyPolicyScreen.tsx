@@ -109,8 +109,8 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
                 <p className="text-white/70 text-xs">Payment processing, virtual cards, wallet infrastructure</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                <p className="text-white font-semibold text-sm mb-1">Maplerad</p>
-                <p className="text-white/70 text-xs">KYC/AML identity verification and banking-as-a-service provider</p>
+                <p className="text-white font-semibold text-sm mb-1">Identity Verification &amp; BaaS Partner</p>
+                <p className="text-white/70 text-xs">KYC/AML identity verification, virtual accounts, custodial wallets, and stablecoin orchestration</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                 <p className="text-white font-semibold text-sm mb-1">Regulatory Authorities</p>

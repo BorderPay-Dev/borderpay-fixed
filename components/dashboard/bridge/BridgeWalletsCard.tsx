@@ -1,0 +1,175 @@
+/**
+ * BridgeWalletsCard — list + create custodial stablecoin wallets.
+ *
+ * Reads public.bridge_wallets for this user (or business) and shows
+ * deposit address + chain. Provides a single Create button for the default
+ * stablecoin (USDC on Base). Other stablecoin/chain pairs can be added
+ * later under explicit product rollout.
+ */
+
+import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
+import { Wallet, Plus, Copy, Loader2, Lock } from 'lucide-react';
+import { supabase } from '../../../utils/supabase/client';
+import { backendAPI } from '../../../utils/api/backendAPI';
+import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
+import { showToast } from '../../common/StatusToast';
+
+interface WalletRow {
+  id:                 string;
+  bridge_wallet_id:   string;
+  currency:           string;
+  chain:              string;
+  address:            string;
+  status:             string;
+}
+
+interface Props {
+  userId:        string;
+  kycApproved?:  boolean;
+  isBusiness?:   boolean;
+}
+
+const DEFAULT_STABLECOIN = { symbol: 'usdc', chain: 'base', label: 'USDC on Base' };
+
+export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: Props) {
+  const { t } = useThemeLanguage();
+  const tc = useThemeClasses();
+  const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
+
+  const [rows, setRows]       = useState<WalletRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [derivedApproved, setDerivedApproved] = useState(false);
+
+  const isApproved = kycApproved ?? derivedApproved;
+
+  const refresh = async () => {
+    const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
+    const { data } = isBusiness
+      ? await q.eq('business_user_id', userId)
+      : await q.eq('user_id', userId);
+    setRows((data as WalletRow[]) ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => { refresh(); }, [userId, isBusiness]);
+
+  useEffect(() => {
+    if (kycApproved !== undefined) return;
+    let alive = true;
+    (async () => {
+      if (isBusiness) {
+        const { data } = await supabase
+          .from('business_profiles')
+          .select('bridge_kyb_status')
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (alive) setDerivedApproved(data?.bridge_kyb_status === 'approved');
+      } else {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('bridge_kyc_status')
+          .eq('id', userId)
+          .maybeSingle();
+        if (alive) setDerivedApproved(data?.bridge_kyc_status === 'approved');
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId, isBusiness, kycApproved]);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    const r = await backendAPI.bridge.wallet.create({ symbol: DEFAULT_STABLECOIN.symbol, chain: DEFAULT_STABLECOIN.chain });
+    setCreating(false);
+    if (!r.success) {
+      showToast.error(r.error || tt('dash.wallet.create.failed', 'Could not create wallet.'));
+      return;
+    }
+    showToast.success(tt('dash.wallet.create.success', `${DEFAULT_STABLECOIN.label} wallet created`));
+    refresh();
+  };
+
+  const copy = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); showToast.success(tt('common.copied', 'Copied')); } catch { /* noop */ }
+  };
+
+  const hasDefault = rows.some(r => r.currency.toLowerCase() === DEFAULT_STABLECOIN.symbol && r.chain.toLowerCase() === DEFAULT_STABLECOIN.chain);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-5 sm:p-6`}
+    >
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-2xl bg-[#C7FF00]/20 flex items-center justify-center">
+          <Wallet className="w-5 h-5 text-black dark:text-white" />
+        </div>
+        <div className="flex-1">
+          <h3 className={`text-base font-semibold ${tc.text}`}>
+            {tt('dash.wallet.title', 'Stablecoin wallets')}
+          </h3>
+          <p className={`text-xs ${tc.textMuted}`}>
+            {tt('dash.wallet.subtitle', 'Custodial USDC and other stablecoins.')}
+          </p>
+        </div>
+      </div>
+
+      {!isApproved && (
+        <div className={`flex items-center gap-2 p-3 rounded-2xl ${tc.bgAlt} border ${tc.border} mb-3`}>
+          <Lock className={`w-4 h-4 ${tc.textMuted}`} />
+          <p className={`text-xs ${tc.textMuted}`}>
+            {tt('dash.wallet.locked', 'Verify your identity to enable wallets.')}
+          </p>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 py-4">
+          <Loader2 className={`w-4 h-4 ${tc.textSecondary} animate-spin`} />
+          <span className={tc.textMuted}>{tt('common.loading', 'Loading…')}</span>
+        </div>
+      ) : (
+        <>
+          {rows.length > 0 && (
+            <ul className="space-y-2 mb-3">
+              {rows.map(r => (
+                <li key={r.id} className={`p-3 rounded-2xl ${tc.bgAlt} border ${tc.border}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`font-semibold ${tc.text}`}>{r.currency.toUpperCase()} · {r.chain}</span>
+                    <span className={`text-xs ${r.status === 'active' ? 'text-green-500' : tc.textMuted}`}>{r.status}</span>
+                  </div>
+                  {r.address && (
+                    <button onClick={() => copy(r.address)}
+                            className={`flex items-center gap-1 text-xs ${tc.textSecondary} hover:${tc.text} truncate max-w-full`}>
+                      <span className="truncate font-mono">{r.address}</span>
+                      <Copy className="w-3 h-3 shrink-0" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {!hasDefault && (
+            <button
+              disabled={!isApproved || creating}
+              onClick={handleCreate}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition
+                ${isApproved
+                  ? 'bg-[#C7FF00] text-black hover:opacity-90'
+                  : `${tc.bgAlt} ${tc.textMuted} cursor-not-allowed`}`}
+            >
+              {creating
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Plus className="w-3.5 h-3.5" />}
+              {tt('dash.wallet.add', 'Add')} {DEFAULT_STABLECOIN.label}
+            </button>
+          )}
+        </>
+      )}
+    </motion.div>
+  );
+}
+
+export default BridgeWalletsCard;

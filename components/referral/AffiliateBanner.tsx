@@ -13,17 +13,16 @@ const DISMISSED_KEY = 'affiliate_banner_dismissed';
 
 interface AffiliateBannerProps {
   kycStatus: string;
-  mapleradStatus: string;
   userEmail: string;
 }
 
-export function AffiliateBanner({ kycStatus, mapleradStatus, userEmail }: AffiliateBannerProps) {
+export function AffiliateBanner({ kycStatus, userEmail }: AffiliateBannerProps) {
   const [visible, setVisible] = useState(false);
   const tc = useThemeClasses();
 
   useEffect(() => {
-    // Only show to fully active users
-    if (kycStatus !== 'verified' || mapleradStatus !== 'enrolled') return;
+    // Only show to verified users.
+    if (kycStatus !== 'verified') return;
     if (localStorage.getItem(DISMISSED_KEY) === 'true') return;
     if (!userEmail) return;
 
@@ -44,7 +43,7 @@ export function AffiliateBanner({ kycStatus, mapleradStatus, userEmail }: Affili
       }
     })();
     return () => { cancelled = true; };
-  }, [kycStatus, mapleradStatus, userEmail]);
+  }, [kycStatus, userEmail]);
 
   const handleDismiss = () => {
     localStorage.setItem(DISMISSED_KEY, 'true');
@@ -62,10 +61,10 @@ export function AffiliateBanner({ kycStatus, mapleradStatus, userEmail }: Affili
       <div
         className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
         style={{
-          backgroundColor: 'rgba(0, 229, 143, 0.06)',
-          borderColor: 'rgba(0, 229, 143, 0.18)',
+          backgroundColor: 'rgba(199, 255, 0, 0.06)',
+          borderColor: 'rgba(199, 255, 0, 0.18)',
           borderLeftWidth: 3,
-          borderLeftColor: '#00E58F',
+          borderLeftColor: '#C7FF00',
         }}
       >
         <span className="text-sm shrink-0">
@@ -77,7 +76,7 @@ export function AffiliateBanner({ kycStatus, mapleradStatus, userEmail }: Affili
         <button
           onClick={handleJoin}
           className="shrink-0 ml-auto px-3 py-1 rounded-lg text-[11px] font-bold transition-colors hover:opacity-90"
-          style={{ backgroundColor: '#00E58F', color: '#06080C' }}
+          style={{ backgroundColor: '#C7FF00', color: '#06080C' }}
         >
           Join Now &rarr;
         </button>

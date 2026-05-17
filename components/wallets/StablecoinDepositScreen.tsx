@@ -23,7 +23,7 @@ interface StablecoinDepositScreenProps {
   onBack: () => void;
   onConfirm?: (data: {
     txType: 'deposit' | 'send' | 'receive' | 'swap';
-    currency: 'USDC' | 'USDT' | 'PYUSD';
+    currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
     amount?: number;
     network?: string;
     address?: string;
@@ -31,7 +31,7 @@ interface StablecoinDepositScreenProps {
   }) => void;
 }
 
-type StablecoinType = 'USDC' | 'USDT' | 'PYUSD';
+type StablecoinType = 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
 
 interface CoinConfig {
   code: StablecoinType;
@@ -43,9 +43,10 @@ interface CoinConfig {
 }
 
 const COINS: CoinConfig[] = [
-  { code: 'USDC', name: 'USD Coin', descKey: 'stablecoin.usdcDesc', color: '#2775CA', bgColor: '#2775CA20', icon: '$' },
-  { code: 'USDT', name: 'Tether', descKey: 'stablecoin.usdtDesc', color: '#26A17B', bgColor: '#26A17B20', icon: '₮' },
-  { code: 'PYUSD', name: 'PayPal USD', descKey: 'stablecoin.pyusdDesc', color: '#0074D9', bgColor: '#0074D920', icon: '$' },
+  { code: 'USDC',  name: 'USD Coin',    descKey: 'stablecoin.usdcDesc',  color: '#2775CA', bgColor: '#2775CA20', icon: '$' },
+  { code: 'USDT',  name: 'Tether',      descKey: 'stablecoin.usdtDesc',  color: '#26A17B', bgColor: '#26A17B20', icon: '₮' },
+  { code: 'PYUSD', name: 'PayPal USD',  descKey: 'stablecoin.pyusdDesc', color: '#0074D9', bgColor: '#0074D920', icon: '$' },
+  { code: 'USDB',  name: 'Backed USD',  descKey: 'stablecoin.usdbDesc',  color: '#0052FF', bgColor: '#0052FF20', icon: '$' },
 ];
 
 export function StablecoinDepositScreen({ onBack, onConfirm }: StablecoinDepositScreenProps) {

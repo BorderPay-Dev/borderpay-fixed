@@ -1,7 +1,7 @@
 /**
  * BorderPay Africa — Fee Calculator
  * Reads live fee schedule from fee_config table in Supabase.
- * Never exposes maplerad_cost or bp_revenue to the user — only user_pays.
+ * Never exposes provider_cost or bp_revenue to the user — only user_pays.
  */
 
 import { supabase } from './supabase/client';
@@ -150,7 +150,10 @@ function calcFee(data: any, amount: number): FeeResult {
     userPays = val;
   }
 
-  const currency: string = data.maplerad_fee_currency || 'USD';
+  // Legacy column `maplerad_fee_currency` retained as a fallback for existing
+  // fee_config rows. New rows should set `fee_currency`. The column itself is
+  // not dropped in this pass (audit/history kept intact).
+  const currency: string = data.fee_currency || data.maplerad_fee_currency || 'USD';
   const breakdown: string = data.user_pays_type === 'percentage'
     ? `${val}%${data.user_pays_min ? ` (min ${parseFloat(data.user_pays_min).toLocaleString()} ${currency})` : ''}`
     : `${val.toLocaleString()} ${currency}`;

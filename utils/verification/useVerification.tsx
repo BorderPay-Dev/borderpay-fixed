@@ -1,11 +1,12 @@
 /**
  * BorderPay Africa - Verification Hook
  *
- * Checks user KYC status via backend API.
+ * Synchronous hydration from localStorage on first render — NO loading
+ * state shown to users who already have a cached profile. The hook then
+ * fires a background refresh to pick up any server-side changes.
  *
- * KYC logic:
- *   Not enrolled -> blocks wallet/account/card creation
- *   Full Enrollment (via enroll-customer-full) -> unlocks all features
+ * Account/email status MUST never flicker — if the cached profile shows
+ * `kyc_status === verified`, the UI shows "verified" immediately.
  */
 
 import { useState, useEffect } from 'react';
@@ -26,66 +27,67 @@ export interface VerificationStatus {
   canCreateProducts: boolean;
 }
 
-export function useVerification(userId: string): VerificationStatus {
-  const [status, setStatus] = useState<VerificationStatus>({
+function deriveFromKyc(kycStatus?: string | null): VerificationStatus {
+  const verified = isFullEnrollment(kycStatus || '');
+  return {
+    isVerified:        verified,
+    kycTier:           verified ? ENV_CONFIG.kycTier.FULL_ENROLLMENT : ENV_CONFIG.kycTier.NONE,
+    loading:           false,
+    accountStatus:     verified ? 'verified' : 'starter',
+    canCreateProducts: canCreateFinancialProducts(kycStatus || ''),
+  };
+}
+
+function readSyncStatus(): VerificationStatus {
+  try {
+    const stored = authAPI.getStoredUser();
+    if (stored?.kyc_status) {
+      return deriveFromKyc(stored.kyc_status);
+    }
+  } catch { /* ignore */ }
+  // Unknown — assume starter, but not "loading" so the UI stops flickering.
+  return {
     isVerified:        false,
     kycTier:           0,
-    loading:           true,
+    loading:           false,
     accountStatus:     'starter',
     canCreateProducts: false,
-  });
+  };
+}
+
+export function useVerification(userId: string): VerificationStatus {
+  // Synchronous hydration — never start in "loading" state if we have cache.
+  const [status, setStatus] = useState<VerificationStatus>(() => readSyncStatus());
 
   useEffect(() => {
-    if (userId) checkVerificationStatus();
+    if (!userId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const profileResult = await backendAPI.user.getProfile();
+        if (cancelled) return;
+        if (profileResult.success && profileResult.data?.user) {
+          const p = profileResult.data.user;
+          const kycStatus = p.kyc_status || 'pending';
+          try { localStorage.setItem('borderpay_user', JSON.stringify(p)); } catch {}
+          const next = deriveFromKyc(kycStatus);
+          // Only update if the verification value has actually changed —
+          // prevents an unnecessary re-render that could cause a flicker.
+          setStatus(prev =>
+            prev.isVerified === next.isVerified &&
+            prev.kycTier === next.kycTier &&
+            prev.accountStatus === next.accountStatus &&
+            prev.canCreateProducts === next.canCreateProducts
+              ? prev
+              : next
+          );
+        }
+      } catch { /* keep cached state */ }
+    })();
+
+    return () => { cancelled = true; };
   }, [userId]);
-
-  const checkVerificationStatus = async () => {
-    try {
-      // -- 1. Fast path: pull cached user from localStorage --
-      const storedUser = authAPI.getStoredUser();
-      let kycStatus    = storedUser?.kyc_status || 'pending';
-
-      // -- 2. Fresh profile from backend if cache is stale --
-      if (!storedUser || !storedUser.kyc_status) {
-        try {
-          const profileResult = await backendAPI.user.getProfile();
-          if (profileResult.success && profileResult.data?.user) {
-            const p  = profileResult.data.user;
-            kycStatus  = p.kyc_status || 'pending';
-            localStorage.setItem('borderpay_user', JSON.stringify(p));
-          }
-        } catch { /* silent */ }
-      }
-
-      // -- 3. KYC tier resolution --
-      const verified = isFullEnrollment(kycStatus);
-      const kycTier  = verified ? ENV_CONFIG.kycTier.FULL_ENROLLMENT : ENV_CONFIG.kycTier.NONE;
-
-      // -- 4. Derived flags --
-      const canCreateProducts = canCreateFinancialProducts(kycStatus);
-
-      // -- 5. Account status label --
-      let accountStatus: 'starter' | 'verified' | 'active' = 'starter';
-      if (verified) accountStatus = 'verified';
-
-      setStatus({
-        isVerified:        verified,
-        kycTier,
-        loading:           false,
-        accountStatus,
-        canCreateProducts,
-      });
-
-    } catch {
-      setStatus({
-        isVerified:        false,
-        kycTier:           0,
-        loading:           false,
-        accountStatus:     'starter',
-        canCreateProducts: false,
-      });
-    }
-  };
 
   return status;
 }
