@@ -59,7 +59,7 @@ export function AffiliateBanner({ kycStatus, userEmail }: AffiliateBannerProps) 
   return (
     <div className="mx-4 mt-2 mb-1">
       <div
-        className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
+        className="flex items-center gap-2 rounded-xl border pl-3 pr-2 py-2"
         style={{
           backgroundColor: 'rgba(199, 255, 0, 0.06)',
           borderColor: 'rgba(199, 255, 0, 0.18)',
@@ -67,25 +67,24 @@ export function AffiliateBanner({ kycStatus, userEmail }: AffiliateBannerProps) 
           borderLeftColor: '#C7FF00',
         }}
       >
-        <span className="text-sm shrink-0">
-          <span className={`${tc.text} text-xs font-medium`}>
-            Earn money referring friends — Join our Affiliate Program
-          </span>
-        </span>
+        <p className={`${tc.text} text-[12px] font-medium min-w-0 flex-1 truncate`}>
+          Earn money referring friends
+        </p>
 
         <button
           onClick={handleJoin}
-          className="shrink-0 ml-auto px-3 py-1 rounded-lg text-[11px] font-bold transition-colors hover:opacity-90"
+          className="shrink-0 px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors hover:opacity-90 whitespace-nowrap"
           style={{ backgroundColor: '#C7FF00', color: '#06080C' }}
         >
-          Join Now &rarr;
+          Join now
         </button>
 
         <button
           onClick={handleDismiss}
+          aria-label="Dismiss"
           className="shrink-0 p-1 rounded-md hover:bg-white/10 transition-colors"
         >
-          <X size={14} className="text-gray-500" />
+          <X size={13} className="text-gray-500" />
         </button>
       </div>
     </div>

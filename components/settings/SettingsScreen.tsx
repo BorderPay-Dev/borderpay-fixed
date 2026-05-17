@@ -76,13 +76,13 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
       title: t('settings.account'),
       items: [
         { icon: User, label: t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
-        // Plans & pricing — single entry-point into the wallet-debit upgrade flow.
-        // Tapping routes to the /pricing in-app screen, where the user can
-        // pick a paid plan and open the UpgradeModal.
+        // Plans & pricing — wallet-debit upgrade flow entry point.
         { icon: Sparkles, label: 'Plans & pricing', screen: 'pricing', color: 'text-[#C7FF00]' },
         { icon: CreditCard, label: t('settings.paymentMethods'), screen: 'payment-methods', color: 'text-green-400' },
-        { icon: FileText, label: t('settings.kycDocuments'), screen: 'kyc', color: 'text-purple-400' },
-        { icon: Upload, label: 'Proof of Address', screen: 'proof-of-address', color: 'text-indigo-400' },
+        // KYC documents and Proof of Address are deliberately not surfaced
+        // from Settings: identity verification is owned end-to-end by our
+        // verification partner via the hosted flow, and re-submission lives
+        // inside that flow (Identity & KYC entry in the side drawer).
       ]
     },
     {

@@ -108,24 +108,31 @@ export function AppShell({
 
   return (
     <div className={`min-h-screen ${tc.bg} relative`}>
-      {/* ── Scrollable content layer ───────────────────────────────────── */}
+      {/* ── Scrollable content layer ─────────────────────────────────────
+          paddingTop / paddingBottom honour iOS notch + Android nav-bar so
+          content never sits under the chrome on phones. */}
       <main
         className="relative z-0"
         style={{
-          paddingTop:    HEADER_HEIGHT_PX,
-          paddingBottom: FOOTER_HEIGHT_PX + 16,
+          paddingTop:    `calc(env(safe-area-inset-top, 0px) + ${HEADER_HEIGHT_PX}px)`,
+          paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${FOOTER_HEIGHT_PX + 16}px)`,
         }}
       >
         {children}
       </main>
 
-      {/* ── Premium glass header (transparent, content scrolls beneath) ── */}
+      {/* ── Premium glass header (transparent, content scrolls beneath) ──
+          Renders inside the iOS / Android safe-area (notch). We drop the
+          BorderPay wordmark per product direction; the plan badge stays. */}
       <header
-        className={`fixed top-0 inset-x-0 z-30 ${tc.headerBg} border-b ${tc.borderLight}`}
-        style={{ height: HEADER_HEIGHT_PX }}
-        aria-label={tt('shell.header', 'BorderPay header')}
+        className={`fixed top-0 inset-x-0 z-30 ${tc.headerBg} border-b ${tc.borderLight} pt-safe`}
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
+        aria-label={tt('shell.header', 'App header')}
       >
-        <div className="h-full max-w-screen-md mx-auto px-4 flex items-center gap-3">
+        <div
+          className="max-w-screen-md mx-auto px-4 flex items-center gap-3"
+          style={{ height: HEADER_HEIGHT_PX }}
+        >
           <button
             type="button"
             aria-label={tt('shell.menu.open', 'Open menu')}
@@ -136,7 +143,6 @@ export function AppShell({
           </button>
 
           <div className="flex-1 flex items-center gap-2 min-w-0">
-            <span className={`font-semibold ${tc.text} text-base sm:text-lg tracking-tight`}>BorderPay</span>
             {subscription?.is_paid && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#C7FF00] text-black text-[10px] font-bold tracking-wider uppercase">
                 <Sparkles className="w-2.5 h-2.5" />

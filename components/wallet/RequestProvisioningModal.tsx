@@ -489,7 +489,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
                   )}
                 </button>
 	                <p className="text-[10px] text-white/40 text-center">
-	                  Available Bridge products provision from this request. Future local rails are queued and you'll get an email when they're live.
+	                  Live products provision from this request immediately. Future local rails are queued and you'll be emailed when they go live.
 	                </p>
               </div>
             )}

@@ -402,7 +402,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through our African partner.')
         : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
-        : code === 'no_customer'          ? 'Set up your Bridge account before sending funds.'
+        : code === 'no_customer'          ? 'Finish account setup before sending funds.'
         : code === 'plan_required'        ? ''      // UpgradeModal handles it; suppress duplicate toast
         : (result.error || t('send.txFailed'));
 
@@ -513,85 +513,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           >
             <p className={`text-sm ${tc.textSecondary} mb-3`}>{t('send.chooseMethod')}</p>
 
-            {/* Live-rail banner — only Stablecoin is wired today.
-                Bank/Mobile Money/US ACH/BorderPay-to-BorderPay return
-                rails_future_state until our African on/off-ramp partner ships. */}
-            <div className="mb-5 rounded-2xl bg-[#C7FF00]/10 border border-[#C7FF00]/25 px-4 py-3 flex items-start gap-3">
-              <span className="text-[#C7FF00] mt-0.5">✦</span>
-              <div className="min-w-0">
-                <p className={`text-xs font-semibold ${tc.text}`}>
-                  Stablecoin transfers are live now
-                </p>
-                <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
-                  Bank, mobile money, US ACH, and BorderPay-to-BorderPay are
-                  launching soon through our African rails partner. You can
-                  still preview the flow.
-                </p>
-              </div>
-            </div>
-
+            {/* Stablecoin is the only live send rail. Local-currency bank,
+                mobile money, US ACH, and on-app peer transfer are intentionally
+                hidden from the picker until our on/off-ramp partner ships. */}
             <div className="space-y-3">
-              {/* Bank Transfer (NGN only) */}
-              <button
-                onClick={() => { setMethod('bank'); setSelectedCurrency('NGN'); setStep('details'); }}
-                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
-              >
-                <div className="w-12 h-12 rounded-full bg-[#C7FF00]/15 flex items-center justify-center flex-shrink-0">
-                  <Building2 size={22} className="text-[#C7FF00]" />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>{t('send.bankTransfer')}</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>NGN bank transfer via NUBAN</p>
-                </div>
-                <ArrowRight size={18} className={tc.textMuted} />
-              </button>
-
-              {/* Mobile Money */}
-              <button
-                onClick={() => { setMethod('mobile_money'); setSelectedCurrency('NGN'); setStep('details'); }}
-                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
-              >
-                <div className="w-12 h-12 rounded-full bg-purple-500/15 flex items-center justify-center flex-shrink-0">
-                  <Smartphone size={22} className="text-purple-400" />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>{t('send.mobileMoney')}</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Send via MoMo providers across Africa</p>
-                </div>
-                <ArrowRight size={18} className={tc.textMuted} />
-              </button>
-
-              {/* BorderPay Pay */}
-              <button
-                onClick={() => { setMethod('borderpay'); setStep('details'); }}
-                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
-              >
-                <div className="w-12 h-12 rounded-full bg-blue-500/15 flex items-center justify-center flex-shrink-0">
-                  <Users size={22} className="text-blue-400" />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>{t('send.borderPayPay')}</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>{t('send.borderPayPayDesc')}</p>
-                </div>
-                <ArrowRight size={18} className={tc.textMuted} />
-              </button>
-
-              {/* US Payment (ACH/Wire) */}
-              <button
-                onClick={() => { setMethod('us_ach_wire'); setSelectedCurrency('USD'); setStep('details'); }}
-                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
-              >
-                <div className="w-12 h-12 rounded-full bg-red-500/15 flex items-center justify-center flex-shrink-0">
-                  <DollarSign size={22} className="text-red-400" />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>{t('send.usAchWire')}</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>{t('send.usAchWireDesc')}</p>
-                </div>
-                <ArrowRight size={18} className={tc.textMuted} />
-              </button>
-
-              {/* Stablecoin Transfer */}
               <button
                 onClick={() => { setMethod('stablecoin'); setSelectedCurrency('USD'); setStep('details'); }}
                 className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
@@ -600,17 +525,41 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <Coins size={22} className="text-cyan-400" />
                 </div>
                 <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>Stablecoin Transfer</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Send USDC via Base, Ethereum, Solana & more</p>
+                  <p className={`text-sm font-semibold ${tc.text}`}>Stablecoin transfer</p>
+                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDC / USDT / PYUSD / USDB across Base, Ethereum, Solana, Optimism, Polygon</p>
                 </div>
                 <ArrowRight size={18} className={tc.textMuted} />
               </button>
+
+              {/* Coming soon, non-interactive */}
+              <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60`}>
+                <div className={`w-12 h-12 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
+                  <Building2 size={22} className={tc.textMuted} />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className={`text-sm font-semibold ${tc.text}`}>Bank & mobile money</p>
+                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Local African rails — coming soon</p>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
+              </div>
+
+              <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60`}>
+                <div className={`w-12 h-12 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
+                  <DollarSign size={22} className={tc.textMuted} />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className={`text-sm font-semibold ${tc.text}`}>US bank payout (ACH / Wire)</p>
+                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Pay out USD to any US bank account — coming soon</p>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
+              </div>
             </div>
 
-            {/* Info */}
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
               <Info size={16} className="text-[#C7FF00] mt-0.5 flex-shrink-0" />
-              <p className={`text-xs ${tc.textMuted}`}>{t('send.localPaymentsInfo')}</p>
+              <p className={`text-xs ${tc.textMuted}`}>
+                Stablecoin transfers settle in seconds. Other payout rails launch with our partner integration.
+              </p>
             </div>
           </motion.div>
         )}

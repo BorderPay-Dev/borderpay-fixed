@@ -373,7 +373,7 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
                               <div className="flex items-center gap-2 mb-2">
                                 <Shield size={12} className="text-[#C7FF00]" />
                                 <span className="text-[9px] font-bold text-[#C7FF00] uppercase tracking-wider">
-                                  Bridge {job.account_type === 'business' ? 'KYB' : 'KYC'}
+                                  Partner {job.account_type === 'business' ? 'KYB' : 'KYC'}
                                 </span>
                               </div>
                               <div className="grid grid-cols-2 gap-2">
