@@ -159,14 +159,16 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
 
     setSuspending(true);
     try {
-      // Disable 2FA client-side via SecurityManager
-      TOTPManager.disable(userId);
-      toast.success(t('settings.2faDisabled'));
-      setHas2FA(false);
-      // Also try to update backend profile
-      try {
-        await backendAPI.auth.disable2FA(userId, password);
-      } catch { /* non-critical - local state is source of truth */ }
+      // Server-side disable: TOTPManager.disable now rounds-trips to
+      // disable-2fa with the user's password. Local cache is updated only
+      // on success so we don't lie about state if the server refuses.
+      const r = await TOTPManager.disable(userId, password);
+      if (r.success) {
+        toast.success(t('settings.2faDisabled'));
+        setHas2FA(false);
+      } else {
+        toast.error(r.error || t('settings.2faDisableFailed'));
+      }
     } catch (error) {
       toast.error(t('settings.2faDisableFailed'));
     } finally {

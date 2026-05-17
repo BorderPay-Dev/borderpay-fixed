@@ -36,8 +36,7 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
     generateSetup();
   }, []);
 
-  const generateSetup = () => {
-    // Get user email from stored profile
+  const generateSetup = async () => {
     let userEmail = 'user@borderpay.africa';
     try {
       const storedUser = localStorage.getItem('borderpay_user');
@@ -47,9 +46,13 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
       }
     } catch { /* fallback email */ }
 
-    const setupData = TOTPManager.generateSecret(userId, userEmail);
-    setSecret(setupData.secret);
-    setQrCodeUri(setupData.qrCodeUri);
+    try {
+      const setupData = await TOTPManager.generateSecret(userId, userEmail);
+      setSecret(setupData.secret);
+      setQrCodeUri(setupData.qrCodeUri);
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not start 2FA setup');
+    }
   };
 
   const handleCopySecret = () => {

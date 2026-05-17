@@ -63,8 +63,9 @@ const ReferralScreen = lazyImport(() => import('../referral/ReferralScreen').the
 const BiometricSetup = lazyImport(() => import('../security/BiometricSetup').then(m => ({ default: m.BiometricSetup })));
 const HelpCenterScreen = lazyImport(() => import('../settings/HelpCenterScreen').then(m => ({ default: m.HelpCenterScreen })));
 const ProofOfAddressScreen = lazyImport(() => import('../settings/ProofOfAddressScreen').then(m => ({ default: m.ProofOfAddressScreen })));
-const PricingScreen = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
-const TeamScreen    = lazyImport(() => import('../team/TeamScreen').then(m => ({ default: m.TeamScreen })));
+const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
+const TeamScreen          = lazyImport(() => import('../team/TeamScreen').then(m => ({ default: m.TeamScreen })));
+const NotificationsScreen = lazyImport(() => import('../notifications/NotificationsScreen').then(m => ({ default: m.NotificationsScreen })));
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
 // so any nav button can call it on hover/touchstart.
@@ -99,8 +100,9 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'help-center': (HelpCenterScreen as any).preload,
   'proof-of-address': (ProofOfAddressScreen as any).preload,
   referral: (ReferralScreen as any).preload,
-  pricing: (PricingScreen as any).preload,
-  team:    (TeamScreen    as any).preload,
+  pricing:       (PricingScreen as any).preload,
+  team:          (TeamScreen    as any).preload,
+  notifications: (NotificationsScreen as any).preload,
 };
 
 export function prefetchScreen(name: string) {
@@ -171,7 +173,8 @@ export type AppScreen =
   | 'help-center'
   | 'proof-of-address'
   | 'pricing'
-  | 'team';
+  | 'team'
+  | 'notifications';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
 // The shell speaks `AppRoute` (Home/Send/Receive/Account + drawer items).
@@ -181,7 +184,7 @@ export type AppScreen =
 
 const TOP_LEVEL_SCREENS: ReadonlySet<AppScreen> = new Set([
   'dashboard', 'home', 'wallet-detail', 'transactions',
-  'cards', 'profile', 'settings', 'kyc', 'pricing', 'team',
+  'cards', 'profile', 'settings', 'kyc', 'pricing', 'team', 'notifications',
 ]);
 
 const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
@@ -195,7 +198,7 @@ const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
   transactions:  'transactions',
   kyc:           'kyc',
   settings:      'settings',
-  notifications: 'preferences',   // no dedicated notifications screen yet
+  notifications: 'notifications',
   team:          'team',
 };
 
@@ -213,6 +216,7 @@ function screenToShellRoute(s: AppScreen): AppRoute {
     case 'kyc':            return 'kyc';
     case 'settings':       return 'settings';
     case 'team':           return 'team';
+    case 'notifications':  return 'notifications';
     default:               return 'dashboard';
   }
 }
@@ -620,6 +624,9 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
             onManagePlans={() => navigateTo('pricing')}
           />
         );
+
+      case 'notifications':
+        return <NotificationsScreen onBack={navigateBack} />;
 
       case 'dashboard':
       case 'home':

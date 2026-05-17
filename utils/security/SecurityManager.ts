@@ -324,139 +324,159 @@ export const PINManager = {
 // TOTP 2FA MANAGEMENT
 // ============================================================================
 
-// TOTP 2FA MANAGEMENT
+// TOTP 2FA MANAGEMENT — server-backed.
 //
-// SECURITY DEBT (P1, scheduled for next batch): The TOTP secret is
-// currently generated and stored client-side in localStorage. A malicious
-// browser extension could extract the secret and generate valid codes
-// without the user's authenticator app. The migration plan is:
+// SECURITY: TOTP secret is generated server-side by `setup-2fa` and stored
+// in `user_security.two_factor_secret`. The secret is returned to the
+// client exactly once during enrollment so the user can scan the QR /
+// type into their authenticator. After that, verification rounds-trip
+// to `verify-2fa` which performs HMAC-SHA1 RFC-6238 verification with
+// constant-time compare and ±1 step drift tolerance. The secret never
+// touches localStorage post-enrollment.
 //
-//   1. setup-2fa edge function generates the TOTP secret server-side,
-//      stores it encrypted in `user_security.totp_secret_encrypted`, and
-//      returns only the otpauth:// QR URL to the client.
-//   2. verify-2fa edge function verifies user-entered codes server-side.
-//   3. Client TOTPManager becomes a thin wrapper, just like PINManager.
-//
-// Until then, this manager still holds the secret client-side. Treat
-// 2FA as a UX layer, not a hardened auth factor. The PIN flow (which IS
-// now server-backed, see PINManager) is the authoritative gate for
-// money-movement operations.
+// Known limitation (P2): `two_factor_secret` is stored in plaintext in
+// the database. Should be encrypted at rest with a server-only key.
+// Tracked separately; the bigger win — moving the secret off the
+// client — is done.
 export const TOTPManager = {
-  isEnabled(userId: string): boolean {
-    const state = loadState(userId);
-    return state.totpEnabled && !!state.totpSecret;
+  isEnabled(_userId: string): boolean {
+    // Reads cached profile flag (mirrored from user_security.two_factor_enabled).
+    try {
+      const stored = localStorage.getItem('borderpay_user');
+      if (stored) {
+        const p = JSON.parse(stored);
+        return !!(p?.two_factor_enabled || p?.mfa_enabled);
+      }
+    } catch { /* ignore */ }
+    return false;
   },
 
-  /** Generate a new TOTP secret and return setup data */
-  generateSecret(userId: string, userEmail: string): {
-    secret: string;         // base32 secret for manual entry
-    qrCodeUri: string;      // otpauth:// URI for QR code
-    rawSecret: string;      // stored internally
-  } {
-    const secretBytes = generateRandomBytes(20); // 160-bit secret
-    const secret = base32Encode(secretBytes);
-    const issuer = 'BorderPay%20Africa';
-    const account = encodeURIComponent(userEmail);
-    const qrCodeUri = `otpauth://totp/${issuer}:${account}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
-
-    // Store the secret temporarily (not yet enabled until verified)
-    const state = loadState(userId);
-    state.totpSecret = secret;
-    state.totpEnabled = false; // Will be enabled after verification
-    saveState(userId, state);
-
+  /**
+   * Start 2FA enrollment. Calls `setup-2fa` which generates the TOTP secret
+   * server-side, stores it in `user_security.two_factor_secret`, and returns
+   * the secret + otpauth_url for QR/manual entry. We never persist the
+   * secret client-side — UI components hold it only for the duration of
+   * the enrollment screen (until verifyAndEnable runs).
+   */
+  async generateSecret(_userId: string, _userEmail: string): Promise<{
+    secret: string;
+    qrCodeUri: string;
+    rawSecret: string;
+  }> {
+    const { backendAPI } = await import('../api/backendAPI');
+    const r: any = await backendAPI.auth.setup2FA(_userId);
+    if (!r?.success || !r?.data) {
+      throw new Error(r?.error || 'Could not start 2FA enrollment');
+    }
+    const secret    = String(r.data.secret || '');
+    const qrCodeUri = String(r.data.otpauth_url || '');
     return { secret, qrCodeUri, rawSecret: secret };
   },
 
-  /** Verify a TOTP code and enable 2FA if valid */
-  async verifyAndEnable(userId: string, code: string): Promise<{ success: boolean; error?: string }> {
-    const state = loadState(userId);
-    if (!state.totpSecret) {
-      return { success: false, error: 'No TOTP secret found. Please set up 2FA first.' };
+  /**
+   * Verify the user-entered code against the server-stored secret and
+   * enable 2FA on success. Single endpoint serves both first-enable and
+   * subsequent verification (the server idempotently sets
+   * two_factor_enabled=true).
+   */
+  async verifyAndEnable(_userId: string, code: string): Promise<{ success: boolean; error?: string }> {
+    if (!/^\d{6}$/.test(code)) {
+      return { success: false, error: 'Enter a 6-digit code' };
     }
-
     try {
-      const secretBytes = base32Decode(state.totpSecret);
-      const isValid = await verifyTOTPCode(secretBytes, code);
-
-      if (isValid) {
-        state.totpEnabled = true;
-        saveState(userId, state);
-
-        // Sync to backend DB
-        syncSecurityToBackend({ two_factor_enabled: true });
-
-        // Also update the stored user profile to reflect 2FA status
+      const { backendAPI } = await import('../api/backendAPI');
+      const r: any = await backendAPI.auth.verify2FA(_userId, code);
+      if (r?.success) {
+        // Mirror flags into the cached profile so isEnabled() updates instantly.
         try {
-          const storedUser = localStorage.getItem('borderpay_user');
-          if (storedUser) {
-            const user = JSON.parse(storedUser);
-            user.two_factor_enabled = true;
-            user.mfa_enabled = true;
-            localStorage.setItem('borderpay_user', JSON.stringify(user));
+          const stored = localStorage.getItem('borderpay_user');
+          if (stored) {
+            const u = JSON.parse(stored);
+            u.two_factor_enabled = true;
+            u.mfa_enabled = true;
+            localStorage.setItem('borderpay_user', JSON.stringify(u));
           }
-        } catch { /* non-critical */ }
-
+        } catch { /* ignore */ }
         return { success: true };
-      } else {
-        return { success: false, error: 'Invalid verification code. Please try again.' };
       }
+      return { success: false, error: r?.error || 'Invalid verification code' };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Verification failed' };
+      return { success: false, error: err?.message || 'Verification failed' };
     }
   },
 
-  /** Verify a TOTP code (for login / transaction verification) */
+  /** Same endpoint as verifyAndEnable — used during login / transaction step-up. */
   async verifyCode(userId: string, code: string): Promise<boolean> {
-    const state = loadState(userId);
-    if (!state.totpSecret || !state.totpEnabled) return false;
-
-    try {
-      const secretBytes = base32Decode(state.totpSecret);
-      return verifyTOTPCode(secretBytes, code);
-    } catch {
-      return false;
-    }
+    const r = await this.verifyAndEnable(userId, code);
+    return !!r.success;
   },
 
-  /** Get the current TOTP code (for testing/debug only) */
-  async getCurrentCode(userId: string): Promise<string | null> {
-    const state = loadState(userId);
-    if (!state.totpSecret) return null;
-
-    try {
-      const secretBytes = base32Decode(state.totpSecret);
-      return generateTOTP(secretBytes);
-    } catch {
-      return null;
-    }
+  /** Removed in the server-backed migration. */
+  async getCurrentCode(_userId: string): Promise<string | null> {
+    return null;
   },
 
-  /** Disable 2FA */
-  disable(userId: string): void {
-    const state = loadState(userId);
-    state.totpSecret = null;
-    state.totpEnabled = false;
-    saveState(userId, state);
-
-    // Sync to backend DB
-    syncSecurityToBackend({ two_factor_enabled: false });
-
-    // Update stored user profile
+  /** Disable 2FA — clears server-side secret + flag. Requires password. */
+  async disable(_userId: string, password?: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const storedUser = localStorage.getItem('borderpay_user');
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
-        user.two_factor_enabled = false;
-        user.mfa_enabled = false;
-        localStorage.setItem('borderpay_user', JSON.stringify(user));
+      const { backendAPI } = await import('../api/backendAPI');
+      // disable2FA wraps the disable-2fa edge function with password confirmation.
+      const r: any = await backendAPI.auth.disable2FA(_userId, password || '');
+      if (r?.success) {
+        try {
+          const stored = localStorage.getItem('borderpay_user');
+          if (stored) {
+            const u = JSON.parse(stored);
+            u.two_factor_enabled = false;
+            u.mfa_enabled = false;
+            localStorage.setItem('borderpay_user', JSON.stringify(u));
+          }
+        } catch { /* ignore */ }
+        return { success: true };
       }
-    } catch { /* non-critical */ }
+      return { success: false, error: r?.error || 'Could not disable 2FA' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Could not disable 2FA' };
+    }
   },
 };
 
 // ============================================================================
 // BIOMETRIC MANAGEMENT (WebAuthn)
+//
+// SECURITY MODEL — read before changing any of this:
+//
+// What this provides today: a *local UX gesture* to unlock the Supabase
+// refresh_token cached in localStorage. The platform authenticator (Face ID,
+// Touch ID, Android biometric) gates the "biometric sign-in" button. On a
+// successful navigator.credentials.get() the app refreshes the Supabase
+// session using the stored refresh_token. The refresh_token IS the auth
+// credential; the biometric only gates UI access to that flow.
+//
+// What this DOES NOT provide:
+//   • Server-side WebAuthn assertion verification. The challenge is
+//     generated client-side and the signature in the assertion is never
+//     sent to the server, so the assertion proves nothing to any backend.
+//   • Encryption of the refresh_token at rest. Any browser extension /
+//     XSS can read `borderpay_refresh_token` directly without a biometric
+//     prompt, then call supabase.auth.refreshSession() themselves.
+//
+// Migration plan to server-verified WebAuthn (P1):
+//   1. Add `webauthn_credentials` table: id, user_id, credential_id (b64url),
+//      public_key (COSE), counter (bigint), transports, created_at, last_used_at.
+//   2. New edge functions:
+//        - `biometric-register-options`  → server-issued challenge + RP info
+//        - `biometric-register-verify`   → CBOR-decode attestation, store creds
+//        - `biometric-auth-options`      → server-issued challenge + allowCreds
+//        - `biometric-auth-verify`       → verify signature + counter, mint JWT
+//      Use @simplewebauthn/server (Deno-compatible) for crypto.
+//   3. Client BiometricManager becomes a thin wrapper; refresh_token is no
+//      longer used for biometric login.
+//   4. Encrypt cached refresh_token with a WebAuthn-PRF-derived key for the
+//      device-bound case where server-verified WebAuthn isn't available.
+//
+// Until that lands, treat the biometric prompt as "convenience login" and
+// keep PIN (server-backed) + email password as the real auth factors.
 // ============================================================================
 
 export const BiometricManager = {
