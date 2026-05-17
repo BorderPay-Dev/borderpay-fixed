@@ -96,32 +96,36 @@ Deno.serve(async (req: Request) => {
     // Bridge customer creation happens later, only when the user clicks
     // Start KYC/KYB (bridge-customer + bridge-kyc-link / bridge-kyb-link).
     {
+      // Columns must match the current public.users schema exactly. The
+      // legacy fields (is_unlocked / one_time_fee_paid / is_kyc_verified /
+      // beta_user) were dropped with the Maplerad removal and writing to
+      // them causes "column does not exist". `kyc_status` is an enum —
+      // valid values are: unverified | pending | verified | failed |
+      // approved | rejected. Use `unverified` for new accounts.
       const { error: usersErr } = await supabaseAdmin.from("users").upsert({
         id: userId, email, full_name,
-        phone:    phone_number || "",
-        country:  country_code || "",
-        kyc_status:    "not_started",
-        account_type:  normalizedAccountType,
-        is_unlocked:        false,
-        one_time_fee_paid:  false,
-        is_kyc_verified:    false,
-        wallet_activated:   false,
-        beta_user:          true,
+        phone:            phone_number || "",
+        country:          country_code || "",
+        account_type:     normalizedAccountType,
+        kyc_status:       "unverified",
+        wallet_activated: false,
       });
       if (usersErr) return rollbackAuthUser(`users upsert failed: ${usersErr.message}`);
     }
     {
+      // Same enum rule for user_profiles.kyc_status. address_verification_status
+      // is a free-form text column so 'not_started' is fine there.
       const { error: profileErr } = await supabaseAdmin.from("user_profiles").upsert({
         id: userId, email, full_name,
-        phone:   phone_number || "",
-        country: country_code || "",
-        account_type:  normalizedAccountType,
-        kyc_status:    "not_started",
-        kyc_level:     0,
-        language:      "en",
+        phone:                       phone_number || "",
+        country:                     country_code || "",
+        account_type:                normalizedAccountType,
+        kyc_status:                  "unverified",
+        kyc_level:                   0,
+        language:                    "en",
         address_verification_status: "not_started",
-        bridge_customer_id: null,
-        bridge_kyc_status:  "not_started",
+        bridge_customer_id:          null,
+        bridge_kyc_status:           "not_started",
       });
       if (profileErr) return rollbackAuthUser(`user_profiles upsert failed: ${profileErr.message}`);
     }

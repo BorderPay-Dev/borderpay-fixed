@@ -46,6 +46,7 @@ import { RequestProvisioningModal } from '../wallet/RequestProvisioningModal';
 import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
+import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsComingSoonCard } from '../dashboard/bridge/CardsComingSoonCard';
@@ -676,6 +677,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </div>
         )}
       </section>
+
+      {/* ── Exchange rates (below recent activity) ─────────────────── */}
+      <ExchangeRateWidget onNavigate={handleNavigate} />
 
       {/* ── 11. Affiliate banner (footer position) ─────────────────── */}
       <section className="px-5 sm:px-6 mt-6 pb-2">
