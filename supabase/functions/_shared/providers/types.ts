@@ -38,7 +38,16 @@ export interface CustomerCreateResult {
 }
 
 export interface KycLinkInput {
-  customer_id:       string;          // provider customer id
+  // Bridge's `/v0/kyc_links` accepts either an existing customer_id OR the
+  // user's basic info (full_name + email + type), in which case Bridge
+  // creates the customer when the user completes the hosted flow. We
+  // strongly prefer the second mode because it avoids the strict
+  // pre-validation that `/v0/customers` requires (signed_agreement_id,
+  // birth_date, full address) — those are collected on the hosted page.
+  customer_id?:      string;
+  full_name?:        string;
+  company_name?:     string;
+  email?:            string;
   account_type:      AccountType;
   redirect_url?:     string;          // where Bridge sends user post-flow
   endorsements?:     ("base"|"sepa"|"spei"|"crypto")[];

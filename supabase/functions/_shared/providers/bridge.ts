@@ -62,22 +62,61 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Onboarding (KYC / KYB) ────────────────────────────────────────────────
+  // Bridge `POST /v0/kyc_links`:
+  //   • If customer_id is supplied, returns a KYC link for that existing
+  //     customer (requires the customer to already have signed_agreement_id +
+  //     base profile — i.e. went through /v0/customers).
+  //   • If customer_id is NOT supplied, Bridge accepts full_name + email
+  //     (+ business_legal_name for KYB) and creates the customer when the
+  //     user completes the hosted flow. TOS is collected on the same page,
+  //     so we don't need a separate /v0/customers/tos_links round-trip.
+  //
+  // We use the second mode because /v0/customers requires
+  // signed_agreement_id + birth_date + a full address up-front — fields
+  // that the user only enters during the hosted KYC flow. Pre-creating
+  // the customer was returning 502 for every signup.
+  //
+  // Bridge response shape varies: the link may come back as
+  // { kyc_link: { url, id } } or { url, id } at top level. We probe both
+  // to stay tolerant of API revisions. On failure we include the raw
+  // body so the operator can see what Bridge actually rejected.
   async createKycLink(input: KycLinkInput): Promise<KycLinkResult> {
     const body: Record<string, unknown> = {
-      customer_id:  input.customer_id,
-      type:         input.account_type,                // 'individual'|'business'
+      type:         input.account_type,
       redirect_uri: input.redirect_url || KYC_REDIRECT_URL,
       endorsements: input.endorsements ?? ["base"],
     };
+    if (input.customer_id) {
+      body.customer_id = input.customer_id;
+    } else {
+      // Embedded-customer mode.
+      if (input.email)        body.email = input.email;
+      if (input.account_type === "individual") {
+        if (input.full_name)  body.full_name = input.full_name;
+      } else {
+        if (input.company_name) body.business_legal_name = input.company_name;
+      }
+    }
+    const idemSource =
+      input.customer_id ?? input.email ?? input.full_name ?? crypto.randomUUID();
     const r = await bridgeFetch({
       method: "POST", path: "/v0/kyc_links", body,
-      idempotencyKey: `borderpay:kyc:${input.customer_id}`,
+      idempotencyKey: `borderpay:kyc:${input.account_type}:${idemSource}`,
     });
-    if (!r.ok) throw new Error(`Bridge createKycLink failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      // Bubble up the full Bridge response (truncated) so the function
+      // log + edge-function HTTP response have something diagnostic.
+      const detail = r.raw_text ? r.raw_text.slice(0, 800) : r.error || `HTTP ${r.status}`;
+      throw new Error(`Bridge createKycLink failed [${r.status}]: ${detail}`);
+    }
     const data = (r.data as any)?.data ?? r.data;
-    const url  = data?.kyc_link?.url || data?.url || data?.link;
+    const url  = data?.kyc_link?.url || data?.kyc_link || data?.url || data?.link;
     const id   = data?.kyc_link?.id  || data?.id;
-    if (!url || !id) throw new Error("Bridge createKycLink: missing link/url");
+    if (!url || !id) {
+      throw new Error(
+        `Bridge createKycLink: missing link/url in response — keys=${Object.keys(data ?? {}).join(",")}`,
+      );
+    }
     return {
       provider: this.name, link_id: String(id), link_url: String(url),
       expires_at: data?.expires_at, raw: r.data,
