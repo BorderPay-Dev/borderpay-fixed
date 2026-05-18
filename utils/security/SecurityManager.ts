@@ -442,45 +442,105 @@ export const TOTPManager = {
 };
 
 // ============================================================================
-// BIOMETRIC MANAGEMENT (WebAuthn)
+// BIOMETRIC MANAGEMENT (server-verified WebAuthn)
 //
-// SECURITY MODEL — read before changing any of this:
+// Four-call dance with the backend:
+//   • enroll  → webauthn-register-options (server issues challenge)
+//             → navigator.credentials.create(opts)
+//             → webauthn-register-verify (server verifies attestation,
+//               persists credential to webauthn_credentials)
+//   • verify  → webauthn-auth-options (server issues challenge for the
+//               user's enrolled credential IDs)
+//             → navigator.credentials.get(opts)
+//             → webauthn-auth-verify (server validates signature + counter,
+//               bumps the row, marks challenge consumed)
 //
-// What this provides today: a *local UX gesture* to unlock the Supabase
-// refresh_token cached in localStorage. The platform authenticator (Face ID,
-// Touch ID, Android biometric) gates the "biometric sign-in" button. On a
-// successful navigator.credentials.get() the app refreshes the Supabase
-// session using the stored refresh_token. The refresh_token IS the auth
-// credential; the biometric only gates UI access to that flow.
-//
-// What this DOES NOT provide:
-//   • Server-side WebAuthn assertion verification. The challenge is
-//     generated client-side and the signature in the assertion is never
-//     sent to the server, so the assertion proves nothing to any backend.
-//   • Encryption of the refresh_token at rest. Any browser extension /
-//     XSS can read `borderpay_refresh_token` directly without a biometric
-//     prompt, then call supabase.auth.refreshSession() themselves.
-//
-// Migration plan to server-verified WebAuthn (P1):
-//   1. Add `webauthn_credentials` table: id, user_id, credential_id (b64url),
-//      public_key (COSE), counter (bigint), transports, created_at, last_used_at.
-//   2. New edge functions:
-//        - `biometric-register-options`  → server-issued challenge + RP info
-//        - `biometric-register-verify`   → CBOR-decode attestation, store creds
-//        - `biometric-auth-options`      → server-issued challenge + allowCreds
-//        - `biometric-auth-verify`       → verify signature + counter, mint JWT
-//      Use @simplewebauthn/server (Deno-compatible) for crypto.
-//   3. Client BiometricManager becomes a thin wrapper; refresh_token is no
-//      longer used for biometric login.
-//   4. Encrypt cached refresh_token with a WebAuthn-PRF-derived key for the
-//      device-bound case where server-verified WebAuthn isn't available.
-//
-// Until that lands, treat the biometric prompt as "convenience login" and
-// keep PIN (server-backed) + email password as the real auth factors.
+// The platform-authenticator gesture (Face ID / Touch ID / Windows Hello)
+// is the second factor; the signed assertion is what proves authentication
+// to the backend. The previous flow was UX-only (the server got no
+// cryptographic evidence) — that's now replaced.
 // ============================================================================
 
+// WebAuthn JSON helpers: navigator.credentials.create/get returns
+// ArrayBuffers nested in the response. The server functions expect
+// base64url-encoded strings (the @simplewebauthn/server convention). These
+// helpers do the conversion in both directions.
+function _b64uFromBytes(bytes: ArrayBuffer | Uint8Array): string {
+  const arr = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  let bin = '';
+  for (let i = 0; i < arr.byteLength; i++) bin += String.fromCharCode(arr[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function _bytesFromB64u(b64u: string): Uint8Array {
+  const pad = b64u.length % 4 === 0 ? '' : '='.repeat(4 - (b64u.length % 4));
+  const b64 = (b64u + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// Convert server-supplied creation options (b64url challenge + user.id +
+// optional excludeCredentials.id) into the BufferSource form the browser
+// expects.
+function _decodeCreateOptions(options: any): any {
+  const o: any = { ...options };
+  o.challenge = _bytesFromB64u(options.challenge);
+  o.user      = { ...options.user, id: _bytesFromB64u(options.user.id) };
+  if (Array.isArray(options.excludeCredentials)) {
+    o.excludeCredentials = options.excludeCredentials.map((c: any) => ({
+      ...c, id: _bytesFromB64u(c.id),
+    }));
+  }
+  return o;
+}
+function _decodeRequestOptions(options: any): any {
+  const o: any = { ...options };
+  o.challenge = _bytesFromB64u(options.challenge);
+  if (Array.isArray(options.allowCredentials)) {
+    o.allowCredentials = options.allowCredentials.map((c: any) => ({
+      ...c, id: _bytesFromB64u(c.id),
+    }));
+  }
+  return o;
+}
+
+// Convert a PublicKeyCredential from the browser into the b64url JSON shape
+// the server's verifyRegistrationResponse / verifyAuthenticationResponse expect.
+function _serializeAttestationResponse(cred: PublicKeyCredential): any {
+  const r = cred.response as AuthenticatorAttestationResponse;
+  return {
+    id:    cred.id,
+    rawId: _b64uFromBytes(cred.rawId),
+    type:  cred.type,
+    authenticatorAttachment: (cred as any).authenticatorAttachment,
+    clientExtensionResults:  cred.getClientExtensionResults?.() ?? {},
+    response: {
+      clientDataJSON:    _b64uFromBytes(r.clientDataJSON),
+      attestationObject: _b64uFromBytes(r.attestationObject),
+      transports:        (r as any).getTransports?.() ?? [],
+    },
+  };
+}
+function _serializeAssertionResponse(cred: PublicKeyCredential): any {
+  const r = cred.response as AuthenticatorAssertionResponse;
+  return {
+    id:    cred.id,
+    rawId: _b64uFromBytes(cred.rawId),
+    type:  cred.type,
+    authenticatorAttachment: (cred as any).authenticatorAttachment,
+    clientExtensionResults:  cred.getClientExtensionResults?.() ?? {},
+    response: {
+      clientDataJSON:    _b64uFromBytes(r.clientDataJSON),
+      authenticatorData: _b64uFromBytes(r.authenticatorData),
+      signature:         _b64uFromBytes(r.signature),
+      userHandle:        r.userHandle ? _b64uFromBytes(r.userHandle) : null,
+    },
+  };
+}
+
 export const BiometricManager = {
-  /** Check if device supports biometrics */
+  /** Platform-authenticator capability check. */
   async isSupported(): Promise<boolean> {
     if (!window.PublicKeyCredential) return false;
     try {
@@ -490,125 +550,106 @@ export const BiometricManager = {
     }
   },
 
-  /** Check if biometric is enrolled for this user */
-  isEnrolled(userId: string): boolean {
-    const state = loadState(userId);
-    return state.biometricEnabled && !!state.biometricCredentialId;
+  /**
+   * Enrolled boolean (cached). The truth lives in webauthn_credentials —
+   * this is a lightweight hint for the UI. The cache is set after a
+   * successful server-verified enroll and cleared on disable.
+   */
+  isEnrolled(_userId: string): boolean {
+    try {
+      return localStorage.getItem('borderpay_biometric_enrolled') === 'true';
+    } catch {
+      return false;
+    }
   },
 
-  /** Enroll biometric (create WebAuthn credential) */
-  async enroll(userId: string, userName: string): Promise<{ success: boolean; error?: string }> {
+  /**
+   * Enroll a new platform authenticator. Calls webauthn-register-options,
+   * runs navigator.credentials.create, ships the attestation to
+   * webauthn-register-verify which persists to webauthn_credentials.
+   */
+  async enroll(userId: string, _userName: string): Promise<{ success: boolean; error?: string }> {
     try {
       const supported = await this.isSupported();
       if (!supported) {
         return { success: false, error: 'Biometric authentication is not supported on this device' };
       }
 
-      const challenge = generateRandomBytes(32) as BufferSource;
-      const userIdBytes = new TextEncoder().encode(userId) as BufferSource;
-
-      const credential = await navigator.credentials.create({
-        publicKey: {
-          challenge,
-          rp: {
-            name: 'BorderPay Africa',
-            id: window.location.hostname,
-          },
-          user: {
-            id: userIdBytes,
-            name: userName,
-            displayName: userName,
-          },
-          pubKeyCredParams: [
-            { alg: -7, type: 'public-key' },   // ES256
-            { alg: -257, type: 'public-key' },  // RS256
-          ],
-          authenticatorSelection: {
-            authenticatorAttachment: 'platform',
-            userVerification: 'required',
-            residentKey: 'preferred',
-          },
-          timeout: 60000,
-          attestation: 'none',
-        },
-      }) as PublicKeyCredential | null;
-
-      if (!credential) {
-        return { success: false, error: 'Biometric enrollment was cancelled' };
+      const { backendAPI } = await import('../api/backendAPI');
+      const optsRes: any = await backendAPI.webauthn.registerOptions();
+      if (!optsRes?.success || !optsRes.data?.options) {
+        return { success: false, error: optsRes?.error || 'Could not start enrollment' };
       }
 
-      const credentialId = arrayBufferToBase64(credential.rawId);
-      const response = credential.response as AuthenticatorAttestationResponse;
-      const publicKey = arrayBufferToBase64(response.getPublicKey?.() || new ArrayBuffer(0));
+      const publicKey = _decodeCreateOptions(optsRes.data.options);
+      let credential: PublicKeyCredential | null;
+      try {
+        credential = (await navigator.credentials.create({ publicKey })) as PublicKeyCredential | null;
+      } catch (err: any) {
+        if (err?.name === 'NotAllowedError') return { success: false, error: 'Enrollment cancelled or timed out' };
+        return { success: false, error: err?.message || 'Enrollment failed' };
+      }
+      if (!credential) return { success: false, error: 'No credential returned by the authenticator' };
 
-      const state = loadState(userId);
-      state.biometricEnabled = true;
-      state.biometricCredentialId = credentialId;
-      state.biometricPublicKey = publicKey;
-      saveState(userId, state);
+      const verifyRes: any = await backendAPI.webauthn.registerVerify({
+        response: _serializeAttestationResponse(credential),
+      });
+      if (!verifyRes?.success) {
+        return { success: false, error: verifyRes?.error || 'Server could not verify the new credential' };
+      }
 
-      // Also store for login screen quick-access
-      localStorage.setItem('borderpay_biometric_credential_id', credentialId);
-      localStorage.setItem('borderpay_biometric_user_id', userId);
-
+      try {
+        localStorage.setItem('borderpay_biometric_enrolled', 'true');
+        localStorage.setItem('borderpay_biometric_user_id', userId);
+      } catch { /* non-critical */ }
       return { success: true };
     } catch (err: any) {
-      if (err.name === 'NotAllowedError') {
-        return { success: false, error: 'Biometric enrollment was cancelled or timed out' };
-      }
-      return { success: false, error: err.message || 'Biometric enrollment failed' };
+      return { success: false, error: err?.message || 'Enrollment failed' };
     }
   },
 
-  /** Verify biometric (authenticate with WebAuthn) */
-  async verify(userId: string): Promise<{ success: boolean; error?: string }> {
+  /**
+   * Authenticate via WebAuthn. Calls webauthn-auth-options, runs
+   * navigator.credentials.get, ships the assertion to webauthn-auth-verify
+   * which checks the signature + counter and bumps the row.
+   */
+  async verify(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const state = loadState(userId);
-      if (!state.biometricEnabled || !state.biometricCredentialId) {
-        return { success: false, error: 'Biometric not enrolled' };
+      const { backendAPI } = await import('../api/backendAPI');
+      const optsRes: any = await backendAPI.webauthn.authOptions();
+      if (!optsRes?.success || !optsRes.data?.options) {
+        return { success: false, error: optsRes?.error || 'Could not start authentication' };
       }
 
-      const challenge = generateRandomBytes(32) as BufferSource;
-      const credentialIdBuffer = base64ToArrayBuffer(state.biometricCredentialId);
-
-      const assertion = await navigator.credentials.get({
-        publicKey: {
-          challenge,
-          rpId: window.location.hostname,
-          allowCredentials: [{
-            id: new Uint8Array(credentialIdBuffer),
-            type: 'public-key',
-            transports: ['internal'],
-          }],
-          userVerification: 'required',
-          timeout: 60000,
-        },
-      }) as PublicKeyCredential | null;
-
-      if (!assertion) {
-        return { success: false, error: 'Biometric verification was cancelled' };
+      const publicKey = _decodeRequestOptions(optsRes.data.options);
+      let assertion: PublicKeyCredential | null;
+      try {
+        assertion = (await navigator.credentials.get({ publicKey })) as PublicKeyCredential | null;
+      } catch (err: any) {
+        if (err?.name === 'NotAllowedError') return { success: false, error: 'Authentication cancelled or timed out' };
+        return { success: false, error: err?.message || 'Authentication failed' };
       }
+      if (!assertion) return { success: false, error: 'No assertion returned by the authenticator' };
 
-      // If we get here, the platform authenticator verified the user
+      const verifyRes: any = await backendAPI.webauthn.authVerify({
+        response: _serializeAssertionResponse(assertion),
+      });
+      if (!verifyRes?.success) {
+        return { success: false, error: verifyRes?.error || 'Server could not verify the assertion' };
+      }
       return { success: true };
     } catch (err: any) {
-      if (err.name === 'NotAllowedError') {
-        return { success: false, error: 'Biometric verification was cancelled or timed out' };
-      }
-      return { success: false, error: err.message || 'Biometric verification failed' };
+      return { success: false, error: err?.message || 'Authentication failed' };
     }
   },
 
-  /** Disable biometric */
-  disable(userId: string): void {
-    const state = loadState(userId);
-    state.biometricEnabled = false;
-    state.biometricCredentialId = null;
-    state.biometricPublicKey = null;
-    saveState(userId, state);
-
-    localStorage.removeItem('borderpay_biometric_credential_id');
-    localStorage.removeItem('borderpay_biometric_user_id');
+  /** Clear the local enrollment hint. Server credentials are unaffected. */
+  disable(_userId: string): void {
+    try {
+      localStorage.removeItem('borderpay_biometric_enrolled');
+      localStorage.removeItem('borderpay_biometric_user_id');
+      localStorage.removeItem('borderpay_biometric_credential_id');
+    } catch { /* non-critical */ }
   },
 };
 

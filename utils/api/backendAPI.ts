@@ -1162,6 +1162,40 @@ export const teamAPI = {
     }),
 };
 
+// ============================================================================
+// WEBAUTHN (server-verified biometric / passkey)
+// ============================================================================
+//
+// Four-call dance: register/auth options are issued server-side (challenge
+// stored in webauthn_challenges with 5-min TTL); the client passes them to
+// navigator.credentials.create/get; the resulting assertion is shipped to
+// register/auth verify, which validates server-side and stores or bumps
+// the credential. The plaintext refresh_token in localStorage is no longer
+// the security boundary — the assertion is.
+
+export const webauthnAPI = {
+  registerOptions: async () =>
+    apiCall<{ options: any; origin: string; rp_id: string }>(
+      'webauthn-register-options',
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+  registerVerify: async (input: { response: any; nickname?: string }) =>
+    apiCall<{}>('webauthn-register-verify', {
+      method: 'POST',
+      body:   JSON.stringify(input),
+    }),
+  authOptions: async () =>
+    apiCall<{ options: any; rp_id: string }>(
+      'webauthn-auth-options',
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+  authVerify: async (input: { response: any }) =>
+    apiCall<{}>('webauthn-auth-verify', {
+      method: 'POST',
+      body:   JSON.stringify(input),
+    }),
+};
+
 export const subscriptionAPI = {
   /** Fetch the caller's active subscription row + recent invoices. */
   current: async () =>
@@ -1224,6 +1258,7 @@ export const backendAPI = {
   bridge: bridgeAPI,
   subscription: subscriptionAPI,
   team:         teamAPI,
+  webauthn:     webauthnAPI,
 };
 
 export default backendAPI;
