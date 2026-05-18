@@ -352,9 +352,7 @@ export const transactionAPI = {
 // ─────────────────────────────────────────────────────────────────────────────
 // All card operations are paused product-wide. These methods short-circuit
 // with a structured cards_coming_soon error and DO NOT hit any edge function.
-// Legacy card slugs are listed in MAPLERAD_REMOVAL_CHECKLIST.md for explicit
-// deletion. Do not re-add live card calls here without an explicit product
-// decision.
+// Do not re-add live card calls here without an explicit product decision.
 // Stubs include a `data: undefined` field so the shape stays compatible with
 // `apiCall`'s `{ success, data?, error?, code? }` return — callers that read
 // r.data on the failure branch get undefined instead of a type error.
@@ -690,14 +688,28 @@ export const stablecoinAPI = {
     coin: 'usdc' | 'usdt' | 'pyusd' | 'usdb' | 'eurc';
     funding_source?: 'USD';
     transaction_pin?: string;
+    /**
+     * Client-controlled idempotency key. REQUIRED.
+     *
+     * Generate ONCE per user intent (one Confirm tap on the Send screen) —
+     * typically a UUIDv4 the form holds in state. Re-send the same key on
+     * retries / timeouts / double-confirms for the same transfer; the
+     * server returns the original transfer_id without calling Bridge twice.
+     *
+     * Server (bridge-transfer v2) rejects with 400 idempotency_key_required
+     * if missing. This intentionally fails closed: money movement must
+     * never silently fall back to a server-generated key.
+     */
+    idempotency_key: string;
   }) {
     const symbol = (data.coin || 'usdc').toUpperCase();
     const chain  = (data.chain || 'base').toUpperCase();
-    return apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed' }>(
+    return apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed'; replayed?: boolean }>(
       'bridge-transfer',
       {
         method: 'POST',
         body: JSON.stringify({
+          idempotency_key: data.idempotency_key,
           source:      {
             payment_rail: 'stablecoin',
             currency:     symbol,

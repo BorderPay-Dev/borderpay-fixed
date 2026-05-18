@@ -168,6 +168,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Stablecoin transfer
   const [stablecoinAddress, setStablecoinAddress] = useState('');
+  // Client-controlled idempotency key for the bridge-transfer call.
+  // Generated ONCE per Send-screen mount so that retries / Confirm
+  // double-taps reuse the same key. Regenerate with newIdempotencyKey()
+  // after a successful send if you want the next intent to be distinct.
+  const [transferIdempotencyKey] = useState(() =>
+    `bp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`
+  );
   const [stablecoinChain, setStablecoinChain] = useState<'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon'>('base');
   const [stablecoinCoin, setStablecoinCoin] = useState<'usdc'>('usdc');
 
@@ -352,6 +359,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           coin: stablecoinCoin,
           funding_source: 'USD',
           transaction_pin: verifiedPin,
+          // Required by bridge-transfer v2. Reusing the per-mount key
+          // means a network retry of the same Confirm tap returns the
+          // original transfer_id (server-side replay), not a duplicate.
+          idempotency_key: transferIdempotencyKey,
         });
       } else if (method === 'us_ach_wire') {
         result = await backendAPI.usPayments.transfer({
@@ -513,23 +524,30 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           >
             <p className={`text-sm ${tc.textSecondary} mb-3`}>{t('send.chooseMethod')}</p>
 
-            {/* Stablecoin is the only live send rail. Local-currency bank,
-                mobile money, US ACH, and on-app peer transfer are intentionally
-                hidden from the picker until our on/off-ramp partner ships. */}
+            {/* Stablecoin send is intentionally non-interactive in this
+                build. The backend (bridge-transfer v2) is deployed with
+                client-controlled idempotency, but no end-to-end Bridge
+                sandbox evidence package has been collected yet, so the
+                CTO review held the user-facing path off. The card is
+                still shown so users see what's coming; tapping it does
+                nothing. To re-enable: replace `disabled` + the visible
+                "Pending evidence" badge with the original setMethod
+                handler once the evidence package is attached to the
+                CTO_REVIEW_HANDOFF.md. */}
             <div className="space-y-3">
-              <button
-                onClick={() => { setMethod('stablecoin'); setSelectedCurrency('USD'); setStep('details'); }}
-                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-all active:scale-[0.98]`}
+              <div
+                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60 cursor-not-allowed`}
+                aria-disabled="true"
               >
                 <div className="w-12 h-12 rounded-full bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
                   <Coins size={22} className="text-cyan-400" />
                 </div>
                 <div className="flex-1 text-left">
                   <p className={`text-sm font-semibold ${tc.text}`}>Stablecoin transfer</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDC / USDT / PYUSD / USDB across Base, Ethereum, Solana, Optimism, Polygon</p>
+                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDC / USDT / PYUSD / USDB — pending sandbox evidence sign-off</p>
                 </div>
-                <ArrowRight size={18} className={tc.textMuted} />
-              </button>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Pending evidence</span>
+              </div>
 
               {/* Coming soon, non-interactive */}
               <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60`}>

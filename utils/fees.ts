@@ -150,10 +150,9 @@ function calcFee(data: any, amount: number): FeeResult {
     userPays = val;
   }
 
-  // Legacy column `maplerad_fee_currency` retained as a fallback for existing
-  // fee_config rows. New rows should set `fee_currency`. The column itself is
-  // not dropped in this pass (audit/history kept intact).
-  const currency: string = data.fee_currency || data.maplerad_fee_currency || 'USD';
+  // The legacy provider-specific fee_currency column was dropped from
+  // fee_config in the provider sweep. Read only `fee_currency` now.
+  const currency: string = data.fee_currency || 'USD';
   const breakdown: string = data.user_pays_type === 'percentage'
     ? `${val}%${data.user_pays_min ? ` (min ${parseFloat(data.user_pays_min).toLocaleString()} ${currency})` : ''}`
     : `${val.toLocaleString()} ${currency}`;

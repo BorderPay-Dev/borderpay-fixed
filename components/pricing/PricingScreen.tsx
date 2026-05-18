@@ -13,7 +13,7 @@
  *   • Active plan: outlined in lime, "Current plan" tag.
  *   • Coming-soon items (cards) shown as muted footnotes.
  *
- * Design references: Stripe pricing, Mercury accounts, Ramp.
+ * Design references: Mercury accounts, Ramp.
  */
 
 import React, { useMemo, useState } from 'react';

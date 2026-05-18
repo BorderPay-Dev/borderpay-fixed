@@ -1,22 +1,24 @@
 /**
  * BorderPay Africa — Subscription plan catalogue.
  *
- * Single source of truth for tier definitions. All references (pricing
- * page, paywall modals, tier enforcement guards in Bridge endpoints,
- * Stripe price IDs at checkout) read from this file.
+ * Single source of truth for tier definitions. Consumers: pricing page,
+ * paywall modals, tier enforcement guards in partner endpoints.
+ *
+ * Billing model: WALLET-DEBIT (not Stripe). The upgrade flow charges a
+ * USD virtual-account balance via the atomic `pay_subscription_invoice_from_va`
+ * RPC. See `supabase/functions/subscription-upgrade/index.ts` for the
+ * transactional path.
  *
  * Plans:
  *   • individual_starter    Free
  *   • individual_premium    $9.99 / month
  *   • business_starter      Free
  *   • business_growth       $29.99 / month
- *   • business_enterprise   Contact sales (no Stripe price)
+ *   • business_enterprise   Contact sales (no programmatic price)
  *
  * Each entry declares:
  *   • account_type      'individual' | 'business'
- *   • price_monthly_usd numeric cents (0 for free; 999 / 2999)
- *   • stripe_price_id   set per environment from STRIPE_PRICE_* env vars
- *                       at runtime, not hardcoded here
+ *   • price_monthly_usd numeric cents (0 for free; 999 / 2999; null = contact sales)
  *   • limits            tier guardrails enforced server-side
  *   • features          marketing bullet list for /pricing
  */
@@ -51,8 +53,6 @@ export interface PlanDef {
   tagline:            string;
   /** USD cents per month; 0 for free tiers. Enterprise = null (contact sales). */
   price_monthly_usd:  number | null;
-  /** Stripe-side identifier; injected at runtime via env per environment. */
-  stripe_price_id?:   string;
   limits:             PlanLimits;
   features:           readonly PlanFeature[];
   cta_label:          string;
@@ -90,7 +90,6 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     display_name:      'Premium',
     tagline:           'Three global accounts. One subscription.',
     price_monthly_usd: 999,
-    stripe_price_id:   undefined,    // injected at runtime
     limits: {
       va_currencies:    ['USD', 'EUR', 'GBP'],
       max_team_members: null,
@@ -140,7 +139,6 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     display_name:      'Growth',
     tagline:           'Multi-currency treasury for growing teams.',
     price_monthly_usd: 2999,
-    stripe_price_id:   undefined,    // injected at runtime
     limits: {
       va_currencies:    ['USD', 'EUR', 'GBP'],
       max_team_members: 20,
