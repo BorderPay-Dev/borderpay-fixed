@@ -1,9 +1,10 @@
-# CTO review handoff — round 2
+# CTO review handoff — round 3
 
-**Status: NOT signed off. No live cutover.** Round 1 contained material
-overstatements that the CTO correctly rejected. This document supersedes
-round 1 and addresses every flagged item with the source/file/line that
-proves the claim.
+**Status: NOT signed off. No live cutover.** Round 2 addressed source/runtime
+drift; round 2 review surfaced three new P0s (schema-source drift,
+server-side transfer gate, partial-index upsert correctness). All three
+are fixed below with reproducible evidence. Round-1 and round-2 history
+preserved as `§0` so the audit trail is intact.
 
 Last updated: 2026-05-18.
 Production frontend: `https://app.borderpayafrica.com`
@@ -302,3 +303,229 @@ Per CTO instruction: **no live cutover**. Changes are committable for
 review but will not be pushed to `main` until the CTO explicitly signs
 off on this document and the evidence package for stablecoin send is
 attached.
+
+---
+
+## 11. Round-3 P0 follow-up (response to round-2 review)
+
+The round-2 review surfaced three additional P0s — all addressed below
+with reproducible evidence captured in this session.
+
+### P0.1 — Schema source-of-truth committed
+
+**CTO finding:** `setup-2fa` and `verify-2fa` write/read columns
+(`two_factor_secret_encrypted`, `two_factor_enc_version`) and the
+WebAuthn flow depends on `webauthn_credentials` / `webauthn_challenges`
+tables. None of these were in `supabase/migrations/` or
+`utils/supabase/schema.sql`. Schema-vs-source drift = release blocker.
+
+**Fix:** Five migration files committed (matching what was applied to
+production via Supabase MCP):
+
+| File | Applied as |
+|---|---|
+| `supabase/migrations/20260517_downgrade_legacy_verified.sql` | `downgrade_legacy_verified_force_partner_reverify` |
+| `supabase/migrations/20260518_maplerad_triggers_sweep.sql` | `maplerad_sweep_drop_triggers_columns_audit_tables` |
+| `supabase/migrations/20260518_maplerad_stripe_column_sweep.sql` | `maplerad_stripe_full_column_sweep` |
+| `supabase/migrations/20260518_user_security_hardening.sql` | `user_security_encrypt_totp_pin_attempts_reset_flags` |
+| `supabase/migrations/20260518_webauthn_credentials.sql` | `webauthn_credentials_and_challenges` |
+
+`utils/supabase/schema.sql` updated with new sections **6a (user_security)**
+and **6b (webauthn_credentials / webauthn_challenges)** including the
+new columns, indexes, and RLS policies.
+
+**Existing-data migration policy** (documented in
+`20260518_user_security_hardening.sql`): the previous client-side flow
+**never persisted TOTP secrets or PIN hashes server-side** — the
+booleans `pin_set=true` / `two_factor_enabled=true` were the only
+leaked state, with NULL hash and NULL secret. The migration resets
+those booleans, so users see the correct "not set" state and re-enroll
+via the new server-backed flows. No user is locked out.
+
+**Live-DB schema proof** (queried 2026-05-18 after migrations applied):
+
+```sql
+select column_name, data_type, is_nullable, column_default
+  from information_schema.columns
+ where table_schema = 'public' and table_name = 'user_security'
+   and column_name in ('two_factor_secret_encrypted','two_factor_enc_version',
+                       'pin_hash_v2','pin_failed_attempts','pin_locked_until','pin_updated_at');
+```
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `pin_failed_attempts` | smallint | NO | 0 |
+| `pin_hash_v2` | text | YES | — |
+| `pin_locked_until` | timestamptz | YES | — |
+| `pin_updated_at` | timestamptz | NO | now() |
+| `two_factor_enc_version` | smallint | YES | 1 |
+| `two_factor_secret_encrypted` | bytea | YES | — |
+
+Both `webauthn_credentials` (7 columns) and `webauthn_challenges`
+(5 columns) verified present with the same query. Full result captured
+in the session log.
+
+### P0.2 — Server-side feature flag for `bridge-transfer`
+
+**CTO finding:** "Stablecoin send is still live at the backend. UI-disabled
+is not enough. `bridge-transfer` remains deployed/callable by any
+authenticated approved user with a JWT." Correct.
+
+**Fix:** `bridge-transfer` v3 source (deployed as runtime v4) now reads
+env `BRIDGE_TRANSFERS_ENABLED` BEFORE any auth/JWT/Bridge call, and
+fails closed with HTTP 503 + `code: "transfer_not_enabled"` unless the
+flag is literally `"true"`.
+
+```ts
+// supabase/functions/bridge-transfer/index.ts  (deployed v4)
+function transfersEnabled(): boolean {
+  return (Deno.env.get("BRIDGE_TRANSFERS_ENABLED") || "").toLowerCase() === "true";
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+
+  // Hard server gate. Fail closed before any auth or Bridge call.
+  if (!transfersEnabled()) {
+    return json({
+      success: false,
+      code:    "transfer_not_enabled",
+      error:   "Money movement is not enabled in this environment. Awaiting sandbox evidence sign-off.",
+    }, 503);
+  }
+  ...
+});
+```
+
+**Gate proof** (KYC-approved user, valid idempotency key, real auth JWT):
+
+```
+$ curl -sS -X POST .../functions/v1/bridge-transfer \
+    -H "Authorization: Bearer <jwt-of-kyc-approved-test-user>" \
+    -d '{"source":{"amount":"1","currency":"USDC","chain":"BASE","payment_rail":"stablecoin"},
+         "destination":{"payment_rail":"stablecoin","currency":"USDC","chain":"BASE",
+                        "address":"0x0000000000000000000000000000000000000000"},
+         "idempotency_key":"smoke-gate-test-12345"}'
+
+HTTP 503
+{"success":false,"code":"transfer_not_enabled",
+ "error":"Money movement is not enabled in this environment. Awaiting sandbox evidence sign-off."}
+```
+
+Gate-test user injected with `bridge_kyc_status='approved'` +
+`bridge_customer_id='cust_test_gate_proof'`, deleted after capture.
+
+**To enable for smoke**: operator sets `BRIDGE_TRANSFERS_ENABLED=true`
+on the Supabase function-secrets page (one-line, no redeploy needed).
+To disable again: set it to anything else or unset it.
+
+### P0.3 — RPC-backed upsert (partial unique index honoured)
+
+**CTO finding:** `.upsert(..., { onConflict: "bridge_transfer_id" })` does
+not honour the partial unique index
+`UNIQUE(bridge_transfer_id) WHERE provider='bridge' AND bridge_transfer_id IS NOT NULL`
+because PostgREST cannot infer partial constraints. Retries would
+either duplicate the row or raise `unique_violation`. There is already
+an `upsert_bridge_transaction(...)` plpgsql RPC that expresses the
+partial predicate in its `ON CONFLICT ... WHERE` clause. Use it.
+
+**Fix:** Replaced the PostgREST upsert with the RPC call. Source diff:
+
+```ts
+// supabase/functions/bridge-transfer/index.ts
+- await supa.from("transactions").upsert(
+-   { user_id, type, amount, currency, status,
+-     reference, bridge_transfer_id, provider: "bridge",
+-     metadata: { idempotency_key: idem, raw: result.raw }, created_at },
+-   { onConflict: "bridge_transfer_id" },
+- );
++ const { error: rpcErr } = await supa.rpc("upsert_bridge_transaction", {
++   p_user_id:            user.id,
++   p_bridge_transfer_id: transferId,
++   p_amount:             Number(body.source.amount),
++   p_currency:           body.source.currency,
++   p_status:             dbStatus,
++   p_metadata:           { idempotency_key: idem, raw: data },
++   p_description:        null,
++ });
++ if (rpcErr) {
++   return json({
++     success: false, code: "persistence_failed",
++     error: `Bridge accepted transfer ${transferId} but local persistence failed: ${rpcErr.message}`,
++     bridge_transfer_id: transferId,
++   }, 500);
++ }
+```
+
+**Replay test** committed at `tests/replay/bridge_transfer_idempotency.sql`
+and executed against production database:
+
+```
+$ supabase mcp execute_sql @ tests/replay/bridge_transfer_idempotency.sql
+
+NOTICE:  idempotency replay test PASS:
+         transfer_id=TEST-REPLAY-<random> single row,
+         two upserts returned same id <uuid>
+
+select 'replay test cleanup' as check, count(*) as remaining
+  from public.transactions where bridge_transfer_id like 'TEST-REPLAY-%';
+→ replay test cleanup | remaining: 0
+```
+
+The DO block asserts:
+1. Both `upsert_bridge_transaction` calls return non-null ids.
+2. Both calls return the **same** id (second call UPDATED, did not INSERT).
+3. Exactly **1** row exists in `public.transactions` for the test
+   `bridge_transfer_id`.
+4. The final `status` is `'completed'` (the second call's value),
+   proving the UPDATE branch ran.
+
+If any assertion fails the block raises and the transaction rolls back —
+the test cannot leave the DB in a half-state.
+
+## 12. Round-3 file diff (for CTO PR review)
+
+```
+A supabase/migrations/20260517_downgrade_legacy_verified.sql
+A supabase/migrations/20260518_maplerad_triggers_sweep.sql
+A supabase/migrations/20260518_maplerad_stripe_column_sweep.sql
+A supabase/migrations/20260518_user_security_hardening.sql
+A supabase/migrations/20260518_webauthn_credentials.sql
+A tests/replay/bridge_transfer_idempotency.sql
+M utils/supabase/schema.sql                      ← §6a user_security, §6b webauthn_*
+M supabase/functions/bridge-transfer/index.ts    ← v3 src banner: env gate + RPC upsert
+M CTO_REVIEW_HANDOFF.md                          ← this round-3 section
+```
+
+## 13. What is NOT done (explicit deferrals)
+
+1. **No live cutover.** Frontend at `app.borderpayafrica.com` is still
+   the round-2 bundle. The schema-and-flag changes above are runtime-
+   only on the Supabase side; no frontend deploy is required for them.
+   When the operator decides to deploy frontend updates, the existing
+   git push → Vercel pipeline still applies.
+
+2. **No live Bridge sandbox transfer evidence yet.** With the
+   `BRIDGE_TRANSFERS_ENABLED` flag set to `false` at the function-secret
+   level (the new default), the gate is now the only place that
+   controls whether any user can move money. Sandbox evidence will be
+   produced by:
+   - Operator flips `BRIDGE_TRANSFERS_ENABLED=true` on the Supabase
+     dashboard for a fixed window.
+   - Operator (or test user) completes a real Bridge sandbox transfer
+     end-to-end with capture of: request body, Bridge response,
+     `transactions` row id, retry-with-same-key response, post-retry
+     row count (=1).
+   - Capture goes into `EVIDENCE_PACKAGE.md`. Operator flips
+     `BRIDGE_TRANSFERS_ENABLED=false` again.
+
+3. **`pin_hash` legacy column kept.** The verify-pin lazy-upgrade path
+   relies on it. Plan: drop it once a) every active user has
+   `pin_hash_v2` set, and b) we've added a "force re-enter PIN" admin
+   flow for stragglers.
+
+4. **`two_factor_secret` legacy column kept** for the same reason —
+   `verify-2fa` reads it as a fallback if the encrypted column is null
+   AND a user enrolled before the encrypted-write path was deployed.
+   Drop after audit confirms 0 plaintext rows.

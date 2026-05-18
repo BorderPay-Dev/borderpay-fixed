@@ -1,4 +1,4 @@
-// bridge-transfer v2 — strict client-controlled idempotency for money movement.
+// bridge-transfer v3 — server-side feature flag + RPC-backed upsert.
 //
 // POST body:
 //   {
@@ -8,21 +8,32 @@
 //     idempotency_key: string   // REQUIRED. Client-provided.
 //   }
 //
-// Money-movement idempotency policy (per CTO review):
+// Feature-flag gate (P0.2):
+//
+//   Stablecoin send is considered NOT LIVE until a sandbox evidence
+//   package is attached and approved. UI disable alone is not enough —
+//   any authenticated approved user can call this endpoint directly with
+//   a JWT. v3 reads the env `BRIDGE_TRANSFERS_ENABLED` and fails closed
+//   with 503 `transfer_not_enabled` unless the flag is the literal
+//   string `"true"`. The flag is per-environment and can be flipped
+//   to enable smoke tests for a single operator without redeploying the
+//   function.
+//
+// Money-movement idempotency policy:
 //
 //   The earlier version generated a fresh `crypto.randomUUID()` per
 //   request. That defeats Bridge's `Idempotency-Key` header — a network
 //   retry from the client created a SECOND Bridge transfer for the same
 //   user intent. Real money. Unacceptable.
 //
-//   v2 requires the client to supply a stable `idempotency_key` in the
+//   v2+ requires the client to supply a stable `idempotency_key` in the
 //   request body. The client is expected to:
 //     • Generate one key per user *intent* (e.g. one Confirm tap on the
 //       Send screen) — typically a UUIDv4 stored in form state.
 //     • Re-send the same key on retries / timeouts / "Confirm" double-
 //       taps for the same transfer.
 //
-//   Acceptable formats: any non-empty string up to 128 chars. We
+//   Acceptable formats: any printable-ASCII string 8-128 chars. We
 //   canonicalise to `borderpay:transfer:<user.id>:<client_key>` so the
 //   namespace can't collide across users even if two users happened to
 //   pick the same key.
@@ -35,6 +46,16 @@
 //   return the existing transfer_id without calling Bridge again. This
 //   guards against the case where Bridge accepted on the first call but
 //   we crashed before responding to the client.
+//
+// Persistence (P0.3):
+//
+//   The transactions row is written via the `upsert_bridge_transaction`
+//   plpgsql RPC, not a PostgREST upsert. The unique index on
+//   `bridge_transfer_id` is PARTIAL
+//   (`WHERE provider='bridge' AND bridge_transfer_id IS NOT NULL`) and
+//   PostgREST cannot infer partial unique constraints for `onConflict`.
+//   The RPC expresses the same predicate explicitly in `ON CONFLICT ...
+//   WHERE provider = 'bridge' AND bridge_transfer_id IS NOT NULL`.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -62,9 +83,27 @@ function isValidIdempotencyKey(v: unknown): v is string {
   return /^[\x21-\x7E]+$/.test(v);
 }
 
+/** Server-side gate: `BRIDGE_TRANSFERS_ENABLED` must be the literal string
+ *  "true" to allow any transfer. Anything else (unset, "false", "1", null)
+ *  fails closed with HTTP 503. This is the only path that controls
+ *  whether transfers can execute; the UI disable is decorative. */
+function transfersEnabled(): boolean {
+  return (Deno.env.get("BRIDGE_TRANSFERS_ENABLED") || "").toLowerCase() === "true";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+
+  // Hard server gate. Fail closed before any auth or Bridge call so we
+  // can't leak side effects (idempotency rows, log lines) while disabled.
+  if (!transfersEnabled()) {
+    return json({
+      success: false,
+      code:    "transfer_not_enabled",
+      error:   "Money movement is not enabled in this environment. Awaiting sandbox evidence sign-off.",
+    }, 503);
+  }
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -155,23 +194,33 @@ Deno.serve(async (req) => {
       idempotency_key: idem,
     });
 
-    // Persist the transaction row. We use ON CONFLICT (bridge_transfer_id)
-    // via upsert so a retry that races our DB write doesn't duplicate.
-    await supa.from("transactions").upsert(
-      {
-        user_id:            user.id,
-        type:               body.source.payment_rail === "stablecoin" ? "stablecoin_transfer" : "transfer",
-        amount:             body.source.amount,
-        currency:           body.source.currency,
-        status:             result.state === "succeeded" ? "completed" : (result.state === "failed" ? "failed" : "pending"),
-        reference:          result.transfer_id,
+    // Persist via the upsert_bridge_transaction RPC. PostgREST upsert
+    // cannot infer the partial unique index on bridge_transfer_id
+    // (which is `WHERE provider='bridge' AND bridge_transfer_id IS NOT NULL`);
+    // the RPC expresses that predicate explicitly in its ON CONFLICT.
+    const dbStatus =
+      result.state === "succeeded" ? "completed"
+    : result.state === "failed"    ? "failed"
+    :                                "pending";
+    const { error: upsertErr } = await supa.rpc("upsert_bridge_transaction", {
+      p_user_id:            user.id,
+      p_bridge_transfer_id: result.transfer_id,
+      p_amount:             Number(body.source.amount),
+      p_currency:           body.source.currency,
+      p_status:             dbStatus,
+      p_metadata:           { idempotency_key: idem, raw: result.raw },
+      p_description:        null,
+    });
+    if (upsertErr) {
+      // Bridge already accepted the transfer — surface the persistence
+      // failure but with the transfer_id so the client can be reconciled.
+      return json({
+        success: false,
+        code:    "persistence_failed",
+        error:   `Bridge accepted transfer ${result.transfer_id} but local persistence failed: ${upsertErr.message}`,
         bridge_transfer_id: result.transfer_id,
-        provider:           "bridge",
-        metadata:           { idempotency_key: idem, raw: result.raw },
-        created_at:         new Date().toISOString(),
-      },
-      { onConflict: "bridge_transfer_id" },
-    );
+      }, 500);
+    }
 
     return json({ success: true, data: { transfer_id: result.transfer_id, state: result.state } });
   } catch (e) {

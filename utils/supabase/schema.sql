@@ -121,6 +121,83 @@ create table if not exists public.business_profiles (
 -- them here exactly is unnecessary (and risks divergence). Refer to the
 -- migration files in /supabase/migrations for column-level history.
 
+-- ─── 6a. user_security (PIN / TOTP / WebAuthn pivot) ────────────────────────
+-- Authoritative server-side store for security factors. The previous
+-- client-side flow stored hashes/secrets in localStorage; that is gone.
+-- See migrations 20260518_user_security_hardening.sql and
+-- 20260518_webauthn_credentials.sql for the canonical DDL.
+create table if not exists public.user_security (
+  user_id                       uuid        primary key references auth.users(id) on delete cascade,
+  -- PIN
+  pin_set                       boolean     not null default false,
+  pin_hash                      text,                                -- legacy: single-round SHA-256 (pin || user.id). Lazy-upgraded on verify.
+  pin_hash_v2                   text,                                -- v2: 'v2$' || base64(salt) || '$' || base64(pbkdf2-sha256(pin, salt, 100000))
+  pin_failed_attempts           smallint    not null default 0,      -- consecutive failures
+  pin_locked_until              timestamptz,                         -- non-null → verify-pin returns 423 locked
+  pin_updated_at                timestamptz not null default now(),
+  -- TOTP
+  two_factor_enabled            boolean     not null default false,
+  two_factor_secret             text,                                -- legacy plaintext (read-fallback during rollout; setup-2fa fails closed without key)
+  two_factor_secret_encrypted   bytea,                               -- AES-256-GCM: 12-byte IV || ciphertext || 16-byte tag. Key = TOTP_ENCRYPTION_KEY env.
+  two_factor_enc_version        smallint    default 1,
+  created_at                    timestamptz not null default now(),
+  updated_at                    timestamptz not null default now()
+);
+create index if not exists user_security_pin_locked_until_idx
+  on public.user_security (pin_locked_until)
+ where pin_locked_until is not null;
+alter table public.user_security enable row level security;
+drop policy if exists user_security_owner          on public.user_security;
+create policy user_security_owner          on public.user_security
+  for select to authenticated using (auth.uid() = user_id);
+drop policy if exists user_security_service_role   on public.user_security;
+create policy user_security_service_role   on public.user_security
+  for all to service_role using (true) with check (true);
+
+-- ─── 6b. webauthn_credentials / webauthn_challenges ─────────────────────────
+-- Server-verified platform-authenticator credentials. The 4 edge functions
+-- under /supabase/functions/webauthn-* persist and verify against these
+-- tables using @simplewebauthn/server.
+create table if not exists public.webauthn_credentials (
+  id              uuid        primary key default gen_random_uuid(),
+  user_id         uuid        not null references auth.users(id) on delete cascade,
+  credential_id   text        not null unique,                       -- base64url
+  public_key      text        not null,                              -- base64url COSE
+  counter         bigint      not null default 0,                    -- RFC 8809 monotonic counter
+  transports      text[]      not null default '{}'::text[],
+  device_type     text,                                              -- 'platform' | 'cross-platform'
+  backed_up       boolean     not null default false,
+  nickname        text,
+  created_at      timestamptz not null default now(),
+  last_used_at    timestamptz
+);
+create index if not exists webauthn_credentials_user_idx on public.webauthn_credentials (user_id);
+alter table public.webauthn_credentials enable row level security;
+drop policy if exists webauthn_owner_read   on public.webauthn_credentials;
+create policy webauthn_owner_read   on public.webauthn_credentials for select to authenticated using (auth.uid() = user_id);
+drop policy if exists webauthn_owner_delete on public.webauthn_credentials;
+create policy webauthn_owner_delete on public.webauthn_credentials for delete to authenticated using (auth.uid() = user_id);
+drop policy if exists webauthn_service_role on public.webauthn_credentials;
+create policy webauthn_service_role on public.webauthn_credentials for all to service_role using (true) with check (true);
+
+create table if not exists public.webauthn_challenges (
+  id              uuid        primary key default gen_random_uuid(),
+  user_id         uuid        references auth.users(id) on delete cascade,
+  challenge       text        not null,                              -- base64url
+  purpose         text        not null check (purpose in ('register','authenticate')),
+  rp_id           text        not null,
+  expires_at      timestamptz not null,
+  consumed_at     timestamptz,
+  created_at      timestamptz not null default now()
+);
+create index if not exists webauthn_challenges_expires_idx
+  on public.webauthn_challenges (expires_at)
+ where consumed_at is null;
+alter table public.webauthn_challenges enable row level security;
+drop policy if exists webauthn_chal_service_role on public.webauthn_challenges;
+create policy webauthn_chal_service_role on public.webauthn_challenges
+  for all to service_role using (true) with check (true);
+
 -- ─── 7. RLS policies (canonical, summary) ────────────────────────────────────
 alter table public.user_profiles      enable row level security;
 alter table public.users              enable row level security;
