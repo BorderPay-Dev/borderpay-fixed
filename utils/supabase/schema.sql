@@ -40,6 +40,10 @@ end $$;
 -- ─── 3. user_profiles (CANONICAL) ────────────────────────────────────────────
 -- Used by every app surface (Dashboard, Profile, KYC, Cards, Wallets, etc.)
 -- and by every deployed edge function. Treat as the single source of truth.
+--
+-- Provider columns: bridge_* are the live partner columns. All maplerad_*
+-- columns were dropped by migration 20260518_maplerad_triggers_sweep.sql
+-- and are gone from production — do NOT re-add them.
 create table if not exists public.user_profiles (
   id                              uuid        primary key references auth.users(id) on delete cascade,
   email                           text        not null,
@@ -49,7 +53,6 @@ create table if not exists public.user_profiles (
   account_type                    public.account_type not null default 'individual',
   kyc_status                      public.kyc_status   not null default 'unverified',
   kyc_level                       integer     not null default 0,
-  maplerad_customer_id            text,
   is_admin                        boolean     not null default false,
   address                         text,
   city                            text,
@@ -62,24 +65,31 @@ create table if not exists public.user_profiles (
   kyc_verified_at                 timestamptz,
   id_number                       text,
   gender                          text,
-  maplerad_status                 text,
   account_status                  text,
   enrolled_at                     timestamptz,
-  maplerad_sandbox_customer_id    text,
-  maplerad_tier                   smallint,
-  maplerad_tier0_enrolled_at      timestamptz,
-  maplerad_tier2_enrolled_at      timestamptz,
   tier0_email_sent_at             timestamptz,
   admin_kyc_approved_at           timestamptz,
   admin_kyc_reviewer              uuid,
   admin_kyc_decision              text,
   admin_kyc_notes                 text,
-  maplerad_environment            text,
+  bridge_environment              text,
+  -- Partner (Bridge) identity columns. Populated by bridge-kyc-link /
+  -- bridge-kyb-link on first KYC start, updated by webhook ingest.
+  payment_provider                public.payment_provider not null default 'bridge',
+  bridge_customer_id              text,
+  bridge_kyc_status               text,
+  bridge_kyc_link_id              text,
+  bridge_kyc_link_url             text,
+  bridge_kyc_completed_at         timestamptz,
+  bridge_account_status           text,
+  preferred_currencies            jsonb       not null default '["USD"]'::jsonb,
   created_at                      timestamptz not null default now(),
   updated_at                      timestamptz not null default now()
 );
 
 -- ─── 4. users (legacy mirror; kept in sync by trigger) ───────────────────────
+-- Reflects the post-sweep shape (migration 20260518_maplerad_triggers_sweep.sql).
+-- No maplerad_* columns. bridge_customer_id is the only provider id.
 create table if not exists public.users (
   id                   uuid primary key references auth.users(id) on delete cascade,
   email                text not null,
@@ -89,7 +99,7 @@ create table if not exists public.users (
   account_type         public.account_type not null default 'individual',
   kyc_status           public.kyc_status   default 'unverified',
   wallet_activated     boolean default false,
-  maplerad_customer_id text,
+  bridge_customer_id   text,
   created_at           timestamptz default now(),
   updated_at           timestamptz default now()
 );

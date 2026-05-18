@@ -1,10 +1,16 @@
-# CTO review handoff — round 3
+# CTO review handoff — round 4
 
-**Status: NOT signed off. No live cutover.** Round 2 addressed source/runtime
-drift; round 2 review surfaced three new P0s (schema-source drift,
-server-side transfer gate, partial-index upsert correctness). All three
-are fixed below with reproducible evidence. Round-1 and round-2 history
-preserved as `§0` so the audit trail is intact.
+**Status: NOT signed off. No live cutover.** Round 3 review accepted the
+transfer gate (P0.3) and RPC upsert (P0.4) fixes but surfaced two
+remaining blockers:
+  • P0.1 — schema.sql base CREATE TABLE blocks still declared Maplerad
+    columns even though sweep migrations dropped them live.
+  • P0.2 — the 2FA migration's reset condition required BOTH plaintext
+    and encrypted secrets to be null, leaving plaintext-only users
+    stranded after verify-2fa was switched to decrypt-only.
+Both are now fixed. Evidence captured below in §14.
+
+Round-1 through round-3 history preserved so the audit trail is intact.
 
 Last updated: 2026-05-18.
 Production frontend: `https://app.borderpayafrica.com`
@@ -529,3 +535,124 @@ M CTO_REVIEW_HANDOFF.md                          ← this round-3 section
    `verify-2fa` reads it as a fallback if the encrypted column is null
    AND a user enrolled before the encrypted-write path was deployed.
    Drop after audit confirms 0 plaintext rows.
+
+---
+
+## 14. Round-4 P0 follow-up (response to round-3 review)
+
+### P0.1 — `schema.sql` base CREATE TABLE blocks now Maplerad-clean
+
+**CTO finding:** "The new sweep migrations drop Maplerad columns from
+`user_profiles` / `users`, but `schema.sql` still declares
+`maplerad_customer_id`, `maplerad_status`, `maplerad_tier`, etc. That
+contradicts the claim that schema source-of-truth is fixed."
+
+Round-3 only appended new sections (§6a/§6b) and left the original
+table declarations untouched. Fixed now.
+
+**Diff (utils/supabase/schema.sql):**
+- `public.user_profiles` lost 8 columns: `maplerad_customer_id`,
+  `maplerad_status`, `maplerad_sandbox_customer_id`, `maplerad_tier`,
+  `maplerad_tier0_enrolled_at`, `maplerad_tier2_enrolled_at`,
+  `maplerad_environment` (+ the already-dead `maplerad_kyc_link_*`
+  family which was never in this file). Gained the Bridge partner
+  columns that actually exist live: `payment_provider`,
+  `bridge_customer_id`, `bridge_kyc_status`, `bridge_kyc_link_id`,
+  `bridge_kyc_link_url`, `bridge_kyc_completed_at`,
+  `bridge_account_status`, `preferred_currencies`. `bridge_environment`
+  replaces the old `maplerad_environment` field.
+- `public.users` lost `maplerad_customer_id`; gained
+  `bridge_customer_id`.
+
+**Verification:**
+
+```
+$ grep -nE "maplerad|MAPLERAD" utils/supabase/schema.sql
+44:-- Provider columns: bridge_* are the live partner columns. All maplerad_*
+45:-- columns were dropped by migration 20260518_maplerad_triggers_sweep.sql
+91:-- Reflects the post-sweep shape (migration 20260518_maplerad_triggers_sweep.sql).
+92:-- No maplerad_* columns. bridge_customer_id is the only provider id.
+```
+
+Only comment references remain. No DDL declares any `maplerad_*` column.
+
+### P0.2 — 2FA stranded-user reset
+
+**CTO finding:** The round-3 hardening migration only reset
+`two_factor_enabled=false` when **both** plaintext and encrypted
+secrets were null. A user with `two_factor_enabled=true` and a
+plaintext-only `two_factor_secret` would stay marked enabled — but
+`verify-2fa` was switched to decrypt-only in round 2, so their TOTP
+codes are now silently rejected. Result: stranded users with broken 2FA.
+
+**Fix:** Follow-up migration
+`supabase/migrations/20260518_2fa_reset_unencrypted_plaintext.sql`
+resets `two_factor_enabled=false` for **every** row where
+`two_factor_secret_encrypted IS NULL`, regardless of plaintext state.
+The user's UI flips to "2FA not enabled"; they enroll cleanly via
+setup-2fa which writes the encrypted blob.
+
+The migration includes a post-condition assertion that raises and
+rolls back if any stranded row remains.
+
+**Policy rationale (committed in the migration header):**
+
+We deliberately do NOT silently encrypt legacy plaintext secrets
+in-place. Either path (transient memory-only encryption pass, or a
+temporary plaintext grace window in verify-2fa) is worse than asking
+affected users to re-enroll — the first is risky to script, the second
+re-opens the vector we just closed.
+
+The plaintext column is left in the schema for audit trail. A future
+migration can `set two_factor_secret = null` once we've confirmed zero
+readers exist in deployed code (round-2 fail-closed deploy already
+removed the only reader from verify-2fa).
+
+**Applied to production via MCP** as `two_fa_reset_unencrypted_plaintext`.
+
+**Verification SQL (run 2026-05-18 after migration applied):**
+
+```sql
+select
+  count(*) filter (where two_factor_enabled = true
+                     and two_factor_secret_encrypted is null)         as stranded,
+  count(*) filter (where two_factor_enabled = true
+                     and two_factor_secret_encrypted is not null)     as enabled_encrypted,
+  count(*) filter (where two_factor_enabled = false)                  as not_enabled,
+  count(*) filter (where two_factor_secret is not null
+                     and two_factor_secret_encrypted is null)         as legacy_plaintext_no_encrypted,
+  count(*)                                                            as total_rows
+from public.user_security;
+```
+
+| stranded | enabled_encrypted | not_enabled | legacy_plaintext_no_encrypted | total_rows |
+|---|---|---|---|---|
+| **0** | 0 | 11 | 0 | 11 |
+
+Key invariants asserted:
+- `stranded = 0` — CTO's required post-condition met.
+- `legacy_plaintext_no_encrypted = 0` — no row has the dangerous combo
+  that would have stranded users.
+- `enabled_encrypted = 0` — nobody is yet enrolled under the new
+  encrypted path (all 11 users will re-enroll through setup-2fa, which
+  writes only encrypted blobs).
+
+### Round-4 files changed
+
+```
+A supabase/migrations/20260518_2fa_reset_unencrypted_plaintext.sql
+M utils/supabase/schema.sql              ← stripped Maplerad from user_profiles + users
+M CTO_REVIEW_HANDOFF.md                  ← this round-4 section
+```
+
+Build verification:
+```
+$ tsc --noEmit                pass
+$ vite build                  pass, chunk-size warning only
+```
+
+### Still on hold
+
+The transfer-evidence package and live cutover remain blocked. Round-4
+only addresses round-3's two follow-up P0s. Nothing in this round
+changes runtime behaviour of money movement.
