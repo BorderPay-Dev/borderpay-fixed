@@ -1,22 +1,25 @@
 -- 20260519_schema_reconcile_bridge_partner_columns
 --
--- Reconciliation migration. The live DB carries three artefacts that
--- `utils/supabase/schema.sql` declares but no prior migration created:
+-- Reconciliation migration. The live DB carries several artefacts that
+-- `utils/supabase/schema.sql` declares but no prior migration created.
+-- All exist live (verified against information_schema on 2026-05-19).
+-- Without this migration, a fresh Supabase project replaying
+-- `supabase/migrations/*.sql` in lexicographic order would produce a
+-- schema that does NOT match production.
 --
---   1. user_profiles.bridge_environment       (text)
---   2. users.bridge_customer_id               (text)
---   3. public.user_security (whole base table)
+-- Inventory of reconciled artefacts (all `IF NOT EXISTS`, no-op live):
 --
--- All three exist live (verified against information_schema on
--- 2026-05-19). Without this migration, a fresh Supabase project
--- replaying `supabase/migrations/*.sql` in lexicographic order would
--- produce a schema that does NOT match production, and the round-3
--- hardening migration would fail because it ALTERs a table that does
--- not yet exist.
+--   1. user_profiles.bridge_environment                  (text)
+--   2. users.bridge_customer_id                          (text)
+--   3. public.user_security (whole base table)           — belt-and-braces
+--   4. user_security.backup_codes                        (text[])
+--   5. user_security.failed_pin_attempts                 (int, default 0)
+--   6. user_security.failed_2fa_attempts                 (int, default 0)
+--   7. user_security.two_factor_locked_until             (timestamptz)
 --
--- This migration is idempotent: every statement is `IF NOT EXISTS`,
--- so it is a no-op against the current live DB. It exists so the
--- migration set is self-contained.
+-- Items 4-7 were applied via dashboard DDL before the user_security
+-- hardening migration (20260518_user_security_hardening.sql) and were
+-- never captured in source. Round-5 CTO review surfaced them.
 
 -- ─── 1. user_profiles.bridge_environment ──────────────────────────────
 -- Used by the wallet-provisioning flow to tag whether a customer was
@@ -33,19 +36,31 @@ alter table public.users
   add column if not exists bridge_customer_id text;
 
 -- ─── 3. user_security base table ──────────────────────────────────────
--- Holds PIN + TOTP factor state per user. The round-3 hardening
--- migration (20260518_user_security_hardening.sql) adds the v2 / encrypted
--- columns via ALTER TABLE; this CREATE establishes the base shape so
--- the ALTER has something to alter on a fresh project.
+-- Belt-and-braces. The 20260101 baseline already creates this; this
+-- block keeps the reconcile migration self-sufficient if it is ever
+-- applied against a partial clone. Shape MUST match live: id is PK,
+-- user_id is UNIQUE (NOT user_id PK as schema.sql previously declared).
 create table if not exists public.user_security (
-  user_id              uuid        primary key references auth.users(id) on delete cascade,
-  pin_set              boolean     not null default false,
+  id                   uuid        primary key default gen_random_uuid(),
+  user_id              uuid        not null unique references auth.users(id) on delete cascade,
+  pin_set              boolean                 default false,
   pin_hash             text,                                  -- legacy: single-round SHA-256
-  two_factor_enabled   boolean     not null default false,
+  two_factor_enabled   boolean                 default false,
   two_factor_secret    text,                                  -- legacy plaintext (read-fallback during rollout)
-  created_at           timestamptz not null default now(),
-  updated_at           timestamptz not null default now()
+  created_at           timestamptz             default now(),
+  updated_at           timestamptz             default now()
 );
+
+-- ─── 4-7. user_security dashboard-DDL columns ─────────────────────────
+-- These columns exist live but no prior migration created them. Their
+-- absence in the migration set would have made a fresh replay diverge
+-- from production. Idempotent ADD COLUMN IF NOT EXISTS so this is a
+-- no-op against live.
+alter table public.user_security
+  add column if not exists backup_codes            text[],
+  add column if not exists failed_pin_attempts     integer     default 0,
+  add column if not exists failed_2fa_attempts     integer     default 0,
+  add column if not exists two_factor_locked_until timestamptz;
 
 -- RLS on the base table. The hardening migration assumes RLS is enabled
 -- already; declare here so a fresh project lands in the same state.
@@ -64,22 +79,34 @@ create policy user_security_service_role   on public.user_security
 -- producing a partial state.
 do $$
 declare
-  v_be    int;
-  v_uc    int;
-  v_us    int;
+  v_count int;
 begin
-  select count(*) into v_be
+  -- 1-2. Bridge partner columns
+  select count(*) into v_count
     from information_schema.columns
-   where table_schema = 'public' and table_name = 'user_profiles' and column_name = 'bridge_environment';
-  if v_be <> 1 then raise exception 'reconcile: user_profiles.bridge_environment missing after migration'; end if;
+   where table_schema = 'public'
+     and ((table_name = 'user_profiles' and column_name = 'bridge_environment')
+       or (table_name = 'users'         and column_name = 'bridge_customer_id'));
+  if v_count <> 2 then
+    raise exception 'reconcile: bridge partner columns missing — got % of 2 expected', v_count;
+  end if;
 
-  select count(*) into v_uc
+  -- 3. user_security exists and has the right PK shape
+  perform 1 from pg_constraint c
+    join pg_class t on c.conrelid = t.oid
+    join pg_namespace n on t.relnamespace = n.oid
+    where n.nspname = 'public' and t.relname = 'user_security'
+      and c.contype = 'p' and pg_get_constraintdef(c.oid) = 'PRIMARY KEY (id)';
+  if not found then
+    raise exception 'reconcile: user_security PRIMARY KEY (id) missing — schema diverged from live';
+  end if;
+
+  -- 4-7. Dashboard-DDL columns now backed by source
+  select count(*) into v_count
     from information_schema.columns
-   where table_schema = 'public' and table_name = 'users' and column_name = 'bridge_customer_id';
-  if v_uc <> 1 then raise exception 'reconcile: users.bridge_customer_id missing after migration'; end if;
-
-  select count(*) into v_us
-    from information_schema.tables
-   where table_schema = 'public' and table_name = 'user_security';
-  if v_us <> 1 then raise exception 'reconcile: public.user_security missing after migration'; end if;
+   where table_schema = 'public' and table_name = 'user_security'
+     and column_name in ('backup_codes','failed_pin_attempts','failed_2fa_attempts','two_factor_locked_until');
+  if v_count <> 4 then
+    raise exception 'reconcile: user_security dashboard-DDL columns missing — got % of 4 expected', v_count;
+  end if;
 end $$;
