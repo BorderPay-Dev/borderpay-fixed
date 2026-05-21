@@ -119,9 +119,15 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
   }
 
+  // business_profiles uses bridge_kyb_link_* (KYB-prefixed) columns;
+  // the bridge_kyc_link_* columns live on user_profiles for the
+  // individual KYC flow and do not exist on this table.
+  // Round-7 fix: previous version read/wrote bridge_kyc_link_* against
+  // business_profiles, which 400s on PostgREST and never persisted the
+  // link.
   const { data: biz } = await supa
     .from("business_profiles")
-    .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, bridge_kyc_link_id, bridge_kyc_link_url")
+    .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, bridge_kyb_link_id, bridge_kyb_link_url")
     .eq("user_id", user.id)
     .maybeSingle();
   if (!biz?.company_name) return json({ success: false, error: "business_profiles missing company_name" }, 404);
@@ -129,10 +135,10 @@ Deno.serve(async (req: Request) => {
   if ((biz.bridge_kyb_status || "").toLowerCase() === "approved") {
     return json({ success: true, data: { already_approved: true, bridge_kyb_status: "approved" } });
   }
-  if (biz.bridge_kyc_link_url) {
+  if (biz.bridge_kyb_link_url) {
     return json({
       success: true,
-      data: { link_id: biz.bridge_kyc_link_id, link_url: biz.bridge_kyc_link_url, reused: true },
+      data: { link_id: biz.bridge_kyb_link_id, link_url: biz.bridge_kyb_link_url, reused: true },
     });
   }
 
@@ -175,13 +181,21 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  await supa.from("business_profiles").update({
-    bridge_kyc_link_id:  link.link_id,
-    bridge_kyc_link_url: link.link_url,
+  const { error: updateErr } = await supa.from("business_profiles").update({
+    bridge_kyb_link_id:  link.link_id,
+    bridge_kyb_link_url: link.link_url,
     bridge_kyb_status:   "pending",
     ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("user_id", user.id);
+  if (updateErr) {
+    console.error(`bridge-kyb-link: business_profiles update failed for user=${user.id}: ${updateErr.message}`);
+    return json({
+      success: false,
+      error:   `business_profiles update failed: ${updateErr.message}`,
+      bridge_request_id: r.request_id,
+    }, 500);
+  }
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
   return json({
