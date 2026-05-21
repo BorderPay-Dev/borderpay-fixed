@@ -45,8 +45,17 @@ export interface CountryConfig {
 }
 
 // ── Restricted-jurisdiction list ────────────────────────────────────────────
-// Country picker uses this list for the legacy compliance display only.
-// The authoritative partner-prohibited list is in bridge-country-policy.ts.
+// DEPRECATED: this list pre-dates the round-9 Bridge country-policy hardening.
+// It overlaps but does not match either Bridge tier. The authoritative
+// sources are now:
+//   • Prohibited (hard-blocked):        utils/compliance/partnerCountryPolicy.ts
+//                                       → BRIDGE_PROHIBITED_COUNTRIES
+//   • Controlled (logged-not-blocked):  utils/compliance/partnerCountryPolicy.ts
+//                                       → BRIDGE_CONTROLLED_COUNTRIES
+//   • Beneficiary/counterparty country: utils/compliance/restrictedJurisdictions.ts
+// New consumers should NOT read this list. It is kept only so the single
+// internal helper below (isLegacyRestrictedCountry, used in this file)
+// continues to compile. Slated for removal once that helper has no callers.
 
 export const LEGACY_RESTRICTED_COUNTRIES: string[] = [
   'AF','AL','AO','BY','BA','MM','BI','CF','CU','KP',

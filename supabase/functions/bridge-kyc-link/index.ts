@@ -35,11 +35,15 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import {
+  isBridgeBlocked,
+  bridgeCountryBlockResponse,
+  logControlledBridgeTraffic,
+} from "../_shared/providers/bridge-country-policy.ts";
 
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
 const APP_URL         = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
-const BRIDGE_PROHIBITED = new Set(["CD"]);
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -134,15 +138,10 @@ Deno.serve(async (req: Request) => {
   if (profile.account_type === "business") {
     return json({ success: false, error: "KYC is only for individual accounts. Use bridge-kyb-link.", code: "wrong_account_type" }, 403);
   }
-  if (profile.country && BRIDGE_PROHIBITED.has(profile.country.toUpperCase())) {
-    const human = profile.country.toUpperCase() === "CD" ? "DRC" : profile.country.toUpperCase();
-    return json({
-      success: false,
-      code:    "country_not_supported",
-      error:   `${human} support is coming through our African local rails partner.`,
-      country: profile.country.toUpperCase(),
-    }, 403);
+  if (isBridgeBlocked(profile.country)) {
+    return json(bridgeCountryBlockResponse(profile.country!), 403);
   }
+  logControlledBridgeTraffic("bridge-kyc-link", profile.country, user.id);
   if (!profile.email) {
     return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
   }

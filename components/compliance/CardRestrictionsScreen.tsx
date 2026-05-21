@@ -14,7 +14,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Globe, Info } from 'lucide-react';
-import { COMING_SOON_COUNTRIES } from '../../utils/compliance/partnerCountryPolicy';
+import { PROHIBITED_COUNTRY_ENTRIES } from '../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface CardRestrictionsScreenProps {
@@ -53,28 +53,35 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
         </motion.div>
 
         <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
-          Coming soon ({COMING_SOON_COUNTRIES.length})
+          Not currently supported ({PROHIBITED_COUNTRY_ENTRIES.length})
         </h2>
         <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {COMING_SOON_COUNTRIES.map((c, i) => (
-            <div
-              key={c.code}
-              className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
-            >
-              <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
-                {c.code}
+          {PROHIBITED_COUNTRY_ENTRIES.map((c, i) => {
+            const isComingSoon = c.status === 'coming-soon';
+            const badgeText    = isComingSoon ? 'Soon' : 'Restricted';
+            const badgeClass   = isComingSoon
+              ? 'bg-amber-500/15 text-amber-300'
+              : 'bg-red-500/15 text-red-300';
+            return (
+              <div
+                key={c.code}
+                className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
+              >
+                <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
+                  {c.code}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
+                  {c.reason && (
+                    <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
+                      {c.reason}
+                    </p>
+                  )}
+                </div>
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${badgeClass} flex-shrink-0`}>{badgeText}</span>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
-                {c.reason && (
-                  <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
-                    {c.reason}
-                  </p>
-                )}
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 flex-shrink-0">Soon</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className={`mt-5 flex items-start gap-2 px-4 py-3 rounded-xl border ${tc.borderLight} ${tc.card}`}>

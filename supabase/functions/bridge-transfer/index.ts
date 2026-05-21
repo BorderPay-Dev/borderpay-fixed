@@ -61,7 +61,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { AFRICAN_RAMP_CURRENCIES } from "../_shared/providers/african-onramp.types.ts";
-import { isBridgeProhibited, bridgeCountryBlockResponse } from "../_shared/providers/bridge-country-policy.ts";
+import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -130,9 +130,10 @@ Deno.serve(async (req) => {
     .select("country, bridge_customer_id, bridge_kyc_status, payment_provider")
     .eq("id", user.id)
     .maybeSingle();
-  if (isBridgeProhibited(profile?.country)) {
+  if (isBridgeBlocked(profile?.country)) {
     return json(bridgeCountryBlockResponse(profile!.country!), 403);
   }
+  logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile?.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }

@@ -7,7 +7,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { isBridgeProhibited, bridgeCountryBlockResponse } from "../_shared/providers/bridge-country-policy.ts";
+import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -46,12 +46,14 @@ Deno.serve(async (req) => {
   }
 
   // Country eligibility: refuse to create a Bridge customer for users in
-  // Bridge-prohibited jurisdictions (e.g. DRC). The error is structured so
-  // the frontend can render the future-state message without leaking
-  // implementation details.
-  if (isBridgeProhibited(profile.country)) {
+  // Bridge-prohibited jurisdictions (per round-9 hardening: full Prohibited
+  // list, not just DRC). Controlled-tier countries (Nigeria, Kenya, SA…)
+  // pass through but emit a structured warn log for compliance
+  // observability. See bridge-country-policy.ts for the policy bible.
+  if (isBridgeBlocked(profile.country)) {
     return json(bridgeCountryBlockResponse(profile.country!), 403);
   }
+  logControlledBridgeTraffic("bridge-customer", profile.country, user.id);
 
   // For business: pull company_name from business_profiles
   let companyName: string | undefined;

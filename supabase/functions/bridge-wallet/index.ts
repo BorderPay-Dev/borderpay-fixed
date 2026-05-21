@@ -10,7 +10,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import type { StablecoinSymbol, StablecoinChain } from "../_shared/providers/types.ts";
-import { isBridgeProhibited, bridgeCountryBlockResponse } from "../_shared/providers/bridge-country-policy.ts";
+import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -52,10 +52,13 @@ Deno.serve(async (req) => {
     .maybeSingle();
   // Defense-in-depth: even though Bridge customer creation already blocks
   // prohibited jurisdictions, a legacy/dirty row with a bridge_customer_id
-  // for a DRC user must NOT be able to provision a wallet.
-  if (isBridgeProhibited(profile?.country)) {
+  // for a prohibited-country user must NOT be able to provision a wallet.
+  // Round-9: expanded from {CD} to full Prohibited set (18 codes) +
+  // observability for Controlled traffic.
+  if (isBridgeBlocked(profile?.country)) {
     return json(bridgeCountryBlockResponse(profile!.country!), 403);
   }
+  logControlledBridgeTraffic("bridge-wallet", profile?.country, user.id);
   if (!profile?.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }
