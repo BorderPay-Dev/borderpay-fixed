@@ -7,43 +7,55 @@
  * `utils/compliance/partnerCountryPolicy.ts` and MUST stay byte-identical
  * to this file's two sets — enforced by `tests/audit/bridge_country_policy_audit.py`.
  *
- * Bridge classifies jurisdictions into three tiers:
+ * Bridge classifies jurisdictions into FOUR tiers (round-10 update):
  *
- *   1. PROHIBITED — Bridge will not facilitate any service for residents
- *      of these jurisdictions, on any payment rail. We HARD-BLOCK before
- *      any Bridge API call. Returns HTTP 403 + `country_not_supported`.
+ *   1. PROHIBITED — sanctions-relevant; Bridge will not facilitate any
+ *      service. We HARD-BLOCK before any Bridge API call. Returns 403
+ *      + `country_not_supported` + reason=`prohibited`.
  *
- *   2. HIGH RISK / CONTROLLED — Bridge facilitates services with
+ *   2. UNAVAILABLE — commercial / regulatory unavailability. Bridge's
+ *      docs explicitly state "Bridge services are unavailable for
+ *      individuals and businesses located in Algeria, Burundi, China,
+ *      Japan, and Tunisia." Not sanctions, but Bridge still will not
+ *      facilitate any rail. We HARD-BLOCK with reason=`unavailable`.
+ *      Round-10 P1 fix: added after the CTO flagged that the previous
+ *      version only warned for DZ/BI/CN and treated JP/TN as Supported.
+ *
+ *   3. HIGH RISK / CONTROLLED — Bridge facilitates services with
  *      additional due-diligence requirements and per-rail controls.
  *      Per round-9 CTO decision: BorderPay does NOT (yet) hard-block
  *      these. Instead, every Bridge edge function logs a structured
  *      warning when a Controlled-country user transacts, so the
  *      compliance owner has observability while gathering Bridge
  *      approval letters. This is the "conservative legal floor"
- *      stance: we enforce the sanctions-relevant Prohibited tier and
- *      treat Controlled as an audit/observability concern.
+ *      stance: we enforce the sanctions+commercial-unavailable tiers
+ *      and treat Controlled as an audit/observability concern.
  *
- *   3. SUPPORTED — anything not in the above two sets. No log, no block.
- *      Note: this is a default-allow tier. Adding a new country to the
- *      Prohibited or Controlled set is opt-in here; unknown country
- *      codes default through as Supported. This is intentional given
- *      Bridge's published list is positive (it enumerates the two
+ *   4. SUPPORTED — anything not in the above three sets. No log, no block.
+ *      Note: this is a default-allow tier. Adding a new country to one
+ *      of the restricted tiers is opt-in here; unknown country codes
+ *      default through as Supported. This is intentional given
+ *      Bridge's published list is positive (it enumerates the
  *      restricted tiers, not the supported tier).
  *
  * Source: https://apidocs.bridge.xyz/platform/customers/compliance/supported-countries-list
  * Captured: 2026-05-21.
  *
- * Round-9 P1 hardening:
- *   - Previously only `CD` was in the Prohibited set. Expanded to the
- *     full 18 sanctions-relevant codes from Bridge's published list.
- *     Live impact check on 2026-05-21: zero users currently reside in
- *     any newly-prohibited country (verified against user_profiles), so
- *     this tightening is a no-op for current customers.
- *   - Added the full 102-code Controlled set with the observability
- *     logger.
- *   - Removed inline `new Set(["CD"])` from bridge-kyc-link and
- *     bridge-kyb-link — they now consult `isBridgeBlocked` like every
- *     other Bridge edge function.
+ * Round-9 → round-10 P1 hardening:
+ *   - Round-9 expanded Prohibited from {CD} to 18 sanctions-relevant codes
+ *     and added a 97-code Controlled set with observability logging.
+ *   - Round-10 (this revision) added the UNAVAILABLE tier with 5 codes
+ *     (DZ, BI, CN, JP, TN — "Bridge services are unavailable"). DZ/BI/CN
+ *     were previously in Controlled (warned but not blocked); JP/TN were
+ *     defaulting through as Supported. All five are now hard-blocked.
+ *   - Round-10 also fixed an ordering bug in bridge-customer where the
+ *     country gate ran AFTER the idempotent existing-customer return,
+ *     letting a prohibited-country user with a stale bridge_customer_id
+ *     bypass the block.
+ *   - Live impact check on 2026-05-21: zero users currently reside in
+ *     any newly-prohibited country (verified against user_profiles); one
+ *     Algerian user with no Bridge customer ID was in the prior dataset
+ *     — they now hit the hard block instead of a warn log.
  *
  * Gaps explicitly NOT handled here (documented for the next compliance
  * pass; raise a P1 to revisit):
@@ -83,12 +95,25 @@ export const BRIDGE_PROHIBITED_COUNTRIES: ReadonlySet<string> = new Set([
   // file header for the documented gap.
 ]);
 
+/** ISO-3166 alpha-2 codes Bridge has marked as UNAVAILABLE.
+ *  Bridge docs: "Bridge services are unavailable for individuals and
+ *  businesses located in Algeria, Burundi, China, Japan, and Tunisia."
+ *  Not sanctions, but Bridge still will not facilitate any rail. We
+ *  HARD-BLOCK these alongside Prohibited. */
+export const BRIDGE_UNAVAILABLE_COUNTRIES: ReadonlySet<string> = new Set([
+  "DZ",   // Algeria
+  "BI",   // Burundi
+  "CN",   // China
+  "JP",   // Japan
+  "TN",   // Tunisia
+]);
+
 /** ISO-3166 alpha-2 codes Bridge classifies as HIGH RISK / CONTROLLED.
  *  Not blocked — logged via logControlledBridgeTraffic so compliance has
- *  visibility while collecting approval letters. */
+ *  visibility while collecting approval letters.
+ *  Round-10: DZ, BI, CN moved out of this set into UNAVAILABLE. */
 export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
   "AX",   // Åland Islands
-  "DZ",   // Algeria (all rails blocked at Bridge)
   "AO",   // Angola
   "AQ",   // Antarctica
   "BD",   // Bangladesh (no ACH)
@@ -99,13 +124,11 @@ export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
   "IO",   // British Indian Ocean Territory
   "BG",   // Bulgaria
   "BF",   // Burkina Faso
-  "BI",   // Burundi (all rails blocked at Bridge)
   "CV",   // Cabo Verde
   "KH",   // Cambodia
   "CM",   // Cameroon
   "CF",   // Central African Republic (no SEPA/FPS)
   "TD",   // Chad
-  "CN",   // China (all rails blocked at Bridge)
   "CX",   // Christmas Island
   "CC",   // Cocos (Keeling) Islands
   "KM",   // Comoros
@@ -186,11 +209,17 @@ export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
   "ZW",   // Zimbabwe (no ACH)
 ]);
 
-/** Returns true if Bridge classifies the country as Prohibited.
- *  Internal helper — most callers want isBridgeBlocked. */
+/** Returns true if Bridge classifies the country as Prohibited (sanctions). */
 export function isBridgeProhibited(countryCode: string | null | undefined): boolean {
   if (!countryCode) return false;
   return BRIDGE_PROHIBITED_COUNTRIES.has(countryCode.toUpperCase());
+}
+
+/** Returns true if Bridge has marked the country as Unavailable
+ *  (commercial/regulatory, not sanctions). */
+export function isBridgeUnavailable(countryCode: string | null | undefined): boolean {
+  if (!countryCode) return false;
+  return BRIDGE_UNAVAILABLE_COUNTRIES.has(countryCode.toUpperCase());
 }
 
 /** Returns true if Bridge classifies the country as Controlled / High Risk.
@@ -200,24 +229,50 @@ export function isBridgeControlled(countryCode: string | null | undefined): bool
   return BRIDGE_CONTROLLED_COUNTRIES.has(countryCode.toUpperCase());
 }
 
-/** AUTHORITATIVE gate. Returns true only for Prohibited.
+/** AUTHORITATIVE gate. Returns true for Prohibited OR Unavailable.
  *  Every Bridge edge function should consult this BEFORE any Bridge API
- *  call. Controlled countries pass this gate; call
- *  logControlledBridgeTraffic alongside for observability. */
+ *  call AND before any idempotent early-return. Controlled countries
+ *  pass this gate; call logControlledBridgeTraffic alongside for
+ *  observability. */
 export function isBridgeBlocked(countryCode: string | null | undefined): boolean {
-  return isBridgeProhibited(countryCode);
+  return isBridgeProhibited(countryCode) || isBridgeUnavailable(countryCode);
 }
 
-/** Structured 403 response for a blocked (Prohibited) country.
- *  The frontend renders the message as a future-state notice without
- *  naming the eventual local-rails partner as live. */
+/** Tier classification for a country code (mirrors frontend
+ *  partnerCountryTier). */
+export type BridgeCountryTier = "prohibited" | "unavailable" | "controlled" | "supported";
+
+export function bridgeCountryTier(countryCode: string | null | undefined): BridgeCountryTier {
+  if (!countryCode) return "supported";
+  const upper = countryCode.toUpperCase();
+  if (BRIDGE_PROHIBITED_COUNTRIES.has(upper))   return "prohibited";
+  if (BRIDGE_UNAVAILABLE_COUNTRIES.has(upper))  return "unavailable";
+  if (BRIDGE_CONTROLLED_COUNTRIES.has(upper))   return "controlled";
+  return "supported";
+}
+
+/** Structured 403 response for a blocked country. The `reason` field
+ *  carries the tier so callers / frontends can render a tier-specific
+ *  message. The default `error` string is generic on purpose — UIs
+ *  should consult `reason` and render their own copy if they want a
+ *  distinction (e.g. "coming soon via local-rails partner" for the
+ *  DRC vs "not currently serviceable" for sanctions). */
 export function bridgeCountryBlockResponse(countryCode: string) {
+  const upper = countryCode.toUpperCase();
+  const tier  = bridgeCountryTier(upper);
+  // Tier is narrowed to the blocked tiers because callers should only
+  // invoke this after isBridgeBlocked returned true; the fallback
+  // 'prohibited' default is just for type safety.
+  const reason: "prohibited" | "unavailable" =
+    tier === "unavailable" ? "unavailable" : "prohibited";
   return {
     success: false as const,
     code:    "country_not_supported",
-    error:   `${humanCountry(countryCode)} support is coming through our African local rails partner.`,
-    country: countryCode.toUpperCase(),
-    reason:  "prohibited" as const,
+    error:   reason === "unavailable"
+      ? `${humanCountry(upper)} is not currently serviceable by our regulated banking partner.`
+      : `${humanCountry(upper)} support is not available through our regulated banking partner.`,
+    country: upper,
+    reason,
   };
 }
 

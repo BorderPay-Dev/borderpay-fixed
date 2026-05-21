@@ -53,10 +53,20 @@ export const BRIDGE_PROHIBITED_COUNTRIES: ReadonlySet<string> = new Set([
   // UA-the-country is in Controlled below.
 ]);
 
-/** ISO-3166 alpha-2 codes Bridge classifies as HIGH RISK / CONTROLLED. */
+/** ISO-3166 alpha-2 codes Bridge has marked as UNAVAILABLE
+ *  (services not facilitated; not sanctions but commercial). */
+export const BRIDGE_UNAVAILABLE_COUNTRIES: ReadonlySet<string> = new Set([
+  "DZ",   // Algeria
+  "BI",   // Burundi
+  "CN",   // China
+  "JP",   // Japan
+  "TN",   // Tunisia
+]);
+
+/** ISO-3166 alpha-2 codes Bridge classifies as HIGH RISK / CONTROLLED.
+ *  Round-10: DZ, BI, CN moved out into BRIDGE_UNAVAILABLE_COUNTRIES. */
 export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
   "AX",   // Åland Islands
-  "DZ",   // Algeria
   "AO",   // Angola
   "AQ",   // Antarctica
   "BD",   // Bangladesh
@@ -67,13 +77,11 @@ export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
   "IO",   // British Indian Ocean Territory
   "BG",   // Bulgaria
   "BF",   // Burkina Faso
-  "BI",   // Burundi
   "CV",   // Cabo Verde
   "KH",   // Cambodia
   "CM",   // Cameroon
   "CF",   // Central African Republic
   "TD",   // Chad
-  "CN",   // China
   "CX",   // Christmas Island
   "CC",   // Cocos (Keeling) Islands
   "KM",   // Comoros
@@ -154,21 +162,30 @@ export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
   "ZW",   // Zimbabwe
 ]);
 
-export type PartnerCountryStatus = 'prohibited' | 'controlled' | 'supported';
+export type PartnerCountryStatus = 'prohibited' | 'unavailable' | 'controlled' | 'supported';
 
 /** Returns the Bridge tier for a country code. */
 export function partnerCountryTier(countryCode: string | null | undefined): PartnerCountryStatus {
   if (!countryCode) return 'supported';
   const upper = countryCode.toUpperCase();
-  if (BRIDGE_PROHIBITED_COUNTRIES.has(upper)) return 'prohibited';
-  if (BRIDGE_CONTROLLED_COUNTRIES.has(upper)) return 'controlled';
+  if (BRIDGE_PROHIBITED_COUNTRIES.has(upper))   return 'prohibited';
+  if (BRIDGE_UNAVAILABLE_COUNTRIES.has(upper))  return 'unavailable';
+  if (BRIDGE_CONTROLLED_COUNTRIES.has(upper))   return 'controlled';
   return 'supported';
 }
 
-/** True if Bridge customer creation will be hard-blocked server-side. */
+/** True if Bridge customer creation will be hard-blocked server-side
+ *  due to sanctions. */
 export function isBridgeProhibited(countryCode: string | null | undefined): boolean {
   if (!countryCode) return false;
   return BRIDGE_PROHIBITED_COUNTRIES.has(countryCode.toUpperCase());
+}
+
+/** True if Bridge has marked the country as Unavailable
+ *  (commercial/regulatory; hard-blocked server-side). */
+export function isBridgeUnavailable(countryCode: string | null | undefined): boolean {
+  if (!countryCode) return false;
+  return BRIDGE_UNAVAILABLE_COUNTRIES.has(countryCode.toUpperCase());
 }
 
 /** True if Bridge classifies the country as Controlled / High Risk.
@@ -181,7 +198,7 @@ export function isBridgeControlled(countryCode: string | null | undefined): bool
 
 /** Convenience predicate matching the server's `isBridgeBlocked`. */
 export function isBridgeBlocked(countryCode: string | null | undefined): boolean {
-  return isBridgeProhibited(countryCode);
+  return isBridgeProhibited(countryCode) || isBridgeUnavailable(countryCode);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -192,14 +209,12 @@ export function isBridgeBlocked(countryCode: string | null | undefined): boolean
 export interface PartnerCountryEntry {
   code:    string;
   name:    string;
-  status:  'coming-soon' | 'partner-only' | 'sanctioned';
+  status:  'coming-soon' | 'partner-only' | 'sanctioned' | 'unavailable';
   reason?: string;
 }
 
 /** Pre-round-9 shape; kept so old country-picker code keeps compiling.
- *  The single DRC entry is preserved as the only "coming-soon" entry; the
- *  rest of the Prohibited list is exposed via PROHIBITED_COUNTRY_ENTRIES
- *  below with the more honest "sanctioned" status. */
+ *  The single DRC entry is preserved as the only "coming-soon" entry. */
 export const COMING_SOON_COUNTRIES: readonly PartnerCountryEntry[] = [
   {
     code:   'CD',
@@ -209,29 +224,47 @@ export const COMING_SOON_COUNTRIES: readonly PartnerCountryEntry[] = [
   },
 ];
 
-/** Full Prohibited list, with friendly names + category, for the
- *  geographic-restrictions screen. The single "coming-soon" entry (DRC)
- *  is duplicated from COMING_SOON_COUNTRIES so consumers can render
- *  either a single combined list or a two-section view. */
+/** Sanctioned-jurisdiction entries (the 17 non-DRC Prohibited countries).
+ *  Renders separately from "coming-soon" in the UI so we never imply
+ *  Iran / North Korea / Russia are "coming online soon". */
+export const SANCTIONED_COUNTRY_ENTRIES: readonly PartnerCountryEntry[] = [
+  { code: 'AF', name: 'Afghanistan',                  status: 'sanctioned' },
+  { code: 'BY', name: 'Belarus',                      status: 'sanctioned' },
+  { code: 'CU', name: 'Cuba',                         status: 'sanctioned' },
+  { code: 'PS', name: 'Palestinian Territories',      status: 'sanctioned', reason: 'Includes Gaza Strip and West Bank.' },
+  { code: 'IR', name: 'Iran',                         status: 'sanctioned' },
+  { code: 'IQ', name: 'Iraq',                         status: 'sanctioned' },
+  { code: 'LB', name: 'Lebanon',                      status: 'sanctioned' },
+  { code: 'LY', name: 'Libya',                        status: 'sanctioned' },
+  { code: 'MM', name: 'Myanmar (Burma)',              status: 'sanctioned' },
+  { code: 'KP', name: 'North Korea (DPRK)',           status: 'sanctioned' },
+  { code: 'RU', name: 'Russia',                       status: 'sanctioned' },
+  { code: 'SO', name: 'Somalia',                      status: 'sanctioned' },
+  { code: 'SS', name: 'South Sudan',                  status: 'sanctioned' },
+  { code: 'SD', name: 'Sudan',                        status: 'sanctioned' },
+  { code: 'SY', name: 'Syria',                        status: 'sanctioned' },
+  { code: 'VE', name: 'Venezuela',                    status: 'sanctioned' },
+  { code: 'YE', name: 'Yemen',                        status: 'sanctioned' },
+];
+
+/** Commercial-unavailability entries (the 5 BRIDGE_UNAVAILABLE_COUNTRIES).
+ *  Not sanctions — Bridge has stated services are unavailable for these
+ *  jurisdictions for commercial/regulatory reasons. Distinct UI copy
+ *  from sanctioned + from coming-soon. */
+export const UNAVAILABLE_COUNTRY_ENTRIES: readonly PartnerCountryEntry[] = [
+  { code: 'DZ', name: 'Algeria',  status: 'unavailable' },
+  { code: 'BI', name: 'Burundi',  status: 'unavailable' },
+  { code: 'CN', name: 'China',    status: 'unavailable' },
+  { code: 'JP', name: 'Japan',    status: 'unavailable' },
+  { code: 'TN', name: 'Tunisia',  status: 'unavailable' },
+];
+
+/** Back-compat: combined Prohibited list (DRC + sanctioned), preserved
+ *  for any consumer that wants a single-section render. New consumers
+ *  should prefer the per-tier lists above. */
 export const PROHIBITED_COUNTRY_ENTRIES: readonly PartnerCountryEntry[] = [
-  { code: 'CD', name: 'Democratic Republic of the Congo',  status: 'coming-soon', reason: 'Our verification partner does not yet support DRC residents. We are bringing it online via our African local-rails partner.' },
-  { code: 'AF', name: 'Afghanistan',                       status: 'sanctioned' },
-  { code: 'BY', name: 'Belarus',                           status: 'sanctioned' },
-  { code: 'CU', name: 'Cuba',                              status: 'sanctioned' },
-  { code: 'PS', name: 'Palestinian Territories',           status: 'sanctioned', reason: 'Includes Gaza Strip and West Bank.' },
-  { code: 'IR', name: 'Iran',                              status: 'sanctioned' },
-  { code: 'IQ', name: 'Iraq',                              status: 'sanctioned' },
-  { code: 'LB', name: 'Lebanon',                           status: 'sanctioned' },
-  { code: 'LY', name: 'Libya',                             status: 'sanctioned' },
-  { code: 'MM', name: 'Myanmar (Burma)',                   status: 'sanctioned' },
-  { code: 'KP', name: 'North Korea (DPRK)',                status: 'sanctioned' },
-  { code: 'RU', name: 'Russia',                            status: 'sanctioned' },
-  { code: 'SO', name: 'Somalia',                           status: 'sanctioned' },
-  { code: 'SS', name: 'South Sudan',                       status: 'sanctioned' },
-  { code: 'SD', name: 'Sudan',                             status: 'sanctioned' },
-  { code: 'SY', name: 'Syria',                             status: 'sanctioned' },
-  { code: 'VE', name: 'Venezuela',                         status: 'sanctioned' },
-  { code: 'YE', name: 'Yemen',                             status: 'sanctioned' },
+  ...COMING_SOON_COUNTRIES,
+  ...SANCTIONED_COUNTRY_ENTRIES,
 ];
 
 export function isComingSoon(countryCode: string | null | undefined): boolean {

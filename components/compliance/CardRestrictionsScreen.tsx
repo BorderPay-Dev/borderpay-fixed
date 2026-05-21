@@ -3,28 +3,72 @@
  * name for caller compatibility; surfaces partner country eligibility, not
  * card-network restrictions specifically).
  *
- * Replaces the old card-network-restriction list with the live partner
- * country eligibility policy. Users in "coming-soon" countries can sign
- * up but cannot provision a USD virtual account or a stablecoin wallet
- * until our African local-rails partner is wired.
+ * Renders the three Bridge-restricted tiers as separate sections so the
+ * copy doesn't conflate sanctions / commercial-unavailability with the
+ * future-state "coming via local-rails partner" plan. Round-10 P2 fix.
  *
  * AppShell owns the top chrome; renders body-only.
  */
 
 import React from 'react';
 import { motion } from 'motion/react';
-import { Globe, Info } from 'lucide-react';
-import { PROHIBITED_COUNTRY_ENTRIES } from '../../utils/compliance/partnerCountryPolicy';
+import { Globe, Info, ShieldOff, Ban } from 'lucide-react';
+import {
+  COMING_SOON_COUNTRIES,
+  SANCTIONED_COUNTRY_ENTRIES,
+  UNAVAILABLE_COUNTRY_ENTRIES,
+  type PartnerCountryEntry,
+} from '../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface CardRestrictionsScreenProps {
   onBack: () => void;
 }
 
+interface SectionProps {
+  title:    string;
+  subtitle: string;
+  entries:  readonly PartnerCountryEntry[];
+  badge:    { text: string; classes: string };
+}
+
 export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
+
+  function Section({ title, subtitle, entries, badge }: SectionProps) {
+    if (entries.length === 0) return null;
+    return (
+      <div className="mb-6">
+        <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-1 px-1`}>
+          {title} ({entries.length})
+        </h2>
+        <p className={`text-[11px] ${tc.textMuted} mb-2.5 px-1 leading-snug`}>{subtitle}</p>
+        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
+          {entries.map((c, i) => (
+            <div
+              key={c.code}
+              className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
+            >
+              <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
+                {c.code}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
+                {c.reason && (
+                  <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>{c.reason}</p>
+                )}
+              </div>
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${badge.classes} flex-shrink-0`}>
+                {badge.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
@@ -36,7 +80,7 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-start gap-3 mb-5`}
+          className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-start gap-3 mb-6`}
         >
           <Globe className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
           <div className="min-w-0">
@@ -46,45 +90,87 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
             <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
               Account signup is open across Africa. USD virtual accounts and
               stablecoin wallets follow our regulated banking partner's
-              country eligibility. Countries below are coming online through
-              a future local-rails partner.
+              country eligibility. The sections below explain why specific
+              jurisdictions are not currently supported and which ones we
+              expect to bring online through a future local-rails partner.
             </p>
           </div>
         </motion.div>
 
-        <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
-          Not currently supported ({PROHIBITED_COUNTRY_ENTRIES.length})
-        </h2>
-        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {PROHIBITED_COUNTRY_ENTRIES.map((c, i) => {
-            const isComingSoon = c.status === 'coming-soon';
-            const badgeText    = isComingSoon ? 'Soon' : 'Restricted';
-            const badgeClass   = isComingSoon
-              ? 'bg-amber-500/15 text-amber-300'
-              : 'bg-red-500/15 text-red-300';
-            return (
-              <div
-                key={c.code}
-                className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
-              >
-                <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
-                  {c.code}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
-                  {c.reason && (
-                    <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
-                      {c.reason}
-                    </p>
-                  )}
-                </div>
-                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${badgeClass} flex-shrink-0`}>{badgeText}</span>
+        {/* Section 1: Coming soon via local-rails partner (DRC only). */}
+        <Section
+          title="Coming soon via local-rails partner"
+          subtitle="These countries will come online once our African local-rails partner is wired up. Signup is allowed; partner-backed products are not yet provisioned."
+          entries={COMING_SOON_COUNTRIES}
+          badge={{ text: 'Soon', classes: 'bg-amber-500/15 text-amber-300' }}
+        />
+
+        {/* Section 2: Not currently serviceable (commercial / regulatory). */}
+        <div className="flex items-center gap-2 mb-1 px-1">
+          <Ban className="w-3 h-3 text-orange-400" />
+          <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
+            Not currently serviceable ({UNAVAILABLE_COUNTRY_ENTRIES.length})
+          </h2>
+        </div>
+        <p className={`text-[11px] ${tc.textMuted} mb-2.5 px-1 leading-snug`}>
+          Our regulated banking partner does not currently facilitate any
+          payment rail for residents of these jurisdictions. This is a
+          commercial / regulatory restriction, not a sanctions designation.
+        </p>
+        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
+          {UNAVAILABLE_COUNTRY_ENTRIES.map((c, i) => (
+            <div
+              key={c.code}
+              className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
+            >
+              <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
+                {c.code}
               </div>
-            );
-          })}
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-300 flex-shrink-0">
+                Unavailable
+              </span>
+            </div>
+          ))}
         </div>
 
-        <div className={`mt-5 flex items-start gap-2 px-4 py-3 rounded-xl border ${tc.borderLight} ${tc.card}`}>
+        {/* Section 3: Sanctioned (regulatory / OFAC-style). Distinct copy
+            from "coming soon" — these are NOT coming soon. */}
+        <div className="flex items-center gap-2 mb-1 px-1">
+          <ShieldOff className="w-3 h-3 text-red-400" />
+          <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
+            Restricted ({SANCTIONED_COUNTRY_ENTRIES.length})
+          </h2>
+        </div>
+        <p className={`text-[11px] ${tc.textMuted} mb-2.5 px-1 leading-snug`}>
+          These jurisdictions are subject to international sanctions and
+          we cannot onboard residents under any product tier.
+        </p>
+        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
+          {SANCTIONED_COUNTRY_ENTRIES.map((c, i) => (
+            <div
+              key={c.code}
+              className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
+            >
+              <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
+                {c.code}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
+                {c.reason && (
+                  <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>{c.reason}</p>
+                )}
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 flex-shrink-0">
+                Restricted
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className={`flex items-start gap-2 px-4 py-3 rounded-xl border ${tc.borderLight} ${tc.card}`}>
           <Info className={`w-3.5 h-3.5 mt-0.5 ${tc.textMuted} flex-shrink-0`} />
           <p className={`text-[11px] ${tc.textMuted} leading-snug`}>
             Eligibility may change as our partner expands coverage and as
