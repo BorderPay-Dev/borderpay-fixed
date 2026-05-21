@@ -5,7 +5,8 @@
  * path (bridge-customer, bridge-kyc-link, bridge-kyb-link, bridge-wallet,
  * bridge-virtual-account, bridge-transfer). The frontend mirror lives at
  * `utils/compliance/partnerCountryPolicy.ts` and MUST stay byte-identical
- * to this file's two sets — enforced by `tests/audit/bridge_country_policy_audit.py`.
+ * to this file's THREE country sets (Prohibited, Unavailable, Controlled)
+ * — enforced by `tests/audit/bridge_country_policy_audit.py`.
  *
  * Bridge classifies jurisdictions into FOUR tiers (round-10 update):
  *
@@ -254,9 +255,20 @@ export function bridgeCountryTier(countryCode: string | null | undefined): Bridg
 /** Structured 403 response for a blocked country. The `reason` field
  *  carries the tier so callers / frontends can render a tier-specific
  *  message. The default `error` string is generic on purpose — UIs
- *  should consult `reason` and render their own copy if they want a
- *  distinction (e.g. "coming soon via local-rails partner" for the
- *  DRC vs "not currently serviceable" for sanctions). */
+ *  should consult `reason` and render their own copy. The four-tier
+ *  copy split is:
+ *    • Prohibited (sanctions, the 17 non-DRC entries)  → "support is
+ *      not available through our regulated banking partner"
+ *      (sanctions-language section in the UI).
+ *    • Prohibited + display-override (DRC only)        → "coming soon
+ *      via local-rails partner" (display-level override applied at
+ *      the UI layer in `COMING_SOON_COUNTRIES`; the server still
+ *      returns reason=`prohibited`).
+ *    • Unavailable (DZ / BI / CN / JP / TN)            → "not
+ *      currently serviceable by our regulated banking partner"
+ *      (commercial / regulatory, not sanctions).
+ *  Controlled and Supported never reach this function (gate doesn't
+ *  fire for them). */
 export function bridgeCountryBlockResponse(countryCode: string) {
   const upper = countryCode.toUpperCase();
   const tier  = bridgeCountryTier(upper);
