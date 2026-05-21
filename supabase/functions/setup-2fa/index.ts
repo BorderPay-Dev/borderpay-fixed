@@ -1,18 +1,25 @@
-// setup-2fa v84 — server-side TOTP secret + AES-256-GCM encryption at rest.
+// setup-2fa v85 — server-side TOTP secret + AES-256-GCM encryption at rest,
+// via base64 RPC (round-7 P1 fix).
 //
-// SOURCE OF TRUTH for deployed version 83/84. Earlier vendored versions
+// SOURCE OF TRUTH for deployed version 84/85. Earlier vendored versions
 // stored the base32 secret in plaintext at user_security.two_factor_secret;
-// CTO review correctly flagged that as a false "encrypted at rest" claim.
+// CTO review correctly flagged that as a false "encrypted at rest" claim,
+// and round-7 CTO review then flagged that v84's bytea write path was
+// broken: `Array.from(cipher)` round-tripped through PostgREST as the
+// ASCII text of `[139,71,...]`, not the actual cipher bytes.
+//
 // This version:
 //
 //   • Generates a 160-bit base32 secret (RFC 4226 minimum).
 //   • Encrypts with AES-256-GCM under TOTP_ENCRYPTION_KEY (server-only
 //     env var; 32-byte base64). Stored format: [12-byte IV] || ciphertext
 //     (the GCM 16-byte tag is appended to the ciphertext by crypto.subtle).
-//   • Persists ONLY the encrypted bytes to two_factor_secret_encrypted
-//     and clears two_factor_secret to null. The plaintext column stays in
-//     the schema for backward read-fallback during the rollout window;
-//     this function never writes to it.
+//   • Persists ONLY the encrypted bytes via the
+//     `set_totp_secret_encrypted_b64` RPC (added in migration
+//     20260520_totp_secret_b64_rpcs.sql). The RPC accepts the cipher as a
+//     base64 string and decodes to bytea inside Postgres, so the wire
+//     format stays text-clean. The RPC also nulls out the legacy
+//     plaintext column atomically.
 //   • FAILS CLOSED if TOTP_ENCRYPTION_KEY is missing or malformed —
 //     returns 500 server_misconfigured. No more silent plaintext fallback.
 //
@@ -67,6 +74,15 @@ async function encryptSecret(secret: string): Promise<Uint8Array | null> {
   return out;
 }
 
+/** Base64-encode bytes for transport to PostgreSQL via the b64 RPC.
+ *  We intentionally do NOT use Array.from(cipher) here — that was the
+ *  v84 bug that wrote ASCII JSON text into a bytea column. */
+function bytesToB64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
@@ -104,14 +120,15 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, error: 'Encryption failed', code: 'server_misconfigured' }, 500);
     }
 
-    const { error } = await supabase
-      .from('user_security')
-      .upsert({
-        user_id:                      user.id,
-        two_factor_secret_encrypted:  Array.from(cipher),
-        two_factor_secret:            null,
-        two_factor_enc_version:       1,
-      }, { onConflict: 'user_id' });
+    // Persist via the b64 RPC so the bytea boundary is handled inside
+    // PostgreSQL (decode(p_b64, 'base64')). Sending Array.from(cipher)
+    // through PostgREST was the v84 bug — that round-tripped as the
+    // ASCII text of the JSON array, not as the actual cipher bytes.
+    const { error } = await supabase.rpc('set_totp_secret_encrypted_b64', {
+      p_user_id:     user.id,
+      p_b64:         bytesToB64(cipher),
+      p_enc_version: 1,
+    });
 
     if (error) return json({ success: false, error: error.message }, 500);
 

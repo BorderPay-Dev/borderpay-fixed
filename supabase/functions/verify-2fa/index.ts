@@ -1,9 +1,14 @@
-// verify-2fa v86 — decrypts AES-256-GCM TOTP secret, verifies RFC-6238.
+// verify-2fa v87 — decrypts AES-256-GCM TOTP secret via base64 RPC,
+// verifies RFC-6238 (round-7 P1 fix).
 //
-// SOURCE OF TRUTH for deployed version 85/86. Reads the encrypted secret
-// from user_security.two_factor_secret_encrypted, decrypts under
-// TOTP_ENCRYPTION_KEY (server-only env), then runs RFC-6238 verification:
-// HMAC-SHA1, 30s step, ±1 step drift tolerance, constant-time compare.
+// SOURCE OF TRUTH for deployed version 86/87. Reads the encrypted secret
+// from user_security via the `get_totp_secret_encrypted_b64` RPC
+// (added in migration 20260520_totp_secret_b64_rpcs.sql), which
+// returns the bytea column as a base64 string so we never have to
+// parse PostgREST's `\x...` bytea text representation. Decrypts under
+// TOTP_ENCRYPTION_KEY (server-only env), then runs RFC-6238
+// verification: HMAC-SHA1, 30s step, ±1 step drift tolerance,
+// constant-time compare.
 //
 // FAILS CLOSED if TOTP_ENCRYPTION_KEY is missing or malformed — returns
 // 500 server_misconfigured. The previous plaintext read-fallback was
@@ -129,19 +134,22 @@ Deno.serve(async (req: Request) => {
       }, 500);
     }
 
-    const { data: row, error: fetchErr } = await supabase
-      .from('user_security')
-      .select('two_factor_secret_encrypted')
-      .eq('user_id', user.id)
-      .single();
-    if (fetchErr || !row) return json({ success: false, error: '2FA not set up' }, 400);
-    if (!row.two_factor_secret_encrypted) {
+    // Read via the b64 RPC. PostgREST returns bytea columns as a
+    // `\x...` hex string in JSON which the previous version mis-parsed
+    // with `new Uint8Array(string)` (always produced zero-length
+    // garbage). The RPC returns a base64 string instead — clean text
+    // round-trip, decoded here with the standard base64 → Uint8Array
+    // path. See migration 20260520_totp_secret_b64_rpcs.sql.
+    const { data: b64, error: fetchErr } = await supabase.rpc(
+      'get_totp_secret_encrypted_b64',
+      { p_user_id: user.id },
+    );
+    if (fetchErr) return json({ success: false, error: fetchErr.message }, 500);
+    if (!b64 || typeof b64 !== 'string' || b64.length === 0) {
       return json({ success: false, error: '2FA not set up' }, 400);
     }
 
-    const blob = row.two_factor_secret_encrypted instanceof Uint8Array
-      ? row.two_factor_secret_encrypted
-      : new Uint8Array(row.two_factor_secret_encrypted);
+    const blob = b64ToBytes(b64);
     const secret = await decryptSecret(blob, decKey);
     if (!secret) {
       console.error(`verify-2fa: decryption failed for user_id=${user.id}`);
