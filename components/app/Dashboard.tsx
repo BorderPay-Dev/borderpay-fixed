@@ -322,7 +322,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   };
 
   // ─── render ──────────────────────────────────────────────────────────────
-  // Aesthetic: Mercury / Stripe / Ramp. Generous whitespace, flat surfaces
+  // Aesthetic: Mercury / Ramp. Generous whitespace, flat surfaces
   // (no glass blur on inner cards), large display numerals, monospaced money,
   // lime accent ONLY on primary CTAs and active states. AppShell owns header
   // and bottom-nav chrome; Dashboard renders body-only.
@@ -621,7 +621,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         </button>
       </section>
 
-      {/* ── 10. Recent activity — Stripe-style minimal rows ────────── */}
+      {/* ── 10. Recent activity — minimal rows ─────────────────────── */}
       <section className="px-5 sm:px-6 mt-7 pb-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>

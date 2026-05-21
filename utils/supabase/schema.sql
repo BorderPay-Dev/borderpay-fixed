@@ -33,23 +33,37 @@ begin
     create type public.account_type as enum ('individual', 'business');
   end if;
   if not exists (select 1 from pg_type where typname = 'kyc_status') then
-    create type public.kyc_status as enum ('unverified','pending','submitted','under_review','verified','approved','rejected','failed');
+    -- 6 labels live (verified against pg_enum on 2026-05-19). The
+    -- aspirational `submitted` + `under_review` labels were removed in
+    -- round-5 — they had never been added to production and no code
+    -- read them.
+    create type public.kyc_status as enum ('unverified','pending','verified','approved','rejected','failed');
   end if;
 end $$;
 
 -- ─── 3. user_profiles (CANONICAL) ────────────────────────────────────────────
 -- Used by every app surface (Dashboard, Profile, KYC, Cards, Wallets, etc.)
 -- and by every deployed edge function. Treat as the single source of truth.
+--
+-- Provider columns: bridge_* are the live partner columns. All maplerad_*
+-- columns were dropped by migration 20260518_maplerad_triggers_sweep.sql
+-- and are gone from production — do NOT re-add them.
+-- Constraint nullability captured from live `information_schema.columns`
+-- on 2026-05-19. The previous version of this declaration claimed
+-- NOT NULL on email/kyc_status/kyc_level/created_at/updated_at; those
+-- were aspirational and never deployed. Relaxed to match live in
+-- round-5 so a clean migration replay produces a schema identical to
+-- production. Tightening these to NOT NULL is a separate change that
+-- requires a backfill plan + CTO sign-off; tracked but not in scope.
 create table if not exists public.user_profiles (
   id                              uuid        primary key references auth.users(id) on delete cascade,
-  email                           text        not null,
+  email                           text,
   full_name                       text,
   phone                           text,
   country                         text,
   account_type                    public.account_type not null default 'individual',
-  kyc_status                      public.kyc_status   not null default 'unverified',
-  kyc_level                       integer     not null default 0,
-  maplerad_customer_id            text,
+  kyc_status                      public.kyc_status   default 'unverified',
+  kyc_level                       integer     default 0,
   is_admin                        boolean     not null default false,
   address                         text,
   city                            text,
@@ -62,24 +76,31 @@ create table if not exists public.user_profiles (
   kyc_verified_at                 timestamptz,
   id_number                       text,
   gender                          text,
-  maplerad_status                 text,
-  account_status                  text,
+  account_status                  text        default 'pending_kyc',
   enrolled_at                     timestamptz,
-  maplerad_sandbox_customer_id    text,
-  maplerad_tier                   smallint,
-  maplerad_tier0_enrolled_at      timestamptz,
-  maplerad_tier2_enrolled_at      timestamptz,
   tier0_email_sent_at             timestamptz,
   admin_kyc_approved_at           timestamptz,
   admin_kyc_reviewer              uuid,
   admin_kyc_decision              text,
   admin_kyc_notes                 text,
-  maplerad_environment            text,
-  created_at                      timestamptz not null default now(),
-  updated_at                      timestamptz not null default now()
+  bridge_environment              text,
+  -- Partner (Bridge) identity columns. Populated by bridge-kyc-link /
+  -- bridge-kyb-link on first KYC start, updated by webhook ingest.
+  payment_provider                public.payment_provider not null default 'bridge',
+  bridge_customer_id              text,
+  bridge_kyc_status               text,
+  bridge_kyc_link_id              text,
+  bridge_kyc_link_url             text,
+  bridge_kyc_completed_at         timestamptz,
+  bridge_account_status           text,
+  preferred_currencies            jsonb       not null default '["USD"]'::jsonb,
+  created_at                      timestamptz default now(),
+  updated_at                      timestamptz default now()
 );
 
 -- ─── 4. users (legacy mirror; kept in sync by trigger) ───────────────────────
+-- Reflects the post-sweep shape (migration 20260518_maplerad_triggers_sweep.sql).
+-- No maplerad_* columns. bridge_customer_id is the only provider id.
 create table if not exists public.users (
   id                   uuid primary key references auth.users(id) on delete cascade,
   email                text not null,
@@ -89,7 +110,7 @@ create table if not exists public.users (
   account_type         public.account_type not null default 'individual',
   kyc_status           public.kyc_status   default 'unverified',
   wallet_activated     boolean default false,
-  maplerad_customer_id text,
+  bridge_customer_id   text,
   created_at           timestamptz default now(),
   updated_at           timestamptz default now()
 );
@@ -120,6 +141,98 @@ create table if not exists public.business_profiles (
 -- These tables already exist in production with their full shape. Re-creating
 -- them here exactly is unnecessary (and risks divergence). Refer to the
 -- migration files in /supabase/migrations for column-level history.
+
+-- ─── 6a. user_security (PIN / TOTP / WebAuthn pivot) ────────────────────────
+-- Authoritative server-side store for security factors. The previous
+-- client-side flow stored hashes/secrets in localStorage; that is gone.
+-- See migrations 20260518_user_security_hardening.sql and
+-- 20260518_webauthn_credentials.sql for the canonical DDL.
+-- Live PK shape (captured from pg_constraint 2026-05-19): the PK is
+-- on `id` (uuid, gen_random_uuid()) with a UNIQUE on `user_id`. The
+-- previous version of this declaration put the PK on `user_id` — that
+-- never matched live and would have produced a different table on a
+-- fresh replay. Corrected in round-5.
+-- Several columns (backup_codes, failed_pin_attempts,
+-- failed_2fa_attempts, two_factor_locked_until) pre-date the round-3
+-- hardening migration and were applied via dashboard DDL; they are
+-- now backed by 20260519_schema_reconcile_bridge_partner_columns.sql.
+create table if not exists public.user_security (
+  id                            uuid        primary key default gen_random_uuid(),
+  user_id                       uuid        not null unique references auth.users(id) on delete cascade,
+  -- PIN
+  pin_set                       boolean     default false,
+  pin_hash                      text,                                -- legacy: single-round SHA-256 (pin || user.id). Lazy-upgraded on verify.
+  pin_hash_v2                   text,                                -- v2: 'v2$' || base64(salt) || '$' || base64(pbkdf2-sha256(pin, salt, 100000))
+  pin_failed_attempts           smallint    not null default 0,      -- consecutive failures (canonical; round-3 hardening)
+  failed_pin_attempts           integer     default 0,               -- legacy pre-hardening counter (dashboard DDL)
+  pin_locked_until              timestamptz,                         -- non-null → verify-pin returns 423 locked
+  pin_updated_at                timestamptz not null default now(),
+  -- TOTP
+  two_factor_enabled            boolean     default false,
+  two_factor_secret             text,                                -- legacy plaintext (read-fallback during rollout; setup-2fa fails closed without key)
+  two_factor_secret_encrypted   bytea,                               -- AES-256-GCM: 12-byte IV || ciphertext || 16-byte tag. Key = TOTP_ENCRYPTION_KEY env.
+  two_factor_enc_version        smallint    default 1,
+  failed_2fa_attempts           integer     default 0,               -- legacy 2FA failure counter (dashboard DDL)
+  two_factor_locked_until       timestamptz,                         -- legacy 2FA lockout (dashboard DDL)
+  -- WebAuthn backup recovery codes (dashboard DDL; not actively used by current flow)
+  backup_codes                  text[],
+  created_at                    timestamptz default now(),
+  updated_at                    timestamptz default now()
+);
+create index if not exists user_security_pin_locked_until_idx
+  on public.user_security (pin_locked_until)
+ where pin_locked_until is not null;
+alter table public.user_security enable row level security;
+drop policy if exists user_security_owner          on public.user_security;
+create policy user_security_owner          on public.user_security
+  for select to authenticated using (auth.uid() = user_id);
+drop policy if exists user_security_service_role   on public.user_security;
+create policy user_security_service_role   on public.user_security
+  for all to service_role using (true) with check (true);
+
+-- ─── 6b. webauthn_credentials / webauthn_challenges ─────────────────────────
+-- Server-verified platform-authenticator credentials. The 4 edge functions
+-- under /supabase/functions/webauthn-* persist and verify against these
+-- tables using @simplewebauthn/server.
+create table if not exists public.webauthn_credentials (
+  id              uuid        primary key default gen_random_uuid(),
+  user_id         uuid        not null references auth.users(id) on delete cascade,
+  credential_id   text        not null unique,                       -- base64url
+  public_key      text        not null,                              -- base64url COSE
+  counter         bigint      not null default 0,                    -- RFC 8809 monotonic counter
+  transports      text[]      not null default '{}'::text[],
+  device_type     text,                                              -- 'platform' | 'cross-platform'
+  backed_up       boolean     not null default false,
+  nickname        text,
+  created_at      timestamptz not null default now(),
+  last_used_at    timestamptz
+);
+create index if not exists webauthn_credentials_user_idx on public.webauthn_credentials (user_id);
+alter table public.webauthn_credentials enable row level security;
+drop policy if exists webauthn_owner_read   on public.webauthn_credentials;
+create policy webauthn_owner_read   on public.webauthn_credentials for select to authenticated using (auth.uid() = user_id);
+drop policy if exists webauthn_owner_delete on public.webauthn_credentials;
+create policy webauthn_owner_delete on public.webauthn_credentials for delete to authenticated using (auth.uid() = user_id);
+drop policy if exists webauthn_service_role on public.webauthn_credentials;
+create policy webauthn_service_role on public.webauthn_credentials for all to service_role using (true) with check (true);
+
+create table if not exists public.webauthn_challenges (
+  id              uuid        primary key default gen_random_uuid(),
+  user_id         uuid        references auth.users(id) on delete cascade,
+  challenge       text        not null,                              -- base64url
+  purpose         text        not null check (purpose in ('register','authenticate')),
+  rp_id           text        not null,
+  expires_at      timestamptz not null,
+  consumed_at     timestamptz,
+  created_at      timestamptz not null default now()
+);
+create index if not exists webauthn_challenges_expires_idx
+  on public.webauthn_challenges (expires_at)
+ where consumed_at is null;
+alter table public.webauthn_challenges enable row level security;
+drop policy if exists webauthn_chal_service_role on public.webauthn_challenges;
+create policy webauthn_chal_service_role on public.webauthn_challenges
+  for all to service_role using (true) with check (true);
 
 -- ─── 7. RLS policies (canonical, summary) ────────────────────────────────────
 alter table public.user_profiles      enable row level security;

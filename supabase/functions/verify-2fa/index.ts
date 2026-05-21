@@ -1,181 +1,174 @@
-import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// verify-2fa v87 — decrypts AES-256-GCM TOTP secret via base64 RPC,
+// verifies RFC-6238 (round-7 P1 fix).
+//
+// SOURCE OF TRUTH for deployed version 86/87. Reads the encrypted secret
+// from user_security via the `get_totp_secret_encrypted_b64` RPC
+// (added in migration 20260520_totp_secret_b64_rpcs.sql), which
+// returns the bytea column as a base64 string so we never have to
+// parse PostgREST's `\x...` bytea text representation. Decrypts under
+// TOTP_ENCRYPTION_KEY (server-only env), then runs RFC-6238
+// verification: HMAC-SHA1, 30s step, ±1 step drift tolerance,
+// constant-time compare.
+//
+// FAILS CLOSED if TOTP_ENCRYPTION_KEY is missing or malformed — returns
+// 500 server_misconfigured. The previous plaintext read-fallback was
+// removed per CTO review: the "encrypted at rest" claim was being
+// undermined by a quiet plaintext path.
+//
+// On first successful verify, sets two_factor_enabled = true.
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-// ============================================================================
-// TOTP verification helpers (RFC 6238 / RFC 4226)
-// ============================================================================
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const BASE32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const CORS = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+const json = (b: unknown, s = 200) =>
+  new Response(JSON.stringify(b), { status: s, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
+// ── RFC-6238 helpers ────────────────────────────────────────────────────
 function base32Decode(input: string): Uint8Array {
   const cleaned = input.replace(/[=\s]/g, '').toUpperCase();
   const bytes: number[] = [];
-  let bits = 0;
-  let value = 0;
-
-  for (const char of cleaned) {
-    const idx = BASE32_CHARS.indexOf(char);
+  let bits = 0, value = 0;
+  for (const ch of cleaned) {
+    const idx = BASE32_CHARS.indexOf(ch);
     if (idx === -1) continue;
     value = (value << 5) | idx;
     bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
+    if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
   }
-
   return new Uint8Array(bytes);
 }
-
-function intToBytes(num: number): Uint8Array {
-  const bytes = new Uint8Array(8);
-  for (let i = 7; i >= 0; i--) {
-    bytes[i] = num & 0xff;
-    num = Math.floor(num / 256);
-  }
-  return bytes;
+function intToBytes(n: number): Uint8Array {
+  const b = new Uint8Array(8);
+  for (let i = 7; i >= 0; i--) { b[i] = n & 0xff; n = Math.floor(n / 256); }
+  return b;
 }
-
 async function hmacSha1(key: Uint8Array, message: Uint8Array): Promise<ArrayBuffer> {
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    key as BufferSource,
-    { name: 'HMAC', hash: 'SHA-1' },
-    false,
-    ['sign']
+  const ck = await crypto.subtle.importKey(
+    'raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign'],
   );
-  return crypto.subtle.sign('HMAC', cryptoKey, message as BufferSource);
+  return crypto.subtle.sign('HMAC', ck, message as BufferSource);
 }
-
-/**
- * Verify a TOTP token against a base32-encoded secret.
- * Checks the current time step and ±1 step for clock drift tolerance.
- * Returns true only if the token matches one of the valid time windows.
- */
-async function verifyTOTP(secret: string, token: string, window = 1): Promise<boolean> {
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+async function verifyTOTP(secret: string, token: string, win = 1): Promise<boolean> {
   const secretBytes = base32Decode(secret);
-  const timeStep = 30;
-  const now = Math.floor(Date.now() / 1000 / timeStep);
-
-  for (let i = -window; i <= window; i++) {
+  const step = 30;
+  const now  = Math.floor(Date.now() / 1000 / step);
+  for (let i = -win; i <= win; i++) {
     const counter = now + i;
-    const counterBytes = intToBytes(counter);
-    const hmac = await hmacSha1(secretBytes, counterBytes);
-    const hmacBytes = new Uint8Array(hmac);
-
-    // Dynamic truncation (RFC 4226 Section 5.4)
-    const offset = hmacBytes[hmacBytes.length - 1] & 0x0f;
-    const code =
-      ((hmacBytes[offset] & 0x7f) << 24) |
-      ((hmacBytes[offset + 1] & 0xff) << 16) |
-      ((hmacBytes[offset + 2] & 0xff) << 8) |
-      (hmacBytes[offset + 3] & 0xff);
-
-    const otp = (code % 1000000).toString().padStart(6, '0');
-
-    // Constant-time comparison to prevent timing attacks
-    if (constantTimeEqual(otp, token)) {
-      return true;
-    }
+    const hmac    = new Uint8Array(await hmacSha1(secretBytes, intToBytes(counter)));
+    const offset  = hmac[hmac.length - 1] & 0x0f;
+    const code    = ((hmac[offset] & 0x7f) << 24) | ((hmac[offset + 1] & 0xff) << 16) |
+                    ((hmac[offset + 2] & 0xff) << 8) | (hmac[offset + 3] & 0xff);
+    const otp     = (code % 1000000).toString().padStart(6, '0');
+    if (constantTimeEqual(otp, token)) return true;
   }
-
   return false;
 }
 
-/** Constant-time string comparison to prevent timing side-channel attacks. */
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+// ── AES-GCM helpers ─────────────────────────────────────────────────────
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function importDecKey(): Promise<CryptoKey | null> {
+  const raw = Deno.env.get('TOTP_ENCRYPTION_KEY');
+  if (!raw) return null;
+  let bytes: Uint8Array;
+  try { bytes = b64ToBytes(raw); } catch { return null; }
+  if (bytes.byteLength !== 32) return null;
+  return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['decrypt']);
+}
+async function decryptSecret(blob: Uint8Array, key: CryptoKey): Promise<string | null> {
+  if (blob.byteLength < 12 + 16) return null;
+  const iv = blob.slice(0, 12);
+  const ct = blob.slice(12);
+  try {
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+    return new TextDecoder().decode(pt);
+  } catch {
+    return null;
   }
-  return result === 0;
 }
 
-// ============================================================================
-// Edge function handler
-// ============================================================================
-
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {
-    const authHeader = req.headers.get('Authorization')!;
+    const auth = req.headers.get('Authorization');
+    if (!auth) return json({ success: false, error: 'Unauthorized' }, 401);
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
-    const token = authHeader.replace('Bearer ', '');
+    const token = auth.replace('Bearer ', '');
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    if (authError || !user) return json({ success: false, error: 'Unauthorized' }, 401);
 
     const { token: totpToken } = await req.json();
-
     if (!totpToken || !/^\d{6}$/.test(totpToken)) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Token must be 6 digits' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return json({ success: false, error: 'Token must be 6 digits' }, 400);
     }
 
-    // Fetch the user's stored TOTP secret
-    const { data: security, error: fetchError } = await supabase
-      .from('user_security')
-      .select('two_factor_secret')
-      .eq('user_id', user.id)
-      .single();
-
-    if (fetchError || !security || !security.two_factor_secret) {
-      return new Response(
-        JSON.stringify({ success: false, error: '2FA not set up' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Fail closed if encryption key is missing — we will not silently
+    // fall back to reading the legacy plaintext column.
+    const decKey = await importDecKey();
+    if (!decKey) {
+      console.error('verify-2fa: TOTP_ENCRYPTION_KEY missing or invalid — failing closed');
+      return json({
+        success: false,
+        error:   'Two-factor verification is temporarily unavailable. Please try again shortly.',
+        code:    'server_misconfigured',
+      }, 500);
     }
 
-    // Verify the submitted token against the stored TOTP secret
-    // Uses RFC 6238 TOTP with HMAC-SHA1, 30s period, ±1 step drift tolerance
-    const isValid = await verifyTOTP(security.two_factor_secret, totpToken);
+    // Read via the b64 RPC. PostgREST returns bytea columns as a
+    // `\x...` hex string in JSON which the previous version mis-parsed
+    // with `new Uint8Array(string)` (always produced zero-length
+    // garbage). The RPC returns a base64 string instead — clean text
+    // round-trip, decoded here with the standard base64 → Uint8Array
+    // path. See migration 20260520_totp_secret_b64_rpcs.sql.
+    const { data: b64, error: fetchErr } = await supabase.rpc(
+      'get_totp_secret_encrypted_b64',
+      { p_user_id: user.id },
+    );
+    if (fetchErr) return json({ success: false, error: fetchErr.message }, 500);
+    if (!b64 || typeof b64 !== 'string' || b64.length === 0) {
+      return json({ success: false, error: '2FA not set up' }, 400);
+    }
 
+    const blob = b64ToBytes(b64);
+    const secret = await decryptSecret(blob, decKey);
+    if (!secret) {
+      console.error(`verify-2fa: decryption failed for user_id=${user.id}`);
+      return json({ success: false, error: 'Secret unavailable', code: 'decrypt_failed' }, 500);
+    }
+
+    const isValid = await verifyTOTP(secret, totpToken);
     if (!isValid) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid verification code' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return json({ success: false, error: 'Invalid verification code' }, 401);
     }
 
-    // Token is valid — mark 2FA as enabled
     const { error: updateError } = await supabase
       .from('user_security')
       .update({ two_factor_enabled: true })
       .eq('user_id', user.id);
+    if (updateError) return json({ success: false, error: updateError.message }, 500);
 
-    if (updateError) {
-      return new Response(
-        JSON.stringify({ success: false, error: updateError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    return new Response(
-      JSON.stringify({ success: true }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return json({ success: true });
   } catch (err) {
-    return new Response(
-      JSON.stringify({ success: false, error: err.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return json({ success: false, error: (err as Error).message }, 500);
   }
 });
