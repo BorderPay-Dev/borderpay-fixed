@@ -23,17 +23,25 @@ the answer is: not here, not now. See §4 and §6.
 | 7 | `8e143d7` | docs                 | add final readiness packet (this file)                                    |
 | 8 | `bb2af7d` | round-7 P1 fix       | TOTP encrypted-secret bytea round-trip via base64 RPCs                    |
 | 9 | `c23ecb9` | round-7 P1 fix       | `bridge-kyb-link` uses `bridge_kyb_link_*` columns, not `bridge_kyc_link_*` |
+| 10 | `b4875ef` | round-7 P2 doc fix  | refresh final readiness packet for round-7 state                            |
 
-The 9-commit stack is on branch `codex/cto-review-rounds-2-6` and
+The 10-commit stack is on branch `codex/cto-review-rounds-2-6` and
 pushed to `origin/codex/cto-review-rounds-2-6` — **not** to
 `origin/main`. Open as draft PR
-[#2 — CTO review rounds 2-6 readiness package](https://github.com/BorderPay-Dev/borderpay-fixed/pull/2)
+[#2 — CTO review rounds 2-7 readiness package](https://github.com/BorderPay-Dev/borderpay-fixed/pull/2)
 (base `main`, head `codex/cto-review-rounds-2-6`).
 
 `origin/main` is still at `ec4f0db` (the pre-rebuild handoff commit)
 and has not moved at any point in this review cycle. Local `main` is
-9 commits ahead of `origin/main`; the review branch is fast-forward
+10 commits ahead of `origin/main`; the review branch is fast-forward
 equivalent to local `main` and is the surface the CTO reviews against.
+
+(Note: this packet itself is commit 10. The CTO re-review that
+verifies this update will see an 11th commit on the branch — a
+doc-only re-refresh that counts commit 10 — which is the smallest
+self-referencing fix-up possible. Future doc updates to this packet
+will be flagged in the same way; this is a known one-commit
+self-reference lag, not a content drift.)
 
 Each commit is self-contained and documented in its commit body.
 
@@ -178,7 +186,7 @@ in `TRANSFER_EVIDENCE_PREP.md` §4. Even that flip is gated on a fresh
 flag stays at `"false"` / unset.
 
 ### 3.3 Push to `origin/main` — blocked
-The 9 commits are pushed to `origin/codex/cto-review-rounds-2-6`
+The 10 commits are pushed to `origin/codex/cto-review-rounds-2-6`
 (review surface, PR #2). They have **not** been pushed to
 `origin/main`. Promotion to `main` runs through PR merge after CTO
 verdict; see §5.
@@ -239,7 +247,7 @@ reviewed, not an automatic consequence of a passing smoke.
 Order matters. None of these steps execute as part of this packet —
 this is the future runbook.
 
-1. **CTO sign-off in PR #2.** Each of the 9 commits' bodies contains
+1. **CTO sign-off in PR #2.** Each of the 10 commits' bodies contains
    its own evidence summary; reviewer should diff against
    `origin/main`. The PR is currently draft; merge approval is the
    sign-off signal.
@@ -247,8 +255,9 @@ this is the future runbook.
    `EVIDENCE_PACKAGE.md`, future deliverable under a separate
    `go transfer evidence package` signal — see §6).
 3. **Merge PR #2** via the GitHub UI or `gh pr merge 2`. This
-   fast-forwards `origin/main` from `ec4f0db` to `c23ecb9`. No direct
-   `git push origin main` is needed.
+   fast-forwards `origin/main` from `ec4f0db` to `b4875ef` (or the
+   then-current PR head if further review-fix commits land before
+   merge). No direct `git push origin main` is needed.
 4. **Apply migration `20260520_totp_secret_b64_rpcs.sql` to live** via
    MCP. Idempotent; data cleanup affects 1 non-functional row.
    Post-condition `DO $$ ... $$` blocks fail loudly on partial apply.
@@ -280,7 +289,7 @@ this is the future runbook.
 ### 5.1 Guardrails for the merge/push step
 - No force-push.
 - No `--no-verify`, no `--no-gpg-sign`. Hooks run.
-- No amend of any of the nine commits in §1. They have been reviewed
+- No amend of any of the ten commits in §1. They have been reviewed
   individually in PR #2.
 - Push target is the PR merge surface; `origin/main` moves only via
   PR #2 fast-forward. No direct push to `origin/main`. No alternate
