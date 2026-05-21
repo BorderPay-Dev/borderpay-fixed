@@ -4,23 +4,33 @@
  * The server-side authority lives in
  * `supabase/functions/_shared/providers/bridge-country-policy.ts`.
  * The frontend cannot import server modules directly, so this file
- * restates the same two sets for UI rendering (signup country picker,
- * Geographic restrictions screen, KYC pre-checks).
+ * restates the same THREE country sets for UI rendering (signup
+ * country picker, Geographic restrictions screen, KYC pre-checks).
  *
- * STRICT MIRROR: the BRIDGE_PROHIBITED_COUNTRIES and
- * BRIDGE_CONTROLLED_COUNTRIES sets MUST stay byte-identical to the
- * server file. Enforced by `tests/audit/bridge_country_policy_audit.py`.
- * Edit both files in lockstep; the audit script will fail CI if they
- * drift.
+ * STRICT MIRROR: BRIDGE_PROHIBITED_COUNTRIES,
+ * BRIDGE_UNAVAILABLE_COUNTRIES, and BRIDGE_CONTROLLED_COUNTRIES MUST
+ * stay byte-identical to the server file. Enforced by
+ * `tests/audit/bridge_country_policy_audit.py`. Edit both files in
+ * lockstep; the audit script will fail CI if they drift.
  *
- * Tier semantics (matches server):
- *   • Prohibited  → server hard-blocks any Bridge call.
- *                   UI: surface as "coming soon via local-rails partner".
+ * Four tiers (matches server, round-10):
+ *   • Prohibited  → server hard-blocks any Bridge call (sanctions).
+ *                   UI: render in the "Restricted" section with
+ *                   sanctions language. EXCEPT for DRC, which is the
+ *                   single "coming-soon via local-rails partner"
+ *                   entry — it is in BRIDGE_PROHIBITED_COUNTRIES at
+ *                   the policy level but in COMING_SOON_COUNTRIES at
+ *                   the display level.
+ *   • Unavailable → server hard-blocks (commercial / regulatory; not
+ *                   sanctions). DZ, BI, CN, JP, TN. UI: render in a
+ *                   distinct "Not currently serviceable" section,
+ *                   "commercial / regulatory restriction, not a
+ *                   sanctions designation".
  *   • Controlled  → server does NOT block; emits an observability log.
- *                   UI: signup IS allowed, but partner-backed financial
- *                   products carry a "limited support" hint per round-9
- *                   policy (BorderPay does not yet have Bridge approval
- *                   letters for these jurisdictions).
+ *                   UI: signup IS allowed; partner-backed financial
+ *                   products carry a "limited support" hint per
+ *                   round-9 policy (BorderPay does not yet have Bridge
+ *                   approval letters for these jurisdictions).
  *   • Supported   → default-allow; no UI annotation.
  *
  * Source: https://apidocs.bridge.xyz/platform/customers/compliance/supported-countries-list
@@ -267,11 +277,19 @@ export const PROHIBITED_COUNTRY_ENTRIES: readonly PartnerCountryEntry[] = [
   ...SANCTIONED_COUNTRY_ENTRIES,
 ];
 
+/** True ONLY for countries in COMING_SOON_COUNTRIES (currently just DRC).
+ *  Round-10 fix: previously aliased to isBridgeProhibited, which made
+ *  every sanctioned country (Iran, North Korea, Russia, …) flow through
+ *  the "coming soon" semantic and risked UI copy reintroducing
+ *  "sanctions countries coming online soon" claims. Sanctions countries
+ *  must be checked with isBridgeProhibited, NOT this helper.
+ *
+ *  For "any country the Bridge server would hard-block", use
+ *  isBridgeBlocked (covers Prohibited + Unavailable). */
 export function isComingSoon(countryCode: string | null | undefined): boolean {
-  // Back-compat alias for isBridgeProhibited. Prior code used this to mean
-  // "Bridge does not support this country yet"; that semantic is now
-  // covered by the broader Prohibited set.
-  return isBridgeProhibited(countryCode);
+  if (!countryCode) return false;
+  const upper = countryCode.toUpperCase();
+  return COMING_SOON_COUNTRIES.some(c => c.code === upper);
 }
 
 export function partnerCountryEntry(countryCode: string | null | undefined): PartnerCountryEntry | null {
