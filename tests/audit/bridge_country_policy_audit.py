@@ -152,16 +152,34 @@ def assert_frontend_mirror() -> list[str]:
 
 def assert_gate_before_reuse() -> list[str]:
     """Invariant (4): in every required-importer edge function, the
-    `if (isBridgeBlocked(...))` call comes BEFORE the first idempotent /
-    reuse early-return line (`already_exists`, `already_approved`,
-    `reused: true`). bridge-transfer is exempt: it has no such reuse
-    path, only a `bridge_customer_id IS NOT NULL` requirement check
-    (which gates IN, not out)."""
+    `if (isBridgeBlocked(...))` call comes BEFORE any line that reads
+    Bridge state from the profile or business_profiles row.
+
+    Round-11 P2 follow-up — Issue #4 item 4: the previous version of
+    this invariant only matched the three known reuse-return shapes
+    (`already_exists`, `already_approved`, `reused: true`). A future
+    Bridge function that introduces a new reuse pattern (e.g. a
+    `bridge_kyc_status === 'pending'` shortcut, or a wallet existence
+    check) would not be caught.
+
+    The tighter rule: gate fires before any line that reads
+    `profile.bridge_*` or `biz.bridge_*` or `profile?.bridge_*` etc.
+    The `.select("…, bridge_customer_id, …")` SQL strings are not
+    field-access patterns and are intentionally NOT matched by this
+    regex.
+
+    `isBridgeBlocked(profile.country)` itself reads `profile.country`,
+    not `profile.bridge_*`, so the gate line does not self-match.
+    """
     findings: list[str] = []
-    reuse_patterns = re.compile(
-        r"already_exists\s*:\s*true|already_approved\s*:\s*true|reused\s*:\s*true"
+    # Field-access pattern: profile.bridge_, profile?.bridge_, biz.bridge_,
+    # biz?.bridge_, existing.bridge_ (for wallet/VA already-exists return).
+    # The leading `\b` is critical — it prevents matching the substring
+    # `bridge_customer_id` inside the SQL `.select(...)` string.
+    bridge_read_pattern = re.compile(
+        r"\b(?:profile|biz|existing)\??\.bridge_[a-z_]+"
     )
-    gate_pattern   = re.compile(r"if\s*\(\s*isBridgeBlocked\s*\(")
+    gate_pattern = re.compile(r"if\s*\(\s*isBridgeBlocked\s*\(")
 
     for fn_name in sorted(REQUIRED_IMPORTERS):
         index = EDGE_FUNCTIONS / fn_name / "index.ts"
@@ -170,22 +188,29 @@ def assert_gate_before_reuse() -> list[str]:
         src   = index.read_text()
         lines = src.splitlines()
         gate_line  = None
-        reuse_line = None
+        first_read_line = None
+        first_read_match = None
         for i, line in enumerate(lines, start=1):
             if gate_line is None and gate_pattern.search(line):
                 gate_line = i
-            if reuse_line is None and reuse_patterns.search(line):
-                reuse_line = i
-        if reuse_line is None:
-            # No reuse return — invariant vacuous for this function.
+            m = bridge_read_pattern.search(line)
+            if m and first_read_line is None:
+                first_read_line  = i
+                first_read_match = m.group(0)
+        if first_read_line is None:
+            # No bridge_* state read — invariant vacuous.
             continue
         if gate_line is None:
-            findings.append(f"{fn_name}/index.ts: reuse return on L{reuse_line} but no isBridgeBlocked() call")
-            continue
-        if gate_line > reuse_line:
             findings.append(
-                f"{fn_name}/index.ts: isBridgeBlocked() on L{gate_line} comes AFTER reuse return on L{reuse_line} "
-                f"— prohibited-country user with stale state would bypass the gate"
+                f"{fn_name}/index.ts: reads {first_read_match!r} on L{first_read_line} "
+                f"but no isBridgeBlocked() call"
+            )
+            continue
+        if gate_line > first_read_line:
+            findings.append(
+                f"{fn_name}/index.ts: isBridgeBlocked() on L{gate_line} comes AFTER "
+                f"first Bridge-state read {first_read_match!r} on L{first_read_line} "
+                f"— a blocked-country user with stale state could bypass the gate"
             )
     return findings
 
