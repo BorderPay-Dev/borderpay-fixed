@@ -7,7 +7,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { isBridgeProhibited, bridgeCountryBlockResponse } from "../_shared/providers/bridge-country-policy.ts";
+import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -40,17 +40,22 @@ Deno.serve(async (req) => {
     .maybeSingle();
   if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
 
-  // Idempotent: return existing if any
+  // Country eligibility FIRST — before any idempotent return. Round-10
+  // CTO fix: the earlier version checked `bridge_customer_id` first and
+  // returned the existing customer payload even for users in newly-
+  // prohibited countries (anyone who had managed to get a Bridge customer
+  // before the policy tightened would silently bypass the gate). The
+  // "no grandfathering" rule (round-9 P0.2) requires the country gate
+  // to fire on every call regardless of existing-customer state.
+  if (isBridgeBlocked(profile.country)) {
+    return json(bridgeCountryBlockResponse(profile.country!), 403);
+  }
+  logControlledBridgeTraffic("bridge-customer", profile.country, user.id);
+
+  // Idempotent: return existing if any (only reachable for non-blocked
+  // countries, per the gate above).
   if (profile.bridge_customer_id) {
     return json({ success: true, data: { bridge_customer_id: profile.bridge_customer_id, account_type: profile.account_type, already_exists: true } });
-  }
-
-  // Country eligibility: refuse to create a Bridge customer for users in
-  // Bridge-prohibited jurisdictions (e.g. DRC). The error is structured so
-  // the frontend can render the future-state message without leaking
-  // implementation details.
-  if (isBridgeProhibited(profile.country)) {
-    return json(bridgeCountryBlockResponse(profile.country!), 403);
   }
 
   // For business: pull company_name from business_profiles
