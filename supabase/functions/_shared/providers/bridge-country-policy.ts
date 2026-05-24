@@ -310,10 +310,48 @@ export function logControlledBridgeTraffic(
   );
 }
 
+/** Friendly display names for every country that can hit
+ *  `bridgeCountryBlockResponse` — i.e. every Prohibited + Unavailable
+ *  code. Backend uses short forms (DRC, DPRK) where the long form
+ *  would be too verbose in a 403 error string. The frontend has its
+ *  own full-name table in `utils/compliance/partnerCountryPolicy.ts`
+ *  for the geographic-restrictions UI (e.g. "Democratic Republic of
+ *  the Congo" instead of "DRC"); see the duplication note in both
+ *  files for the rationale.
+ *
+ *  Round-11 P2 follow-up (Issue #4 item 1): expanded from the original
+ *  3 entries (CD / KP / PS) to all 23 blocked codes so a 403 never
+ *  reads "JP is not currently serviceable" — it now reads
+ *  "Japan is not currently serviceable". */
+const COUNTRY_FRIENDLY_NAMES: Readonly<Record<string, string>> = {
+  // Prohibited (sanctions; the 18 codes in BRIDGE_PROHIBITED_COUNTRIES)
+  AF: "Afghanistan",
+  BY: "Belarus",
+  CD: "DRC",
+  CU: "Cuba",
+  PS: "Palestinian Territories",
+  IR: "Iran",
+  IQ: "Iraq",
+  LB: "Lebanon",
+  LY: "Libya",
+  MM: "Myanmar",
+  KP: "DPRK",
+  RU: "Russia",
+  SO: "Somalia",
+  SS: "South Sudan",
+  SD: "Sudan",
+  SY: "Syria",
+  VE: "Venezuela",
+  YE: "Yemen",
+  // Unavailable (commercial; the 5 codes in BRIDGE_UNAVAILABLE_COUNTRIES)
+  DZ: "Algeria",
+  BI: "Burundi",
+  CN: "China",
+  JP: "Japan",
+  TN: "Tunisia",
+};
+
 function humanCountry(code: string): string {
   const u = code.toUpperCase();
-  if (u === "CD") return "DRC";
-  if (u === "KP") return "DPRK";
-  if (u === "PS") return "Palestinian Territories";
-  return u;
+  return COUNTRY_FRIENDLY_NAMES[u] ?? u;
 }
