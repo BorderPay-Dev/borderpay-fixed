@@ -272,11 +272,20 @@ export function bridgeCountryTier(countryCode: string | null | undefined): Bridg
 export function bridgeCountryBlockResponse(countryCode: string) {
   const upper = countryCode.toUpperCase();
   const tier  = bridgeCountryTier(upper);
-  // Tier is narrowed to the blocked tiers because callers should only
-  // invoke this after isBridgeBlocked returned true; the fallback
-  // 'prohibited' default is just for type safety.
-  const reason: "prohibited" | "unavailable" =
-    tier === "unavailable" ? "unavailable" : "prohibited";
+  // Fail loud (round-11 P2 follow-up — Issue #4 item 2): the previous
+  // version silently defaulted any non-Unavailable tier to "prohibited",
+  // which masked misuse. A caller that bypassed isBridgeBlocked and
+  // invoked this with a Controlled or Supported country would receive
+  // sanctions-style 403 copy without any signal that the call shape
+  // was wrong. Throwing here surfaces the misuse at the edge function
+  // log level so a future bug doesn't ride along silently.
+  if (tier !== "prohibited" && tier !== "unavailable") {
+    throw new Error(
+      `bridgeCountryBlockResponse called with non-blocked country (tier=${tier}, code=${upper}); ` +
+      `gate with isBridgeBlocked() before calling this. This indicates a code-path bug.`,
+    );
+  }
+  const reason: "prohibited" | "unavailable" = tier;
   return {
     success: false as const,
     code:    "country_not_supported",
