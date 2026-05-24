@@ -321,12 +321,26 @@ export function logControlledBridgeTraffic(
 
 /** Friendly display names for every country that can hit
  *  `bridgeCountryBlockResponse` — i.e. every Prohibited + Unavailable
- *  code. Backend uses short forms (DRC, DPRK) where the long form
- *  would be too verbose in a 403 error string. The frontend has its
- *  own full-name table in `utils/compliance/partnerCountryPolicy.ts`
- *  for the geographic-restrictions UI (e.g. "Democratic Republic of
- *  the Congo" instead of "DRC"); see the duplication note in both
- *  files for the rationale.
+ *  code. This table uses short forms (DRC, DPRK) where the long form
+ *  would be too verbose in a 403 error string embedded in a sentence.
+ *
+ *  ── Mirror note (Issue #4 item 5, round-11) ─────────────────────
+ *  The frontend has a separate, FULL-name table in
+ *  `utils/compliance/partnerCountryPolicy.ts` (PROHIBITED /
+ *  SANCTIONED / UNAVAILABLE_COUNTRY_ENTRIES) used for the
+ *  geographic-restrictions UI. That table uses full names like
+ *  "Democratic Republic of the Congo" and "Palestinian Territories"
+ *  because the UI renders them as standalone list items, not embedded
+ *  in a sentence.
+ *
+ *  These two tables are intentionally NOT unified: they serve
+ *  different copy needs (terse error string vs. verbose list item)
+ *  and the Deno edge function runtime cannot import from `utils/`
+ *  outside `supabase/functions/`. The audit script enforces ISO-2 set
+ *  parity between server and frontend, which is the only fact that
+ *  must stay in sync at runtime. Display-name drift is a copy concern,
+ *  not a runtime bug. See the matching note in the frontend file.
+ *  ────────────────────────────────────────────────────────────────
  *
  *  Round-11 P2 follow-up (Issue #4 item 1): expanded from the original
  *  3 entries (CD / KP / PS) to all 23 blocked codes so a 403 never
