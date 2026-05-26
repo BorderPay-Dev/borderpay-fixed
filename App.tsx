@@ -178,20 +178,37 @@ function AppContent() {
     }
 
     // P0 hotfix: do not override an in-flight email-verify or password-reset
-    // route. The two effects above (lines 154 + 161) set appState to
+    // route. The two effects above (around lines 154 + 161) set appState to
     // 'verify-email' / 'reset-password' when the URL contains the relevant
     // token. Without this guard, this effect would re-run on the same render
     // cycle, see the user as unauthenticated, and reset appState back to
     // 'login' — which is exactly the "verification link redirects to login"
-    // symptom users reported. The pendingVerify / pendingResetPassword flags
-    // are cleared by their respective screens (EmailVerificationLanding's
-    // onNavigateToLogin handler nulls pendingVerify, ResetPassword clears
-    // pendingResetPassword on completion), so once they go falsy this effect
-    // re-runs via the deps below and routes normally.
-    if (pendingVerify) {
+    // symptom users reported.
+    //
+    // Why the guard checks appState directly instead of the pending* flags:
+    //
+    //   • pendingVerify stays truthy across the entire verification UI life
+    //     (only cleared by EmailVerificationLanding.onNavigateToLogin when
+    //     the user explicitly leaves). So a `if (pendingVerify) return;`
+    //     guard would have worked for verify alone.
+    //
+    //   • pendingResetPassword is DIFFERENT — the effect at ~line 161 sets
+    //     appState='reset-password' AND immediately clears the flag in the
+    //     same effect body. By the very next render the flag is already
+    //     false, so a `if (pendingResetPassword) return;` guard would not
+    //     hold across the lifetime of the reset-password screen.
+    //
+    // The robust invariant is "if we're currently rendering one of these
+    // out-of-band auth screens, the auth router must keep its hands off."
+    // Check appState directly:
+    if (appState === 'verify-email' || appState === 'reset-password') {
       return;
     }
-    if (pendingResetPassword) {
+    // Belt-and-braces: also bail while the verify URL is still being
+    // parsed-into-state on first mount. pendingVerify is set synchronously
+    // in the mount-only effect, so this catches the brief window before the
+    // 'verify-email' state setter has applied.
+    if (pendingVerify) {
       return;
     }
 

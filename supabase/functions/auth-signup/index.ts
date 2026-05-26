@@ -186,30 +186,31 @@ Deno.serve(async (req: Request) => {
     }
     const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData)}&purpose=${tokenPurpose}`;
 
-    // ── Send the verification email via the unified send-email function ──
-    const sendBody = {
-      template:   normalizedAccountType === "business"
-                    ? "business.email_verification"
-                    : "individual.email_verification",
-      to:         email,
-      user_id:    userId,
-      idempotency_key: `signup_verify:${userId}`,
-      props: {
-        full_name,
-        contact_full_name: full_name,
-        company_name:      company_name || undefined,
-        verification_url:  verifyUrl,
-        expires_in_hours:  24,
-      },
-    };
+    // ── Send the verification email via the live send-confirmation-email function ──
+    //
+    // P0 hotfix: this code path previously POSTed to `/functions/v1/send-email`.
+    // The unified `send-email` function exists in local source but is NOT
+    // deployed — production was running a patched v99 of this edge function
+    // which had already been switched to `send-confirmation-email`. Local
+    // source on main is now reconciled with that production behaviour, so a
+    // future `supabase functions deploy auth-signup` from this repo no longer
+    // regresses welcome / verification email delivery.
+    //
+    // If/when the unified `send-email` (multi-template, email_log writes,
+    // idempotency) is deployed, this function and `auth-resend-verification`
+    // can be switched in lockstep.
     try {
-      const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-confirmation-email`, {
         method: "POST",
         headers: {
           "Content-Type":  "application/json",
           "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE}`,
         },
-        body: JSON.stringify(sendBody),
+        body: JSON.stringify({
+          email,
+          full_name,
+          confirmation_url: verifyUrl,
+        }),
       });
       const sendJson = await sendRes.json().catch(() => ({}));
       if (!sendRes.ok || !(sendJson as any)?.success) {
@@ -226,7 +227,7 @@ Deno.serve(async (req: Request) => {
               email_verified:     false,
             },
             email_sent:  false,
-            email_error: (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
+            email_error: (sendJson as any)?.error || `send-confirmation-email HTTP ${sendRes.status}`,
             access_token: "",
           },
         });
