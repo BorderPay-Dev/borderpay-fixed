@@ -8,8 +8,10 @@
 //     { already_verified: true } and does NOT send an email.
 //   • Otherwise: issues a fresh token via issue_email_token() (which
 //     enforces 60 s cooldown + 3-per-hour cap server-side) and calls
-//     send-email. Errors from the rate limit return 429 with a clear
-//     `code: 'cooldown' | 'rate_limit'`.
+//     send-confirmation-email (the deployed sender; see body of this
+//     function for the rationale and the path back to the unified
+//     send-email when that lands). Errors from the rate limit return
+//     429 with a clear `code: 'cooldown' | 'rate_limit'`.
 //
 // Auth model: verify_jwt = false. The endpoint takes the email as input;
 //   sensitive data is gated by the rate limiter and the token system itself.
@@ -89,29 +91,40 @@ Deno.serve(async (req: Request) => {
   }
 
   const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData as string)}&purpose=${purpose}`;
-  const template  = userRow.account_type === "business"
-    ? "business.email_verification"
-    : "individual.email_verification";
 
-  const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+  // P0 hotfix: this function previously POSTed to `${SUPABASE_URL}/functions/v1/send-email`.
+  // The unified `send-email` function exists in local source but is NOT deployed —
+  // so every resend attempt was hard-failing at the network layer (404 → 502 from us).
+  //
+  // Match the pattern the deployed `auth-signup v99` already uses: call the live
+  // `send-confirmation-email` function with the simpler `{ email, full_name,
+  // confirmation_url }` payload. This is the smallest safe path and avoids
+  // having to deploy `send-email` as a prerequisite. If/when the unified
+  // `send-email` (with email_log, multi-template, idempotency) is deployed,
+  // both this function and `auth-signup` can be switched in lockstep.
+  //
+  // The deployed v99 of `auth-signup` notes the same trade-off in its banner.
+  const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-confirmation-email`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE}` },
+    headers: {
+      "Content-Type":  "application/json",
+      "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE}`,
+    },
     body: JSON.stringify({
-      template,
-      to:        userRow.email,
-      user_id:   userRow.id,
-      idempotency_key: `signup_verify:${userRow.id}:${Math.floor(Date.now() / 60000)}`,  // bucket per-minute
-      props: {
-        full_name:         userRow.full_name,
-        contact_full_name: userRow.full_name,
-        verification_url:  verifyUrl,
-        expires_in_hours:  24,
-      },
+      email:            userRow.email,
+      full_name:        userRow.full_name,
+      confirmation_url: verifyUrl,
     }),
   });
   const sendJson = await sendRes.json().catch(() => ({}));
   if (!sendRes.ok || !(sendJson as any)?.success) {
-    return json({ success: false, error: (sendJson as any)?.error || `send-email HTTP ${sendRes.status}` }, 502);
+    return json(
+      {
+        success: false,
+        error:   (sendJson as any)?.error || `send-confirmation-email HTTP ${sendRes.status}`,
+      },
+      502,
+    );
   }
 
   return json({ success: true, data: { sent: true } });

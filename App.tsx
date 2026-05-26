@@ -177,6 +177,51 @@ function AppContent() {
       return;
     }
 
+    // P0 hotfix: do not override an in-flight email-verify or password-reset
+    // route. The two effects above (around lines 154 + 161) set appState to
+    // 'verify-email' / 'reset-password' when the URL contains the relevant
+    // token. Without this guard, this effect would re-run on the same render
+    // cycle, see the user as unauthenticated, and reset appState back to
+    // 'login' — which is exactly the "verification link redirects to login"
+    // symptom users reported.
+    //
+    // Why the guard checks appState directly instead of the pending* flags:
+    //
+    //   • pendingVerify stays truthy across the entire verification UI life
+    //     (only cleared by EmailVerificationLanding.onNavigateToLogin when
+    //     the user explicitly leaves). So a `if (pendingVerify) return;`
+    //     guard would have worked for verify alone.
+    //
+    //   • pendingResetPassword is DIFFERENT — the effect at ~line 161 sets
+    //     appState='reset-password' AND immediately clears the flag in the
+    //     same effect body. By the very next render the flag is already
+    //     false, so a `if (pendingResetPassword) return;` guard would not
+    //     hold across the lifetime of the reset-password screen.
+    //
+    // The robust invariant is "if we're currently rendering one of these
+    // out-of-band auth screens, the auth router must keep its hands off."
+    // Check appState directly:
+    if (appState === 'verify-email' || appState === 'reset-password') {
+      return;
+    }
+    // Belt-and-braces: also bail while the URL → state is being parsed on
+    // first mount. Both flags are set synchronously in their mount-only
+    // effects, so this catches the brief render-N window before the
+    // 'verify-email' / 'reset-password' state setter has been observed.
+    //
+    // pendingResetPassword is important here even though it gets cleared
+    // in the same effect that sets appState='reset-password': on render N
+    // (the render where showSplash + authLoading both flip false), all
+    // three effects run with closures captured from render N. The
+    // reset-password effect schedules setAppState('reset-password') +
+    // setPendingResetPassword(false) for render N+1, but this auth-router
+    // effect's closure still sees appState='login' and
+    // pendingResetPassword=true. Without this guard its
+    // setAppState('login') would land in the same batch and clobber the
+    // 'reset-password' the sibling effect just scheduled.
+    if (pendingVerify)        return;
+    if (pendingResetPassword) return;
+
     // Now determine where to route based on auth state
     const determineRoute = async () => {
       try {
@@ -224,7 +269,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding]);
+  }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword, appState]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
