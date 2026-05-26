@@ -177,6 +177,24 @@ function AppContent() {
       return;
     }
 
+    // P0 hotfix: do not override an in-flight email-verify or password-reset
+    // route. The two effects above (lines 154 + 161) set appState to
+    // 'verify-email' / 'reset-password' when the URL contains the relevant
+    // token. Without this guard, this effect would re-run on the same render
+    // cycle, see the user as unauthenticated, and reset appState back to
+    // 'login' — which is exactly the "verification link redirects to login"
+    // symptom users reported. The pendingVerify / pendingResetPassword flags
+    // are cleared by their respective screens (EmailVerificationLanding's
+    // onNavigateToLogin handler nulls pendingVerify, ResetPassword clears
+    // pendingResetPassword on completion), so once they go falsy this effect
+    // re-runs via the deps below and routes normally.
+    if (pendingVerify) {
+      return;
+    }
+    if (pendingResetPassword) {
+      return;
+    }
+
     // Now determine where to route based on auth state
     const determineRoute = async () => {
       try {
@@ -224,7 +242,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding]);
+  }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
