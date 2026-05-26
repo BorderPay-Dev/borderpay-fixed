@@ -361,7 +361,7 @@ function KycBody({
       </h2>
       <p className={`${tc.textSecondary} mb-6 max-w-md mx-auto leading-relaxed`}>
         {isBusiness
-          ? tt('kyc.start.business.body',  'We need a few corporate documents and the details of beneficial owners. The whole process takes about 5–10 minutes.')
+          ? tt('kyc.start.business.body',  "Business verification is handled by Bridge. You'll complete business, ownership, and address checks in the secure Bridge KYB flow. Timelines vary depending on the business and required documents.")
           : tt('kyc.start.individual.body','We need a government-issued ID and a quick selfie. The whole process takes about 2–3 minutes.')}
       </p>
       <ul className={`${tc.textMuted} text-sm space-y-1 mb-6 max-w-sm mx-auto text-left`}>

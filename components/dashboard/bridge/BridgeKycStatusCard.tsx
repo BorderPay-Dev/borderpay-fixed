@@ -74,13 +74,32 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   : status === 'rejected'      ? tt('dash.kyc.rejected.title','Verification did not pass')
   : (isBusiness ? tt('dash.kyb.start.title','Verify your business to unlock accounts') : tt('dash.kyc.start.title','Verify your identity to unlock accounts'));
 
+  // Body copy for each status.
+  //
+  // Business strings credit Bridge as the verifier, drop any
+  // BorderPay-collects-documents framing, and carry NO timeline claims
+  // (Bridge reviews vary by submission). The approved string also drops
+  // the "and transfers" overclaim — transfers stay product-flagged and
+  // we don't want to imply availability before the flag flips.
+  //
+  // Individual strings preserve the existing Bridge-hosted flow expectation
+  // (ID + selfie ≈ 2-3 minutes) which is a reasonable Bridge UX hint, and
+  // only the "approved" subline is revised to remove the transfers
+  // overclaim that is currently misleading for individuals as well.
   const subline =
-    status === 'approved'     ? tt('dash.kyc.approved.body', 'You have full access to virtual accounts, wallets and transfers.')
-  : status === 'under_review' ? tt('dash.kyc.review.body',   'Most reviews complete in a few minutes.')
+    status === 'approved'
+      ? (isBusiness
+          ? tt('dash.kyb.approved.body', 'Verified by Bridge. Virtual accounts and wallets are now available.')
+          : tt('dash.kyc.approved.body', 'Identity verified. Virtual accounts and wallets are now available.'))
+  : status === 'under_review'
+      ? (isBusiness
+          ? tt('dash.kyb.review.body', 'Bridge is reviewing your business submission. Timelines vary depending on the business and required documents.')
+          : tt('dash.kyc.review.body', 'Most reviews complete in a few minutes.'))
   : status === 'pending'      ? tt('dash.kyc.pending.body',  'Pick up where you left off.')
   : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'You can retry, or contact support.')
-  : (isBusiness ? tt('dash.kyb.start.body',  'Provide a few corporate documents and beneficial owners. Takes 5–10 minutes.')
-                : tt('dash.kyc.start.body',  'Provide a government ID and a quick selfie. Takes 2–3 minutes.'));
+  : (isBusiness
+      ? tt('dash.kyb.start.body', "Business verification is handled by Bridge. You'll complete business, ownership, and address checks in the secure Bridge KYB flow.")
+      : tt('dash.kyc.start.body', 'Provide a government ID and a quick selfie. Takes 2–3 minutes.'));
 
   const Icon = status === 'approved'     ? CheckCircle2
              : status === 'under_review' ? Clock
