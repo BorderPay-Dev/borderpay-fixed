@@ -12,7 +12,6 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -32,7 +31,7 @@ interface Transaction {
   sender?: string;
 }
 
-export function TransactionsScreen({ userId, customerId, onBack }: TransactionsScreenProps) {
+export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,20 +50,18 @@ export function TransactionsScreen({ userId, customerId, onBack }: TransactionsS
     setLoadError(false);
     setLoading(true);
     try {
-      const filters = filterType !== 'all' ? { type: filterType } : {};
-      // Try standalone edge function first (get-customer-transactions)
-      let result = await backendAPI.transactions.getCustomerTransactions(
-        customerId || userId,
-        filters
-      );
-
-      // Fallback to Hono route if standalone edge function is unavailable
-      if (!result.success) {
-        result = await backendAPI.transactions.getTransactions(100, 0);
-      }
-
+      // Phase 2 P1: read directly from `public.transactions` via the
+      // canonical, RLS-safe getTransactions(). The previous "try
+      // get-customer-transactions first, then fall back" dance was
+      // wasted work — `get-customer-transactions` is not deployed
+      // (production logs: `POST 404 .../get-customer-transactions`
+      // with deployment_id=null), so every page-load took the 404
+      // round-trip before falling back. Filtering by `filterType`
+      // happens client-side alongside the existing search filter
+      // (same idiom as `filteredTransactions` below).
+      const result = await backendAPI.transactions.getTransactions(100, 0);
       if (result.success && result.data) {
-        const txns = result.data.transactions || result.data;
+        const txns = (result.data as any).transactions || result.data;
         setTransactions(Array.isArray(txns) ? txns : []);
       } else {
         setLoadError(true);
@@ -76,32 +73,30 @@ export function TransactionsScreen({ userId, customerId, onBack }: TransactionsS
     }
   };
 
-  const handleExport = async (format: 'csv' | 'pdf' | 'excel') => {
-    setExporting(true);
-    try {
-      const result = await backendAPI.transactions.exportTransactions(userId, format);
-      if (result.success && result.data) {
-        const url = result.data.download_url || result.data.url;
-        if (url) {
-          window.open(url, '_blank');
-          toast.success(`${t('transactions.export')} ${format.toUpperCase()}`);
-        }
-      } else {
-        toast.error(friendlyError(result.error, t('transactions.export')));
-      }
-    } catch (error) {
-      toast.error(t('send.txFailed'));
-    } finally {
-      setExporting(false);
-      setShowFilters(false);
-    }
+  const handleExport = async (_format: 'csv' | 'pdf' | 'excel') => {
+    // Phase 2 P1: export is intentionally disabled. The
+    // `export-transactions` edge function is not deployed (same drift
+    // class as `get-wallets`/`get-transactions`), and clicking export
+    // would otherwise return a 404 toast. Gating with a clean
+    // "coming soon" toast until the export pipeline is built. When
+    // the function ships, restore the original implementation in
+    // git history and remove this gate.
+    toast.message('Transaction export is coming soon.');
+    setShowFilters(false);
   };
 
-  const filteredTransactions = transactions.filter(txn =>
-    txn.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    txn.recipient?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    txn.sender?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredTransactions = transactions.filter(txn => {
+    // Apply type filter (was previously sent as a filter arg to the
+    // never-deployed `get-customer-transactions`; now applied locally).
+    if (filterType !== 'all' && txn.type !== filterType) return false;
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      txn.description.toLowerCase().includes(q) ||
+      (txn.recipient?.toLowerCase() ?? '').includes(q) ||
+      (txn.sender?.toLowerCase()    ?? '').includes(q)
+    );
+  });
 
   // Locale mapping for date formatting
   const localeMap: Record<string, string> = {
