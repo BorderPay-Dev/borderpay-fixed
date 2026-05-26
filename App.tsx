@@ -204,13 +204,23 @@ function AppContent() {
     if (appState === 'verify-email' || appState === 'reset-password') {
       return;
     }
-    // Belt-and-braces: also bail while the verify URL is still being
-    // parsed-into-state on first mount. pendingVerify is set synchronously
-    // in the mount-only effect, so this catches the brief window before the
-    // 'verify-email' state setter has applied.
-    if (pendingVerify) {
-      return;
-    }
+    // Belt-and-braces: also bail while the URL → state is being parsed on
+    // first mount. Both flags are set synchronously in their mount-only
+    // effects, so this catches the brief render-N window before the
+    // 'verify-email' / 'reset-password' state setter has been observed.
+    //
+    // pendingResetPassword is important here even though it gets cleared
+    // in the same effect that sets appState='reset-password': on render N
+    // (the render where showSplash + authLoading both flip false), all
+    // three effects run with closures captured from render N. The
+    // reset-password effect schedules setAppState('reset-password') +
+    // setPendingResetPassword(false) for render N+1, but this auth-router
+    // effect's closure still sees appState='login' and
+    // pendingResetPassword=true. Without this guard its
+    // setAppState('login') would land in the same batch and clobber the
+    // 'reset-password' the sibling effect just scheduled.
+    if (pendingVerify)        return;
+    if (pendingResetPassword) return;
 
     // Now determine where to route based on auth state
     const determineRoute = async () => {
@@ -259,7 +269,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword]);
+  }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword, appState]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
