@@ -41,8 +41,15 @@ export function PaymentMethods({ onBack }: PaymentMethodsProps) {
 
       const result = await backendAPI.wallets.getWallets();
 
-      if (result.success && result.data?.length > 0) {
-        const methods: PaymentMethod[] = result.data
+      // walletAPI now returns `{ success, data: { wallets: WalletRow[] } }`
+      // (canonical envelope; matches every other consumer). Older shape
+      // returned a bare array; we tolerate both for safety.
+      const list: any[] =
+        (result.success && (result.data as any)?.wallets) ||
+        (result.success && Array.isArray(result.data) ? (result.data as any[]) : []) ||
+        [];
+      if (list.length > 0) {
+        const methods: PaymentMethod[] = list
           .filter((w: any) => w.status === 'active')
           .slice(0, 5)
           .map((w: any, i: number) => ({

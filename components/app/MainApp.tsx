@@ -21,6 +21,8 @@ import { ErrorBoundary } from '../common/ErrorBoundary';
 import { UpgradeModal } from '../pricing/UpgradeModal';
 import { getDefaultPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
+import { TRANSFERS_LIVE } from '../../utils/featureFlags';
+import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -429,6 +431,19 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
         return <CardsScreen onBack={navigateBack} />;
 
       case 'send-money':
+        // P1 partner onboarding readiness: while the backend
+        // `BRIDGE_TRANSFERS_ENABLED` env on `bridge-transfer` is false,
+        // we route every Send entry point (bottom-nav, drawer,
+        // Dashboard CTA, BusinessDashboard CTA) here. Renders an
+        // honest "Transfers activating soon" screen instead of the
+        // full SendMoneyFlow, which would otherwise hit broken
+        // counterparty-lookup endpoints (get-account-rails,
+        // resolve-account, etc.) and fail at the bridge-transfer
+        // submit anyway. Flip `TRANSFERS_LIVE` (utils/featureFlags.ts)
+        // in lockstep with the backend env when transfers ship.
+        if (!TRANSFERS_LIVE) {
+          return <TransfersComingSoonScreen onBack={navigateBack} />;
+        }
         return (
           <SendMoneyFlow
             userId={userId}

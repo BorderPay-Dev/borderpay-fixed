@@ -697,8 +697,15 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           (async () => {
             try {
               const res: any = await backendAPI.wallets.getWallets();
-              if (res?.success && Array.isArray(res.data)) {
-                const mapped = res.data.map((w: any) => ({
+              // walletAPI now returns `{ success, data: { wallets: [...] } }`
+              // (canonical envelope; matches every other consumer).
+              // Tolerate the legacy bare-array shape for safety.
+              const list: any[] =
+                res?.data?.wallets ??
+                (Array.isArray(res?.data) ? res.data : []) ??
+                [];
+              if (res?.success && list.length > 0) {
+                const mapped = list.map((w: any) => ({
                   currency: w.currency,
                   balance: Number(w.balance || 0),
                   symbol: (CURRENCY_CONFIG as any)[w.currency]?.symbol || w.currency,
