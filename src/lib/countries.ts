@@ -549,6 +549,14 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
     ],
   },
   {
+    code: 'MT', name: 'Malta', flag: '🇲🇹', dialCode: '+356', currency: 'EUR',
+    providerSupported: true, verificationMethod: 'document_capture',
+    status: 'active',
+    idTypes: [
+      { code: 'PASSPORT', label: 'Maltese Passport', description: 'Maltese passport', fields: ['idNumber'], identityType: 'PASSPORT' },
+    ],
+  },
+  {
     code: 'PL', name: 'Poland', flag: '🇵🇱', dialCode: '+48', currency: 'PLN',
     providerSupported: true, verificationMethod: 'document_capture',
     status: 'active',

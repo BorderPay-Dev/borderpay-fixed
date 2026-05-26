@@ -1,17 +1,29 @@
 import { BorderPayLogo } from '../cards/BorderPayLogo';
 /**
  * BorderPay Africa - Complete Signup Flow
- * Multi-step registration: Personal Info → DOB/ID → Address → PoA Upload → Pending
  *
- * Flow:
- * 1. Basic Info (name, email, phone, country, password)
- * 2. Date of Birth + ID document type selection
- * 3. Address details (street, city, state, postal)
- * 4. Proof of Address upload (utility bill, bank statement, etc.)
- * 5. Review & Submit
- * 6. Pending → Dashboard
+ * Two account-type paths share step 1 (basic info) and step 2
+ * (confirm-email), then diverge:
  *
- * KYC verification happens AFTER signup from the dashboard.
+ *   • Individual account:
+ *     1. Basic Info (name, email, phone, country, password)
+ *     2. Confirm Email (verification link)
+ *     3. Date of Birth + ID document type selection
+ *     4. Address details (street, city, state, postal)
+ *     5. Proof of Address upload (utility bill, bank statement, etc.)
+ *     6. Review & Submit
+ *     7. Pending → Dashboard
+ *
+ *   • Business account:
+ *     1. Basic Info + account-type=business + company name (+ optional reg #)
+ *     2. Confirm Email (verification link)
+ *     → onSignUpSuccess() → BusinessDashboard.
+ *     Business accounts do NOT run through steps 3-7 here. Identity,
+ *     ownership, business address, and document collection are handled
+ *     by Bridge through its hosted KYB link, started from the dashboard.
+ *
+ * BorderPay does not verify documents. Bridge owns KYC/KYB via its
+ * hosted KYC link (individual) or KYB link (business).
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -422,6 +434,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               <StepConfirmEmail
                 email={formData.email}
                 fullName={formData.fullName}
+                isBusiness={formData.accountType === 'business'}
                 onEmailConfirmed={async () => {
                   // Try to sign in now that email is confirmed
                   try {
@@ -1160,12 +1173,16 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
 // EMAIL CONFIRMATION STEP
 // ============================================================================
 
-function StepConfirmEmail({ email, fullName, onEmailConfirmed, onResend, isLoading }: {
+function StepConfirmEmail({ email, fullName, onEmailConfirmed, onResend, isLoading, isBusiness = false }: {
   email: string;
   fullName: string;
   onEmailConfirmed: () => void;
   onResend: () => void;
   isLoading: boolean;
+  /** When true, render the Bridge-KYB next-step notice. Business
+   *  accounts skip BorderPay's individual KYC steps and go straight
+   *  into the Bridge hosted KYB flow from the dashboard. */
+  isBusiness?: boolean;
 }) {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [checking, setChecking] = useState(false);
@@ -1248,6 +1265,17 @@ function StepConfirmEmail({ email, fullName, onEmailConfirmed, onResend, isLoadi
           Didn't receive it? Check your spam folder or try resending.
         </p>
       </div>
+
+      {isBusiness && (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-[#C7FF00] font-semibold mb-1.5">
+            Next: business verification
+          </p>
+          <p className="text-xs text-gray-400 leading-relaxed">
+            Business verification is handled by Bridge. After you verify your email and sign in, you'll complete business, ownership, and address checks in the secure Bridge KYB flow from your dashboard.
+          </p>
+        </div>
+      )}
     </motion.div>
   );
 }
