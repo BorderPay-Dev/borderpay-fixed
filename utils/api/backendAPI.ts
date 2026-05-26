@@ -8,7 +8,7 @@
  * Last audit: 2026-03-23
  */
 
-import { authAPI, BASE_URL, ANON_KEY } from '../supabase/client';
+import { authAPI, BASE_URL, ANON_KEY, supabase } from '../supabase/client';
 
 // ── CSRF token (per-session, rotated on page load) ───────────────────────────
 const CSRF_TOKEN = crypto.randomUUID();
@@ -291,13 +291,40 @@ export const userAPI = {
 
 // `getWallets` is read-only and provider-neutral — it returns rows from
 // public.wallets which the dashboard / send flows already display.
+//
+// Pre-Phase-2 this called the `get-wallets` edge function. That function
+// was never deployed (drift class also responsible for `send-email`,
+// `get-transactions`, `poa-upload-url`, etc.). Production logs showed
+// repeated `POST 404 /functions/v1/get-wallets` with `deployment_id: null`,
+// causing the BusinessDashboard hero to show $0.00 + a "Could not load
+// wallets" toast on every mount.
+//
+// `public.wallets` has RLS enabled with policy `wallets_own =
+// (auth.uid() = user_id)` covering ALL ops, so a direct supabase-js
+// SELECT from the user's authenticated session returns exactly the
+// user's own wallet rows — same shape, same data, without the broken
+// network hop. Return envelope is kept identical (`{ success, data:
+// { wallets: WalletRow[] } }`) so callers (BusinessDashboard /
+// Dashboard / WalletScreen) don't change.
+//
 // `createVirtualAccount` routes USD/EUR/GBP to Bridge. Other currencies
 // (NGN/KES/GHS/...) are future-state (planned Yativo integration) and
-// return rails_future_state. `_userId` is accepted for signature stability
-// but ignored — Bridge derives the owner from the user JWT.
+// return rails_future_state.
 export const walletAPI = {
   async getWallets() {
-    return apiCall('get-wallets', { method: 'POST' });
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !user) {
+      return { success: false, error: userErr?.message || 'Not signed in' };
+    }
+    const { data, error } = await supabase
+      .from('wallets')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true, data: { wallets: data || [] } };
   },
 
   async createVirtualAccount(_userId: string, currency: string) {
@@ -314,11 +341,38 @@ export const walletAPI = {
 // ============================================================================
 
 export const transactionAPI = {
+  // Pre-Phase-2 this called the `get-transactions` edge function, which
+  // was never deployed (same drift class as `get-wallets`, `send-email`,
+  // etc.). Production logs showed repeated `POST 404 /functions/v1/
+  // get-transactions` with `deployment_id: null` — TransactionsScreen
+  // would render an error toast on first mount.
+  //
+  // `public.transactions` has RLS enabled with policy `transactions_own =
+  // (auth.uid() = user_id)` covering ALL ops. Direct supabase-js SELECT
+  // returns the user's own rows, ordered newest-first, with the same
+  // shape the screen already consumes. Return envelope preserved
+  // (`{ success, data: { transactions: TransactionRow[] } }`).
+  //
+  // Note: `getCustomerTransactions`, `exportTransactions`, and
+  // `verifyTransaction` below STILL call undeployed edge functions.
+  // Those are not on the partner onboarding critical path (no UI
+  // component lands on them on first load) and are intentionally out
+  // of scope for this PR. Filed as remaining drift in the audit table.
   async getTransactions(limit = 10, offset = 0) {
-    return apiCall('get-transactions', {
-      method: 'POST',
-      body: JSON.stringify({ limit, offset }),
-    });
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !user) {
+      return { success: false, error: userErr?.message || 'Not signed in' };
+    }
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true, data: { transactions: data || [] } };
   },
 
   async getCustomerTransactions(customerId: string, filters?: any) {
