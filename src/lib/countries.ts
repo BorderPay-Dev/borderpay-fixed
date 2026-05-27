@@ -683,19 +683,9 @@ export const getActiveCountries = (): CountryConfig[] =>
   COUNTRY_CONFIG.filter(c => c.status === 'active')
     .sort((a, b) => a.name.localeCompare(b.name));
 
-/**
- * Subset of getActiveCountries() that is also eligible for Bridge
- * onboarding (i.e. neither prohibited nor unavailable per the shared
- * Bridge policy at utils/compliance/partnerCountryPolicy.ts).
- *
- * Use this for the signup country picker. The eligibility filter
- * delegates to isBridgeBlocked() — single source of truth, no inline
- * blocklist here.
- *
- * Note: this guarantees onboarding eligibility, not product-rail
- * availability. Currency/region/partner-rail support is gated
- * separately (see TRANSFERS_LIVE, send-flow gating, etc.).
- */
+/** Active countries that are also eligible for Bridge onboarding.
+ *  Source for the signup picker. Onboarding eligibility only —
+ *  rail availability is gated separately. */
 export const getSignupEligibleCountries = (): CountryConfig[] =>
   getActiveCountries().filter(c => !isBridgeBlocked(c.code));
 

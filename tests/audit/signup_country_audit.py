@@ -2,36 +2,53 @@
 """
 Signup country eligibility audit (PR C).
 
-Asserts that the signup country picker — sourced from
-`getSignupEligibleCountries()` in `src/lib/countries.ts` — excludes
-every Bridge-blocked country, with explicit checks on the two codes
-that were selectable pre-PR-C (CD, DZ). Also asserts that controlled-
-tier codes which exist in COUNTRY_CONFIG remain eligible (Bridge
-allows onboarding with enhanced verification — we surface a warning
-in the UI but do not block).
+Two-layer assertions:
+
+  Structural (S1-S5)  — the SIGNUP code path goes through
+                        getSignupEligibleCountries() and that helper
+                        is wired to the shared Bridge policy. Without
+                        these the semantic checks below could pass
+                        on a codebase that no longer enforces the
+                        filter at runtime.
+
+  Semantic (E1-E5)    — the resulting set excludes Bridge-blocked
+                        codes and retains controlled-tier codes.
 
 Invariants:
 
-  (E1) Every code in BRIDGE_PROHIBITED_COUNTRIES that also has a
-       `status: 'active'` entry in COUNTRY_CONFIG is excluded by
-       getSignupEligibleCountries().
+  (S1) src/lib/countries.ts imports `isBridgeBlocked` from
+       utils/compliance/partnerCountryPolicy.
 
-  (E2) Every code in BRIDGE_UNAVAILABLE_COUNTRIES that also has a
-       `status: 'active'` entry in COUNTRY_CONFIG is excluded.
+  (S2) src/lib/countries.ts exports `getSignupEligibleCountries`.
 
-  (E3) Explicit check: 'CD' (DRC, Prohibited) is NOT in the
-       signup-eligible set.
+  (S3) The body of `getSignupEligibleCountries` references both
+       `getActiveCountries` and `isBridgeBlocked` — i.e. it filters
+       the active list through the shared Bridge predicate, not an
+       inline blocklist.
 
-  (E4) Explicit check: 'DZ' (Algeria, Unavailable) is NOT in the
-       signup-eligible set.
+  (S4) components/auth/SignUpFlow.tsx imports and calls
+       `getSignupEligibleCountries`.
 
-  (E5) Sanity: at least one controlled-tier code that is active in
-       COUNTRY_CONFIG remains eligible. Specifically NG and KE if
-       present (they currently are). This guards against an over-broad
-       filter that accidentally drops controlled.
+  (S5) components/auth/SignUpFlow.tsx no longer calls
+       `getActiveCountries()` (the signup picker code path must use
+       the eligibility-filtered helper). `getPopularCountries()` is
+       still allowed; it is filtered locally.
 
-Non-runtime: this audit parses TypeScript source via regex. No build
-required. No Bridge API call. Read-only.
+  (E1) Every code in BRIDGE_PROHIBITED_COUNTRIES that is `status:
+       'active'` in COUNTRY_CONFIG is excluded from signup-eligible.
+
+  (E2) Every code in BRIDGE_UNAVAILABLE_COUNTRIES that is active is
+       excluded.
+
+  (E3) Explicit: 'CD' (DRC, Prohibited) is NOT signup-eligible.
+
+  (E4) Explicit: 'DZ' (Algeria, Unavailable) is NOT signup-eligible.
+
+  (E5) Sanity: controlled-tier sample codes NG and KE (if active)
+       remain eligible — guards against an over-broad filter.
+
+Non-runtime: parses TypeScript source via regex. No build, no Bridge
+API call, no network. Read-only.
 """
 
 from __future__ import annotations
@@ -42,6 +59,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 COUNTRIES_TS    = ROOT / "src" / "lib" / "countries.ts"
+SIGNUP_TSX      = ROOT / "components" / "auth" / "SignUpFlow.tsx"
 PARTNER_POLICY  = ROOT / "utils" / "compliance" / "partnerCountryPolicy.ts"
 
 
@@ -57,7 +75,7 @@ def read(p: Path) -> str:
 
 
 def parse_set(text: str, name: str) -> set[str]:
-    """Extract the ISO codes inside `export const <name>: ReadonlySet<string> = new Set([ ... ])`."""
+    """Extract ISO codes from `export const <name>: ReadonlySet<string> = new Set([ ... ])`."""
     pattern = re.compile(
         rf"export\s+const\s+{re.escape(name)}\s*:\s*ReadonlySet<string>\s*=\s*new\s+Set\(\[(.*?)\]\)",
         re.DOTALL,
@@ -65,92 +83,145 @@ def parse_set(text: str, name: str) -> set[str]:
     m = pattern.search(text)
     if not m:
         fail(f"could not locate {name} in partner policy")
-    body = m.group(1)
-    return set(re.findall(r'"([A-Z]{2})"', body))
+    return set(re.findall(r'"([A-Z]{2})"', m.group(1)))
 
 
 def parse_active_country_codes(text: str) -> set[str]:
-    """Find every COUNTRY_CONFIG entry with status: 'active' and return its code.
-
-    The config is a hand-edited array of objects; each entry has a
-    `code: 'XX'` field and a `status: 'active' | 'coming_soon' | 'restricted'`
-    field. We scan entry-by-entry rather than line-by-line because the
-    two fields can be on the same line or split across lines.
-    """
-    # Slice into entries by matching `{ ... }` blocks inside the COUNTRY_CONFIG array.
-    config_match = re.search(
+    """Return every COUNTRY_CONFIG entry code whose status is 'active'."""
+    cfg = re.search(
         r"export\s+const\s+COUNTRY_CONFIG\s*:\s*CountryConfig\[\]\s*=\s*\[(.*?)\];",
         text,
         re.DOTALL,
     )
-    if not config_match:
+    if not cfg:
         fail("could not locate COUNTRY_CONFIG in src/lib/countries.ts")
-    body = config_match.group(1)
-
-    active: set[str] = set()
-    # Greedy split by top-level `{`...`}` is awkward in regex with nested
-    # objects (idTypes). A simpler heuristic: walk entries by `code: '..'`
-    # lookahead, then for each entry slurp until the next `code:` or end.
+    body = cfg.group(1)
     code_positions = [m.start() for m in re.finditer(r"\bcode:\s*'[A-Z]{2}'", body)]
     code_positions.append(len(body))
+    active: set[str] = set()
     for i in range(len(code_positions) - 1):
         chunk = body[code_positions[i] : code_positions[i + 1]]
-        code_m = re.search(r"\bcode:\s*'([A-Z]{2})'", chunk)
+        code_m   = re.search(r"\bcode:\s*'([A-Z]{2})'", chunk)
         status_m = re.search(r"\bstatus:\s*'(active|coming_soon|restricted)'", chunk)
-        if not code_m or not status_m:
-            continue
-        if status_m.group(1) == "active":
+        if code_m and status_m and status_m.group(1) == "active":
             active.add(code_m.group(1))
     return active
 
 
+def extract_function_body(text: str, name: str) -> str | None:
+    """Return the body source of an export const arrow function or function declaration.
+
+    Tries to capture from `export const <name>` (arrow / fat-arrow expression)
+    or `export function <name>` (declaration) up to the next top-level
+    `export ` keyword. Conservative: returns the slice rather than parsing
+    the AST, which is enough for `re.search` checks the caller wants.
+    """
+    # Arrow form: `export const foo = (...): T => ...;` (terminator: `;` at
+    # column 0 OR the next top-level `export`).
+    arrow = re.search(
+        rf"export\s+const\s+{re.escape(name)}\s*(?::[^=]+)?=\s*(.*?)(?=^\s*export\s|\Z)",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if arrow:
+        return arrow.group(1)
+    decl = re.search(
+        rf"export\s+function\s+{re.escape(name)}\s*\(.*?\)\s*:[^{{]*?\{{(.*?)^\}}",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if decl:
+        return decl.group(1)
+    return None
+
+
 def main() -> int:
-    countries_src   = read(COUNTRIES_TS)
-    policy_src      = read(PARTNER_POLICY)
+    countries_src = read(COUNTRIES_TS)
+    signup_src    = read(SIGNUP_TSX)
+    policy_src    = read(PARTNER_POLICY)
+
+    # ── Structural invariants (anchor the audit to the actual code path) ──
+
+    # (S1) src/lib/countries.ts imports isBridgeBlocked from the shared policy.
+    s1 = re.search(
+        r"^\s*import\s*\{[^}]*\bisBridgeBlocked\b[^}]*\}\s*from\s*['\"].*partnerCountryPolicy['\"]",
+        countries_src,
+        re.MULTILINE,
+    )
+    if not s1:
+        fail("S1: src/lib/countries.ts must import isBridgeBlocked from "
+             "utils/compliance/partnerCountryPolicy")
+
+    # (S2) getSignupEligibleCountries is exported.
+    s2 = re.search(r"\bexport\s+(const|function)\s+getSignupEligibleCountries\b", countries_src)
+    if not s2:
+        fail("S2: src/lib/countries.ts must export getSignupEligibleCountries")
+
+    # (S3) Its body references both getActiveCountries and isBridgeBlocked —
+    #      i.e. filters the active list through the shared Bridge predicate.
+    body = extract_function_body(countries_src, "getSignupEligibleCountries")
+    if body is None:
+        fail("S3: could not locate body of getSignupEligibleCountries")
+    if "getActiveCountries" not in body:
+        fail("S3: getSignupEligibleCountries body must reference getActiveCountries "
+             "(don't bypass the master active list)")
+    if "isBridgeBlocked" not in body:
+        fail("S3: getSignupEligibleCountries body must reference isBridgeBlocked "
+             "(don't introduce an inline blocklist)")
+
+    # (S4) SignUpFlow.tsx imports + calls getSignupEligibleCountries.
+    if not re.search(
+        r"import\s*\{[^}]*\bgetSignupEligibleCountries\b[^}]*\}\s*from\s*['\"].*?countries['\"]",
+        signup_src,
+    ):
+        fail("S4: SignUpFlow.tsx must import getSignupEligibleCountries from countries")
+    if not re.search(r"\bgetSignupEligibleCountries\s*\(\s*\)", signup_src):
+        fail("S4: SignUpFlow.tsx must call getSignupEligibleCountries() at least once")
+
+    # (S5) SignUpFlow.tsx must NOT call getActiveCountries() — the signup picker
+    #      code path must use the eligibility-filtered helper. (Importing or
+    #      mentioning the name in a comment is fine; an actual invocation is
+    #      what we forbid.) getPopularCountries() invocations are still
+    #      allowed; we filter that locally in the component.
+    if re.search(r"\bgetActiveCountries\s*\(\s*\)", signup_src):
+        fail("S5: SignUpFlow.tsx must not invoke getActiveCountries() — the "
+             "signup picker must source from getSignupEligibleCountries()")
+
+    # ── Semantic invariants (the resulting set behaves as expected) ──
 
     prohibited  = parse_set(policy_src, "BRIDGE_PROHIBITED_COUNTRIES")
     unavailable = parse_set(policy_src, "BRIDGE_UNAVAILABLE_COUNTRIES")
     controlled  = parse_set(policy_src, "BRIDGE_CONTROLLED_COUNTRIES")
     blocked     = prohibited | unavailable
     active      = parse_active_country_codes(countries_src)
+    eligible    = active - blocked
 
-    # The signup-eligible set is the in-source semantic of
-    # getSignupEligibleCountries(): active \ blocked.
-    eligible = active - blocked
-
-    # (E1)
     prohibited_in_active = prohibited & active
-    leaked_prohibited    = prohibited_in_active & eligible
-    if leaked_prohibited:
-        fail(f"prohibited codes leaked into signup-eligible: {sorted(leaked_prohibited)}")
+    if prohibited_in_active & eligible:
+        fail(f"E1: prohibited codes leaked into signup-eligible: "
+             f"{sorted(prohibited_in_active & eligible)}")
 
-    # (E2)
     unavailable_in_active = unavailable & active
-    leaked_unavailable    = unavailable_in_active & eligible
-    if leaked_unavailable:
-        fail(f"unavailable codes leaked into signup-eligible: {sorted(leaked_unavailable)}")
+    if unavailable_in_active & eligible:
+        fail(f"E2: unavailable codes leaked into signup-eligible: "
+             f"{sorted(unavailable_in_active & eligible)}")
 
-    # (E3)
     if "CD" in eligible:
-        fail("CD (DRC, Prohibited) must not be signup-eligible")
+        fail("E3: CD (DRC, Prohibited) must not be signup-eligible")
 
-    # (E4)
     if "DZ" in eligible:
-        fail("DZ (Algeria, Unavailable) must not be signup-eligible")
+        fail("E4: DZ (Algeria, Unavailable) must not be signup-eligible")
 
-    # (E5)
     for sample in ("NG", "KE"):
         if sample in active and sample not in eligible:
-            fail(
-                f"{sample} is in COUNTRY_CONFIG as active and is Bridge-controlled "
-                f"(not blocked) — must remain signup-eligible. Filter is over-broad."
-            )
+            fail(f"E5: {sample} is active and Bridge-controlled (not blocked) — "
+                 f"must remain signup-eligible. Filter is over-broad.")
 
-    # Sanity reporting (visible in CI logs but does not fail)
-    print(f"OK: {len(active)} active countries; "
-          f"{len(prohibited_in_active)} prohibited removed; "
-          f"{len(unavailable_in_active)} unavailable removed; "
-          f"{len(eligible)} signup-eligible.")
+    print(f"OK: structural S1-S5 hold; semantic {len(active)} active → "
+          f"{len(eligible)} signup-eligible "
+          f"(removed {len(prohibited_in_active)} prohibited, "
+          f"{len(unavailable_in_active)} unavailable; "
+          f"retained {len(controlled & active)} controlled).")
     print(f"     prohibited∩active removed: {sorted(prohibited_in_active) or '(none)'}")
     print(f"     unavailable∩active removed: {sorted(unavailable_in_active) or '(none)'}")
     print(f"     controlled∩active retained: {sorted(controlled & active) or '(none)'}")
