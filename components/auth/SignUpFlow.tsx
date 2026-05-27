@@ -37,7 +37,8 @@ import {
 import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { getActiveCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
+import { getSignupEligibleCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
+import { isBridgeBlocked, isBridgeControlled } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
@@ -801,10 +802,16 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const popularCountries = getPopularCountries();
+  // Apply the same Bridge-eligibility filter locally so a Bridge-blocked
+  // code can never appear in the quick-picks even if added to the
+  // shared POPULAR_COUNTRY_CODES list. Safe today (none are blocked).
+  const popularCountries = getPopularCountries().filter(c => !isBridgeBlocked(c.code));
 
   const filteredCountries = useMemo(() => {
-    const all = getActiveCountries();
+    // Signup-eligible = active ∧ not Bridge-blocked. The Bridge filter
+    // delegates to the shared policy at partnerCountryPolicy.ts; no
+    // inline blocklist here.
+    const all = getSignupEligibleCountries();
     if (!countrySearchQuery) return all;
     const q = countrySearchQuery.toLowerCase();
     return all.filter(c =>
@@ -948,6 +955,15 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
           </button>
           {!formData.selectedCountry && (
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Required - determines your available services & wallets</p>
+          )}
+          {formData.selectedCountry && isBridgeControlled(formData.selectedCountry.code) && (
+            // Bridge classifies this region for enhanced due-diligence on
+            // its hosted KYC/KYB flow. Surface a low-key heads-up so the
+            // user isn't surprised by extra Bridge steps later. No
+            // timeline, no jurisdiction-shame language.
+            <p className="text-[11px] text-amber-300/80 mt-1.5 ml-1">
+              Additional verification may be required for this country.
+            </p>
           )}
         </div>
 
