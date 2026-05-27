@@ -177,13 +177,40 @@ function AppContent() {
       return;
     }
 
-    // P0 hotfix: do not override an in-flight email-verify or password-reset
-    // route. The two effects above (around lines 154 + 161) set appState to
-    // 'verify-email' / 'reset-password' when the URL contains the relevant
-    // token. Without this guard, this effect would re-run on the same render
-    // cycle, see the user as unauthenticated, and reset appState back to
-    // 'login' — which is exactly the "verification link redirects to login"
-    // symptom users reported.
+    // P0 hotfix: do not override an in-flight out-of-band auth screen.
+    //
+    // The general invariant is "if the user has actively navigated to one
+    // of these out-of-band auth screens, the auth router must keep its
+    // hands off." There are four such screens:
+    //
+    //   • 'verify-email'    — opened from URL (?token=…&purpose=…),
+    //                         hydrated by the effect at ~line 154.
+    //   • 'reset-password'  — opened from URL #access_token hash,
+    //                         hydrated by the effect at ~line 161.
+    //   • 'signup'          — set by handleNavigateToSignUp when the
+    //                         user clicks the Sign Up link on Login.
+    //   • 'forgot-password' — set by handleNavigateToForgotPassword
+    //                         when the user clicks Forgot Password on
+    //                         Login.
+    //
+    // Why all four belong in the same guard:
+    //
+    //   In PR #8 (commit 8fb03ee) `appState` was added to this effect's
+    //   dep array so the reset-password race could be fixed. That made
+    //   the effect re-fire whenever appState changes. The original PR
+    //   only added 'verify-email' and 'reset-password' to the early
+    //   return, because those were the symptoms users were reporting.
+    //   But 'signup' and 'forgot-password' have the same shape: a user
+    //   click sets appState, this effect re-fires, sees the user as
+    //   unauthenticated, and falls through to setAppState('login') —
+    //   clobbering the in-flight navigation on the same render cycle.
+    //   That's the live "the signup button doesn't work" symptom
+    //   reported after PR #8 shipped.
+    //
+    //   A second guard for the authenticated business-signup window
+    //   used to live further down (inside `if (isAuthenticated && user)`)
+    //   but is now redundant — this early return covers it before
+    //   determineRoute() runs. End state for that flow is unchanged.
     //
     // Why the guard checks appState directly instead of the pending* flags:
     //
@@ -198,10 +225,15 @@ function AppContent() {
     //     false, so a `if (pendingResetPassword) return;` guard would not
     //     hold across the lifetime of the reset-password screen.
     //
-    // The robust invariant is "if we're currently rendering one of these
-    // out-of-band auth screens, the auth router must keep its hands off."
-    // Check appState directly:
-    if (appState === 'verify-email' || appState === 'reset-password') {
+    //   • 'signup' and 'forgot-password' have no pending* mirror at all —
+    //     they are set directly by click handlers, not by URL parsing.
+    //     The appState check is the only correct guard for them.
+    if (
+      appState === 'verify-email'   ||
+      appState === 'reset-password' ||
+      appState === 'signup'         ||
+      appState === 'forgot-password'
+    ) {
       return;
     }
     // Belt-and-braces: also bail while the URL → state is being parsed on
@@ -230,9 +262,17 @@ function AppContent() {
         }
 
         if (isAuthenticated && user) {
-          if (appState === 'signup') {
-            return;
-          }
+          // Note: the pre-existing authenticated guard
+          // `if (appState === 'signup') return;` lived here historically
+          // to protect the business-signup finalization window (user
+          // freshly authenticated by signInWithPassword but business
+          // profile not yet created — the auth-router would otherwise
+          // race onSignUpSuccess to setAppState('dashboard')). It is
+          // now redundant because the upstream guard at ~line 220
+          // already early-returns for appState === 'signup' before
+          // determineRoute() runs. TypeScript flags the comparison as
+          // unreachable, which is correct. End state is unchanged
+          // (both paths land on BusinessDashboard via onSignUpSuccess).
 
           // Device fingerprint check (non-blocking)
           getDeviceFingerprint().then(fp => {
