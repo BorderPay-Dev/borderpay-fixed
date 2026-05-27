@@ -19,6 +19,8 @@
  *   • 'restricted'   → never shown
  */
 
+import { isBridgeBlocked } from '../../utils/compliance/partnerCountryPolicy';
+
 // ── Interfaces ──────────────────────────────────────────────────────────────
 
 export interface IDType {
@@ -680,6 +682,12 @@ export const COUNTRY_CONFIG: CountryConfig[] = [
 export const getActiveCountries = (): CountryConfig[] =>
   COUNTRY_CONFIG.filter(c => c.status === 'active')
     .sort((a, b) => a.name.localeCompare(b.name));
+
+/** Active countries that are also eligible for Bridge onboarding.
+ *  Source for the signup picker. Onboarding eligibility only —
+ *  rail availability is gated separately. */
+export const getSignupEligibleCountries = (): CountryConfig[] =>
+  getActiveCountries().filter(c => !isBridgeBlocked(c.code));
 
 export const getComingSoonCountries = (): CountryConfig[] =>
   COUNTRY_CONFIG.filter(c => c.status === 'coming_soon')

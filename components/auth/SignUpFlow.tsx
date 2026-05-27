@@ -37,7 +37,8 @@ import {
 import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { getActiveCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
+import { getSignupEligibleCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
+import { isBridgeBlocked, isBridgeControlled } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
@@ -801,10 +802,11 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const popularCountries = getPopularCountries();
+  // Belt-and-braces: filter popular codes by the same Bridge gate.
+  const popularCountries = getPopularCountries().filter(c => !isBridgeBlocked(c.code));
 
   const filteredCountries = useMemo(() => {
-    const all = getActiveCountries();
+    const all = getSignupEligibleCountries();
     if (!countrySearchQuery) return all;
     const q = countrySearchQuery.toLowerCase();
     return all.filter(c =>
@@ -948,6 +950,11 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
           </button>
           {!formData.selectedCountry && (
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Required - determines your available services & wallets</p>
+          )}
+          {formData.selectedCountry && isBridgeControlled(formData.selectedCountry.code) && (
+            <p className="text-[11px] text-amber-300/80 mt-1.5 ml-1">
+              Additional verification may be required for this country.
+            </p>
           )}
         </div>
 
