@@ -15,3 +15,7 @@ verify_jwt = true
 # KYC status — authenticated polling endpoint used by the under_review screen.
 [functions.kyc-status]
 verify_jwt = true
+
+# Bridge external accounts — authenticated payout destination endpoint.
+[functions.bridge-external-account]
+verify_jwt = true
