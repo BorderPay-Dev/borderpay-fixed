@@ -158,7 +158,7 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
   };
 
   return (
-    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe relative`}>
+    <div className={`min-h-screen ${tc.bg} ${tc.text} relative pb-[calc(env(safe-area-inset-bottom,0px)+6rem)]`}>
       {!isFullEnrollment(kycStatus) && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0E11]/95 backdrop-blur-sm px-6">
           <div className="text-center max-w-sm">
