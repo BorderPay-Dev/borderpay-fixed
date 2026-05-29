@@ -227,7 +227,10 @@ Deno.serve(async (req) => {
     rail:                       railLabel,
     status:                     "active",
     active:                     true,
-    metadata:                   { bridge_account_validation: data?.account_validation ?? null },
+    // Data minimization: store a sanitized boolean, NOT Bridge's raw
+    // account_validation object. We never persist the vendor response
+    // verbatim — only that validation was present.
+    metadata:                   { validated: data?.account_validation != null },
     updated_at:                 new Date().toISOString(),
   }, { onConflict: "bridge_external_account_id" });
 
