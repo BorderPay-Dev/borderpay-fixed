@@ -71,14 +71,18 @@
   .lock{display:flex;align-items:center;gap:2px}
   /* Real BorderPay mark (white) — on the SAME top line as the EMV chip,
      left-aligned and the largest element on the card (bigger than VISA). */
-  .bmark{width:200px;height:68px;flex:0 0 auto;
+  /* BorderPay logo = the HERO. Top-left, larger than every text/network
+     mark on the card (VISA 24px, MC circles 28px ≪ this ~92px lockup). */
+  .bmark{width:275px;height:110px;flex:0 0 auto;margin:-6px 0 0 -4px;
     -webkit-mask:url(borderpay-mark.svg) left center/contain no-repeat;
             mask:url(borderpay-mark.svg) left center/contain no-repeat;
     background:#fff}
   .toprow{align-items:flex-start}
   .contactless{width:20px;height:20px;opacity:.85}
 
-  .chip{width:42px;height:31px;border-radius:6px;position:relative;
+  /* EMV chip — middle-right of the card, vertically centred. */
+  .chip{width:46px;height:34px;border-radius:6px;position:absolute;
+    right:22px;top:50%;transform:translateY(-50%);z-index:4;
     background:linear-gradient(135deg,#d9c98a,#b8a45e 45%,#efe3ad 60%,#a8965a);
     box-shadow:0 1px 2px rgba(0,0,0,.5) inset}
   .chip:before{content:"";position:absolute;inset:5px 7px;border:1px solid rgba(80,60,20,.5);border-radius:3px}
@@ -89,9 +93,9 @@
   .meta{display:flex;gap:22px}
   .meta .k{font-size:7.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.5);margin-bottom:3px}
   .meta .v{font-size:12px;font-weight:600;letter-spacing:.04em}
-  .visa{font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:700;font-size:26px;color:#fff}
-  .mc{display:flex}.mc .c{width:30px;height:30px;border-radius:50%}.mc .c1{background:#EB001B}
-  .mc .c2{margin-left:-12px;background:radial-gradient(circle at 30% 50%,#FF5F00 0 40%,#F79E1B 60%)}
+  .visa{font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:700;font-size:21px;color:#fff}
+  .mc{display:flex}.mc .c{width:24px;height:24px;border-radius:50%}.mc .c1{background:#EB001B}
+  .mc .c2{margin-left:-10px;background:radial-gradient(circle at 30% 50%,#FF5F00 0 40%,#F79E1B 60%)}
 
   .theme-visa .glow{background:radial-gradient(120% 90% at 8% 16%,rgba(199,255,0,.16),transparent 42%),radial-gradient(140% 120% at 92% 90%,rgba(199,255,0,.10),transparent 46%),linear-gradient(150deg,#0a0d0a,#15191a 48%,#0a0c0b)}
   .theme-visa .edge{box-shadow:0 0 22px rgba(199,255,0,.20) inset,0 0 0 1px rgba(199,255,0,.16) inset}
@@ -148,8 +152,8 @@
           <div class="pad">
             <div class="toprow">
               <span class="bmark"></span>
-              <div class="chip"></div>
             </div>
+            <div class="chip"></div>
             <div class="botrow">
               <span class="virtual">Virtual</span>
               <div class="visa">VISA</div>
@@ -166,8 +170,8 @@
           <div class="pad">
             <div class="toprow">
               <span class="bmark"></span>
-              <div class="chip"></div>
             </div>
+            <div class="chip"></div>
             <div class="botrow">
               <span class="virtual">Virtual</span>
               <div class="mc"><span class="c c1"></span><span class="c c2"></span></div>

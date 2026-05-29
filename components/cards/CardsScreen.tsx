@@ -39,49 +39,101 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
         {/* ── Card preview ──
             A faux virtual card with brand mark + obfuscated number + "Coming
             soon" lock badge. Subtle lime sheen across the top edge. */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: 'easeOut' }}
-          className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-gradient-to-br from-[#15191F] via-[#0F1216] to-[#0B0E11] aspect-[1.586/1] max-w-md"
-          aria-hidden="true"
-        >
-          {/* Lime sheen */}
-          <div className="pointer-events-none absolute -top-20 -right-10 w-48 h-48 rounded-full bg-[#C7FF00] opacity-[0.12] blur-3xl" />
+        {/*
+            Card faces mirror design/borderpay-cards.html (CEO-approved):
+            real BorderPay logo top-left as the HERO (white, larger than the
+            VISA / Mastercard mark), EMV chip middle-right, network mark
+            bottom-right, "Soon" lock pill top-right. Two colourways — Visa
+            (lime-on-black) and Mastercard (green-on-black). */}
+        <div className="flex flex-col sm:flex-row gap-4 max-w-2xl">
+          {[
+            {
+              key: 'visa' as const,
+              gradient:
+                'radial-gradient(120% 90% at 8% 16%,rgba(199,255,0,.16),transparent 42%),radial-gradient(140% 120% at 92% 90%,rgba(199,255,0,.10),transparent 46%),linear-gradient(150deg,#0a0d0a,#15191a 48%,#0a0c0b)',
+              ring: 'rgba(199,255,0,.18)',
+            },
+            {
+              key: 'mc' as const,
+              gradient:
+                'radial-gradient(120% 90% at 8% 16%,rgba(0,200,140,.18),transparent 42%),radial-gradient(140% 120% at 92% 90%,rgba(0,200,140,.10),transparent 46%),linear-gradient(150deg,#06120d,#0c1a16 48%,#06100c)',
+              ring: 'rgba(0,200,140,.20)',
+            },
+          ].map((c, i) => (
+            <motion.div
+              key={c.key}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: i * 0.06, ease: 'easeOut' }}
+              className="relative overflow-hidden rounded-3xl aspect-[1.586/1] flex-1 min-w-0"
+              style={{ background: c.gradient, boxShadow: `inset 0 0 0 1px ${c.ring}, 0 18px 40px -18px ${c.ring}` }}
+              aria-hidden="true"
+            >
+              {/* Lock "Soon" pill — top-right */}
+              <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/45 border border-white/15 backdrop-blur-sm">
+                <Lock className="w-3 h-3 text-white" />
+                <span className="text-[9px] font-bold tracking-wider uppercase text-white">Soon</span>
+              </div>
 
-          {/* Lock chip */}
-          <div className="absolute top-5 right-5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/40 border border-white/10 backdrop-blur-sm">
-            <Lock className="w-3 h-3 text-[#C7FF00]" />
-            <span className="text-[10px] font-bold tracking-wider uppercase text-[#C7FF00]">Soon</span>
-          </div>
+              {/* HERO: real BorderPay logo (white) — top-left, largest mark */}
+              <span
+                className="absolute top-4 left-5 z-10 block"
+                style={{
+                  width: '60%',
+                  height: 56,
+                  backgroundColor: '#fff',
+                  WebkitMaskImage: "url('/borderpay-mark.svg')",
+                  maskImage: "url('/borderpay-mark.svg')",
+                  WebkitMaskRepeat: 'no-repeat',
+                  maskRepeat: 'no-repeat',
+                  WebkitMaskPosition: 'left center',
+                  maskPosition: 'left center',
+                  WebkitMaskSize: 'contain',
+                  maskSize: 'contain',
+                }}
+              />
 
-          {/* Brand mark */}
-          <div className="absolute top-5 left-5 inline-flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-[#C7FF00] flex items-center justify-center">
-              <span className="text-black font-black text-[11px]">BP</span>
-            </div>
-            <span className="text-white/80 text-[11px] font-semibold tracking-wider uppercase">
-              BorderPay
-            </span>
-          </div>
+              {/* EMV chip — middle-right, vertically centred */}
+              <div
+                className="absolute right-5 top-1/2 -translate-y-1/2 z-10 rounded-md"
+                style={{
+                  width: 46,
+                  height: 34,
+                  background: 'linear-gradient(135deg,#d9c98a,#b8a45e 45%,#efe3ad 60%,#a8965a)',
+                  boxShadow: 'inset 0 1px 2px rgba(0,0,0,.5)',
+                }}
+              >
+                <div
+                  className="absolute rounded-[3px]"
+                  style={{ inset: '5px 7px', border: '1px solid rgba(80,60,20,.5)' }}
+                />
+              </div>
 
-          {/* Obfuscated number */}
-          <p className="absolute left-5 bottom-12 text-white/70 font-mono text-base tracking-[0.18em] tabular-nums">
-            •••• •••• •••• ••••
-          </p>
-
-          {/* Footer row */}
-          <div className="absolute left-5 right-5 bottom-4 flex items-end justify-between">
-            <div>
-              <p className="text-[8px] uppercase tracking-wider text-white/40">Card holder</p>
-              <p className="text-[11px] font-semibold text-white/80">Coming soon</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[8px] uppercase tracking-wider text-white/40">Expires</p>
-              <p className="text-[11px] font-semibold text-white/80 font-mono">••/••</p>
-            </div>
-          </div>
-        </motion.div>
+              {/* Bottom row — VIRTUAL eyebrow + network mark */}
+              <div className="absolute left-5 right-5 bottom-5 z-10 flex items-end justify-between">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.3em] text-white/55">
+                  Virtual
+                </span>
+                {c.key === 'mc' ? (
+                  <div className="flex -space-x-2.5">
+                    <span className="w-6 h-6 rounded-full bg-[#EB001B]" />
+                    <span
+                      className="w-6 h-6 rounded-full"
+                      style={{ background: 'radial-gradient(circle at 30% 50%,#FF5F00 0 40%,#F79E1B 60%)' }}
+                    />
+                  </div>
+                ) : (
+                  <span
+                    className="italic font-bold tracking-[0.04em] text-white"
+                    style={{ fontSize: 21, fontFamily: "Georgia, 'Times New Roman', serif" }}
+                  >
+                    VISA
+                  </span>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
 
         {/* ── Copy + notify ── */}
         <motion.div
