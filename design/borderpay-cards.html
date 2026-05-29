@@ -60,7 +60,13 @@
   /* top row: brand + contactless */
   .toprow{display:flex;align-items:flex-start;justify-content:space-between}
   .brand{display:flex;align-items:center;gap:10px}
-  .bmark{width:30px;height:34px;flex:0 0 auto}
+  /* Real BorderPay mark — official asset (Borderpay_logo.svg / site icon),
+     painted via CSS mask so it matches the lime mark on the product render.
+     Geometry is the real logo, not a drawn approximation. */
+  .bmark{width:30px;height:34px;flex:0 0 auto;
+    -webkit-mask:url(borderpay-mark.svg) center/contain no-repeat;
+            mask:url(borderpay-mark.svg) center/contain no-repeat;
+    background:var(--lime)}
   .bname{line-height:1}
   .bname .b1{font-size:18px;font-weight:800;letter-spacing:-.02em}
   .bname .b2{font-size:10.5px;font-weight:600;color:rgba(255,255,255,.7);letter-spacing:.02em;margin-top:2px}
@@ -155,10 +161,7 @@
         <div class="pad">
           <div class="toprow">
             <div class="brand">
-              <svg class="bmark" viewBox="0 0 30 34" aria-label="BorderPay b">
-                <path d="M5 2 v30" stroke="#C7FF00" stroke-width="5" stroke-linecap="round"/>
-                <path d="M11 13 a10 10 0 1 1 0 13 Z" fill="#C7FF00"/>
-              </svg>
+              <span class="bmark" role="img" aria-label="BorderPay logo"></span>
               <div class="bname"><div class="b1">borderPay<span class="reg">®</span></div><div class="b2">Africa</div></div>
             </div>
             <svg class="contactless" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.6" stroke-linecap="round">
@@ -198,10 +201,7 @@
         <div class="pad">
           <div class="toprow">
             <div class="brand">
-              <svg class="bmark" viewBox="0 0 30 34" aria-label="BorderPay b">
-                <path d="M5 2 v30" stroke="#C7FF00" stroke-width="5" stroke-linecap="round"/>
-                <path d="M11 13 a10 10 0 1 1 0 13 Z" fill="#C7FF00"/>
-              </svg>
+              <span class="bmark" role="img" aria-label="BorderPay logo"></span>
               <div class="bname"><div class="b1">borderPay<span class="reg">®</span></div><div class="b2">Africa</div></div>
             </div>
             <svg class="contactless" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.6" stroke-linecap="round">
@@ -228,7 +228,7 @@
 
   <div class="footer-note">
     <b>Notes &amp; honest caveats</b><br/>
-    • The “b” logo mark and the contactless / chip / network marks are CSS reproductions for layout; swap in the official BorderPay logo SVG and the licensed Visa / Mastercard brand assets before any production or marketing use.<br/>
+    • The BorderPay “b” mark is the <b>official logo asset</b> (<code>Borderpay_logo.svg</code> / the site’s <code>icon-512x512</code>), painted lime via CSS mask — not a drawn approximation. The contactless / chip glyphs and the Visa / Mastercard network marks are CSS reproductions for layout; swap in the licensed Visa / Mastercard brand assets before any production or marketing use.<br/>
     • Card numbers, holder name and expiry are placeholders.<br/>
     • Cards is currently a <b>Coming Soon</b> feature in the app — this is a design exploration, not a shipped screen.
     <div class="spec">
