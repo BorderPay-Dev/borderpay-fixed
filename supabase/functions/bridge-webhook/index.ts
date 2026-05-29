@@ -2,8 +2,13 @@
 //
 // Signature verification follows the official Bridge spec:
 //   header  : X-Webhook-Signature  -> "t=<timestamp_ms>,v0=<base64_sig>"
-//   payload : `${timestamp}.${rawBody}`           (literal dot, raw bytes)
-//   algo    : RSASSA-PKCS1-v1_5 with SHA-256
+//   payload : `${timestamp}.${rawBody}`           (literal dot, raw bytes;
+//             timestamp is the ORIGINAL header string, not a reparsed Number)
+//   algo    : RSASSA-PKCS1-v1_5; Bridge signs over the SHA-256 *digest* of the
+//             payload (their Node sample hashes signedPayload to a digest, then
+//             createVerify('RSA-SHA256').update(digest)). WebCrypto's verify
+//             hashes its input once under SHA-256, so we pass the digest bytes
+//             (not the raw payload string) to reproduce that double hash.
 //   key     : per-endpoint PEM public key (BRIDGE_WEBHOOK_PUBLIC_KEY env)
 //   replay  : reject events older than 10 minutes
 //
@@ -53,20 +58,23 @@ function pemToDer(pem: string): Uint8Array {
   return b64ToBytes(inner);
 }
 
-function parseSigHeader(h: string): { ts: number; sig: Uint8Array } | null {
+function parseSigHeader(h: string): { ts: number; tsRaw: string; sig: Uint8Array } | null {
   const parts = h.split(",").map(s => s.trim());
   let ts: number | null = null;
+  let tsRaw: string | null = null;
   let sigB64: string | null = null;
   for (const p of parts) {
     const eq = p.indexOf("=");
     if (eq < 0) continue;
     const k = p.slice(0, eq);
     const v = p.slice(eq + 1);
-    if (k === "t")  ts = Number(v);
+    if (k === "t")  { tsRaw = v; ts = Number(v); }
     if (k === "v0") sigB64 = v;
   }
-  if (!ts || !Number.isFinite(ts) || !sigB64) return null;
-  try { return { ts, sig: b64ToBytes(sigB64) }; } catch { return null; }
+  if (!ts || !Number.isFinite(ts) || tsRaw === null || !sigB64) return null;
+  // tsRaw is the verbatim header timestamp used to build the signed payload;
+  // ts (Number) is used only for the replay-window comparison.
+  try { return { ts, tsRaw, sig: b64ToBytes(sigB64) }; } catch { return null; }
 }
 
 let cachedKey: CryptoKey | null = null;
@@ -84,11 +92,17 @@ async function loadPublicKey(): Promise<CryptoKey | null> {
   } catch (_) { return null; }
 }
 
-async function verifySignature(rawBody: string, ts: number, sig: Uint8Array): Promise<boolean> {
+async function verifySignature(rawBody: string, tsRaw: string, sig: Uint8Array): Promise<boolean> {
   const key = await loadPublicKey();
   if (!key) return false;
-  const signed = new TextEncoder().encode(`${ts}.${rawBody}`);
-  try { return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, signed); }
+  // Bridge's signer hashes the payload to a SHA-256 digest, then RSA-SHA256
+  // verifies over that digest (Node createVerify('RSA-SHA256').update(digest)).
+  // WebCrypto verify() hashes its input once under SHA-256, so we must pass the
+  // digest BYTES — passing the raw payload string would only single-hash and
+  // never match. tsRaw is the verbatim header timestamp.
+  const signedPayload = new TextEncoder().encode(`${tsRaw}.${rawBody}`);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", signedPayload));
+  try { return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, digest); }
   catch (_) { return false; }
 }
 
@@ -114,7 +128,7 @@ Deno.serve(async (req) => {
     return json({ error: "timestamp outside replay window", age_ms: ageMs }, 400);
   }
 
-  const sigOk = await verifySignature(rawBody, parsed.ts, parsed.sig);
+  const sigOk = await verifySignature(rawBody, parsed.tsRaw, parsed.sig);
 
   let payload: any;
   try { payload = JSON.parse(rawBody); } catch { return json({ error: "invalid JSON" }, 400); }
