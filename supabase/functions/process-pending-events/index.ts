@@ -125,11 +125,16 @@ async function processBridgeEvent(ev: PendingEvent): Promise<void> {
 // ── Bridge handlers ──────────────────────────────────────────────────────
 
 async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
-  const d: any = ev.payload?.data ?? ev.payload;
-  const customer = d?.customer_id ?? d?.customer?.id ?? d?.id;
+  // Bridge webhook envelope is flat: { event_type, event_category,
+  // event_object_id, event_object, event_object_status, ... }. The entity is
+  // event_object (holds id / customer_id / status / currency / amount / etc.);
+  // event_object_id is the entity's own id and event_object_status its status.
+  // Fall back to a { data: ... } wrapper / bare payload for legacy/test shapes.
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const customer = d?.customer_id ?? d?.customer?.id ?? d?.id ?? ev.payload?.event_object_id;
   if (!customer) throw new Error("bridge kyc/kyb event missing customer id");
 
-  const status = String(d?.status ?? d?.kyc_status ?? "").toLowerCase();
+  const status = String(d?.status ?? d?.kyc_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
   const normalized =
     status === "approved"   || status === "verified" ? "approved"
     : status === "rejected" || status === "denied"   ? "rejected"
@@ -168,11 +173,13 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
 }
 
 async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
-  const d: any = ev.payload?.data ?? ev.payload;
-  const customer = d?.customer_id ?? d?.id;
+  // Bridge envelope: event_object is the customer; event_object_id is the
+  // customer id; event_object_status its status. (See handleBridgeKycKyb.)
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const customer = d?.customer_id ?? d?.id ?? ev.payload?.event_object_id;
   if (!customer) throw new Error("bridge customer event missing id");
 
-  const accountStatus = String(d?.status ?? d?.account_status ?? "").toLowerCase();
+  const accountStatus = String(d?.status ?? d?.account_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
   if (accountStatus) {
     await supabase.from("user_profiles")
       .update({ bridge_account_status: accountStatus, updated_at: new Date().toISOString() })
@@ -212,8 +219,9 @@ function toMinorUnits(amount: unknown, currency: string): bigint | null {
 }
 
 async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
-  const d: any = ev.payload?.data ?? ev.payload;
-  const vaId   = d?.virtual_account_id ?? d?.id;
+  // Bridge envelope: event_object is the virtual_account; event_object_id its id.
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const vaId   = d?.virtual_account_id ?? d?.id ?? ev.payload?.event_object_id;
   const customer = d?.customer_id ?? d?.customer?.id;
   if (!vaId || !customer) throw new Error("bridge virtual_account event missing ids");
 
@@ -337,8 +345,9 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
 }
 
 async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
-  const d: any = ev.payload?.data ?? ev.payload;
-  const walletId = d?.wallet_id ?? d?.id;
+  // Bridge envelope: event_object is the wallet; event_object_id its id.
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const walletId = d?.wallet_id ?? d?.id ?? ev.payload?.event_object_id;
   const customer = d?.customer_id ?? d?.customer?.id;
   if (!walletId || !customer) throw new Error("bridge wallet event missing ids");
 
@@ -365,8 +374,9 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
 }
 
 async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
-  const d: any = ev.payload?.data ?? ev.payload;
-  const transferId = d?.transfer_id ?? d?.id;
+  // Bridge envelope: event_object is the transfer; event_object_id its id.
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const transferId = d?.transfer_id ?? d?.id ?? ev.payload?.event_object_id;
   const customer   = d?.customer_id ?? d?.customer?.id ?? d?.source?.customer_id ?? d?.destination?.customer_id;
   if (!transferId) throw new Error("bridge transfer event missing id");
 
