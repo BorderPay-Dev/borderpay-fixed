@@ -28,7 +28,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Menu, X, Home, ArrowUpRight, ArrowDownLeft, User as UserIcon,
   Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2,
-  Settings, FileText, ShieldCheck, LogOut,
+  Settings, FileText, ShieldCheck, LogOut, Banknote,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -62,6 +62,10 @@ export interface AppShellProps {
   subscription?:      ShellSubscription | null;
   isBusinessAccount?: boolean;
   onSignOut?:         () => void;
+  /** When provided, a "Payout accounts" drawer item is shown. MainApp only
+   *  passes this when EXTERNAL_ACCOUNTS_LIVE is true, so the entry is fully
+   *  gated without plumbing a new AppRoute. */
+  onOpenPayoutAccounts?: () => void;
   children:           React.ReactNode;
 }
 
@@ -71,6 +75,7 @@ const FOOTER_HEIGHT_PX = 72;
 export function AppShell({
   route, onRoute, userName, userInitials, avatarUrl,
   unreadCount = 0, subscription, isBusinessAccount, onSignOut,
+  onOpenPayoutAccounts,
   children,
 }: AppShellProps) {
   const { t } = useThemeLanguage();
@@ -262,6 +267,9 @@ export function AppShell({
                 <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     active={route === 'send'}         onClick={() => go('send')}         tc={tc} />
                 <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  active={route === 'receive'}      onClick={() => go('receive')}      tc={tc} />
                 <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   active={route === 'transactions'} onClick={() => go('transactions')} tc={tc} />
+                {onOpenPayoutAccounts && (
+                  <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
+                )}
                 <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          active={route === 'cards'}        onClick={() => go('cards')}        tc={tc} badge="Coming Soon" />
                 <DrawerItem icon={Globe2}      label={tt('nav.pricing',      'Plans & pricing')}active={route === 'pricing'}      onClick={() => go('pricing')}      tc={tc} highlight={!subscription?.is_paid} />
                 {isBusinessAccount && (

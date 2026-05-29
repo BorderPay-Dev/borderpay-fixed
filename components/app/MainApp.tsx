@@ -21,7 +21,7 @@ import { ErrorBoundary } from '../common/ErrorBoundary';
 import { UpgradeModal } from '../pricing/UpgradeModal';
 import { getDefaultPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
-import { TRANSFERS_LIVE } from '../../utils/featureFlags';
+import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
@@ -54,6 +54,8 @@ const PrivacyPolicyScreen = lazyImport(() => import('../legal/PrivacyPolicyScree
 const PreferencesScreen = lazyImport(() => import('../app/PreferencesScreen').then(m => ({ default: m.PreferencesScreen })));
 const CardRestrictionsScreen = lazyImport(() => import('../compliance/CardRestrictionsScreen').then(m => ({ default: m.CardRestrictionsScreen })));
 const ReceiveMoneyScreen = lazyImport(() => import('../receive/ReceiveMoneyScreen').then(m => ({ default: m.ReceiveMoneyScreen })));
+const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
+const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
 const CurrencyConverter = lazyImport(() => import('../conversion/CurrencyConverter').then(m => ({ default: m.CurrencyConverter })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
@@ -176,7 +178,9 @@ export type AppScreen =
   | 'proof-of-address'
   | 'pricing'
   | 'team'
-  | 'notifications';
+  | 'notifications'
+  | 'external-accounts'
+  | 'add-external-account';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
 // The shell speaks `AppRoute` (Home/Send/Receive/Account + drawer items).
@@ -456,6 +460,27 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
       case 'receive-money':
         return <ReceiveMoneyScreen onBack={navigateBack} />;
 
+      // Bridge external accounts (payout destinations). Flag-gated: when
+      // EXTERNAL_ACCOUNTS_LIVE is false these route to the dashboard so the
+      // feature is fully inert until the table/edge/secret are in place.
+      case 'external-accounts':
+        if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
+        return (
+          <ExternalAccountsScreen
+            onBack={navigateBack}
+            onAdd={() => navigateTo('add-external-account')}
+          />
+        );
+
+      case 'add-external-account':
+        if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
+        return (
+          <AddExternalAccountScreen
+            onBack={navigateBack}
+            onAdded={() => { /* list reloads on mount when navigated back */ }}
+          />
+        );
+
       case 'exchange':
         return <ExchangeScreen onBack={navigateBack} />;
 
@@ -692,6 +717,7 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
                 } as ShellSubscription) : null}
                 isBusinessAccount={accountType === 'business'}
                 onSignOut={onLogout}
+                onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
               >
                 {renderScreen()}
               </AppShell>

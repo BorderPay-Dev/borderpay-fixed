@@ -40,3 +40,25 @@
  * - true:  Existing SendMoneyFlow renders normally.
  */
 export const TRANSFERS_LIVE: boolean = false;
+
+/**
+ * Whether the Bridge external-accounts (payout destinations) feature is
+ * live for end users.
+ *
+ * - false: the "Payout accounts" drawer item is hidden and the
+ *          external-accounts routes render nothing. Frontend never calls
+ *          the `bridge-external-account` edge function.
+ * - true:  the Add / List external-account screens are reachable.
+ *
+ * Default OFF. Flip to true only after ALL of these are done in the
+ * SAME release:
+ *   1. Migration `20260529_bridge_external_accounts.sql` applied
+ *      (creates public.bridge_external_accounts + RLS).
+ *   2. `bridge-external-account` edge function deployed (verify_jwt=true).
+ *   3. `BRIDGE_API_KEY` function secret confirmed present.
+ *   4. A sandbox smoke proving create/list/delete round-trips.
+ *
+ * Like TRANSFERS_LIVE, this is a compile-time constant, not a runtime
+ * config service — the UI ships/disappears atomically with a commit.
+ */
+export const EXTERNAL_ACCOUNTS_LIVE: boolean = false;

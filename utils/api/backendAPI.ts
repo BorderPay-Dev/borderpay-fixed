@@ -1165,6 +1165,71 @@ export const bridgeAPI = {
         { method: 'POST', body: JSON.stringify(input) },
       ),
   },
+
+  /** Fiat payout (offramp) destinations — Bridge external accounts.
+   *
+   *  v1 covers two account types:
+   *    • us   — USD bank account (ACH / ACH same-day / Wire).
+   *    • iban — EUR bank account (SEPA).
+   *
+   *  `create` and `remove` proxy the `bridge-external-account` edge
+   *  function (which holds the Bridge Api-Key and enforces the
+   *  KYC-approved + country gate). `list` reads the local RLS-protected
+   *  mirror directly — no edge round-trip needed for a read.
+   *
+   *  These are gated behind EXTERNAL_ACCOUNTS_LIVE in the UI; the API
+   *  surface is inert until the feature flag, edge function, table, and
+   *  secret are all in place.
+   */
+  externalAccount: {
+    create: async (account:
+      | {
+          account_type: 'us';
+          account_owner_name: string;
+          account_number: string;
+          routing_number: string;
+          bank_name?: string;
+          address: { street_line_1: string; city: string; state?: string; postal_code: string; country: string };
+        }
+      | {
+          account_type: 'iban';
+          account_owner_name: string;
+          account_owner_type: 'individual' | 'business';
+          iban_number: string;
+          bic_swift: string;
+          iban_country: string;
+          bank_name?: string;
+          first_name?: string;
+          last_name?: string;
+          business_name?: string;
+        }
+    ) =>
+      apiCall<{ external_account_id: string; account_type: 'us' | 'iban'; currency: 'USD' | 'EUR'; rail: string; last_4: string; bank_name: string | null }>(
+        'bridge-external-account',
+        { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
+      ),
+
+    remove: async (externalAccountId: string) =>
+      apiCall<{ deleted: boolean; external_account_id: string }>(
+        'bridge-external-account',
+        { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId }) },
+      ),
+
+    /** Read the signed-in user's payout destinations from the local mirror
+     *  (RLS: external_accounts_own). Read-only; no edge call. */
+    list: async () => {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr || !user) return { success: false, error: userErr?.message || 'Not signed in' };
+      const { data, error } = await supabase
+        .from('bridge_external_accounts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('active', true)
+        .order('created_at', { ascending: false });
+      if (error) return { success: false, error: error.message };
+      return { success: true, data: { external_accounts: data || [] } };
+    },
+  },
 };
 
 // ============================================================================
