@@ -69,14 +69,11 @@
   /* logo lockup — ONE unit: lime b + white "orderPay Africa" */
   .toprow{display:flex;align-items:flex-start;justify-content:space-between}
   .lock{display:flex;align-items:center;gap:2px}
-  .bmark{width:24px;height:28px;flex:0 0 auto;
+  /* Real BorderPay mark only — white, sized prominently. No wordmark text. */
+  .bmark{width:40px;height:46px;flex:0 0 auto;
     -webkit-mask:url(borderpay-mark.svg) center/contain no-repeat;
             mask:url(borderpay-mark.svg) center/contain no-repeat;
-    background:var(--lime)}                 /* the lime B */
-  .wm{line-height:1.05}
-  .wm .w1{font-size:16px;font-weight:800;letter-spacing:-.02em;color:#fff}   /* orderPay (white) */
-  .wm .w2{font-size:9px;font-weight:600;color:rgba(255,255,255,.7);letter-spacing:.02em}
-  .reg{font-size:8px;vertical-align:super;color:rgba(255,255,255,.55)}
+    background:#fff}
   .contactless{width:20px;height:20px;opacity:.85}
 
   .chip{width:42px;height:31px;border-radius:6px;position:relative;
@@ -149,7 +146,7 @@
           <div class="csflag">Coming soon</div>
           <div class="pad">
             <div class="toprow">
-              <div class="lock"><span class="bmark"></span><div class="wm"><div class="w1">orderPay<span class="reg">®</span></div><div class="w2">Africa</div></div></div>
+              <div class="lock"><span class="bmark"></span></div>
               <svg class="contactless" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.6" stroke-linecap="round"><path d="M9 7a7 7 0 0 1 0 10"/><path d="M13 4a12 12 0 0 1 0 16"/><path d="M5 10a3 3 0 0 1 0 4"/></svg>
             </div>
             <div class="midrow"><div class="chip"></div><span class="virtual">Virtual</span></div>
@@ -170,7 +167,7 @@
           <div class="csflag">Coming soon</div>
           <div class="pad">
             <div class="toprow">
-              <div class="lock"><span class="bmark"></span><div class="wm"><div class="w1">orderPay<span class="reg">®</span></div><div class="w2">Africa</div></div></div>
+              <div class="lock"><span class="bmark"></span></div>
               <svg class="contactless" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.6" stroke-linecap="round"><path d="M9 7a7 7 0 0 1 0 10"/><path d="M13 4a12 12 0 0 1 0 16"/><path d="M5 10a3 3 0 0 1 0 4"/></svg>
             </div>
             <div class="midrow"><div class="chip"></div><span class="virtual">Virtual</span></div>
