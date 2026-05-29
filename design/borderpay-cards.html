@@ -69,13 +69,13 @@
   /* logo lockup — ONE unit: lime b + white "orderPay Africa" */
   .toprow{display:flex;align-items:flex-start;justify-content:space-between}
   .lock{display:flex;align-items:center;gap:2px}
-  /* Real BorderPay mark only — white, the HERO of the card: bigger than
-     any text (VISA wordmark is 26px; this is ~76px), centered. No text. */
-  .hero{flex:1;display:flex;align-items:center;justify-content:center;padding:4px 0}
-  .bmark{width:150px;height:104px;flex:0 0 auto;
-    -webkit-mask:url(borderpay-mark.svg) center/contain no-repeat;
-            mask:url(borderpay-mark.svg) center/contain no-repeat;
+  /* Real BorderPay mark (white) — on the SAME top line as the EMV chip,
+     left-aligned and the largest element on the card (bigger than VISA). */
+  .bmark{width:200px;height:68px;flex:0 0 auto;
+    -webkit-mask:url(borderpay-mark.svg) left center/contain no-repeat;
+            mask:url(borderpay-mark.svg) left center/contain no-repeat;
     background:#fff}
+  .toprow{align-items:flex-start}
   .contactless{width:20px;height:20px;opacity:.85}
 
   .chip{width:42px;height:31px;border-radius:6px;position:relative;
@@ -145,13 +145,11 @@
             <ellipse cx="200" cy="126" rx="240" ry="80" stroke="#C7FF00" stroke-opacity=".5" stroke-width="1.2" transform="rotate(-18 200 126)"/>
             <ellipse cx="200" cy="126" rx="300" ry="60" stroke="#C7FF00" stroke-opacity=".3" stroke-width="1" transform="rotate(-18 200 126)"/></svg></div>
           <div class="noise"></div><div class="edge"></div>
-          <div class="csflag">Coming soon</div>
           <div class="pad">
             <div class="toprow">
+              <span class="bmark"></span>
               <div class="chip"></div>
-              <svg class="contactless" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.6" stroke-linecap="round"><path d="M9 7a7 7 0 0 1 0 10"/><path d="M13 4a12 12 0 0 1 0 16"/><path d="M5 10a3 3 0 0 1 0 4"/></svg>
             </div>
-            <div class="hero"><span class="bmark"></span></div>
             <div class="botrow">
               <span class="virtual">Virtual</span>
               <div class="visa">VISA</div>
@@ -165,13 +163,11 @@
             <ellipse cx="200" cy="126" rx="240" ry="80" stroke="#00C88C" stroke-opacity=".5" stroke-width="1.2" transform="rotate(-18 200 126)"/>
             <ellipse cx="200" cy="126" rx="300" ry="60" stroke="#00C88C" stroke-opacity=".3" stroke-width="1" transform="rotate(-18 200 126)"/></svg></div>
           <div class="noise"></div><div class="edge"></div>
-          <div class="csflag">Coming soon</div>
           <div class="pad">
             <div class="toprow">
+              <span class="bmark"></span>
               <div class="chip"></div>
-              <svg class="contactless" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.6" stroke-linecap="round"><path d="M9 7a7 7 0 0 1 0 10"/><path d="M13 4a12 12 0 0 1 0 16"/><path d="M5 10a3 3 0 0 1 0 4"/></svg>
             </div>
-            <div class="hero"><span class="bmark"></span></div>
             <div class="botrow">
               <span class="virtual">Virtual</span>
               <div class="mc"><span class="c c1"></span><span class="c c2"></span></div>
