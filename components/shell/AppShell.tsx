@@ -80,7 +80,14 @@ export function AppShell({
 }: AppShellProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
+  // getTranslation() returns '' for keys missing from the dictionary, and
+  // `?? fb` does NOT catch '' — so missing nav.* keys rendered blank labels
+  // (only nav.home / nav.cards / nav.settings exist). Fall back to the
+  // English label whenever the lookup is empty or just echoes the key.
+  const tt = (k: string, fb: string) => {
+    const v = (t as any)?.(k);
+    return (typeof v === 'string' && v.trim() && v !== k) ? v : fb;
+  };
 
   const [drawerOpen, setDrawerOpen] = useState(false);
 
