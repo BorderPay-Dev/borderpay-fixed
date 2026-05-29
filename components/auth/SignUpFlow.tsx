@@ -882,7 +882,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
           <p className="text-[11px] text-gray-500">
             {formData.accountType === 'individual'
               ? 'Personal wallet, cards, transfers — KYC required.'
-              : 'For registered companies. We collect company name + registration number.'}
+              : 'For registered companies. Business verification is handled securely by Bridge.'}
           </p>
         </div>
 
@@ -1736,8 +1736,8 @@ function StepPending({ onProceed, enrollmentComplete }: {
         
         <p className="text-gray-400 text-sm mb-6 leading-relaxed">
           {enrollmentComplete
-            ? 'Your account is under review. You can explore the dashboard while we verify your details. You\'ll be notified once approved.'
-            : 'Your information has been submitted. You can start exploring BorderPay while we process your verification.'
+            ? 'Your account is under review. You can explore the dashboard while Bridge verifies your details. You\'ll be notified once approved.'
+            : 'Your information has been submitted. You can start exploring BorderPay while your verification is completed with Bridge.'
           }
         </p>
 
