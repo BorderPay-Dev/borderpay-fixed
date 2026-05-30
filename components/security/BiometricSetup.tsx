@@ -54,10 +54,10 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
         toast.success('Biometric enrolled successfully!');
         setTimeout(() => onComplete(), 2000);
       } else {
-        toast.error(friendlyError(result.error, 'Enrollment failed'));
+        toast.error(friendlyError(result.error, 'Biometric setup failed. Please try again.'));
       }
     } catch (err: any) {
-      toast.error(friendlyError(err, 'Enrollment failed'));
+      toast.error(friendlyError(err, 'Biometric setup failed. Please try again.'));
     } finally {
       setEnrolling(false);
     }
