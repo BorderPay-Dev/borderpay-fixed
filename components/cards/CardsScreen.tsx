@@ -24,7 +24,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   const tc = useThemeClasses();
 
   const title       = (t as any)?.('cards.coming_soon.title')    ?? 'Virtual cards, soon';
-  const subtitle    = (t as any)?.('cards.coming_soon.subtitle') ?? 'Spend your USD balance anywhere Visa is accepted — coming with the next release.';
+  const subtitle    = (t as any)?.('cards.coming_soon.subtitle') ?? 'Spend your USD balance anywhere Mastercard is accepted — coming with the next release.';
   const notifyMe    = (t as any)?.('cards.coming_soon.notify')   ?? 'Notify me at launch';
   const sectionTitle = 'Cards';
 
@@ -40,11 +40,10 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
             A faux virtual card with brand mark + obfuscated number + "Coming
             soon" lock badge. Subtle lime sheen across the top edge. */}
         {/*
-            Card faces mirror design/borderpay-cards.html (CEO-approved):
-            real BorderPay logo top-left as the HERO (white, larger than the
-            VISA / Mastercard mark), EMV chip middle-right, network mark
-            bottom-right, "Soon" lock pill top-right. Two colourways — Visa
-            (lime-on-black) and Mastercard (green-on-black). */}
+            Card faces: real BorderPay logo top-left as the HERO (white), EMV
+            chip middle-right, Mastercard mark bottom-right, "Soon" lock pill
+            top-right. Two colourways (lime-on-black + green-on-black), both
+            Mastercard. Cards remain Coming Soon — no active issuing implied. */}
         <div className="flex flex-col sm:flex-row gap-4 max-w-2xl">
           {[
             {
@@ -114,22 +113,14 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
                 <span className="text-[9px] font-semibold uppercase tracking-[0.3em] text-white/55">
                   Virtual
                 </span>
-                {c.key === 'mc' ? (
-                  <div className="flex -space-x-2.5">
-                    <span className="w-6 h-6 rounded-full bg-[#EB001B]" />
-                    <span
-                      className="w-6 h-6 rounded-full"
-                      style={{ background: 'radial-gradient(circle at 30% 50%,#FF5F00 0 40%,#F79E1B 60%)' }}
-                    />
-                  </div>
-                ) : (
+                {/* Mastercard interlocking circles on BOTH cards (no Visa). */}
+                <div className="flex -space-x-2.5">
+                  <span className="w-6 h-6 rounded-full bg-[#EB001B]" />
                   <span
-                    className="italic font-bold tracking-[0.04em] text-white"
-                    style={{ fontSize: 21, fontFamily: "Georgia, 'Times New Roman', serif" }}
-                  >
-                    VISA
-                  </span>
-                )}
+                    className="w-6 h-6 rounded-full"
+                    style={{ background: 'radial-gradient(circle at 30% 50%,#FF5F00 0 40%,#F79E1B 60%)' }}
+                  />
+                </div>
               </div>
             </motion.div>
           ))}
@@ -171,7 +162,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
             </li>
             <li className="flex items-start gap-2">
               <CreditCard className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
-              <span>Spend anywhere Visa is accepted, in any currency</span>
+              <span>Spend anywhere Mastercard is accepted, in any currency</span>
             </li>
             <li className="flex items-start gap-2">
               <CreditCard className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />

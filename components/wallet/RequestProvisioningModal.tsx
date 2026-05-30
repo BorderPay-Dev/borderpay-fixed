@@ -82,7 +82,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   }, [open]);
 
   const products: Product[] = [
-    { key: 'usd-va',     label: 'Global Account (USD/EUR/GBP)', blurb: 'Receive via ACH · SEPA · Faster Payments', Icon: Banknote, accent: '#10B981' },
+    { key: 'usd-va',     label: 'Global Account', blurb: 'USD, EUR or GBP — availability depends on your country', Icon: Banknote, accent: '#10B981' },
     { key: 'african',    label: 'African Currency',             blurb: 'Local currency and mobile money rails coming soon', Icon: Globe2,   accent: '#8B5CF6' },
     { key: 'stablecoin', label: 'Stablecoin Wallet',            blurb: 'USDC · USDT · PYUSD · USDB',                Icon: Coins,    accent: '#F59E0B' },
     { key: 'card',       label: 'Virtual Card',                 blurb: 'Coming soon — card issuance is paused',     Icon: CreditCard, accent: '#C7FF00' },
@@ -246,11 +246,11 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
           key="provisioning-sheet"
           initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-          className="relative w-full sm:max-w-lg bg-[#0B0F1A] text-white rounded-t-[26px] sm:rounded-[26px] border border-white/10 shadow-2xl overflow-hidden"
+          className="relative w-full sm:max-w-lg max-h-[92dvh] flex flex-col bg-[#0B0F1A] text-white rounded-t-[26px] sm:rounded-[26px] border border-white/10 shadow-2xl overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className="px-5 pt-5 pb-3 flex items-start justify-between">
+          {/* Header (pinned) */}
+          <div className="shrink-0 px-5 pt-5 pb-3 flex items-start justify-between">
             <div>
               <h3 className="text-lg font-bold">Add a new funding option</h3>
               <p className="text-xs text-white/50 mt-0.5">
@@ -266,8 +266,8 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
             </button>
           </div>
 
-          {/* Body */}
-          <div className="px-5 pb-5">
+          {/* Body (scrollable; clears bottom nav + safe area) */}
+          <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)]">
             {!verified && !selection && (
               <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
                 <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
@@ -459,9 +459,12 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
                     </div>
                     <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10">
                       <p className="text-xs text-white/70 leading-relaxed">
-                        Global accounts settle into your stablecoin wallet via {currency === 'USD' ? 'ACH/wire' : currency === 'EUR' ? 'SEPA' : 'Faster Payments'}.
+                        Currency availability depends on your country — not every region can open
+                        every account. If {currency} is supported for you, it settles into your
+                        stablecoin wallet via {currency === 'USD' ? 'ACH/wire' : currency === 'EUR' ? 'SEPA' : 'Faster Payments'}.
                         Activation runs once your KYC is verified by our partner — typically within
-                        one business day. We'll email the routing/account/IBAN as soon as it's live.
+                        one business day. We'll email the routing/account/IBAN as soon as it's live,
+                        or let you know if it isn't available in your country.
                       </p>
                     </div>
                   </>
