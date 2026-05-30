@@ -19,3 +19,11 @@ verify_jwt = true
 # Bridge external accounts — authenticated payout destination endpoint.
 [functions.bridge-external-account]
 verify_jwt = true
+
+# Bridge webhook receiver — public; Bridge signs requests (no JWT).
+[functions.bridge-webhook]
+verify_jwt = false
+
+# Queue worker — public; invoked by pg_cron + DB webhook (no JWT).
+[functions.process-pending-events]
+verify_jwt = false
