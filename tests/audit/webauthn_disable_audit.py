@@ -44,9 +44,15 @@ def read(p):
 def main() -> int:
     dele, api, mgr, pref, setup = read(DEL), read(API), read(MGR), read(PREF), read(SET)
 
-    # Isolate BiometricManager.disable body.
-    m = re.search(r"async disable\([^)]*\)\s*:\s*Promise<[^>]*>\s*\{(.*?)\n  \},", mgr, re.S)
-    disable_body = m.group(1) if m else ""
+    # Isolate the BIOMETRIC disable body. SecurityManager also has a 2FA
+    # disable(), so match on the unique biometric signature, then capture the
+    # block (the one that touches webauthn / the biometric localStorage hint).
+    disable_body = ""
+    for m in re.finditer(r"async disable\([^)]*\)\s*:\s*Promise<[^>]*>\s*\{(.*?)\n  \},", mgr, re.S):
+        body = m.group(1)
+        if "webauthn.disable" in body or "borderpay_biometric_enrolled" in body:
+            disable_body = body
+            break
 
     checks = [
         ("S1a webauthn-delete edge function exists", bool(dele), f"missing {DEL}"),
@@ -72,8 +78,9 @@ def main() -> int:
          "expected InvalidStateError → 'already set up on this device' message"),
 
         ("S5a PreferencesScreen gates disabled state on success",
-         bool(re.search(r"if\s*\(r\.success\)\s*setBiometricEnabled\(false\)", pref)),
-         "PreferencesScreen must setBiometricEnabled(false) only on success"),
+         bool(re.search(r"const r = await BiometricManager\.disable", pref))
+         and bool(re.search(r"if\s*\(r\.success\)\s*\{\s*\n\s*updatePrefs\(\{\s*biometric_enabled:\s*false", pref)),
+         "PreferencesScreen must updatePrefs(biometric_enabled:false) only on success"),
         ("S5b BiometricSetup gates disabled state on success",
          "const handleDisable = async" in setup
          and bool(re.search(r"if\s*\(r\.success\)\s*\{", setup)),
