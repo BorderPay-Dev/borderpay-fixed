@@ -587,6 +587,11 @@ export const BiometricManager = {
         credential = (await navigator.credentials.create({ publicKey })) as PublicKeyCredential | null;
       } catch (err: any) {
         if (err?.name === 'NotAllowedError') return { success: false, error: 'Enrollment cancelled or timed out' };
+        // InvalidStateError = a credential for this RP+user already exists on
+        // this authenticator (e.g. a prior enroll that wasn't fully removed).
+        if (err?.name === 'InvalidStateError') {
+          return { success: false, error: 'Biometric is already set up on this device. Disable it first, then try again.' };
+        }
         return { success: false, error: err?.message || 'Enrollment failed' };
       }
       if (!credential) return { success: false, error: 'No credential returned by the authenticator' };
@@ -643,13 +648,29 @@ export const BiometricManager = {
     }
   },
 
-  /** Clear the local enrollment hint. Server credentials are unaffected. */
-  disable(_userId: string): void {
+  /**
+   * Disable biometric: delete the SERVER credential(s) first, then clear the
+   * local hint — but ONLY if the server delete succeeded. A local-only clear
+   * leaves an orphan webauthn_credentials row, and the next enroll on this
+   * device fails with InvalidStateError (register-options excludeCredentials).
+   * Returns success/error so the UI can avoid pretending it disabled.
+   */
+  async disable(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      localStorage.removeItem('borderpay_biometric_enrolled');
-      localStorage.removeItem('borderpay_biometric_user_id');
-      localStorage.removeItem('borderpay_biometric_credential_id');
-    } catch { /* non-critical */ }
+      const { backendAPI } = await import('../api/backendAPI');
+      const r: any = await backendAPI.webauthn.disable();
+      if (!r?.success) {
+        return { success: false, error: r?.error || 'Could not disable biometric on the server' };
+      }
+      try {
+        localStorage.removeItem('borderpay_biometric_enrolled');
+        localStorage.removeItem('borderpay_biometric_user_id');
+        localStorage.removeItem('borderpay_biometric_credential_id');
+      } catch { /* non-critical */ }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Could not disable biometric' };
+    }
   },
 };
 

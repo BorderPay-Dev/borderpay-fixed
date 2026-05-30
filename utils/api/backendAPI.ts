@@ -1325,6 +1325,15 @@ export const webauthnAPI = {
       method: 'POST',
       body:   JSON.stringify(input),
     }),
+  /** Delete the caller's server-side WebAuthn credential(s). Omit
+   *  credential_id to remove all (full biometric disable). Required so a
+   *  disabled credential is actually gone server-side — otherwise re-enroll
+   *  on the same device fails with InvalidStateError (excludeCredentials). */
+  disable: async (input?: { credential_id?: string }) =>
+    apiCall<{ deleted_count: number }>('webauthn-delete', {
+      method: 'POST',
+      body:   JSON.stringify(input || {}),
+    }),
 };
 
 export const subscriptionAPI = {
