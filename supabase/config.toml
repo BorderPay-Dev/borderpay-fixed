@@ -27,3 +27,7 @@ verify_jwt = false
 # Queue worker — public; invoked by pg_cron + DB webhook (no JWT).
 [functions.process-pending-events]
 verify_jwt = false
+
+# WebAuthn credential delete — authenticated; deletes only the caller's rows.
+[functions.webauthn-delete]
+verify_jwt = true
