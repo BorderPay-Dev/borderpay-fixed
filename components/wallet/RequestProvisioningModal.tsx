@@ -18,6 +18,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Banknote, Globe2, Coins, CreditCard, Loader2, Check, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
@@ -234,12 +235,18 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   if (!open) return null;
 
   // ── Render ──────────────────────────────────────────────────────────
-  return (
+  // Portal to document.body so the overlay escapes the app's transformed /
+  // overflow-hidden scroll container (MainApp root + framer-motion screens).
+  // A position:fixed element nested under a transformed ancestor anchors to
+  // that ancestor, not the viewport — which is why the sheet previously
+  // collided with the fixed bottom nav. z-[200] clears the nav (z-30).
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <AnimatePresence>
       <motion.div
         key="provisioning-backdrop"
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6"
+        className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6"
         onClick={() => { if (!submitting) { reset(); onClose(); } }}
       >
         <motion.div
@@ -515,7 +522,8 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
           </div>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 
