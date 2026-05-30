@@ -39,6 +39,16 @@ def main() -> int:
     reg = open(REG, encoding="utf-8").read()
     auth = open(AUTH, encoding="utf-8").read()
 
+    # Strip // line comments and /* */ block comments before the regression
+    # guards, so explanatory comments that *mention* the old v11 shape don't
+    # trip the checks. Presence checks (S1–S5) still run on the full text.
+    def strip_comments(src: str) -> str:
+        src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+        src = re.sub(r"(?m)//.*$", "", src)
+        return src
+    reg_code = strip_comments(reg)
+    auth_code = strip_comments(auth)
+
     checks = [
         # Version stays pinned at v10 in both (no unproven bump).
         ("S1 register-verify pins @simplewebauthn/server@10.0.0",
@@ -61,13 +71,14 @@ def main() -> int:
          bool(re.search(r"authenticator\s*:\s*\{", auth)) and "credentialID" in auth and "credentialPublicKey" in auth,
          "expected authenticator object with credentialID/credentialPublicKey"),
 
-        # Regression guards: the v11 shapes must NOT reappear.
-        ("S6 no v11 registrationInfo.credential.* in register-verify",
-         not re.search(r"registrationInfo\s*\.\s*credential\b", reg)
-         and not re.search(r"const\s*\{[^}]*\bcredential\b[^}]*\}\s*=\s*verification\.registrationInfo", reg),
+        # Regression guards (run on comment-stripped code): the v11 shapes
+        # must NOT reappear in actual code.
+        ("S6 no v11 registrationInfo.credential.* in register-verify code",
+         not re.search(r"registrationInfo\s*\.\s*credential\b", reg_code)
+         and not re.search(r"const\s*\{[^}]*\bcredential\b[^}]*\}\s*=\s*verification\.registrationInfo", reg_code),
          "register-verify must not destructure registrationInfo.credential (v11 shape)"),
         ("S7 no v11 `credential:` input in auth-verify verify call",
-         not re.search(r"verifyAuthenticationResponse\(\s*\{(?:[^}]|\}(?!\s*\)))*?\bcredential\s*:", auth, re.S),
+         not re.search(r"verifyAuthenticationResponse\(\s*\{(?:[^}]|\}(?!\s*\)))*?\bcredential\s*:", auth_code, re.S),
          "auth-verify must pass `authenticator:`, not `credential:`"),
     ]
 
