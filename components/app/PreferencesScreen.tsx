@@ -49,11 +49,16 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
       }
 
       if (prefs.biometric_enabled) {
-        // Disable
-        BiometricManager.disable(userId);
-        updatePrefs({ biometric_enabled: false });
-        hapticFeedback();
-        toast.success('Biometric lock disabled');
+        // Disable — delete the server credential first; only reflect "disabled"
+        // if it actually succeeded, otherwise the orphan row blocks re-enroll.
+        const r = await BiometricManager.disable(userId);
+        if (r.success) {
+          updatePrefs({ biometric_enabled: false });
+          hapticFeedback();
+          toast.success('Biometric lock disabled');
+        } else {
+          toast.error(r.error || 'Could not disable biometric. Please try again.');
+        }
       } else {
         // Enable — enroll WebAuthn
         const supported = await BiometricManager.isSupported();

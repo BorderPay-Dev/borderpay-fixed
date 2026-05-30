@@ -63,11 +63,16 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
     }
   };
 
-  const handleDisable = () => {
-    if (confirm('Disable biometric authentication? You can re-enable it anytime.')) {
-      BiometricManager.disable(userId);
+  const handleDisable = async () => {
+    if (!confirm('Disable biometric authentication? You can re-enable it anytime.')) return;
+    // Delete the server credential; only show "disabled" if it actually
+    // succeeded, so we never leave an orphan row that blocks re-enroll.
+    const r = await BiometricManager.disable(userId);
+    if (r.success) {
       setEnrolled(false);
       toast.success('Biometric disabled');
+    } else {
+      toast.error(friendlyError(r.error, 'Could not disable biometric. Please try again.'));
     }
   };
 
