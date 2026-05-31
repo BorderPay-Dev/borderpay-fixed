@@ -518,12 +518,15 @@
      status bar, home indicator, or gesture nav bar.
      ============================================ */
 
-  /* Individual side safe area padding */
+  /* Individual side safe area padding.
+     pt-safe / pb-safe use max(inset, 1rem) so non-notched devices still get a
+     1rem minimum — fixes Receive / Send / burger-menu content sliding under the
+     header on devices that report a 0px top inset. */
   .pt-safe {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: max(env(safe-area-inset-top, 0px), 1rem);
   }
   .pb-safe {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
   }
   .pl-safe {
     padding-left: env(safe-area-inset-left, 0px);
