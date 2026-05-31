@@ -528,6 +528,13 @@
   .pb-safe {
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
   }
+  /* Top bars on standalone full-screen headers (drawer, Send, Receive).
+     iOS standalone PWA with black-translucent status bar needs the inset AND
+     normal header padding — not the larger of the two. calc() adds both so the
+     status bar never overlaps the avatar / back button / title. */
+  .pt-safe-header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+  }
   .pl-safe {
     padding-left: env(safe-area-inset-left, 0px);
   }
