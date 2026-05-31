@@ -220,29 +220,8 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
               </div>
             </div>
 
-            <div>
-              <label className={`${tc.textSecondary} text-xs mb-2 block`}>{t('prefs.currencyDisplay')}</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['symbol', 'code'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => { updatePrefs({ currency_display: mode }); hapticFeedback(); toast.success(t('prefs.updated')); }}
-                    className={`p-3 rounded-xl border transition-all ${
-                      prefs.currency_display === mode
-                        ? 'bg-[#C7FF00]/20 border-[#C7FF00]'
-                        : `${tc.card} ${tc.cardBorder} ${tc.hoverBg}`
-                    }`}
-                  >
-                    <div className="text-lg mb-1">{mode === 'symbol' ? '$' : 'USD'}</div>
-                    <div className={`text-xs font-medium ${
-                      prefs.currency_display === mode ? 'text-[#C7FF00]' : tc.textMuted
-                    }`}>
-                      {t(`prefs.${mode}`)}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Currency Display toggle removed — the app is USD-only, so the
+                symbol/code switch offered no real choice. */}
           </div>
         </div>
 

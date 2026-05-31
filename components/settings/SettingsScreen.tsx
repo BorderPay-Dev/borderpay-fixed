@@ -8,7 +8,7 @@ import {
   ArrowLeft, 
   User, 
   Shield, 
-  Bell, 
+  Accessibility, 
   Globe, 
   Lock, 
   CreditCard, 
@@ -98,7 +98,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
     {
       title: t('settings.preferences'),
       items: [
-        { icon: Bell, label: t('settings.notifications'), screen: 'preferences', color: 'text-purple-400' },
+        { icon: Accessibility, label: 'Accessibility', screen: 'preferences', color: 'text-purple-400' },
         { icon: Globe, label: t('settings.languageRegion'), screen: 'preferences', color: 'text-blue-400' },
       ]
     },
