@@ -576,23 +576,47 @@ export const BiometricManager = {
       }
 
       const { backendAPI } = await import('../api/backendAPI');
-      const optsRes: any = await backendAPI.webauthn.registerOptions();
-      if (!optsRes?.success || !optsRes.data?.options) {
-        return { success: false, error: optsRes?.error || 'Could not start enrollment' };
-      }
 
-      const publicKey = _decodeCreateOptions(optsRes.data.options);
+      // Fetch fresh register options and run the platform create(). Factored
+      // so the InvalidStateError self-heal can re-run it once after clearing an
+      // orphaned server credential — register-options rebuilds
+      // excludeCredentials from webauthn_credentials, so the orphan must be
+      // gone server-side before the retry can succeed.
+      const runCreate = async (): Promise<PublicKeyCredential | null> => {
+        const optsRes: any = await backendAPI.webauthn.registerOptions();
+        if (!optsRes?.success || !optsRes.data?.options) {
+          throw new Error(optsRes?.error || 'Could not start enrollment');
+        }
+        const publicKey = _decodeCreateOptions(optsRes.data.options);
+        return (await navigator.credentials.create({ publicKey })) as PublicKeyCredential | null;
+      };
+
       let credential: PublicKeyCredential | null;
       try {
-        credential = (await navigator.credentials.create({ publicKey })) as PublicKeyCredential | null;
+        credential = await runCreate();
       } catch (err: any) {
         if (err?.name === 'NotAllowedError') return { success: false, error: 'Enrollment cancelled or timed out' };
         // InvalidStateError = a credential for this RP+user already exists on
-        // this authenticator (e.g. a prior enroll that wasn't fully removed).
+        // this authenticator, but the server still lists a matching (orphaned)
+        // row in excludeCredentials — e.g. a disable that only cleared local
+        // state. Self-heal ONCE: delete the server credential via the
+        // user-authenticated endpoint, fetch FRESH options (now with an empty
+        // excludeCredentials), and retry create() a single time. Never loops —
+        // a second failure is surfaced as a clear error.
         if (err?.name === 'InvalidStateError') {
-          return { success: false, error: 'Biometric is already set up on this device. Disable it first, then try again.' };
+          const delRes: any = await backendAPI.webauthn.disable();
+          if (!delRes?.success) {
+            return { success: false, error: 'Biometric is already set up on this device. Disable it first, then try again.' };
+          }
+          try {
+            credential = await runCreate(); // single retry with fresh options
+          } catch (retryErr: any) {
+            if (retryErr?.name === 'NotAllowedError') return { success: false, error: 'Enrollment cancelled or timed out' };
+            return { success: false, error: 'Could not set up biometric after clearing the old credential. Please try again.' };
+          }
+        } else {
+          return { success: false, error: err?.message || 'Enrollment failed' };
         }
-        return { success: false, error: err?.message || 'Enrollment failed' };
       }
       if (!credential) return { success: false, error: 'No credential returned by the authenticator' };
 
