@@ -235,7 +235,7 @@ export function AppShell({
               aria-modal="true"
               aria-label={tt('shell.menu', 'Menu')}
             >
-              <div className={`sticky top-0 ${tc.headerBg} border-b ${tc.borderLight} px-4 py-3 flex items-center justify-between`}>
+              <div className={`sticky top-0 ${tc.headerBg} border-b ${tc.borderLight} px-4 pb-3 pt-safe-header flex items-center justify-between`}>
                 <div className="flex items-center gap-3">
                   {avatarUrl ? (
                     <img src={avatarUrl} alt={userName ?? ''} className="w-10 h-10 rounded-full object-cover border border-white/10" />

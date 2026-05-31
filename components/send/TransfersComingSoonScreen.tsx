@@ -34,7 +34,7 @@ export function TransfersComingSoonScreen({ onBack }: TransfersComingSoonScreenP
   return (
     <div className={`min-h-screen ${tc.bg} flex flex-col`}>
       {/* ── Top bar with Back ───────────────────────────────────────── */}
-      <header className="flex items-center gap-3 px-5 sm:px-6 pt-5 pb-3">
+      <header className="flex items-center gap-3 px-5 sm:px-6 pt-safe-header pb-3">
         <button
           onClick={onBack}
           className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center ${tc.hoverBg}`}

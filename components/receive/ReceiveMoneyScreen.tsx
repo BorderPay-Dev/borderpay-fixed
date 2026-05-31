@@ -50,7 +50,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   if (!verification.isVerified) {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
-        <div className="max-w-2xl mx-auto px-5 pt-5 pb-10">
+        <div className="max-w-2xl mx-auto px-5 pt-safe-header pb-10">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
             {tt('receive.title', 'Receive funds')}
           </p>
@@ -77,7 +77,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-5 pb-10">
+      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-safe-header pb-10">
         <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
           {tt('receive.title', 'Receive funds')}
         </p>
