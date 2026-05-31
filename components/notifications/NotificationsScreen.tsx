@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Bell, CheckCheck, Trash2, AlertCircle, Loader2,
+  Bell, CheckCheck, Trash2, AlertCircle, Loader2, ChevronLeft,
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Sparkles, Info,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -124,9 +124,20 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
     <div className={`min-h-screen ${tc.bg}`}>
       <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-5 pb-10">
         <div className="flex items-center justify-between mb-4">
-          <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
-            {tt('notifications.title', 'Notifications')}
-          </p>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                onClick={onBack}
+                aria-label="Back"
+                className={`-ml-2 p-2 rounded-full ${tc.hoverBg} transition-colors`}
+              >
+                <ChevronLeft className={`w-5 h-5 ${tc.text}`} />
+              </button>
+            )}
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
+              {tt('notifications.title', 'Notifications')}
+            </p>
+          </div>
           {unreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}
