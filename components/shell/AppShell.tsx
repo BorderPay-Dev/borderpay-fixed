@@ -72,6 +72,21 @@ export interface AppShellProps {
 const HEADER_HEIGHT_PX = 64;
 const FOOTER_HEIGHT_PX = 72;
 
+const PREFETCH_BY_ROUTE: Record<AppRoute, string> = {
+  dashboard:     'dashboard',
+  send:          'send-money',
+  receive:       'receive-money',
+  account:       'profile',
+  pricing:       'pricing',
+  cards:         'cards',
+  wallet:        'wallet-detail',
+  transactions:  'transactions',
+  kyc:           'kyc',
+  settings:      'settings',
+  notifications: 'notifications',
+  team:          'team',
+};
+
 export function AppShell({
   route, onRoute, userName, userInitials, avatarUrl,
   unreadCount = 0, subscription, isBusinessAccount, onSignOut,
@@ -117,6 +132,16 @@ export function AppShell({
     setDrawerOpen(false);
     onRoute(next);
   }, [onRoute]);
+
+  const prefetchRoute = useCallback((next: AppRoute) => {
+    if (typeof window === 'undefined') return;
+    (window as any).__borderpay_prefetch?.(PREFETCH_BY_ROUTE[next]);
+  }, []);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    (['wallet', 'transactions', 'pricing', 'kyc', 'settings'] as AppRoute[]).forEach(prefetchRoute);
+  }, [drawerOpen, prefetchRoute]);
 
   return (
     <div className={`min-h-screen ${tc.bg} relative`}>
@@ -166,6 +191,8 @@ export function AppShell({
           <button
             type="button"
             aria-label={tt('shell.notifications', 'Notifications')}
+            onPointerDown={() => prefetchRoute('notifications')}
+            onMouseEnter={() => prefetchRoute('notifications')}
             onClick={() => go('notifications')}
             className={`relative p-2 rounded-full ${tc.hoverBg} transition-colors`}
           >
@@ -180,6 +207,8 @@ export function AppShell({
           <button
             type="button"
             aria-label={tt('shell.account', 'Account')}
+            onPointerDown={() => prefetchRoute('account')}
+            onMouseEnter={() => prefetchRoute('account')}
             onClick={() => go('account')}
             className="ml-1"
           >
@@ -205,10 +234,10 @@ export function AppShell({
         aria-label={tt('shell.bottomNav', 'Primary navigation')}
       >
         <div className="h-full max-w-screen-md mx-auto px-2 grid grid-cols-4">
-          <BottomButton active={route === 'dashboard'} icon={Home}         label={tt('nav.home',    'Home')}    onClick={() => go('dashboard')} tc={tc} />
-          <BottomButton active={route === 'send'}      icon={ArrowUpRight} label={tt('nav.send',    'Send')}    onClick={() => go('send')}      tc={tc} />
-          <BottomButton active={route === 'receive'}   icon={ArrowDownLeft}label={tt('nav.receive', 'Receive')} onClick={() => go('receive')}   tc={tc} />
-          <BottomButton active={route === 'account'}   icon={UserIcon}     label={tt('nav.account', 'Account')} onClick={() => go('account')}   tc={tc} />
+          <BottomButton active={route === 'dashboard'} icon={Home}         label={tt('nav.home',    'Home')}    onPrefetch={() => prefetchRoute('dashboard')} onClick={() => go('dashboard')} tc={tc} />
+          <BottomButton active={route === 'send'}      icon={ArrowUpRight} label={tt('nav.send',    'Send')}    onPrefetch={() => prefetchRoute('send')}      onClick={() => go('send')}      tc={tc} />
+          <BottomButton active={route === 'receive'}   icon={ArrowDownLeft}label={tt('nav.receive', 'Receive')} onPrefetch={() => prefetchRoute('receive')}   onClick={() => go('receive')}   tc={tc} />
+          <BottomButton active={route === 'account'}   icon={UserIcon}     label={tt('nav.account', 'Account')} onPrefetch={() => prefetchRoute('account')}   onClick={() => go('account')}   tc={tc} />
         </div>
       </nav>
 
@@ -269,22 +298,22 @@ export function AppShell({
               </div>
 
               <ul className="py-2">
-                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           active={route === 'dashboard'}    onClick={() => go('dashboard')}    tc={tc} />
-                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         active={route === 'wallet'}       onClick={() => go('wallet')}       tc={tc} />
-                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     active={route === 'send'}         onClick={() => go('send')}         tc={tc} />
-                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  active={route === 'receive'}      onClick={() => go('receive')}      tc={tc} />
-                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   active={route === 'transactions'} onClick={() => go('transactions')} tc={tc} />
+                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           active={route === 'dashboard'}    onPrefetch={() => prefetchRoute('dashboard')}    onClick={() => go('dashboard')}    tc={tc} />
+                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         active={route === 'wallet'}       onPrefetch={() => prefetchRoute('wallet')}       onClick={() => go('wallet')}       tc={tc} />
+                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     active={route === 'send'}         onPrefetch={() => prefetchRoute('send')}         onClick={() => go('send')}         tc={tc} />
+                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => go('receive')}      tc={tc} />
+                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
                 {onOpenPayoutAccounts && (
                   <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
                 )}
-                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          active={route === 'cards'}        onClick={() => go('cards')}        tc={tc} badge="Coming Soon" />
-                <DrawerItem icon={Globe2}      label={tt('nav.pricing',      'Plans & pricing')}active={route === 'pricing'}      onClick={() => go('pricing')}      tc={tc} highlight={!subscription?.is_paid} />
+                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Coming Soon" />
+                <DrawerItem icon={Globe2}      label={tt('nav.pricing',      'Plans & pricing')}active={route === 'pricing'}      onPrefetch={() => prefetchRoute('pricing')}      onClick={() => go('pricing')}      tc={tc} highlight={!subscription?.is_paid} />
                 {isBusinessAccount && (
-                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   active={route === 'team'}         onClick={() => go('team')}         tc={tc} />
+                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   active={route === 'team'}         onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
                 )}
                 <div className={`my-2 border-t ${tc.borderLight}`} />
-                <DrawerItem icon={ShieldCheck} label={tt('nav.kyc',          'Identity & KYC')} active={route === 'kyc'}          onClick={() => go('kyc')}          tc={tc} />
-                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       active={route === 'settings'}     onClick={() => go('settings')}     tc={tc} />
+                <DrawerItem icon={ShieldCheck} label={tt('nav.kyc',          'Identity & KYC')} active={route === 'kyc'}          onPrefetch={() => prefetchRoute('kyc')}          onClick={() => go('kyc')}          tc={tc} />
+                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
                 {onSignOut && (
                   <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       onClick={onSignOut}                tc={tc} danger />
                 )}
@@ -298,17 +327,20 @@ export function AppShell({
 }
 
 function BottomButton({
-  active, icon: Icon, label, onClick, tc,
+  active, icon: Icon, label, onClick, onPrefetch, tc,
 }: {
   active?: boolean;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   onClick: () => void;
+  onPrefetch?: () => void;
   tc: ReturnType<typeof useThemeClasses>;
 }) {
   return (
     <button
       type="button"
+      onPointerDown={onPrefetch}
+      onMouseEnter={onPrefetch}
       onClick={onClick}
       className="relative h-full flex flex-col items-center justify-center gap-0.5"
     >
@@ -326,12 +358,13 @@ function BottomButton({
 }
 
 function DrawerItem({
-  icon: Icon, label, active, onClick, tc, badge, highlight, danger,
+  icon: Icon, label, active, onClick, onPrefetch, tc, badge, highlight, danger,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   active?: boolean;
   onClick: () => void;
+  onPrefetch?: () => void;
   tc: ReturnType<typeof useThemeClasses>;
   badge?: string;
   highlight?: boolean;
@@ -341,6 +374,8 @@ function DrawerItem({
     <li>
       <button
         type="button"
+        onPointerDown={onPrefetch}
+        onMouseEnter={onPrefetch}
         onClick={onClick}
         className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${tc.hoverBg} ${active ? (tc.isLight ? 'bg-black/[0.04]' : 'bg-white/[0.04]') : ''}`}
       >

@@ -9,7 +9,6 @@ import {
   User, 
   Shield, 
   Accessibility, 
-  Globe, 
   Lock, 
   CreditCard, 
   HelpCircle, 
@@ -99,7 +98,6 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
       title: t('settings.preferences'),
       items: [
         { icon: Accessibility, label: 'Accessibility', screen: 'preferences', color: 'text-purple-400' },
-        { icon: Globe, label: t('settings.languageRegion'), screen: 'preferences', color: 'text-blue-400' },
       ]
     },
     {
@@ -236,6 +234,8 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
                   return (
                     <button
                       key={itemIndex}
+                      onPointerDown={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
+                      onMouseEnter={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
                       onClick={() => handleItemClick(item)}
                       disabled={suspending}
                       className={`w-full flex items-center gap-3 px-4 py-3 ${tc.hoverBg} transition-colors ${
