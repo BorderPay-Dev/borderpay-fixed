@@ -50,14 +50,31 @@ def slice_between(src, start_pat, end_pat):
     return rest[: e.start() + 1] if e else rest
 
 
+def strip_comments(src: str) -> str:
+    # Drop /* */ and // comments so loop/keyword checks test CODE, not prose
+    # (e.g. the word "for" in "a credential for this RP+user").
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    src = re.sub(r"(?m)//.*$", "", src)
+    return src
+
+
 def main() -> int:
     mgr = read(MGR)
     sw = read(SW)
 
     # enroll() body: from its signature to the next method (disable()).
     enroll = slice_between(mgr, r"async enroll\(", r"\n  async disable\(")
-    # disable() body: from its signature to the closing of the manager object.
-    disable = slice_between(mgr, r"async disable\(", r"\n};")
+    enroll_code = strip_comments(enroll)
+
+    # BiometricManager.disable() — NOT TOTPManager.disable(). SecurityManager
+    # has several disable() methods; isolate the biometric one by its unique
+    # signature (touches webauthn.disable / the biometric localStorage hint).
+    disable = ""
+    for m in re.finditer(r"async disable\([^)]*\)\s*:\s*Promise<[^>]*>\s*\{(.*?)\n  \},", mgr, re.S):
+        body = m.group(1)
+        if "backendAPI.webauthn.disable" in body or "borderpay_biometric_enrolled" in body:
+            disable = body
+            break
 
     # InvalidStateError branch inside enroll().
     ise = slice_between(enroll, r"InvalidStateError'\)\s*\{", r"\n        \} else \{")
@@ -77,7 +94,7 @@ def main() -> int:
 
         ("H3 retry happens at most once (no loop; exactly 2 runCreate call sites)",
          create_calls == 2
-         and not re.search(r"\b(while|for)\b", enroll),
+         and not re.search(r"\b(while|for)\b", enroll_code),
          f"expected exactly 2 'await runCreate()' and no loop; found {create_calls}"),
 
         ("H4 retry gated on delete success (early return when delete fails)",
