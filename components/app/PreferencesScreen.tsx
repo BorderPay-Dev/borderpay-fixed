@@ -120,7 +120,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
     <div className={`min-h-screen ${tc.bg}`}>
       {/* AppShell owns top chrome; preferences renders body-only. */}
       <div className="max-w-2xl mx-auto px-5 pt-5">
-        <div className="mb-1">
+        <div className="mb-4">
           <button
             type="button"
             onClick={onBack}
@@ -130,7 +130,6 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
             <ChevronLeft className={`w-5 h-5 ${tc.text}`} />
           </button>
         </div>
-        <p className={`${tc.textMuted} text-[11px] mb-4`}>App display and device access controls.</p>
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-6">
