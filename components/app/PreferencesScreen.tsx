@@ -8,17 +8,14 @@ import React, { useState } from 'react';
 import {
   ChevronLeft,
   Palette,
-  Globe,
   Eye,
   Fingerprint,
   Lock,
   Volume2,
   Vibrate,
-  Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { LANGUAGE_LABELS, Language } from '../../utils/i18n/translations';
 import { usePreferences, hapticFeedback, soundFeedback } from '../../utils/hooks/usePreferences';
 import { BiometricManager } from '../../utils/security/SecurityManager';
 
@@ -27,7 +24,7 @@ interface PreferencesScreenProps {
 }
 
 export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
-  const { theme, language, setTheme, setLanguage, t } = useThemeLanguage();
+  const { theme, setTheme, t } = useThemeLanguage();
   const tc = useThemeClasses();
   const { prefs, updatePrefs } = usePreferences();
   const [biometricLoading, setBiometricLoading] = useState(false);
@@ -90,16 +87,9 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
     toast.success(t('prefs.updated'));
   };
 
-  const handleLanguageChange = (newLang: Language) => {
-    setLanguage(newLang);
-    hapticFeedback();
-    toast.success(t('prefs.updated'));
-  };
-
   const resetToDefaults = () => {
     if (!confirm('Reset all preferences to defaults?')) return;
     setTheme('dark');
-    setLanguage('en');
     updatePrefs({
       hide_balance: false,
       biometric_enabled: false,
@@ -113,12 +103,6 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
 
   const themes = [
     { value: 'dark' as const, labelKey: 'prefs.dark', icon: '🌙' },
-  ];
-
-  const languages: { value: Language; flag: string }[] = [
-    { value: 'en', flag: '🇬🇧' },
-    { value: 'fr', flag: '🇫🇷' },
-    { value: 'pt', flag: '🇵🇹' },
   ];
 
   const Toggle = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
@@ -136,10 +120,20 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
     <div className={`min-h-screen ${tc.bg}`}>
       {/* AppShell owns top chrome; preferences renders body-only. */}
       <div className="max-w-2xl mx-auto px-5 pt-5">
-        <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-1`}>
-          {t('prefs.title')}
-        </p>
-        <p className={`${tc.textMuted} text-[11px] mb-4`}>{t('prefs.subtitle')}</p>
+        <div className="flex items-center gap-2 mb-1">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back"
+            className={`-ml-2 p-2 rounded-full ${tc.hoverBg} transition-colors`}
+          >
+            <ChevronLeft className={`w-5 h-5 ${tc.text}`} />
+          </button>
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
+            Accessibility
+          </p>
+        </div>
+        <p className={`${tc.textMuted} text-[11px] mb-4`}>App display and device access controls.</p>
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-6">
@@ -176,52 +170,6 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
                 </button>
               ))}
             </div>
-          </div>
-        </div>
-
-        {/* Language & Region */}
-        <div className={`${tc.cardSolid} border rounded-2xl p-4`}>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
-              <Globe className="w-5 h-5 text-blue-500" />
-            </div>
-            <div>
-              <h2 className={`${tc.text} font-semibold text-sm`}>{t('prefs.languageRegion')}</h2>
-              <p className={`${tc.textMuted} text-xs`}>{t('prefs.localization')}</p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div>
-              <label className={`${tc.textSecondary} text-xs mb-2 block`}>{t('prefs.language')}</label>
-              <div className="space-y-2">
-                {languages.map((lang) => (
-                  <button
-                    key={lang.value}
-                    onClick={() => handleLanguageChange(lang.value)}
-                    className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
-                      language === lang.value
-                        ? 'bg-[#C7FF00]/20 border-[#C7FF00]'
-                        : `${tc.card} ${tc.cardBorder} ${tc.hoverBg}`
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl">{lang.flag}</span>
-                      <span className={`text-sm font-medium ${
-                        language === lang.value ? 'text-[#C7FF00]' : tc.text
-                      }`}>
-                        {LANGUAGE_LABELS[lang.value]}
-                      </span>
-                    </div>
-                    {language === lang.value && (
-                      <Check className="w-4 h-4 text-[#C7FF00]" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Currency Display toggle removed — the app is USD-only, so the
-                symbol/code switch offered no real choice. */}
           </div>
         </div>
 

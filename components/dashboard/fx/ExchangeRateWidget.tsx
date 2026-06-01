@@ -78,6 +78,11 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
   const [selected, setSelected] = useState<string>(DEFAULT_PAIR);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const prefetchExchange = () => {
+    if (typeof window !== 'undefined') {
+      (window as any).__borderpay_prefetch?.('exchange');
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -187,6 +192,8 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
 
         {/* Convert CTA */}
         <button
+          onPointerDown={prefetchExchange}
+          onMouseEnter={prefetchExchange}
           onClick={() => onNavigate('exchange')}
           className={`w-full px-4 py-3 border-t ${tc.borderLight} flex items-center justify-center gap-2 bg-[#C7FF00] text-black text-[12px] font-bold hover:brightness-95 transition`}
         >

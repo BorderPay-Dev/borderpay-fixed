@@ -408,7 +408,7 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
     };
     idle(() => {
       if (cancelled) return;
-      ['transactions', 'send-money', 'receive-money', 'add-money', 'profile', 'settings', 'wallet-detail']
+      ['transactions', 'send-money', 'receive-money', 'add-money', 'profile', 'settings', 'preferences', 'wallet-detail', 'kyc', 'pricing', 'notifications', 'exchange']
         .forEach(prefetchScreen);
     });
     return () => { cancelled = true; };
