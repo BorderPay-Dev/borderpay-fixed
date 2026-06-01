@@ -120,7 +120,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
     <div className={`min-h-screen ${tc.bg}`}>
       {/* AppShell owns top chrome; preferences renders body-only. */}
       <div className="max-w-2xl mx-auto px-5 pt-5">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="mb-1">
           <button
             type="button"
             onClick={onBack}
@@ -129,9 +129,6 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
           >
             <ChevronLeft className={`w-5 h-5 ${tc.text}`} />
           </button>
-          <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
-            Accessibility
-          </p>
         </div>
         <p className={`${tc.textMuted} text-[11px] mb-4`}>App display and device access controls.</p>
       </div>
