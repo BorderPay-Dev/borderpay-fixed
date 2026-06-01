@@ -118,8 +118,10 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      {/* AppShell owns top chrome; preferences renders body-only. */}
-      <div className="max-w-2xl mx-auto px-5 pt-5">
+      {/* Standalone screen (not AppShell-wrapped): the back button must clear
+          the iOS status bar itself, so the top wrapper uses pt-safe-header
+          (status-bar inset + 1rem) instead of a plain pt-5. */}
+      <div className="max-w-2xl mx-auto px-5 pt-safe-header">
         <div className="mb-4">
           <button
             type="button"
