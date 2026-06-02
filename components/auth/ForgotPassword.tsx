@@ -42,7 +42,11 @@ export function ForgotPassword({ onNavigateToLogin, onNavigateToResetPassword }:
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${BASE_URL}/auth-reset-password`, {
+      // Enumeration-safe: the backend always returns a uniform generic response
+      // whether or not an account exists. Show the SAME success state regardless —
+      // never reveal account existence ("user not found"), never surface raw
+      // server messages here.
+      await fetch(`${BASE_URL}/auth-reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,22 +55,10 @@ export function ForgotPassword({ onNavigateToLogin, onNavigateToResetPassword }:
         body: JSON.stringify({ email }),
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to send reset email. Please try again.');
-      }
-
       setSuccess(true);
-    } catch (err: any) {
-      
-      // User-friendly error messages
-      if (err.message?.includes('User not found')) {
-        setError('No account found with this email address');
-      } else if (err.message?.includes('Email rate limit exceeded')) {
-        setError('Too many requests. Please try again later');
-      } else {
-        setError(err.message || 'Failed to send reset email. Please try again.');
-      }
+    } catch (_err) {
+      // Only true network/transport failures reach here — generic, non-revealing.
+      setError('Something went wrong. Please check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
