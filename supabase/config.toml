@@ -32,9 +32,22 @@ verify_jwt = false
 [functions.webauthn-delete]
 verify_jwt = true
 
-# Unified transactional email sender — public route; gated IN-CODE by a
-# service-role bearer check (not a user JWT). Writes public.email_log before
-# every Resend call. Must be deployed BEFORE auth-signup / auth-resend-verification
-# (they call it; absent → 404).
+# Unified transactional email sender — public route; gated IN-CODE by the
+# SEND_EMAIL_INTERNAL_TOKEN bearer (NOT the service-role key, not a user JWT).
+# Writes public.email_log before every Resend call. Must be deployed BEFORE
+# auth-signup / auth-resend-verification / auth-reset-password (they call it;
+# absent → 404).
 [functions.send-email]
+verify_jwt = false
+
+# Forgot-password request — public route (forgot-password form). Generates a
+# GoTrue recovery link and sends the reset email via the logged send-email.
+# Enumeration-safe (uniform generic response).
+[functions.auth-reset-password]
+verify_jwt = false
+
+# Password reset confirm — public route; verifies the GoTrue recovery token and
+# sets the new password (preserves 2FA/PIN). Brought into repo at deployed
+# parity for P0-b; deploy is a separate gated step.
+[functions.auth-reset-password-confirm]
 verify_jwt = false
