@@ -6,6 +6,7 @@ import { LoginScreen } from './components/auth/LoginScreen';
 import { SignUpFlow } from './components/auth/SignUpFlow';
 import { ForgotPassword } from './components/auth/ForgotPassword';
 import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
+import { isPasswordRecovery } from './utils/supabase/client';
 import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
 import { MainApp } from './components/app/MainApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
@@ -165,9 +166,20 @@ function AppContent() {
     // Password-reset detection (hash #access_token=… from Supabase recovery).
     // Guard: do NOT treat a verify token as a reset token — only trigger reset
     // when we're NOT on the verify route and a recovery/access token is present.
-    if (!isVerifyRoute && (rawHash.includes('access_token=') || rawHash.includes('type=recovery'))) {
+    if (!isVerifyRoute && (rawHash.includes('access_token=') || rawHash.includes('type=recovery') || isPasswordRecovery())) {
       setPendingResetPassword(true);
     }
+  }, []);
+
+  // Supabase fires PASSWORD_RECOVERY asynchronously after it parses the recovery
+  // hash (which it then CLEARS). Catch that event — and the sessionStorage flag it
+  // sets — so a recovery deep link always routes to the reset-password screen even
+  // if the hash was consumed before the mount effect above read it.
+  useEffect(() => {
+    const onRecovery = () => setPendingResetPassword(true);
+    window.addEventListener('borderpay:password_recovery', onRecovery);
+    if (isPasswordRecovery()) setPendingResetPassword(true);
+    return () => window.removeEventListener('borderpay:password_recovery', onRecovery);
   }, []);
 
   // Apply verify-email state once splash + auth load have settled.

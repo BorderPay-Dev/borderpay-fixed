@@ -34,6 +34,22 @@ function getOrCreateClient(): SupabaseClient {
   });
 
   client.auth.onAuthStateChange((event, session) => {
+    // Supabase password-recovery deep link: this is NOT a normal login. With
+    // detectSessionInUrl (default on), Supabase parses the recovery session from
+    // the URL hash, clears the hash, and fires PASSWORD_RECOVERY. We stash the
+    // recovery access token for ResetPasswordScreen and flag recovery so the app
+    // routes to the reset screen — and we MUST NOT store it as borderpay_token
+    // (doing so is what wrongly sent recovery clicks to the dashboard).
+    if (event === 'PASSWORD_RECOVERY') {
+      try {
+        if (session?.access_token) {
+          sessionStorage.setItem('borderpay_recovery_token', session.access_token);
+        }
+        sessionStorage.setItem('borderpay_password_recovery', '1');
+        window.dispatchEvent(new CustomEvent('borderpay:password_recovery'));
+      } catch { /* ignore */ }
+      return;
+    }
     if (session?.access_token) {
       localStorage.setItem('borderpay_token', session.access_token);
     } else if (event === 'SIGNED_OUT') {
@@ -97,6 +113,26 @@ export function readUserProfile(): any | null {
 
 export function clearUserProfile(): void {
   localStorage.removeItem(USER_STORAGE_KEY);
+}
+
+// ── Password-recovery (Supabase reset link) state ───────────────────────────
+// A recovery session must drive the reset-password screen, never a normal login.
+// These are sessionStorage-scoped (cleared on tab close) and set by the
+// PASSWORD_RECOVERY handler above.
+const RECOVERY_TOKEN_KEY = 'borderpay_recovery_token';
+const RECOVERY_FLAG_KEY  = 'borderpay_password_recovery';
+
+export function isPasswordRecovery(): boolean {
+  try { return sessionStorage.getItem(RECOVERY_FLAG_KEY) === '1'; } catch { return false; }
+}
+export function getRecoveryToken(): string | null {
+  try { return sessionStorage.getItem(RECOVERY_TOKEN_KEY); } catch { return null; }
+}
+export function clearPasswordRecovery(): void {
+  try {
+    sessionStorage.removeItem(RECOVERY_TOKEN_KEY);
+    sessionStorage.removeItem(RECOVERY_FLAG_KEY);
+  } catch { /* ignore */ }
 }
 
 // ── Auth API ─────────────────────────────────────────────────────────────────
