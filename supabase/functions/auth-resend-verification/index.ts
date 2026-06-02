@@ -8,10 +8,9 @@
 //     { already_verified: true } and does NOT send an email.
 //   • Otherwise: issues a fresh token via issue_email_token() (which
 //     enforces 60 s cooldown + 3-per-hour cap server-side) and calls
-//     send-confirmation-email (the deployed sender; see body of this
-//     function for the rationale and the path back to the unified
-//     send-email when that lands). Errors from the rate limit return
-//     429 with a clear `code: 'cooldown' | 'rate_limit'`.
+//     the unified LOGGED `send-email` function (writes email_log before the
+//     Resend call). Errors from the rate limit return 429 with a clear
+//     `code: 'cooldown' | 'rate_limit'`.
 //
 // Auth model: verify_jwt = false. The endpoint takes the email as input;
 //   sensitive data is gated by the rate limiter and the token system itself.
@@ -127,7 +126,7 @@ Deno.serve(async (req: Request) => {
     return json(
       {
         success: false,
-        error:   (sendJson as any)?.error || `send-confirmation-email HTTP ${sendRes.status}`,
+        error:   (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
       },
       502,
     );
