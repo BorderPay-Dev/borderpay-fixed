@@ -31,3 +31,10 @@ verify_jwt = false
 # WebAuthn credential delete — authenticated; deletes only the caller's rows.
 [functions.webauthn-delete]
 verify_jwt = true
+
+# Unified transactional email sender — public route; gated IN-CODE by a
+# service-role bearer check (not a user JWT). Writes public.email_log before
+# every Resend call. Must be deployed BEFORE auth-signup / auth-resend-verification
+# (they call it; absent → 404).
+[functions.send-email]
+verify_jwt = false
