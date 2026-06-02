@@ -16,7 +16,10 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
+// Service-role: used ONLY for the admin client (createUser + table upserts).
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+// Internal token for authenticating to send-email (NOT the service-role key).
+const SEND_EMAIL_TOKEN      = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 const APP_URL               = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
 
 const CORS = {
@@ -194,9 +197,9 @@ Deno.serve(async (req: Request) => {
     // body, attempts, and an idempotency key. Replaces the unlogged
     // `send-confirmation-email` path so email delivery is observable.
     //
-    // DEPLOY ORDER (lockstep — see PR apply plan): `send-email` MUST be deployed
-    // BEFORE this function, else the call 404s (the exact prior incident). This
-    // is a source-only PR; no deploy here. Behaviour preserved: signup still
+    // Auth: send-email is gated by the dedicated SEND_EMAIL_INTERNAL_TOKEN
+    // (NOT the service-role key). send-email MUST be deployed BEFORE this
+    // function, else the call 404s. Behaviour preserved: signup still
     // succeeds if the send fails (email_sent:false + email_error), UI shows the
     // pending-email + resend state.
     //
@@ -209,7 +212,7 @@ Deno.serve(async (req: Request) => {
         method: "POST",
         headers: {
           "Content-Type":  "application/json",
-          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE}`,
+          "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
         },
         body: JSON.stringify({
           template:        emailTemplate,
