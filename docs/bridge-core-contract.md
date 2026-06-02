@@ -74,10 +74,13 @@ BridgeVirtualAccountsCard, BridgeWalletsCard, CardsComingSoonCard, AfricanRailsF
    `bridgeAPI.kyb.startBusiness` (`bridge-customer` → `bridge-kyc-link` /
    `bridge-kyb-link`); status polling via `kyc-status`. The legacy doc-upload surface
    is already inert: `kycAPI.submit` / `verifyBVN` are quarantined stubs (return
-   `RAILS_FUTURE_STATE`, no network) and **no component references `kyc-submit`** — the
-   deployed Maplerad-era `kyc-submit` edge function is ORPHANED (no live caller).
-   Retiring `kyc-submit` and the stale Maplerad comment is deferred to **PR3** (no
-   deletion here). Locked by `tests/audit/kyc_path_canonical_audit.py`.
+   `RAILS_FUTURE_STATE`, no network) and **no component references `kyc-submit`**.
+   CORRECTION (PR3 investigation, #49): `kyc-submit` is **NOT deployed** at all
+   (`get_edge_function` → NotFound; absent from `list_edge_functions`) — the repo
+   source is a 410 "Gone" stub. **Decision A:** accept the platform 404 for any stale
+   caller; do NOT deploy the stub absent evidence of a real one. Evidence +
+   verdict: `docs/bridge-pr3-kyc-submit-retirement.md`. Canonical wiring locked by
+   `tests/audit/kyc_path_canonical_audit.py`.
 2. **Stale Maplerad comments/dead code** — references in `sync-users-to-maplerad` (not
    deployed), `bridge-virtual-account`, `process-pending-events`, `auth-signup`,
    `_shared/providers/registry.ts`, `schema.sql`, READMEs, `config.toml`. Cleanup is a
