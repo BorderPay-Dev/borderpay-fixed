@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { BASE_URL, ANON_KEY } from '../../utils/supabase/client';
+import { BASE_URL, ANON_KEY, getRecoveryToken, clearPasswordRecovery, supabase } from '../../utils/supabase/client';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Lock, 
@@ -60,8 +60,11 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
     // new password too, so token validity is checked at SUBMIT time (and the
     // expired/invalid error is surfaced there). This also avoids the prior bug
     // where a mount-time POST of `{ token }` always 400'd → "Invalid Reset Link".
+    // Prefer the recovery token stashed by the PASSWORD_RECOVERY handler —
+    // Supabase (detectSessionInUrl) usually consumes and CLEARS the hash before
+    // React reads it, so the hash is only a fallback.
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const token = hashParams.get('access_token') || hashParams.get('token');
+    const token = getRecoveryToken() || hashParams.get('access_token') || hashParams.get('token');
 
     if (!token) {
       setHasValidToken(false);
@@ -74,6 +77,14 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
     setValidating(false);
     // Clear the token from the URL so the session JWT isn't left in history.
     window.history.replaceState(null, '', window.location.pathname);
+  };
+
+  // Leave the reset flow safely: drop the one-time recovery session so it can't
+  // linger in storage and route a later app open straight to the dashboard.
+  const exitToLogin = () => {
+    clearPasswordRecovery();
+    supabase.auth.signOut().catch(() => {});
+    onNavigateToLogin();
   };
 
   const calculatePasswordStrength = (password: string): PasswordStrength => {
@@ -125,6 +136,9 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
       localStorage.removeItem('borderpay_token');
       localStorage.removeItem('borderpay_user');
       localStorage.removeItem('borderpay_known_devices');
+      // Drop the one-time recovery session so it can't linger after reset.
+      clearPasswordRecovery();
+      supabase.auth.signOut().catch(() => {});
 
       setSuccess(true);
       toast.success('Password reset successfully!');
@@ -176,7 +190,7 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
           </p>
 
           <button
-            onClick={onNavigateToLogin}
+            onClick={exitToLogin}
             className="w-full bg-[#C7FF00] text-black font-semibold py-4 rounded-2xl hover:bg-[#B8F000] transition-colors"
           >
             Back to Login
@@ -242,7 +256,7 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
       <div className="w-full max-w-md overflow-y-auto overflow-x-hidden max-h-[100dvh] px-4 py-6 hide-scrollbar relative z-[2]">
         {/* Back Button */}
         <button
-          onClick={onNavigateToLogin}
+          onClick={exitToLogin}
           className="mb-8 flex items-center gap-2 text-white/60 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />

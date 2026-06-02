@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../supabase/client';
+import { supabase, isPasswordRecovery } from '../supabase/client';
 import type { Session, User } from '@supabase/supabase-js';
 
 interface AuthState {
@@ -55,7 +55,9 @@ export function useAuth() {
     // If we found a valid local session, skip the "loading" splash entirely.
     // Background refresh will confirm/correct below.
     loading: !initial.user,
-    isAuthenticated: !!initial.user && !!initial.session,
+    // A Supabase password-recovery session is NOT a login — it must route to the
+    // reset-password screen, never the dashboard.
+    isAuthenticated: !!initial.user && !!initial.session && !isPasswordRecovery(),
   });
 
   const loadAuth = useCallback(async () => {
@@ -85,7 +87,8 @@ export function useAuth() {
         user,
         session,
         loading: false,
-        isAuthenticated: !!user && !!session,
+        // Recovery session ≠ login (see note above) — keep the app out of dashboard.
+        isAuthenticated: !!user && !!session && !isPasswordRecovery(),
       });
     } catch {
       setAuthState({ user: null, session: null, loading: false, isAuthenticated: false });
