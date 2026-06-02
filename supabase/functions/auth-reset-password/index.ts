@@ -73,12 +73,23 @@ Deno.serve(async (req: Request) => {
       options: { redirectTo: APP_URL },
     });
 
-    if (error || !data?.properties?.hashed_token) {
+    // Email the GoTrue-issued `action_link` VERBATIM. Clicking it hits GoTrue's
+    // /auth/v1/verify, which consumes the recovery token and 303-redirects to
+    // redirectTo with a REAL session in the hash
+    // (#access_token=<JWT>&refresh_token=…&type=recovery). Do NOT hand-build a
+    // `#access_token=<hashed_token>` URL: hashed_token is not a session token and
+    // bypasses verify — that was why the old link always read "invalid".
+    //
+    // OPERATOR NOTE: redirectTo (APP_URL) must be allow-listed EXACTLY in
+    // Supabase → Auth → URL Configuration → Redirect URLs — the exact origin
+    // (and path, if action_link redirects to one) GoTrue sends back to, e.g.
+    // https://app.borderpayafrica.com. Otherwise GoTrue rejects the redirect and
+    // the session hash never reaches the app.
+    const resetUrl = data?.properties?.action_link;
+    if (error || !resetUrl) {
       return json(GENERIC_OK);
     }
 
-    const token    = data.properties.hashed_token;
-    const resetUrl = `${APP_URL}/#access_token=${token}&type=recovery`;
     const userId   = data.user?.id ?? null;
     const fullName = ((data.user?.user_metadata as Record<string, unknown> | undefined)
       ?.full_name as string | undefined) || email.split("@")[0];

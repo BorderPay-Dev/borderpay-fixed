@@ -51,45 +51,29 @@ export function ResetPasswordScreen({ onNavigateToLogin }: ResetPasswordScreenPr
     validateResetToken();
   }, []);
 
-  const validateResetToken = async () => {
-    try {
-      // Get token from URL hash
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const token = hashParams.get('token') || hashParams.get('access_token');
+  const validateResetToken = () => {
+    // Capture the recovery session token from the URL hash. The reset email now
+    // links to GoTrue's action_link, which verifies the recovery token and
+    // redirects here with a REAL session:
+    //   #access_token=<JWT>&refresh_token=…&type=recovery
+    // We do NOT pre-validate over the network: the confirm function requires the
+    // new password too, so token validity is checked at SUBMIT time (and the
+    // expired/invalid error is surfaced there). This also avoids the prior bug
+    // where a mount-time POST of `{ token }` always 400'd → "Invalid Reset Link".
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const token = hashParams.get('access_token') || hashParams.get('token');
 
-      if (!token) {
-        toast.error('No reset token found. Please request a new reset link.');
-        setHasValidToken(false);
-        setValidating(false);
-        return;
-      }
-
-      // Validate token with backend
-      const response = await fetch(`${BASE_URL}/auth-reset-password-confirm`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${ANON_KEY}`,
-        },
-        body: JSON.stringify({ token }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        toast.error('Invalid or expired reset link');
-        setHasValidToken(false);
-      } else {
-        setResetToken(token);
-        setHasValidToken(true);
-        // Clear URL hash
-        window.history.replaceState(null, '', window.location.pathname);
-      }
-    } catch (error) {
-      toast.error('Error validating reset link');
+    if (!token) {
       setHasValidToken(false);
-    } finally {
       setValidating(false);
+      return;
     }
+
+    setResetToken(token);
+    setHasValidToken(true);
+    setValidating(false);
+    // Clear the token from the URL so the session JWT isn't left in history.
+    window.history.replaceState(null, '', window.location.pathname);
   };
 
   const calculatePasswordStrength = (password: string): PasswordStrength => {
