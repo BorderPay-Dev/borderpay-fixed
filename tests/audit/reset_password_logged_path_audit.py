@@ -47,6 +47,7 @@ ROOT    = Path(__file__).resolve().parents[2]
 REQ     = ROOT / "supabase" / "functions" / "auth-reset-password" / "index.ts"
 CONFIRM = ROOT / "supabase" / "functions" / "auth-reset-password-confirm" / "index.ts"
 FORGOT  = ROOT / "components" / "auth" / "ForgotPassword.tsx"
+RPS     = ROOT / "components" / "auth" / "ResetPasswordScreen.tsx"
 CFG     = ROOT / "supabase" / "config.toml"
 
 
@@ -58,6 +59,7 @@ def main() -> int:
     req     = read(REQ)
     confirm = read(CONFIRM)
     forgot  = read(FORGOT)
+    rps     = read(RPS)
     cfg     = read(CFG)
 
     # Isolate the idempotency_key expression for the no-token-leak check.
@@ -112,6 +114,23 @@ def main() -> int:
     t2 = bool(re.search(r"\[functions\.auth-reset-password-confirm\][^\[]*verify_jwt\s*=\s*false", cfg, re.S))
     checks.append(("T1 config pins auth-reset-password verify_jwt=false", t1, ""))
     checks.append(("T2 config pins auth-reset-password-confirm verify_jwt=false", t2, ""))
+
+    # Reset-link contract (the broken-link fix)
+    checks.append(("L1 auth-reset-password emails GoTrue action_link",
+                   "properties?.action_link" in req or "properties.action_link" in req,
+                   "must email data.properties.action_link"))
+    checks.append(("L2 no hand-built #access_token=${...} fragment in code",
+                   "#access_token=${" not in req,
+                   "must not hand-build the recovery fragment (interpolated)"))
+    checks.append(("RPS1 reset screen does NOT pre-validate on mount with { token }",
+                   "JSON.stringify({ token })" not in rps,
+                   "mount-time confirm POST of { token } must be removed"))
+    checks.append(("RPS2 submit sends { access_token, new_password }",
+                   ("access_token: resetToken" in rps and "new_password: newPassword" in rps),
+                   "submit must send the access_token + new_password shape"))
+    checks.append(("RPS3 reset screen reads token from URL hash",
+                   "window.location.hash" in rps,
+                   "must capture the recovery token from the hash"))
 
     print("reset_password_logged_path_audit:")
     ok = True
