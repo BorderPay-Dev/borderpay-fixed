@@ -38,6 +38,7 @@ USEAUTH = ROOT / "utils" / "auth" / "useAuth.ts"
 APP     = ROOT / "App.tsx"
 RPS     = ROOT / "components" / "auth" / "ResetPasswordScreen.tsx"
 SW      = ROOT / "public" / "service-worker.js"
+APPCTX  = ROOT / "utils" / "app" / "AppContext.tsx"
 
 
 def read(p: Path) -> str:
@@ -50,6 +51,7 @@ def main() -> int:
     app = read(APP)
     rps = read(RPS)
     sw = read(SW)
+    appctx = read(APPCTX)
 
     checks: list[tuple[str, bool, str]] = []
 
@@ -57,11 +59,12 @@ def main() -> int:
                    "event === 'PASSWORD_RECOVERY'" in client,
                    "client.ts must branch on the PASSWORD_RECOVERY event"))
 
-    checks.append(("G2 client stashes recovery + dispatches event (not login)",
-                   ("borderpay_password_recovery" in client
-                    and "borderpay_recovery_token" in client
-                    and "borderpay:password_recovery" in client),
-                   "must stash recovery token/flag + dispatch recovery event"))
+    checks.append(("G2 recovery marker is durable (localStorage), not session-only",
+                   ("localStorage.setItem('borderpay_password_recovery'" in client
+                    and "localStorage.setItem('borderpay_recovery_token'" in client
+                    and "borderpay:password_recovery" in client
+                    and "sessionStorage.setItem('borderpay_password_recovery'" not in client),
+                   "recovery flag/token must persist in localStorage (not sessionStorage-only)"))
 
     checks.append(("G3 client exports recovery helpers",
                    all(f"export function {fn}" in client
@@ -85,6 +88,20 @@ def main() -> int:
     sw_ok = ("borderpay-app-v2.11.0" not in sw) and ("borderpay-app-v2.12.0" in sw)
     checks.append(("G7 service-worker cache bumped off v2.11.0", sw_ok,
                    "CACHE_NAME/RUNTIME_CACHE must be bumped (v2.12.0)"))
+
+    checks.append(("G8 recovery marker has an expiry",
+                   ("borderpay_recovery_expires_at" in client and "Date.now() >= exp" in client),
+                   "recovery must store + enforce an expiry aligned to the session"))
+
+    checks.append(("G9 SIGNED_OUT clears recovery state",
+                   ("SIGNED_OUT" in client and "clearPasswordRecovery();" in client),
+                   "the SIGNED_OUT path must call clearPasswordRecovery()"))
+
+    checks.append(("G10 AppProvider respects recovery (no dashboard hydrate)",
+                   ("isPasswordRecovery" in appctx
+                    and "!isPasswordRecovery()" in appctx
+                    and "if (isPasswordRecovery())" in appctx),
+                   "AppContext must gate isAuthenticated + skip hydration during recovery"))
 
     print("password_recovery_routing_audit:")
     ok = True

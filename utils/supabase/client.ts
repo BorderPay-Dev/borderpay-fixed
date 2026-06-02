@@ -43,18 +43,23 @@ function getOrCreateClient(): SupabaseClient {
     if (event === 'PASSWORD_RECOVERY') {
       try {
         if (session?.access_token) {
-          sessionStorage.setItem('borderpay_recovery_token', session.access_token);
+          localStorage.setItem('borderpay_recovery_token', session.access_token);
         }
-        sessionStorage.setItem('borderpay_password_recovery', '1');
+        // Expiry aligned to the Supabase recovery session so the marker and the
+        // session share a lifetime (localStorage → survives PWA close/reopen).
+        const expMs = session?.expires_at ? session.expires_at * 1000 : Date.now() + 60 * 60 * 1000;
+        localStorage.setItem('borderpay_recovery_expires_at', String(expMs));
+        localStorage.setItem('borderpay_password_recovery', '1');
         window.dispatchEvent(new CustomEvent('borderpay:password_recovery'));
       } catch { /* ignore */ }
       return;
     }
-    if (session?.access_token) {
-      localStorage.setItem('borderpay_token', session.access_token);
-    } else if (event === 'SIGNED_OUT') {
+    if (event === 'SIGNED_OUT') {
       localStorage.removeItem('borderpay_token');
       clearUserProfile();
+      clearPasswordRecovery();
+    } else if (session?.access_token) {
+      localStorage.setItem('borderpay_token', session.access_token);
     }
   });
 
@@ -117,19 +122,34 @@ export function clearUserProfile(): void {
 
 // ── Password-recovery (Supabase reset link) state ───────────────────────────
 // A recovery session must drive the reset-password screen, never a normal login.
-// These are sessionStorage-scoped (cleared on tab close) and set by the
-// PASSWORD_RECOVERY handler above.
+// Stored in localStorage WITH AN EXPIRY aligned to the Supabase recovery session,
+// so the marker and the session share a lifetime: a PWA close/reopen mid-reset
+// can't drop the marker while the Supabase session lingers (which would have
+// re-routed to the dashboard — the exact lifecycle bug we're fixing).
 const RECOVERY_TOKEN_KEY = 'borderpay_recovery_token';
 const RECOVERY_FLAG_KEY  = 'borderpay_password_recovery';
+const RECOVERY_EXP_KEY   = 'borderpay_recovery_expires_at';
 
 export function isPasswordRecovery(): boolean {
-  try { return sessionStorage.getItem(RECOVERY_FLAG_KEY) === '1'; } catch { return false; }
+  try {
+    if (localStorage.getItem(RECOVERY_FLAG_KEY) !== '1') return false;
+    const raw = localStorage.getItem(RECOVERY_EXP_KEY);
+    const exp = raw ? Number(raw) : 0;
+    // Self-heal: once the recovery window passes, drop the marker so normal
+    // login can resume.
+    if (!exp || Date.now() >= exp) { clearPasswordRecovery(); return false; }
+    return true;
+  } catch { return false; }
 }
 export function getRecoveryToken(): string | null {
-  try { return sessionStorage.getItem(RECOVERY_TOKEN_KEY); } catch { return null; }
+  try { return isPasswordRecovery() ? localStorage.getItem(RECOVERY_TOKEN_KEY) : null; } catch { return null; }
 }
 export function clearPasswordRecovery(): void {
   try {
+    localStorage.removeItem(RECOVERY_TOKEN_KEY);
+    localStorage.removeItem(RECOVERY_FLAG_KEY);
+    localStorage.removeItem(RECOVERY_EXP_KEY);
+    // Clean up any legacy sessionStorage markers from earlier builds.
     sessionStorage.removeItem(RECOVERY_TOKEN_KEY);
     sessionStorage.removeItem(RECOVERY_FLAG_KEY);
   } catch { /* ignore */ }

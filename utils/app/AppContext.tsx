@@ -14,7 +14,7 @@
  */
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, ReactNode } from 'react';
-import { supabase, SUPABASE_URL, ANON_KEY, readUserProfile, storeUserProfile } from '../supabase/client';
+import { supabase, SUPABASE_URL, ANON_KEY, readUserProfile, storeUserProfile, isPasswordRecovery } from '../supabase/client';
 import type { Session, User } from '@supabase/supabase-js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -147,7 +147,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     profile: initialProfile,
     wallets: initialCache?.wallets || [],
     emailConfirmed: initialCache?.emailConfirmed ?? !!initialSession.user?.email_confirmed_at,
-    isAuthenticated: !!initialSession.user && !!initialSession.session,
+    // A Supabase password-recovery session is NOT a login — never authenticate
+    // (or hydrate dashboard data) while a recovery is in progress.
+    isAuthenticated: !!initialSession.user && !!initialSession.session && !isPasswordRecovery(),
     loading: !initialCache, // loading only if we had no cache to serve
   }));
 
@@ -157,6 +159,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(async () => {
     if (!supabase?.auth) {
       if (mountedRef.current) setState(s => ({ ...s, sessionChecked: true, loading: false }));
+      return;
+    }
+    // Password-recovery session is NOT a login: do not hydrate profile/wallet or
+    // mark authenticated. The reset-password screen drives this flow instead.
+    if (isPasswordRecovery()) {
+      if (mountedRef.current) setState(s => ({
+        ...s,
+        user: null, session: null, profile: null, wallets: [],
+        emailConfirmed: false, isAuthenticated: false,
+        sessionChecked: true, loading: false,
+      }));
       return;
     }
     try {
