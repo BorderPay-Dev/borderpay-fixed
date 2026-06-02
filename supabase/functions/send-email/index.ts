@@ -7,7 +7,8 @@
 // Auth model:
 //   • verify_jwt = false  (called server-to-server from other edge functions
 //     and from cron jobs; gated by an internal bearer token).
-//   • The HTTP request MUST present `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>`.
+//   • The HTTP request MUST present `Authorization: Bearer <SEND_EMAIL_INTERNAL_TOKEN>`.
+//     (NOT the service-role key — that stays internal, for the admin DB client only.)
 //
 // Body:
 //   {
@@ -31,9 +32,16 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { renderTemplate, TemplateName } from "../_shared/email-templates/index.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
+// SUPABASE_SERVICE_ROLE_KEY is used ONLY for the in-function admin DB client
+// (log_email_attempt RPC + email_log writes). It is NOT the HTTP caller password.
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const RESEND_KEY            = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL            = Deno.env.get("BORDERPAY_FROM_EMAIL") ?? "BorderPay Africa <noreply@app.borderpayafrica.com>";
+// Dedicated internal caller token. send-email is invoked server-to-server only
+// (auth-signup / auth-resend-verification / cron). The HTTP gate compares the
+// bearer to THIS secret — never to the service-role key — so the email sender
+// is least-privilege and independently rotatable. Fails closed if unset.
+const INTERNAL_TOKEN        = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -64,11 +72,14 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")   return json({ success: false, error: "POST only" }, 405);
 
-  // AuthN: must present the service-role token (we don't accept user JWTs here).
+  // AuthN: internal server-to-server only. The bearer MUST equal the dedicated
+  // SEND_EMAIL_INTERNAL_TOKEN secret — NOT the service-role key, and never a
+  // user/anon JWT. Fail closed if the secret is unset. Constant-time compare;
+  // the token is never logged.
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!SUPABASE_SERVICE_ROLE || token !== SUPABASE_SERVICE_ROLE) {
-    return json({ success: false, error: "Unauthorized — service-role required" }, 401);
+  if (!INTERNAL_TOKEN || !timingSafeEqualStr(token, INTERNAL_TOKEN)) {
+    return json({ success: false, error: "Unauthorized — internal token required" }, 401);
   }
 
   let body: SendEmailBody;
@@ -192,3 +203,16 @@ async function markFailed(logId: string, message: string) {
 }
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+// Constant-time string comparison for the internal auth token. Returns false
+// immediately on length mismatch (length is not secret); otherwise compares all
+// bytes without an early-exit so timing does not leak how many chars matched.
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length === 0 || ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
