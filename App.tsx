@@ -138,15 +138,35 @@ function AppContent() {
   const [pendingVerify, setPendingVerify] = useState<{ token: string; purpose: 'signup_individual' | 'signup_business' | 'password_reset' | 'email_change' } | null>(null);
 
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.includes('token=') || hash.includes('access_token=')) {
-      setPendingResetPassword(true);
+    // ── Verify-link hardening ────────────────────────────────────────────
+    // Accept the email-verification token whether it arrives in the QUERY
+    // string (`?token=…&purpose=…`, the canonical sender shape) OR in the URL
+    // HASH (`#token=…&purpose=…`). Some email clients / redirect chains move or
+    // strip the query string, so reading the hash too prevents a "clicked the
+    // link, stayed unverified" dead-end. We detect the verify route as the
+    // FIRST thing on mount so it wins over the auth router.
+    const rawHash = window.location.hash.startsWith('#')
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashParams  = new URLSearchParams(rawHash);
+    const queryParams = new URLSearchParams(window.location.search);
+
+    const isVerifyRoute = window.location.pathname === '/auth/verify';
+    const verifyToken =
+      (isVerifyRoute ? (queryParams.get('token') || hashParams.get('token')) : '') || '';
+    const verifyPurpose =
+      ((isVerifyRoute ? (queryParams.get('purpose') || hashParams.get('purpose')) : '') ||
+        'signup_individual') as any;
+
+    if (isVerifyRoute && verifyToken) {
+      setPendingVerify({ token: verifyToken, purpose: verifyPurpose });
     }
-    if (window.location.pathname === '/auth/verify') {
-      const sp = new URLSearchParams(window.location.search);
-      const t  = sp.get('token') || '';
-      const p  = (sp.get('purpose') || 'signup_individual') as any;
-      if (t) setPendingVerify({ token: t, purpose: p });
+
+    // Password-reset detection (hash #access_token=… from Supabase recovery).
+    // Guard: do NOT treat a verify token as a reset token — only trigger reset
+    // when we're NOT on the verify route and a recovery/access token is present.
+    if (!isVerifyRoute && (rawHash.includes('access_token=') || rawHash.includes('type=recovery'))) {
+      setPendingResetPassword(true);
     }
   }, []);
 
