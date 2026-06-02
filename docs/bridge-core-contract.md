@@ -68,9 +68,16 @@ BridgeVirtualAccountsCard, BridgeWalletsCard, CardsComingSoonCard, AfricanRailsF
 
 ## 6. Known debts (documented; NOT fixed in PR1)
 
-1. **Two KYC paths question** — Bridge hosted-link (`bridge-kyc-link`) vs. a legacy
-   doc-upload (`kyc-submit`; `config.toml` still references **Maplerad** enroll). Which is
-   live in the UI must be confirmed before any KYC code change (a later, isolated PR).
+1. **Two KYC paths — RESOLVED (PR2, 2026-06-03, doc-only).** Confirmed from source:
+   **Canonical KYC = Bridge hosted-link.** `components/kyc/KYCVerification.tsx` and
+   `components/auth/SignUpFlow.tsx` call `bridgeAPI.kyc.startIndividual` /
+   `bridgeAPI.kyb.startBusiness` (`bridge-customer` → `bridge-kyc-link` /
+   `bridge-kyb-link`); status polling via `kyc-status`. The legacy doc-upload surface
+   is already inert: `kycAPI.submit` / `verifyBVN` are quarantined stubs (return
+   `RAILS_FUTURE_STATE`, no network) and **no component references `kyc-submit`** — the
+   deployed Maplerad-era `kyc-submit` edge function is ORPHANED (no live caller).
+   Retiring `kyc-submit` and the stale Maplerad comment is deferred to **PR3** (no
+   deletion here). Locked by `tests/audit/kyc_path_canonical_audit.py`.
 2. **Stale Maplerad comments/dead code** — references in `sync-users-to-maplerad` (not
    deployed), `bridge-virtual-account`, `process-pending-events`, `auth-signup`,
    `_shared/providers/registry.ts`, `schema.sql`, READMEs, `config.toml`. Cleanup is a
