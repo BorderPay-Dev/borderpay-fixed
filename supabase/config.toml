@@ -5,10 +5,12 @@ project_id = "orwrcpwsffjlvzuraxjc"
 
 # ── Edge function-specific overrides ────────────────────────────────────────
 
-# KYC submission — authenticated frontend endpoint. The function validates the
-# caller's JWT internally, validates payload + storage path ownership,
-# generates 24h signed URLs for selfie/ID front, and POSTs to Maplerad's
-# /v1/customers/enroll. Rate-limited to 3 attempts per user per 24h.
+# kyc-submit — LEGACY, REMOVED. Repo source is a 410 "Gone" stub and the function
+# is NOT deployed. The live KYC flow is the Bridge hosted-link
+# (bridge-customer → bridge-kyc-link / bridge-kyb-link). This pin is retained
+# (harmless) only so that IF the 410 stub were ever deployed it stays gated; per
+# Decision A we accept the platform 404 and do not deploy the stub absent a real
+# stale caller. See docs/bridge-pr3-kyc-submit-retirement.md.
 [functions.kyc-submit]
 verify_jwt = true
 

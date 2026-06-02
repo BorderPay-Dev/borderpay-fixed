@@ -78,9 +78,9 @@ def main() -> int:
                    "kyc-status" in bapi,
                    "kyc-status read must remain operational"))
 
-    checks.append(("K6 contract records canonical resolution",
-                   ("Canonical KYC = Bridge hosted-link" in doc and "ORPHANED" in doc),
-                   "contract doc must state the canonical KYC path + orphaned kyc-submit"))
+    checks.append(("K6 contract records canonical resolution + kyc-submit not-deployed",
+                   ("Canonical KYC = Bridge hosted-link" in doc and "NOT deployed" in doc),
+                   "contract doc must state canonical KYC path + that kyc-submit is NOT deployed"))
 
     print("kyc_path_canonical_audit:")
     ok = True
