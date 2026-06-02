@@ -8,10 +8,9 @@
 //     { already_verified: true } and does NOT send an email.
 //   • Otherwise: issues a fresh token via issue_email_token() (which
 //     enforces 60 s cooldown + 3-per-hour cap server-side) and calls
-//     send-confirmation-email (the deployed sender; see body of this
-//     function for the rationale and the path back to the unified
-//     send-email when that lands). Errors from the rate limit return
-//     429 with a clear `code: 'cooldown' | 'rate_limit'`.
+//     the unified LOGGED `send-email` function (writes email_log before the
+//     Resend call). Errors from the rate limit return 429 with a clear
+//     `code: 'cooldown' | 'rate_limit'`.
 //
 // Auth model: verify_jwt = false. The endpoint takes the email as input;
 //   sensitive data is gated by the rate limiter and the token system itself.
@@ -92,28 +91,34 @@ Deno.serve(async (req: Request) => {
 
   const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData as string)}&purpose=${purpose}`;
 
-  // P0 hotfix: this function previously POSTed to `${SUPABASE_URL}/functions/v1/send-email`.
-  // The unified `send-email` function exists in local source but is NOT deployed —
-  // so every resend attempt was hard-failing at the network layer (404 → 502 from us).
+  // Email P0: route through the LOGGED `send-email` function (writes
+  // public.email_log before calling Resend; records status / message-id /
+  // error / attempts / idempotency). Replaces the unlogged
+  // `send-confirmation-email` path so resend deliverability is observable.
+  // Resend stays rate-limited by issue_email_token() above; this only changes
+  // the sender. Behaviour preserved: this endpoint already returns soft success
+  // for unknown emails (enumeration-safe) BEFORE reaching here.
   //
-  // Match the pattern the deployed `auth-signup v99` already uses: call the live
-  // `send-confirmation-email` function with the simpler `{ email, full_name,
-  // confirmation_url }` payload. This is the smallest safe path and avoids
-  // having to deploy `send-email` as a prerequisite. If/when the unified
-  // `send-email` (with email_log, multi-template, idempotency) is deployed,
-  // both this function and `auth-signup` can be switched in lockstep.
-  //
-  // The deployed v99 of `auth-signup` notes the same trade-off in its banner.
-  const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-confirmation-email`, {
+  // DEPLOY ORDER (lockstep): `send-email` MUST be deployed BEFORE this function
+  // or the call 404s. Source-only PR; no deploy here.
+  const emailTemplate = userRow.account_type === "business"
+    ? "business.email_verification"
+    : "individual.email_verification";
+  const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
     method: "POST",
     headers: {
       "Content-Type":  "application/json",
       "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE}`,
     },
     body: JSON.stringify({
-      email:            userRow.email,
-      full_name:        userRow.full_name,
-      confirmation_url: verifyUrl,
+      template:        emailTemplate,
+      to:              userRow.email,
+      user_id:         userRow.id,
+      idempotency_key: `verify-resend:${userRow.id}:${(tokenData as string).slice(0, 16)}`,
+      props: {
+        full_name:        userRow.full_name,
+        verification_url: verifyUrl,
+      },
     }),
   });
   const sendJson = await sendRes.json().catch(() => ({}));
@@ -121,7 +126,7 @@ Deno.serve(async (req: Request) => {
     return json(
       {
         success: false,
-        error:   (sendJson as any)?.error || `send-confirmation-email HTTP ${sendRes.status}`,
+        error:   (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
       },
       502,
     );
