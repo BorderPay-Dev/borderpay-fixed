@@ -14,6 +14,15 @@
 -- payouts. Bridge = KYC/KYB + wallets + accounts + stablecoin infra + pay-in.
 -- Bridge external accounts are ACH/SEPA/IBAN, never African-local.
 --
+-- ELIGIBILITY RULE (enforced elsewhere; noted here so this schema is read in
+-- context): BRIDGE is the eligibility gate — Bridge decides WHO can onboard
+-- (country policy + KYC/KYB). Flutterwave only moves money locally in Africa
+-- AFTER Bridge eligibility is satisfied; Flutterwave coverage is NEVER
+-- onboarding permission. These tables intentionally hold NO country/eligibility/
+-- onboarding columns — payout destination is modelled as a neutral
+-- dest_currency + dest_corridor + Flutterwave transfer ref, NOT as a country
+-- allowlist and NOT as an African "bank account" record.
+--
 -- HARD EXCLUSIONS (must NOT appear in this migration):
 --   • NO USDB yield tables / yield ledger / yield revenue.
 --   • NO Bridge-external-accounts-for-Africa.
