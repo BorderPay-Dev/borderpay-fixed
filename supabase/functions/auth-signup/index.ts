@@ -237,7 +237,7 @@ Deno.serve(async (req: Request) => {
               email_verified:     false,
             },
             email_sent:  false,
-            email_error: (sendJson as any)?.error || `send-confirmation-email HTTP ${sendRes.status}`,
+            email_error: (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
             access_token: "",
           },
         });
