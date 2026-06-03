@@ -97,11 +97,11 @@ async function resolveEmailRecipient(userId: string): Promise<{ email: string; f
 /**
  * Best-effort terminal KYC/KYB decision email. NEVER throws — a failure is
  * logged and swallowed so webhook processing still completes. Recipient +
- * suppression are resolved from DB/env; idempotency is keyed on the Bridge
- * event id so re-delivery / retries of the SAME event can't double-send.
+ * suppression are resolved from DB/env. Idempotency is keyed on the user,
+ * template, and terminal decision so a kyc_link.* decision plus the matching
+ * customer.* terminal status collapse into one customer email.
  */
 async function emailKycDecisionBestEffort(
-  ev: PendingEvent,
   userId: string,
   isKyb: boolean,
   decision: "approved" | "rejected",
@@ -136,7 +136,7 @@ async function emailKycDecisionBestEffort(
         template,
         to:              rcpt.email,
         user_id:         userId,
-        idempotency_key: `wh:${ev.event_id}:${template}`,
+        idempotency_key: `wh:kyc:${userId}:${template}:${decision}`,
         props,
       }),
     });
@@ -269,7 +269,7 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
 
   // Terminal KYC/KYB decision → best-effort email (approved/rejected only).
   if (normalized === "approved" || normalized === "rejected") {
-    await emailKycDecisionBestEffort(ev, resolved, isKyb || account_type === "business", normalized);
+    await emailKycDecisionBestEffort(resolved, isKyb || account_type === "business", normalized);
   }
 
   await supabase.rpc("complete_pending_event", {
@@ -319,7 +319,7 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
         const owner = await resolveOwnerFromBridgeCustomer(String(customer));
         if (owner.account_type === "individual") {
           await emailKycDecisionBestEffort(
-            ev, owner.resolved, false,
+            owner.resolved, false,
             canonicalKyc === "verified" ? "approved" : "rejected",
           );
         }

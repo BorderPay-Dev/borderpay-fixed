@@ -14,7 +14,8 @@ Invariants (fail closed):
   (W2) recipient is resolved from the DB (user_profiles), never from the payload.
   (W3) suppression predicate is DB/env only: is_admin, WEBHOOK_EMAIL_SUPPRESS_LIST,
        WEBHOOK_EMAIL_SUPPRESS_DOMAINS, and unconfirmed email (auth email_confirmed_at).
-  (W4) idempotency key = `wh:${ev.event_id}:${template}`.
+  (W4) idempotency key = `wh:kyc:${userId}:${template}:${decision}` so matching
+       kyc_link.* + customer.* terminal events collapse into one email.
   (W5) NO VA/wallet/transfer email wiring (only 2 call sites: kyc + customer).
   (W6) best-effort: the email helper is wrapped in try/catch and never throws;
        the customer-path resolve is also guarded.
@@ -22,6 +23,9 @@ Invariants (fail closed):
   (W8) templates used = individual.kyc_decision + business.kyb_decision only
        (no account_ready / transaction_notification wired in v1).
   (W9) routes through the logged send-email with the internal-token bearer.
+  (W10) v1 passes no rejection reason to templates. Customer-safe reason
+        extraction is a separate reviewed step; developer/internal Bridge
+        reasons must never be emailed.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -55,7 +59,7 @@ def main() -> int:
     va      = sl(src, "async function handleBridgeVirtualAccount", "async function handleBridgeWallet")
     wallet  = sl(src, "async function handleBridgeWallet", "async function handleBridgeTransfer")
     xfer    = sl(src, "async function handleBridgeTransfer", "async function resolveOwnerFromBridgeCustomer")
-    helper  = sl(src, "async function emailKycDecisionBestEffort", "// ── Bridge event router")
+    helper  = sl(src, "async function emailKycDecisionBestEffort", "interface PendingEvent")
     recip   = sl(src, "async function resolveEmailRecipient", "async function emailKycDecisionBestEffort")
 
     checks: list[tuple[str, bool, str]] = []
@@ -85,10 +89,11 @@ def main() -> int:
     checks.append(("W3 suppression predicate from DB/env (incl. unconfirmed)", w3,
                    "must check is_admin + suppress list/domain + email_confirmed_at, all from DB/env"))
 
-    # W4 — idempotency key
-    w4 = "idempotency_key: `wh:${ev.event_id}:${template}`" in helper
-    checks.append(("W4 idempotency key wh:${event_id}:${template}", w4,
-                   "must pass idempotency_key = wh:${ev.event_id}:${template}"))
+    # W4 — idempotency key collapses matching kyc_link.* + customer.* terminal events
+    w4 = ("idempotency_key: `wh:kyc:${userId}:${template}:${decision}`" in helper
+          and "ev.event_id" not in helper)
+    checks.append(("W4 idempotency key per user/template/decision", w4,
+                   "must use wh:kyc:${userId}:${template}:${decision}, not per-event id"))
 
     # W5 — no VA/wallet/transfer email wiring; exactly 2 call sites
     call_sites = src.count("await emailKycDecisionBestEffort(")
@@ -128,6 +133,19 @@ def main() -> int:
           and 'Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN")' in src)
     checks.append(("W9 routes via logged send-email w/ internal token", w9,
                    "must POST send-email with Authorization: Bearer SEND_EMAIL_INTERNAL_TOKEN"))
+
+    # W10 — reason hygiene: v1 sends generic decision copy only.
+    # Bridge exposes developer/internal rejection details that must never reach
+    # customer email. Until a reviewed customer-safe extractor exists, do not pass
+    # any reason prop at all.
+    w10 = ('props = { company_name: biz?.company_name ?? null, decision }' in helper
+           and 'props = { full_name: rcpt.full_name, decision }' in helper
+           and "reason:" not in helper
+           and "developer_reason" not in src
+           and "developer_rejection_reason" not in src
+           and "internal_reason" not in src)
+    checks.append(("W10 no rejection reason passed to templates in v1", w10,
+                   "v1 must not pass raw/developer/customer reasons until a safe extractor is reviewed"))
 
     print("webhook_email_worker_audit:")
     ok = True
