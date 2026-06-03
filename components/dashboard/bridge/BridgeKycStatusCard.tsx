@@ -1,8 +1,9 @@
 /**
  * BridgeKycStatusCard — dashboard product card showing KYC/KYB state.
  *
- * Reads bridge_kyc_status (individual) or bridge_kyb_status (business) from
- * the user's profile. Drives the user into the KYC screen on click.
+ * Uses the same Bridge-first derivation as profile/gating, so terminal Bridge
+ * account rejection does not render as "not started" when bridge_kyc_status is
+ * stale or absent. Drives the user into the KYC screen on click.
  *
  * Drop into Dashboard.tsx (individual) or BusinessDashboard.tsx (business)
  * with: <BridgeKycStatusCard userId={userId} onStartVerification={() => onNavigate('kyc')} />
@@ -13,8 +14,9 @@ import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, Loader2 } from 'lucide-react';
 import { supabase } from '../../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
+import { deriveKycStatus } from '../../../utils/config/environment';
 
-type BridgeStatus = 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected';
+type CardStatus = 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected';
 type AccountType  = 'individual' | 'business';
 
 interface Props {
@@ -28,7 +30,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const [accountType, setAccountType] = useState<AccountType>('individual');
-  const [status, setStatus]           = useState<BridgeStatus>('not_started');
+  const [status, setStatus]           = useState<CardStatus>('not_started');
   const [loading, setLoading]         = useState(true);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
     (async () => {
       const { data: prof } = await supabase
         .from('user_profiles')
-        .select('account_type, bridge_kyc_status')
+        .select('account_type, kyc_status, bridge_kyc_status, bridge_account_status')
         .eq('id', userId)
         .maybeSingle();
       if (!alive) return;
@@ -50,9 +52,15 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
           .eq('user_id', userId)
           .maybeSingle();
         if (!alive) return;
-        setStatus((biz?.bridge_kyb_status as BridgeStatus) || 'not_started');
+        const derived = deriveKycStatus({
+          ...prof,
+          bridge_kyb_status: biz?.bridge_kyb_status ?? null,
+          account_type: 'business',
+        });
+        setStatus(derived === 'verified' ? 'approved' : derived);
       } else {
-        setStatus((prof?.bridge_kyc_status as BridgeStatus) || 'not_started');
+        const derived = deriveKycStatus(prof);
+        setStatus(derived === 'verified' ? 'approved' : derived);
       }
       setLoading(false);
     })();

@@ -45,6 +45,7 @@ GATING = [
     "components/send/SendMoneyFlow.tsx",
     "components/auth/LoginScreen.tsx",
     "components/profile/ProfileScreen.tsx",
+    "components/dashboard/bridge/BridgeKycStatusCard.tsx",
 ]
 
 
@@ -93,13 +94,17 @@ def main() -> int:
     dash = read(ROOT / "components/app/Dashboard.tsx")
     login = read(ROOT / "components/auth/LoginScreen.tsx")
     prof = read(ROOT / "components/profile/ProfileScreen.tsx")
+    card = read(ROOT / "components/dashboard/bridge/BridgeKycStatusCard.tsx")
     u5 = ("isFullEnrollment(cachedProfile" not in dash
           and "isFullEnrollment(p.kyc_status" not in dash
           and "kyc_status === 'verified'" not in login
           and "switch (profile.kyc_status)" not in prof
-          and "deriveKycStatus(profile)" in prof)
+          and "deriveKycStatus(profile)" in prof
+          and "bridge_account_status" in card
+          and "deriveKycStatus(" in card
+          and "setStatus((prof?.bridge_kyc_status" not in card)
     checks.append(("U5 raw kyc_status gating/display removed on key surfaces", u5,
-                   "Dashboard/LoginScreen/ProfileScreen must not gate/display on raw kyc_status"))
+                   "Dashboard/LoginScreen/ProfileScreen/BridgeKycStatusCard must not gate/display on raw kyc_status or raw bridge_kyc_status"))
 
     # U6 — AppContext profile type includes all Bridge fields used for derivation.
     u6 = all(k in appctx for k in ("bridge_kyc_status", "bridge_kyb_status", "bridge_account_status"))
