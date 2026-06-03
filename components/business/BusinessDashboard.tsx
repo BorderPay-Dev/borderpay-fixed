@@ -76,9 +76,14 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     try {
       const r: any = await backendAPI.business.getProfile();
       if (r.success && r.data) {
-        setCompanyName(r.data.company_name || 'Your business');
+        const nextCompanyName = r.data.company_name || 'Your business';
+        setCompanyName(nextCompanyName);
         setRegistrationNumber(r.data.registration_number);
         setCountry(r.data.country);
+        try {
+          const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+          localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, account_type: 'business', company_name: nextCompanyName }));
+        } catch { /* ignore cache write */ }
       } else if (r.success && !r.data) {
         // No business profile yet — surface a friendly note.
         setProfileError('Your business profile is being set up. Add company details from Profile.');

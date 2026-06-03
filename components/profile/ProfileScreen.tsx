@@ -63,6 +63,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const [profile, setProfile] = useState(() => {
     const defaults = {
       full_name: '',
+      company_name: '',
       email: '',
       phone: '',
       address: '',
@@ -88,6 +89,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         const u = JSON.parse(cached);
         return {
           full_name: u.full_name || '',
+          company_name: u.company_name || '',
           email: u.email || '',
           phone: u.phone || '',
           address: u.address || '',
@@ -130,6 +132,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         const u = result.data.user;
         const profileData = {
           full_name: u.full_name || '',
+          company_name: u.company_name || '',
           email: u.email || '',
           phone: u.phone || '',
           address: u.address || '',
@@ -149,10 +152,18 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           profile_picture_url: u.profile_picture_url || null,
           two_factor_enabled: u.two_factor_enabled || false,
         };
+        if (profileData.account_type === 'business') {
+          try {
+            const biz: any = await backendAPI.business.getProfile();
+            if (biz?.success && biz.data?.company_name) {
+              profileData.company_name = biz.data.company_name;
+            }
+          } catch { /* keep profile payload/cache */ }
+        }
         setProfile(profileData);
         setEditedProfile(profileData);
         // Update cache for next time
-        localStorage.setItem('borderpay_user', JSON.stringify(u));
+        localStorage.setItem('borderpay_user', JSON.stringify({ ...u, company_name: profileData.company_name }));
       }
       // No error toast — screen already shows cached or default data
     } catch (_) {
@@ -253,6 +264,10 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const profileTitle = isBusinessAccount ? 'Business profile' : t('profile.title');
   const informationTitle = isBusinessAccount ? 'Business information' : 'Personal Information';
   const nameLabel = isBusinessAccount ? 'Primary contact' : 'Full Name';
+  const displayName = isBusinessAccount
+    ? (profile.company_name || 'Business account')
+    : (profile.full_name || 'No Name');
+  const avatarInitial = displayName?.charAt(0)?.toUpperCase() || 'U';
 
   return (
     <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
@@ -300,7 +315,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
               ) : (
                 <div className="w-full h-full bg-gradient-to-br from-[#C7FF00] to-[#95E03D] flex items-center justify-center">
                   <span className="text-4xl font-black text-black">
-                    {profile.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                    {avatarInitial}
                   </span>
                 </div>
               )}
@@ -315,7 +330,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
             </button>
           </div>
 
-          <h2 className="text-xl font-bold text-white">{profile.full_name || 'No Name'}</h2>
+          <h2 className="text-xl font-bold text-white">{displayName}</h2>
           <p className="text-gray-400 text-sm mt-0.5">{profile.email}</p>
 
           <div className={`flex items-center gap-2 mt-2 px-3 py-1.5 border rounded-full ${kycBadge.bg}`}>
@@ -327,6 +342,16 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         {/* Profile info */}
         <div className="space-y-3">
           <h3 className="text-xs text-gray-400 font-semibold uppercase tracking-wider px-1">{informationTitle}</h3>
+
+          {isBusinessAccount && (
+            <ProfileField
+              icon={User}
+              label="Business name"
+              value={profile.company_name}
+              editing={false}
+              disabled
+            />
+          )}
 
           <ProfileField
             icon={User}

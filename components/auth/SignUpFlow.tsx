@@ -451,6 +451,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         id: data.user.id,
                         email: data.user.email,
                         full_name: formData.fullName,
+                        ...(formData.accountType === 'business' ? { company_name: formData.companyName } : {}),
                         kyc_status: 'pending',
                         account_type: formData.accountType,
                       }));

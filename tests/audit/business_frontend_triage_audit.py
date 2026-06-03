@@ -29,6 +29,10 @@ def main() -> int:
     profile = read("components/profile/ProfileScreen.tsx")
     cards = read("components/cards/CardsScreen.tsx")
     team = read("components/team/TeamScreen.tsx")
+    main_app = read("components/app/MainApp.tsx")
+    business_dash = read("components/business/BusinessDashboard.tsx")
+    client = read("utils/supabase/client.ts")
+    signup = read("components/auth/SignUpFlow.tsx")
 
     checks: list[tuple[str, bool, str]] = []
 
@@ -81,6 +85,21 @@ def main() -> int:
         and "onClick={load}" in team
         and "Retry" in team,
         "TeamScreen must timeout the roster call and show a Retry action",
+    ))
+
+    checks.append((
+        "B6 business accounts display company name, not owner name",
+        "'company_name'" in client
+        and "company_name: formData.companyName" in signup
+        and "getBusinessDisplayName(" in main_app
+        and "backendAPI.business.getProfile()" in main_app
+        and "u.company_name = biz.data.company_name" in main_app
+        and "company_name" in business_dash
+        and "localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, account_type: 'business', company_name: nextCompanyName }))" in business_dash
+        and "Business name" in profile
+        and "displayName = isBusinessAccount" in profile
+        and "profile.company_name" in profile,
+        "Business shell/dashboard/profile must prefer business_profiles.company_name and cache it for first paint",
     ))
 
     print("business_frontend_triage_audit:")
