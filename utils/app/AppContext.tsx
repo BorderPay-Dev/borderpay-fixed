@@ -14,7 +14,7 @@
  */
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, ReactNode } from 'react';
-import { supabase, SUPABASE_URL, ANON_KEY, readUserProfile, storeUserProfile, isPasswordRecovery, isBiometricLoginPending } from '../supabase/client';
+import { supabase, SUPABASE_URL, ANON_KEY, readUserProfile, storeUserProfile, isPasswordRecovery, isBiometricLoginPending, isAppLocked } from '../supabase/client';
 import type { Session, User } from '@supabase/supabase-js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // A Supabase password-recovery session is NOT a login — never authenticate
     // (or hydrate dashboard data) while a recovery is in progress. The same holds
     // while a biometric login is pending (session restored, WebAuthn not yet passed).
-    isAuthenticated: !!initialSession.user && !!initialSession.session && !isPasswordRecovery() && !isBiometricLoginPending(),
+    isAuthenticated: !!initialSession.user && !!initialSession.session && !isPasswordRecovery() && !isBiometricLoginPending() && !isAppLocked(),
     loading: !initialCache, // loading only if we had no cache to serve
   }));
 
@@ -176,6 +176,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Biometric-login-pending is the same: the session was restored only so the
     // WebAuthn assertion can run; do not hydrate or authenticate until it passes.
     if (isBiometricLoginPending()) {
+      if (mountedRef.current) setState(s => ({
+        ...s,
+        user: null, session: null, profile: null, wallets: [],
+        emailConfirmed: false, isAuthenticated: false,
+        sessionChecked: true, loading: false,
+      }));
+      return;
+    }
+    // App-locked ("Lock app"): a refreshable session is preserved but the app is
+    // locked behind biometric — do not hydrate or authenticate until unlock.
+    if (isAppLocked()) {
       if (mountedRef.current) setState(s => ({
         ...s,
         user: null, session: null, profile: null, wallets: [],
@@ -225,7 +236,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         user, session, profile,
         wallets,
         emailConfirmed,
-        isAuthenticated: !!user && !!session && !isPasswordRecovery() && !isBiometricLoginPending(),
+        isAuthenticated: !!user && !!session && !isPasswordRecovery() && !isBiometricLoginPending() && !isAppLocked(),
         loading: false,
       };
       if (mountedRef.current) setState(next);

@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
-import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, clearAppLocked } from '../../utils/supabase/client';
 import { ENV_CONFIG } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -87,9 +87,10 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
     setIsLoading(true);
 
     // Explicit password login is authoritative credential auth — clear any stale
-    // biometric-pending gate (e.g. left behind by a crash mid-biometric) so it
-    // can't block this login until the 2-min self-heal expiry.
+    // biometric-pending gate (e.g. left behind by a crash mid-biometric) AND any
+    // app-locked marker, so neither can block this login.
     clearBiometricLoginPending();
+    clearAppLocked();
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -180,9 +181,10 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
   // pass WebAuthn. Clears the Supabase session and every local auth token so the
   // user is left fully signed out on the login screen.
   const clearRestoredSession = async () => {
-    // Lift the routing gate first so a failed/aborted attempt can't strand the
-    // app in a non-authenticated pending state.
+    // Lift the routing gates first so a failed/aborted attempt can't strand the
+    // app in a non-authenticated pending/locked state.
     clearBiometricLoginPending();
+    clearAppLocked();
     try { await supabase.auth.signOut(); } catch { /* best-effort */ }
     localStorage.removeItem('borderpay_token');
     localStorage.removeItem('borderpay_refresh_token');
@@ -282,10 +284,11 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         return;
       }
 
-      // Step 6: WebAuthn succeeded → lift the routing gate, then complete the
-      // login flow with controlled navigation (the only authorized entry to the
-      // dashboard for biometric sign-in).
+      // Step 6: WebAuthn succeeded → lift the routing gates (pending + any app
+      // lock), then complete the login flow with controlled navigation (the only
+      // authorized entry to the dashboard for biometric sign-in / unlock).
       clearBiometricLoginPending();
+      clearAppLocked();
       completed = true;
       const sessionUser = refreshData.session.user;
       const mergedProfile = {
