@@ -18,6 +18,12 @@ verify_jwt = true
 [functions.kyc-status]
 verify_jwt = true
 
+# User profile read — authenticated; derives the caller's identity from their JWT
+# (supabase.auth.getUser(token)). MUST stay JWT-gated — never deploy with
+# --no-verify-jwt. Pinned explicitly so the deploy default can't be flipped.
+[functions.get-user-profile]
+verify_jwt = true
+
 # Bridge external accounts — authenticated payout destination endpoint.
 [functions.bridge-external-account]
 verify_jwt = true
