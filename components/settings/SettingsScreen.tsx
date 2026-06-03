@@ -49,6 +49,8 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const [hasPIN, setHasPIN] = useState(false);
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const storedUser = authAPI.getStoredUser();
+  const isBusinessAccount = storedUser?.account_type === 'business';
 
   // Load security status from backend (persists across login/logout)
   useEffect(() => {
@@ -75,7 +77,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     {
       title: t('settings.account'),
       items: [
-        { icon: User, label: t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
+        { icon: User, label: isBusinessAccount ? 'Business information' : t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
         // Plans & pricing — wallet-debit upgrade flow entry point.
         { icon: Sparkles, label: 'Plans & pricing', screen: 'pricing', color: 'text-[#C7FF00]' },
         // Payment Methods option removed per product decision.

@@ -118,6 +118,12 @@ if (typeof window !== 'undefined') {
   (window as any).__borderpay_prefetch = prefetchScreen;
 }
 
+function getBusinessDisplayName(profile: any): string {
+  return profile?.account_type === 'business'
+    ? (profile?.company_name || profile?.full_name || '')
+    : (profile?.full_name || '');
+}
+
 // ─── Skeleton Fallback (no spinner!) ───────────────────────────────────
 // Shown only on the first navigation to a screen, while its chunk loads.
 // Subsequent navigations to the same screen render instantly.
@@ -265,7 +271,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
   const [shellUserName, setShellUserName] = useState<string>(() => {
-    try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.full_name || ''; } catch { return ''; }
+    try { return getBusinessDisplayName(JSON.parse(localStorage.getItem('borderpay_user') || '{}')); } catch { return ''; }
   });
   const [shellAvatarUrl, setShellAvatarUrl] = useState<string | null>(() => {
     try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.profile_picture_url || null; } catch { return null; }
@@ -292,9 +298,18 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         if (r?.success && r.data?.user) {
           const u: any = r.data.user;
           const t = u.account_type === 'business' ? 'business' : 'individual';
+          if (t === 'business') {
+            try {
+              const biz: any = await backendAPI.business.getProfile();
+              if (biz?.success && biz.data?.company_name) {
+                u.company_name = biz.data.company_name;
+              }
+            } catch { /* keep profile payload */ }
+          }
           if (t !== accountType) setAccountType(t);
           // Shell display props — kept in MainApp so AppShell stays presentational.
-          if (u.full_name && u.full_name !== shellUserName) setShellUserName(u.full_name);
+          const displayName = getBusinessDisplayName({ ...u, account_type: t });
+          if (displayName && displayName !== shellUserName) setShellUserName(displayName);
           if (u.profile_picture_url !== undefined && u.profile_picture_url !== shellAvatarUrl) {
             setShellAvatarUrl(u.profile_picture_url || null);
           }

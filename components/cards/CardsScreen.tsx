@@ -11,8 +11,7 @@
  */
 
 import React from 'react';
-import { motion } from 'motion/react';
-import { CreditCard, Bell, Sparkles, Lock } from 'lucide-react';
+import { Bell, Sparkles, Lock } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface CardsScreenProps {
@@ -24,7 +23,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   const tc = useThemeClasses();
 
   const title       = (t as any)?.('cards.coming_soon.title')    ?? 'Virtual cards, soon';
-  const subtitle    = (t as any)?.('cards.coming_soon.subtitle') ?? 'Spend your USD balance anywhere Mastercard is accepted — coming with the next release.';
+  const subtitle    = (t as any)?.('cards.coming_soon.subtitle') ?? 'Card issuing is paused while we complete the card-program migration.';
   const notifyMe    = (t as any)?.('cards.coming_soon.notify')   ?? 'Notify me at launch';
   const sectionTitle = 'Cards';
 
@@ -37,13 +36,12 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
         </p>
 
         {/* ── Card preview ──
-            A faux virtual card with brand mark + obfuscated number + "Coming
-            soon" lock badge. Subtle lime sheen across the top edge. */}
+            A static faux virtual card with brand text + "Coming soon" lock
+            badge. Keep this dependency-light: this screen must not crash while
+            cards are unavailable. */}
         {/*
-            Card faces: real BorderPay logo top-left as the HERO (white), EMV
-            chip middle-right, Mastercard mark bottom-right, "Soon" lock pill
-            top-right. Two colourways (lime-on-black + green-on-black), both
-            Mastercard. Cards remain Coming Soon — no active issuing implied. */}
+            Card faces stay generic on purpose. No network logo, spend copy, or
+            manage-card controls are shown until issuing is live. */}
         <div className="flex flex-col sm:flex-row gap-4 max-w-2xl">
           {[
             {
@@ -58,12 +56,9 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
                 'radial-gradient(120% 90% at 8% 16%,rgba(0,200,140,.18),transparent 42%),radial-gradient(140% 120% at 92% 90%,rgba(0,200,140,.10),transparent 46%),linear-gradient(150deg,#06120d,#0c1a16 48%,#06100c)',
               ring: 'rgba(0,200,140,.20)',
             },
-          ].map((c, i) => (
-            <motion.div
+          ].map((c) => (
+            <div
               key={c.key}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: i * 0.06, ease: 'easeOut' }}
               className="relative overflow-hidden rounded-3xl aspect-[1.586/1] flex-1 min-w-0"
               style={{ background: c.gradient, boxShadow: `inset 0 0 0 1px ${c.ring}, 0 18px 40px -18px ${c.ring}` }}
               aria-hidden="true"
@@ -74,23 +69,9 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
                 <span className="text-[9px] font-bold tracking-wider uppercase text-white">Soon</span>
               </div>
 
-              {/* HERO: real BorderPay logo (white) — top-left, largest mark */}
-              <span
-                className="absolute top-4 left-5 z-10 block"
-                style={{
-                  width: '60%',
-                  height: 56,
-                  backgroundColor: '#fff',
-                  WebkitMaskImage: "url('/borderpay-mark.svg')",
-                  maskImage: "url('/borderpay-mark.svg')",
-                  WebkitMaskRepeat: 'no-repeat',
-                  maskRepeat: 'no-repeat',
-                  WebkitMaskPosition: 'left center',
-                  maskPosition: 'left center',
-                  WebkitMaskSize: 'contain',
-                  maskSize: 'contain',
-                }}
-              />
+              <span className="absolute top-5 left-5 z-10 text-sm font-bold tracking-tight text-white">
+                BorderPay
+              </span>
 
               {/* EMV chip — middle-right, vertically centred */}
               <div
@@ -108,31 +89,21 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
                 />
               </div>
 
-              {/* Bottom row — VIRTUAL eyebrow + network mark */}
+              {/* Bottom row — VIRTUAL eyebrow + locked placeholder mark */}
               <div className="absolute left-5 right-5 bottom-5 z-10 flex items-end justify-between">
                 <span className="text-[9px] font-semibold uppercase tracking-[0.3em] text-white/55">
                   Virtual
                 </span>
-                {/* Mastercard interlocking circles on BOTH cards (no Visa). */}
-                <div className="flex -space-x-2.5">
-                  <span className="w-6 h-6 rounded-full bg-[#EB001B]" />
-                  <span
-                    className="w-6 h-6 rounded-full"
-                    style={{ background: 'radial-gradient(circle at 30% 50%,#FF5F00 0 40%,#F79E1B 60%)' }}
-                  />
+                <div className="h-7 w-11 rounded-lg border border-white/20 bg-white/10" aria-hidden="true">
+                  <div className="m-1.5 h-1 rounded bg-white/30" />
                 </div>
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
 
         {/* ── Copy + notify ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, delay: 0.08, ease: 'easeOut' }}
-          className="mt-7 max-w-md"
-        >
+        <div className="mt-7 max-w-md">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C7FF00]/15 mb-3">
             <Sparkles className="w-3 h-3 text-[#C7FF00]" />
             <span className="text-[10px] font-bold tracking-wider uppercase text-[#C7FF00]">In the works</span>
@@ -157,19 +128,19 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
           {/* Feature peek */}
           <ul className={`mt-8 space-y-2.5 text-sm ${tc.textSecondary}`}>
             <li className="flex items-start gap-2">
-              <CreditCard className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
-              <span>Virtual cards funded from your USD balance</span>
+              <Lock className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
+              <span>No cards can be created or managed yet.</span>
             </li>
             <li className="flex items-start gap-2">
-              <CreditCard className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
-              <span>Spend anywhere Mastercard is accepted, in any currency</span>
+              <Lock className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
+              <span>We will announce availability after compliance and issuing checks are complete.</span>
             </li>
             <li className="flex items-start gap-2">
-              <CreditCard className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
-              <span>Freeze, unfreeze, or terminate in one tap</span>
+              <Lock className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
+              <span>Existing money features remain separate from card issuing.</span>
             </li>
           </ul>
-        </motion.div>
+        </div>
       </div>
     </div>
   );

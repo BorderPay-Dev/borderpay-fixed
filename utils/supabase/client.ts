@@ -93,7 +93,7 @@ const USER_STORAGE_KEY = 'borderpay_user';
  * Dashboard / KYC / admin guard hooks read synchronously at first paint.
  */
 const SAFE_FIELDS = [
-  'id', 'email', 'full_name', 'country', 'phone',
+  'id', 'email', 'full_name', 'company_name', 'country', 'phone',
   'account_type',                    // ← business vs individual routing
   'kyc_status',
   'kyc_level',
