@@ -104,6 +104,18 @@ def main() -> int:
         "Business shell/dashboard/profile must prefer business_profiles.company_name and cache it for first paint",
     ))
 
+    checks.append((
+        "B7 profile fast-paints business data before company refresh",
+        "cachedCompanyName" in profile
+        and "mergeProfileCache" in profile
+        and profile.find("setProfile(profileData)") >= 0
+        and profile.find("backendAPI.business.getProfile()") >= 0
+        and profile.find("setProfile(profileData)") < profile.find("backendAPI.business.getProfile()")
+        and "setProfile((p) => ({ ...p, company_name }))" in profile
+        and "mergeProfileCache({ company_name, account_type: 'business' })" in profile,
+        "ProfileScreen must render cached/profile data immediately, then patch company_name from business_profiles in the background",
+    ))
+
     print("business_frontend_triage_audit:")
     ok = True
     for name, passed, detail in checks:
