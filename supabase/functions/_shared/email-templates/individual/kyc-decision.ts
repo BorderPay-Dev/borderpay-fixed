@@ -53,7 +53,7 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
     text: textLayout({
       heading,
       body: approved
-        ? "Identity verified. Virtual accounts and wallets are available."
+        ? "Identity verified. Open BorderPay to view the services available for your account."
         : `Verification didn't pass.\nReason: ${p.reason || "—"}\n${closing}`,
       ctaText, ctaUrl,
     }),
