@@ -122,6 +122,26 @@ function getBusinessDisplayName(profile: any): string {
     : (profile?.full_name || '');
 }
 
+function unreadCountCacheKey(userId: string): string {
+  return `borderpay_unread_count:${userId}`;
+}
+
+function readCachedUnreadCount(userId: string): number {
+  try {
+    const raw = localStorage.getItem(unreadCountCacheKey(userId));
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeCachedUnreadCount(userId: string, count: number): void {
+  try {
+    localStorage.setItem(unreadCountCacheKey(userId), String(Math.max(0, Math.floor(count || 0))));
+  } catch { /* ignore notification cache write */ }
+}
+
 // ─── Skeleton Fallback (no spinner!) ───────────────────────────────────
 // Shown only on the first navigation to a screen, while its chunk loads.
 // Subsequent navigations to the same screen render instantly.
@@ -274,7 +294,13 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [shellAvatarUrl, setShellAvatarUrl] = useState<string | null>(() => {
     try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.profile_picture_url || null; } catch { return null; }
   });
-  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [unreadCount, setUnreadCount] = useState<number>(() => readCachedUnreadCount(userId));
+
+  const updateUnreadCount = useCallback((count: number) => {
+    const next = Math.max(0, Math.floor(Number(count) || 0));
+    setUnreadCount(next);
+    writeCachedUnreadCount(userId, next);
+  }, [userId]);
 
   // ─── ADDITIVE: account-type routing ────────────────────────────────────
   // Default to 'individual' for first paint (preserves existing behaviour
@@ -342,11 +368,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         const r: any = await backendAPI.notifications.getUnreadCount();
         if (cancelled) return;
         const n = Number(r?.data?.count ?? r?.data?.unread_count ?? 0);
-        if (Number.isFinite(n)) setUnreadCount(n);
+        if (Number.isFinite(n)) updateUnreadCount(n);
       } catch { /* non-fatal */ }
     })();
     return () => { cancelled = true; };
-  }, [userId, refreshKey]);
+  }, [userId, refreshKey, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
   // Reads user_subscriptions via the subscription-current edge function. If
@@ -684,7 +710,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'notifications':
-        return <NotificationsScreen onBack={navigateBack} />;
+        return <NotificationsScreen onBack={navigateBack} onUnreadCountChange={updateUnreadCount} />;
 
       case 'dashboard':
       case 'home':

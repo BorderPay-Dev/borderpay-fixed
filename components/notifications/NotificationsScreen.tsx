@@ -33,6 +33,7 @@ interface NotificationRow {
 
 interface NotificationsScreenProps {
   onBack: () => void;
+  onUnreadCountChange?: (count: number) => void;
 }
 
 function notifIcon(type?: string | null) {
@@ -63,7 +64,7 @@ function relativeTime(iso: string): string {
   }
 }
 
-export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
+export function NotificationsScreen({ onBack, onUnreadCountChange }: NotificationsScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
@@ -86,6 +87,7 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
         : Array.isArray(r?.notifications)        ? r.notifications
         : [];
       setRows(data);
+      onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
       if (!r?.success && r?.error) setError(r.error);
     } catch (e: any) {
       setError(e?.message || 'Could not load notifications');
@@ -101,7 +103,11 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
   const handleMarkRead = async (n: NotificationRow) => {
     if (n.read) return;
     setBusyId(n.id);
-    setRows(prev => prev.map(r => r.id === n.id ? { ...r, read: true } : r));
+    setRows(prev => {
+      const next = prev.map(r => r.id === n.id ? { ...r, read: true } : r);
+      onUnreadCountChange?.(next.filter(r => !r.read).length);
+      return next;
+    });
     try {
       await backendAPI.notifications.markAsRead(n.id);
     } catch { /* keep optimistic */ }
@@ -109,13 +115,21 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
   };
 
   const handleMarkAllRead = async () => {
-    setRows(prev => prev.map(r => ({ ...r, read: true })));
+    setRows(prev => {
+      const next = prev.map(r => ({ ...r, read: true }));
+      onUnreadCountChange?.(0);
+      return next;
+    });
     try { await backendAPI.notifications.markAllAsRead(); } catch { /* ignore */ }
   };
 
   const handleDelete = async (n: NotificationRow) => {
     setBusyId(n.id);
-    setRows(prev => prev.filter(r => r.id !== n.id));
+    setRows(prev => {
+      const next = prev.filter(r => r.id !== n.id);
+      onUnreadCountChange?.(next.filter(r => !r.read).length);
+      return next;
+    });
     try { await backendAPI.notifications.deleteNotification(n.id); } catch { /* ignore */ }
     finally { setBusyId(null); }
   };
