@@ -84,6 +84,11 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
     setInlineError('');
     setIsLoading(true);
 
+    // Explicit password login is authoritative credential auth — clear any stale
+    // biometric-pending gate (e.g. left behind by a crash mid-biometric) so it
+    // can't block this login until the 2-min self-heal expiry.
+    clearBiometricLoginPending();
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;

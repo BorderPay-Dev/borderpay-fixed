@@ -42,6 +42,7 @@ Invariants (fail closed):
   (B13) useAuth treats pending as NOT authenticated (every computed value).
   (B14) AppContext treats pending as NOT authenticated (initial + reload).
   (B15) App.tsx early-returns on pending before dashboard routing / token clear.
+  (B16) explicit password login clears any stale pending gate before signing in.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -200,6 +201,15 @@ def main() -> int:
                     and all("isBiometricLoginPending()" in c for c in appctx_calcs)
                     and "if (isBiometricLoginPending())" in appctx),
                    f"AppContext must gate every isAuthenticated calc + reload early-return on pending: {appctx_calcs}"))
+
+    # B16 — explicit password login clears any stale biometric-pending gate,
+    # before signing in, so a crash mid-biometric can't block password login.
+    login_fn = slice_fn(raw, "const handleLogin = async (e: React.FormEvent) =>")
+    lp_clear = login_fn.find("clearBiometricLoginPending(")
+    lp_signin = login_fn.find("signInWithPassword(")
+    checks.append(("B16 password login clears stale pending gate first",
+                   before(lp_clear, lp_signin),
+                   f"handleLogin must clearBiometricLoginPending({lp_clear}) before signInWithPassword({lp_signin})"))
 
     # B15 — App.tsx refuses dashboard routing while pending, BEFORE the auth
     # route AND before the not-authenticated branch clears borderpay_token.
