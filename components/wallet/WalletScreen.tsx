@@ -15,7 +15,7 @@
  *      which triggers the global UpgradeModal.
  *   3. <BridgeWalletsCard/> — Custodial stablecoin wallets (USDC/USDT/
  *      PYUSD/USDB) on Base/Ethereum/Solana/Optimism/Polygon.
- *   4. <CardsComingSoonCard/> — Cards are not yet issued.
+ *   4. <CardsLockedCard/> — Cards are not yet issued.
  *   5. <AfricanRailsFutureCard/> — Local-currency rails are future-state
  *      (Yativo integration). NGN/KES/GHS/UGX/etc. show "Coming soon".
  *
@@ -31,7 +31,7 @@ import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environmen
 import { supabase } from '../../utils/supabase/client';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
-import { CardsComingSoonCard } from '../dashboard/bridge/CardsComingSoonCard';
+import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 import { usePreferences } from '../../utils/hooks/usePreferences';
 
@@ -192,12 +192,12 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
           <BridgeWalletsCard userId={userId} />
         </div>
 
-        {/* ── Section: Cards (Coming Soon) ──────────────────────────── */}
+        {/* ── Section: Cards (locked) ───────────────────────────────── */}
         <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
           {tt('wallet.cards', 'Cards')}
         </h2>
         <div className="mb-6">
-          <CardsComingSoonCard />
+          <CardsLockedCard />
         </div>
 
         {/* ── Section: African rails (future) ───────────────────────── */}

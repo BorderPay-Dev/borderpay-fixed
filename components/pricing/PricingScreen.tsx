@@ -135,7 +135,7 @@ export function PricingScreen({
         <p className={`mt-10 text-center text-xs ${tc.textMuted} max-w-2xl mx-auto`}>
           {tt(
             'pricing.footnote',
-            'Card issuance is launching soon. African local-currency rails (NGN/KES/GHS/UGX and others) and mobile money are coming through our local-rails partner.',
+            'Card issuance is launching soon. African local-currency rails (NGN/KES/GHS/UGX and others) and mobile money are coming through BorderPay local rails.',
           )}
         </p>
       </section>

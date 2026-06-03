@@ -10,7 +10,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import type { StablecoinSymbol, StablecoinChain } from "../_shared/providers/types.ts";
-import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
+import {
+  isBridgeBlocked,
+  bridgeCountryBlockResponse,
+  logControlledBridgeTraffic,
+  isBridgeCustodialWalletSupported,
+} from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -47,23 +52,45 @@ Deno.serve(async (req) => {
 
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("country, bridge_customer_id, bridge_kyc_status")
+    .select("account_type, country, bridge_customer_id, bridge_kyc_status")
     .eq("id", user.id)
     .maybeSingle();
+  const isBusiness = profile?.account_type === "business";
+  let productCountry = profile?.country ?? null;
+  let verificationStatus = profile?.bridge_kyc_status ?? null;
+
+  if (isBusiness) {
+    const { data: biz } = await supa
+      .from("business_profiles")
+      .select("country, bridge_kyb_status")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    productCountry = biz?.country ?? productCountry;
+    verificationStatus = biz?.bridge_kyb_status ?? verificationStatus;
+  }
+
   // Defense-in-depth: even though Bridge customer creation already blocks
   // prohibited jurisdictions, a legacy/dirty row with a bridge_customer_id
   // for a prohibited-country user must NOT be able to provision a wallet.
   // Round-9: expanded from {CD} to full Prohibited set (18 codes) +
   // observability for Controlled traffic.
-  if (isBridgeBlocked(profile?.country)) {
-    return json(bridgeCountryBlockResponse(profile!.country!), 403);
+  if (isBridgeBlocked(productCountry)) {
+    return json(bridgeCountryBlockResponse(productCountry!), 403);
   }
-  logControlledBridgeTraffic("bridge-wallet", profile?.country, user.id);
+  if (!isBridgeCustodialWalletSupported(productCountry)) {
+    return json({
+      success: false,
+      code: "wallet_country_not_supported",
+      error: "Stablecoin wallets are not available for your country through BorderPay.",
+      country: productCountry,
+    }, 403);
+  }
+  logControlledBridgeTraffic("bridge-wallet", productCountry, user.id);
   if (!profile?.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }
-  if (profile.bridge_kyc_status !== "approved") {
-    return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
+  if (verificationStatus !== "approved") {
+    return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
 
   // Idempotent on (user, symbol, chain)

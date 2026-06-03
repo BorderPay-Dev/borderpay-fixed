@@ -45,9 +45,8 @@ end $$;
 -- Used by every app surface (Dashboard, Profile, KYC, Cards, Wallets, etc.)
 -- and by every deployed edge function. Treat as the single source of truth.
 --
--- Provider columns: bridge_* are the live partner columns. All maplerad_*
--- columns were dropped by migration 20260518_maplerad_triggers_sweep.sql
--- and are gone from production — do NOT re-add them.
+-- Provider columns: bridge_* are the live provider columns. Removed-provider
+-- columns were dropped by cleanup migrations and must not be re-added.
 -- Constraint nullability captured from live `information_schema.columns`
 -- on 2026-05-19. The previous version of this declaration claimed
 -- NOT NULL on email/kyc_status/kyc_level/created_at/updated_at; those
@@ -84,8 +83,8 @@ create table if not exists public.user_profiles (
   admin_kyc_decision              text,
   admin_kyc_notes                 text,
   bridge_environment              text,
-  -- Partner (Bridge) identity columns. Populated by bridge-kyc-link /
-  -- bridge-kyb-link on first KYC start, updated by webhook ingest.
+  -- Provider identity columns. Populated on first KYC/KYB start, updated by
+  -- webhook ingest.
   payment_provider                public.payment_provider not null default 'bridge',
   bridge_customer_id              text,
   bridge_kyc_status               text,
@@ -98,9 +97,10 @@ create table if not exists public.user_profiles (
   updated_at                      timestamptz default now()
 );
 
--- ─── 4. users (legacy mirror; kept in sync by trigger) ───────────────────────
--- Reflects the post-sweep shape (migration 20260518_maplerad_triggers_sweep.sql).
--- No maplerad_* columns. bridge_customer_id is the only provider id.
+-- ─── 4. users (legacy mirror; no provider identity columns) ──────────────────
+-- Provider identity belongs in public.user_profiles only. The users mirror is
+-- deliberately free of provider customer ids to avoid split-brain
+-- reads.
 create table if not exists public.users (
   id                   uuid primary key references auth.users(id) on delete cascade,
   email                text not null,
@@ -110,7 +110,6 @@ create table if not exists public.users (
   account_type         public.account_type not null default 'individual',
   kyc_status           public.kyc_status   default 'unverified',
   wallet_activated     boolean default false,
-  bridge_customer_id   text,
   created_at           timestamptz default now(),
   updated_at           timestamptz default now()
 );

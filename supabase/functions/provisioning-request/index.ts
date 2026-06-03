@@ -7,7 +7,7 @@
 //   • virtual_account (USD/EUR/GBP) → bridge-virtual-account
 //   • stablecoin                    → bridge-wallet
 //   • local_currency                → rails_future_state (client-side)
-//   • card                          → cards_coming_soon (client-side)
+//   • card                          → cards_locked (client-side)
 //
 // Returns HTTP 410 Gone.
 

@@ -99,12 +99,11 @@ Deno.serve(async (req: Request) => {
     // Bridge customer creation happens later, only when the user clicks
     // Start KYC/KYB (bridge-customer + bridge-kyc-link / bridge-kyb-link).
     {
-      // Columns must match the current public.users schema exactly. The
-      // legacy fields (is_unlocked / one_time_fee_paid / is_kyc_verified /
-      // beta_user) were dropped with the Maplerad removal and writing to
-      // them causes "column does not exist". `kyc_status` is an enum —
-      // valid values are: unverified | pending | verified | failed |
-      // approved | rejected. Use `unverified` for new accounts.
+      // Columns must match the current public.users schema exactly. Legacy
+      // onboarding/payment fields were dropped; writing to them causes
+      // "column does not exist". `kyc_status` is an enum — valid values are:
+      // unverified | pending | verified | failed | approved | rejected.
+      // Use `unverified` for new accounts.
       const { error: usersErr } = await supabaseAdmin.from("users").upsert({
         id: userId, email, full_name,
         phone:            phone_number || "",

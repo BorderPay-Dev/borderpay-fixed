@@ -883,7 +883,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
           <p className="text-[11px] text-gray-500">
             {formData.accountType === 'individual'
               ? 'Personal wallet, cards, transfers — KYC required.'
-              : 'For registered companies. Business verification is handled securely by Bridge.'}
+              : 'For registered companies. Business verification is handled securely by BorderPay.'}
           </p>
         </div>
 
@@ -1280,7 +1280,7 @@ function StepConfirmEmail({ email, fullName, onEmailConfirmed, onResend, isLoadi
             Next: business verification
           </p>
           <p className="text-xs text-gray-400 leading-relaxed">
-            Business verification is handled by Bridge. After you verify your email and sign in, you'll complete business, ownership, and address checks in the secure Bridge KYB flow from your dashboard.
+            After you verify your email and sign in, you'll complete business, ownership, and address checks in BorderPay's secure verification flow from your dashboard.
           </p>
         </div>
       )}
@@ -1737,8 +1737,8 @@ function StepPending({ onProceed, enrollmentComplete }: {
         
         <p className="text-gray-400 text-sm mb-6 leading-relaxed">
           {enrollmentComplete
-            ? 'Your account is under review. You can explore the dashboard while Bridge verifies your details. You\'ll be notified once approved.'
-            : 'Your information has been submitted. You can start exploring BorderPay while your verification is completed with Bridge.'
+            ? 'Your account is under review. You can explore the dashboard while we verify your details. You\'ll be notified once approved.'
+            : 'Your information has been submitted. You can start exploring BorderPay while verification is completed.'
           }
         </p>
 

@@ -37,7 +37,7 @@ export function AfricanRailsFutureCard() {
             </span>
           </h3>
           <p className={`text-sm ${tc.textSecondary}`}>
-            {tt('dash.african.subtitle', 'We are partnering with African PSPs to bring local-currency cash-in and cash-out into BorderPay.')}
+            {tt('dash.african.subtitle', 'BorderPay local-currency cash-in and cash-out is coming soon.')}
           </p>
         </div>
       </div>

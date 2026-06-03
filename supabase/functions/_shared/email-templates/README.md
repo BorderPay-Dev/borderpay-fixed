@@ -50,7 +50,7 @@ The unified `send-email` edge function:
 | Individual deposit/payout | `individual.transaction_notification` | `process-pending-events` worker |
 | Business signup | `business.email_verification` | `auth-signup` v88 |
 | Business KYB submitted | `business.kyb_submitted` | `kyc-submit` (business branch) |
-| Business KYB approved/rejected | `business.kyb_decision` | `backfill-maplerad-customers` admin_kyc_approve/reject |
+| Business KYB approved/rejected | `business.kyb_decision` | `process-pending-events` terminal KYB decision |
 | Business transaction | `business.transaction_notification` | `process-pending-events` worker |
 | Business account activated | `business.account_activated` | webhook on first wallet/card success |
 

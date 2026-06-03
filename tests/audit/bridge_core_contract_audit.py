@@ -10,7 +10,7 @@ Invariants (fail closed):
 
   (B1) TRANSFERS_LIVE is false (no transfer flag flip).
   (B2) EXTERNAL_ACCOUNTS_LIVE is false (no external-accounts flag flip).
-  (B3) Cards remain Coming Soon (no active issue/fund path in CardsScreen).
+  (B3) Cards remain locked (no active issue/fund path in CardsScreen).
   (B4) No USDB/yield product copy in UI (no apy/yield/interest-rate/staking/...).
        (The USDB *ticker* is allowed; yield *product* language is not.)
   (B5) Bridge external accounts are NOT labeled as African local banks
@@ -47,9 +47,9 @@ def main() -> int:
                    "external accounts must stay gated off"))
 
     cards = read(ROOT / "components" / "cards" / "CardsScreen.tsx").lower()
-    checks.append(("B3 cards remain Coming Soon",
-                   ("soon" in cards and "disabled" in cards and "fund-card" not in cards),
-                   "CardsScreen must stay coming-soon with no active issue/fund path"))
+    checks.append(("B3 cards remain locked",
+                   ("locked" in cards and "disabled" in cards and "fund-card" not in cards and "coming soon" not in cards),
+                   "CardsScreen must stay locked with no active issue/fund path"))
 
     # B4 — no yield-product copy in UI .tsx + email templates. USDB ticker allowed.
     yield_terms = [r"\bapy\b", r"\byield\b", r"\binterest rate\b", r"\bstaking\b",

@@ -16,7 +16,7 @@
  *
  * African currencies (NGN/KES/GHS/UGX/XAF/etc.) are shown as indicative
  * rates only — actual convert/payout for those rails is gated until our
- * African local-rails partner is wired (the Exchange screen surfaces a
+ * African local rails are wired (the Exchange screen surfaces a
  * "Convert launching soon" notice today).
  */
 

@@ -97,16 +97,16 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const subline =
     status === 'approved'
       ? (isBusiness
-          ? tt('dash.kyb.approved.body', 'Verified by Bridge. Virtual accounts and wallets are now available.')
+          ? tt('dash.kyb.approved.body', 'Business verified. Virtual accounts and wallets are now available.')
           : tt('dash.kyc.approved.body', 'Identity verified. Virtual accounts and wallets are now available.'))
   : status === 'under_review'
       ? (isBusiness
-          ? tt('dash.kyb.review.body', 'Bridge is reviewing your business submission. Timelines vary depending on the business and required documents.')
+          ? tt('dash.kyb.review.body', 'We are reviewing your business submission. Timelines vary depending on the business and required documents.')
           : tt('dash.kyc.review.body', 'Most reviews complete in a few minutes.'))
   : status === 'pending'      ? tt('dash.kyc.pending.body',  'Pick up where you left off.')
   : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'You can retry, or contact support.')
   : (isBusiness
-      ? tt('dash.kyb.start.body', "Business verification is handled by Bridge. You'll complete business, ownership, and address checks in the secure Bridge KYB flow.")
+      ? tt('dash.kyb.start.body', "Complete business, ownership, and address checks in BorderPay's secure verification flow.")
       : tt('dash.kyc.start.body', 'Provide a government ID and a quick selfie. Takes 2–3 minutes.'));
 
   const Icon = status === 'approved'     ? CheckCircle2

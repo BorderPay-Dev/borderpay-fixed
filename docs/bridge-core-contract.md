@@ -32,7 +32,7 @@ country.
 
 ## 3. Out of scope (do NOT build/enable without a separate product decision)
 
-- **Card issuing** (virtual or physical) — **Coming Soon** only. No issue/fund/freeze paths.
+- **Card issuing** (virtual or physical) — **locked** until card access is approved. No issue/fund/freeze paths.
 - **Issuing our own stablecoin.**
 - **USDB / yield / earn / interest / APY** product surfaces — never user-facing.
 - **Bridge external accounts** are **ACH/SEPA/IBAN** payout destinations (US/EUR) — they are **NOT** African local bank accounts and must never be labeled as such.
@@ -61,10 +61,10 @@ bridge_balance_ledger, stablecoin_transactions, bridge_transfers, transfer_limit
 bridge_external_accounts, bridge_webhook_events, pending_events, accounts.
 
 **UI surfaces:** `components/dashboard/bridge/*` (BridgeKycStatusCard,
-BridgeVirtualAccountsCard, BridgeWalletsCard, CardsComingSoonCard, AfricanRailsFutureCard),
+BridgeVirtualAccountsCard, BridgeWalletsCard, CardsLockedCard, AfricanRailsFutureCard),
 `components/kyc/*`, `components/wallet*`, `components/receive/ReceiveMoneyScreen`,
 `components/accounts/USDAccountScreen`, `components/payouts/*` (gated),
-`components/send/*` (gated → coming-soon), `components/cards/CardsScreen` (Coming Soon).
+`components/send/*` (gated → coming-soon), `components/cards/CardsScreen` (locked).
 
 ## 6. Known debts (documented; NOT fixed in PR1)
 
@@ -81,10 +81,11 @@ BridgeVirtualAccountsCard, BridgeWalletsCard, CardsComingSoonCard, AfricanRailsF
    caller; do NOT deploy the stub absent evidence of a real one. Evidence +
    verdict: `docs/bridge-pr3-kyc-submit-retirement.md`. Canonical wiring locked by
    `tests/audit/kyc_path_canonical_audit.py`.
-2. **Stale Maplerad comments/dead code** — references in `sync-users-to-maplerad` (not
-   deployed), `bridge-virtual-account`, `process-pending-events`, `auth-signup`,
-   `_shared/providers/registry.ts`, `schema.sql`, READMEs, `config.toml`. Cleanup is a
-   later, one-at-a-time PR — **not** a broad sweep.
+2. **Removed-provider source cleanup — RESOLVED (#75).** Current runtime source no
+   longer carries the removed sync function, special-case queue branch, public
+   provider copy, or the legacy `users.bridge_customer_id` mirror. Historical
+   migrations remain as migration history; production column drops require the
+   reviewed migration/apply gate.
 3. **COO EUR virtual account** — granted dashboard-side, never webhook-synced; parked,
    no manual DB row.
 4. **Webhook/sync reliability** — ~14 failed `pending_events` (old "bridge customer event
@@ -93,8 +94,7 @@ BridgeVirtualAccountsCard, BridgeWalletsCard, CardsComingSoonCard, AfricanRailsF
 
 ## 7. Planned PR sequence (after this doc/audit merges)
 
-- **PR2** — one specific cleanup (e.g. the two-KYC-paths clarification **or** stale
-  Maplerad comments), investigated and fixed in isolation.
+- **PR2** — one specific cleanup, investigated and fixed in isolation.
 - **PR3** — virtual account sync/display gaps.
 - **PR4** — wallet sync/display gaps.
 - **PR5** — webhook/account-sync reliability (diagnose; replay only after approval).
@@ -105,4 +105,4 @@ BridgeVirtualAccountsCard, BridgeWalletsCard, CardsComingSoonCard, AfricanRailsF
 
 No destructive DB cleanup · no flag flips · no transfer execution · no Bridge API calls
 without approval · no manual status patches · no Flutterwave country expansion ·
-no own-stablecoin · no USDB/yield surfaces · cards stay Coming Soon · PR #7 untouched.
+no own-stablecoin · no USDB/yield surfaces · cards stay locked until approved · PR #7 untouched.

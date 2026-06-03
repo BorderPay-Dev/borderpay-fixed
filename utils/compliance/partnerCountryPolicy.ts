@@ -17,7 +17,7 @@
  *   • Prohibited  → server hard-blocks any Bridge call (sanctions).
  *                   UI: render in the "Restricted" section with
  *                   sanctions language. EXCEPT for DRC, which is the
- *                   single "coming-soon via local-rails partner"
+ *                   single "coming-soon via local rails"
  *                   entry — it is in BRIDGE_PROHIBITED_COUNTRIES at
  *                   the policy level but in COMING_SOON_COUNTRIES at
  *                   the display level.
@@ -211,6 +211,90 @@ export function isBridgeBlocked(countryCode: string | null | undefined): boolean
   return isBridgeProhibited(countryCode) || isBridgeUnavailable(countryCode);
 }
 
+export type BridgeVirtualAccountCurrency = 'USD' | 'EUR' | 'GBP';
+
+/**
+ * Bridge product availability for the products BorderPay can actually
+ * provision today. This is intentionally narrower than Bridge's full rail
+ * table: the backend currently supports USD ACH/FedWire plus EUR/GBP
+ * SEPA/FPS virtual accounts, not MXN/BRL/COP or SWIFT products yet.
+ *
+ * Source: Bridge Supported Countries List, captured 2026-06-03.
+ * https://apidocs.bridge.xyz/platform/customers/compliance/supported-countries-list
+ */
+const BRIDGE_VA_NO_US_RAIL: ReadonlySet<string> = new Set([
+  'BD', // Bangladesh
+  'BT', // Bhutan
+  'DZ', // Algeria
+  'BI', // Burundi
+  'CN', // China
+  'GW', // Guinea-Bissau
+  'HT', // Haiti
+  'JP', // Japan
+  'KE', // Kenya
+  'XK', // Kosovo
+  'MA', // Morocco
+  'MZ', // Mozambique
+  'NP', // Nepal
+  'NE', // Niger
+  'PK', // Pakistan
+  'QA', // Qatar
+  'TN', // Tunisia
+  'ZW', // Zimbabwe
+]);
+
+const BRIDGE_VA_NO_SEPA_FPS_RAIL: ReadonlySet<string> = new Set([
+  'DZ', // Algeria
+  'BI', // Burundi
+  'CF', // Central African Republic
+  'CN', // China
+  'ER', // Eritrea
+  'GW', // Guinea-Bissau
+  'JP', // Japan
+  'ML', // Mali
+  'TN', // Tunisia
+]);
+
+const BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES: ReadonlySet<string> = new Set([
+  'AU', // Australia
+  'GW', // Guinea-Bissau
+  'HK', // Hong Kong
+  'ID', // Indonesia
+  'JP', // Japan
+  'MY', // Malaysia
+  'NZ', // New Zealand
+  'PH', // Philippines
+  'SG', // Singapore
+  'TH', // Thailand
+  'VN', // Vietnam
+]);
+
+export function bridgeVirtualAccountCurrenciesForCountry(
+  countryCode: string | null | undefined,
+): BridgeVirtualAccountCurrency[] {
+  if (!countryCode || isBridgeBlocked(countryCode)) return [];
+  const upper = countryCode.toUpperCase();
+  const currencies: BridgeVirtualAccountCurrency[] = [];
+  if (!BRIDGE_VA_NO_US_RAIL.has(upper)) currencies.push('USD');
+  if (!BRIDGE_VA_NO_SEPA_FPS_RAIL.has(upper)) currencies.push('EUR', 'GBP');
+  return currencies;
+}
+
+export function isBridgeVirtualAccountCurrencyAvailable(
+  countryCode: string | null | undefined,
+  currency: string | null | undefined,
+): boolean {
+  if (!currency) return false;
+  return bridgeVirtualAccountCurrenciesForCountry(countryCode).includes(
+    currency.toUpperCase() as BridgeVirtualAccountCurrency,
+  );
+}
+
+export function isBridgeCustodialWalletSupported(countryCode: string | null | undefined): boolean {
+  if (!countryCode || isBridgeBlocked(countryCode)) return false;
+  return !BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES.has(countryCode.toUpperCase());
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Back-compat shims for code that pre-dates the round-9 policy refresh.
 // New callers should use partnerCountryTier / isBridgeBlocked / isBridgeControlled.
@@ -230,7 +314,7 @@ export const COMING_SOON_COUNTRIES: readonly PartnerCountryEntry[] = [
     code:   'CD',
     name:   'Democratic Republic of the Congo',
     status: 'coming-soon',
-    reason: 'Our verification partner does not yet support DRC residents. We are bringing it online via our African local-rails partner.',
+    reason: 'BorderPay does not yet support DRC residents. We are bringing local rails online for this corridor.',
   },
 ];
 

@@ -104,7 +104,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
               <Banknote className="w-6 h-6 text-[#C7FF00]" />
             </div>
             <p className={`text-sm font-semibold ${tc.text} mb-1`}>No payout accounts yet</p>
-            <p className={`text-xs ${tc.textMuted} mb-5`}>Add a bank account to receive payouts. Verification and payouts are handled by Bridge.</p>
+            <p className={`text-xs ${tc.textMuted} mb-5`}>Add a bank account to receive payouts through BorderPay.</p>
             <button onClick={onAdd} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold">
               <Plus className="w-4 h-4" /> Add payout account
             </button>

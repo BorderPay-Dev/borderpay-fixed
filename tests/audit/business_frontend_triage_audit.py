@@ -68,12 +68,14 @@ def main() -> int:
         "terminate in one tap",
     ]
     checks.append((
-        "B4 cards coming-soon screen is static and does not overpromise issuing",
+        "B4 cards screen is locked and does not overpromise issuing",
         "from 'motion/react'" not in cards
         and "WebkitMaskImage" not in cards
-        and "Card issuing is paused" in cards
+        and "Cards are locked" in cards
+        and "No card can be issued yet" in cards
+        and "mock" not in cards.lower()
         and all(phrase not in cards for phrase in overpromises),
-        "CardsScreen must avoid fragile animation/mask dependencies and active issuing promises",
+        "CardsScreen must avoid fragile animation/mask dependencies, mock cards, and active issuing promises",
     ))
 
     checks.append((

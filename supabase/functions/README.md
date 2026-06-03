@@ -1,9 +1,7 @@
 # Supabase Edge Functions — deployment source of truth
 
-Bridge is the only live financial provider. Maplerad has been removed from
-all active flows. Some Maplerad-era functions remain deployed on the
-project but are no longer reachable from the client; they are slated for
-deletion (see `MAPLERAD_REMOVAL_CHECKLIST.md`).
+BorderPay has one live financial-provider path in source. Removed-provider
+functions are not part of the runtime contract.
 
 ## Bridge (current, vendored)
 
@@ -22,10 +20,10 @@ deletion (see `MAPLERAD_REMOVAL_CHECKLIST.md`).
 
 | Path | Purpose |
 |---|---|
-| `auth-signup/` | v89 — provider-neutral signup; never creates a Bridge/Maplerad customer |
+| `auth-signup/` | provider-neutral signup; never creates a financial-provider customer |
 | `auth-resend-verification/`, `verify-email-token/` | email-verification flow |
 | `kyc-status/` | read-only KYC status lookup (returns provider-neutral fields) |
-| `process-pending-events/` | webhook queue worker — Bridge router only; legacy `source='maplerad'` rows drain to a terminal `provider_removed` summary without side effects |
+| `process-pending-events/` | webhook queue worker — active provider router only; unknown sources complete without side effects |
 | `send-email/` | unified transactional email dispatcher |
 
 ## Quarantined (vendored, return 410/501)
@@ -36,22 +34,14 @@ deployed copies should be redeployed from these source stubs or deleted.
 
 | Path | Behaviour |
 |---|---|
-| `fund-card/` | `501 cards_coming_soon` |
+| `fund-card/` | `501 cards_locked` |
 | `kyc-submit/` | `410 provider_removed` |
-| `sync-users-to-maplerad/` | `410 provider_removed` |
 | `borderpay-transfer/` | `410 provider_removed` |
 | `get-fx-rates/` | `410 provider_removed` |
 | `get-momo-providers/` | `410 provider_removed` |
 | `provisioning-request/` | `410 provider_removed` |
 
-`_shared/mapleradFetch.ts` was deleted; no edge function imports it.
-
-## Deployed-only Maplerad functions (no source-tree backing)
-
-These are reachable on Supabase but not vendored. The client no longer
-calls any of them. They must be either (a) redeployed as 410 stubs or (b)
-deleted via the Supabase dashboard / CLI. See `MAPLERAD_REMOVAL_CHECKLIST.md`
-for the exact list and recommended action per slug.
+Removed-provider fetch helpers were deleted; no edge function imports them.
 
 ## Reproducibility
 

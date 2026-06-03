@@ -14,10 +14,16 @@ import { motion } from 'motion/react';
 import { Building2, Copy, Plus, Loader2, Lock } from 'lucide-react';
 import { supabase } from '../../../utils/supabase/client';
 import { backendAPI } from '../../../utils/api/backendAPI';
+import { authAPI } from '../../../utils/supabase/client';
+import {
+  bridgeVirtualAccountCurrenciesForCountry,
+  isBridgeVirtualAccountCurrencyAvailable,
+  type BridgeVirtualAccountCurrency,
+} from '../../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
 
-type Currency = 'USD' | 'EUR' | 'GBP';
+type Currency = BridgeVirtualAccountCurrency;
 
 interface VARow {
   id:                          string;
@@ -34,8 +40,6 @@ interface Props {
   isBusiness?:   boolean;
 }
 
-const ALL_CURRENCIES: Currency[] = ['USD', 'EUR', 'GBP'];
-
 export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = false }: Props) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
@@ -45,8 +49,13 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState<Currency | null>(null);
   const [derivedApproved, setDerivedApproved] = useState(false);
+  const [country, setCountry] = useState<string | null>(() => authAPI.getStoredUser()?.country ?? null);
 
   const isApproved = kycApproved ?? derivedApproved;
+  const availableCurrencies = useMemo(
+    () => bridgeVirtualAccountCurrenciesForCountry(country),
+    [country],
+  );
 
   const refresh = async () => {
     const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
@@ -66,26 +75,36 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
       if (isBusiness) {
         const { data } = await supabase
           .from('business_profiles')
-          .select('bridge_kyb_status')
+          .select('bridge_kyb_status, country')
           .eq('user_id', userId)
           .maybeSingle();
-        if (alive) setDerivedApproved(data?.bridge_kyb_status === 'approved');
+        if (alive) {
+          setDerivedApproved(data?.bridge_kyb_status === 'approved');
+          setCountry(data?.country ?? authAPI.getStoredUser()?.country ?? null);
+        }
       } else {
         const { data } = await supabase
           .from('user_profiles')
-          .select('bridge_kyc_status')
+          .select('bridge_kyc_status, country')
           .eq('id', userId)
           .maybeSingle();
-        if (alive) setDerivedApproved(data?.bridge_kyc_status === 'approved');
+        if (alive) {
+          setDerivedApproved(data?.bridge_kyc_status === 'approved');
+          setCountry(data?.country ?? authAPI.getStoredUser()?.country ?? null);
+        }
       }
     })();
     return () => { alive = false; };
   }, [userId, isBusiness, kycApproved]);
 
   const haveCurrencies = useMemo(() => new Set(rows.map(r => r.currency)), [rows]);
-  const missingCurrencies = ALL_CURRENCIES.filter(c => !haveCurrencies.has(c));
+  const missingCurrencies = availableCurrencies.filter(c => !haveCurrencies.has(c));
 
   const handleCreate = async (currency: Currency) => {
+    if (!isBridgeVirtualAccountCurrencyAvailable(country, currency)) {
+      showToast.error(`${currency} virtual accounts are not available for your country.`);
+      return;
+    }
     setCreating(currency);
     const r = await backendAPI.bridge.virtualAccount.create({ currency });
     setCreating(null);
@@ -116,7 +135,9 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
             {tt('dash.va.title', 'Virtual accounts')}
           </h3>
           <p className={`text-xs ${tc.textMuted}`}>
-            {tt('dash.va.subtitle', 'Receive USD, EUR, and GBP via bank transfer.')}
+            {availableCurrencies.length > 0
+              ? tt('dash.va.subtitle', `Receive ${availableCurrencies.join(', ')} using BorderPay account rails.`)
+              : tt('dash.va.subtitle.unavailable', 'Virtual accounts are not available for your country.')}
           </p>
         </div>
       </div>
@@ -182,6 +203,14 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
                   {tt('dash.va.add', 'Add')} {c}
                 </button>
               ))}
+            </div>
+          )}
+
+          {country && availableCurrencies.length === 0 && rows.length === 0 && (
+            <div className={`p-3 rounded-2xl ${tc.bgAlt} border ${tc.border}`}>
+              <p className={`text-xs ${tc.textMuted}`}>
+                USD, EUR, and GBP virtual accounts are not currently available for your country.
+              </p>
             </div>
           )}
         </>

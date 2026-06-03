@@ -20,7 +20,7 @@ import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
-import { CardsComingSoonCard } from '../dashboard/bridge/CardsComingSoonCard';
+import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import type { PlanKey } from '../../utils/subscriptions/plans';
@@ -247,7 +247,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-semibold ${tc.text}`}>Open your first account</p>
-                  <p className={`text-[11px] ${tc.textMuted}`}>USD, EUR, GBP, or stablecoin.</p>
+                  <p className={`text-[11px] ${tc.textMuted}`}>BorderPay accounts available for your country.</p>
                 </div>
                 <ArrowRight className={`w-4 h-4 ${tc.textMuted}`} />
               </button>
@@ -282,7 +282,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           <BridgeKycStatusCard userId={userId} onStartVerification={() => onNavigate('kyc')} />
           <BridgeVirtualAccountsCard userId={userId} isBusiness />
           <BridgeWalletsCard userId={userId} isBusiness />
-          <CardsComingSoonCard />
+          <CardsLockedCard />
           <AfricanRailsFutureCard />
         </section>
 

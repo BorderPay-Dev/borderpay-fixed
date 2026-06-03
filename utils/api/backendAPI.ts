@@ -402,18 +402,19 @@ export const transactionAPI = {
 // ============================================================================
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEGACY/QUARANTINED — Cards (Coming Soon)
+// LOCKED — Cards
 // ─────────────────────────────────────────────────────────────────────────────
-// All card operations are paused product-wide. These methods short-circuit
-// with a structured cards_coming_soon error and DO NOT hit any edge function.
-// Do not re-add live card calls here without an explicit product decision.
+// Card operations are disabled product-wide until card access is approved and
+// enabled. These methods short-circuit with a structured cards_locked error
+// and DO NOT hit any edge function. Do not re-add live card calls here without
+// the real card backend and a reviewed enablement path.
 // Stubs include a `data: undefined` field so the shape stays compatible with
 // `apiCall`'s `{ success, data?, error?, code? }` return — callers that read
 // r.data on the failure branch get undefined instead of a type error.
-const CARDS_COMING_SOON = {
+const CARDS_LOCKED = {
   success: false as const,
-  error: 'Cards are Coming Soon',
-  code:  'cards_coming_soon',
+  error: 'Cards are locked for your account.',
+  code:  'cards_locked',
   data:  undefined as any,
 };
 
@@ -439,28 +440,28 @@ export const cardAPI = {
     card_name?: string;
     spending_limit?: number;
     design_id?: string;
-  }) { return CARDS_COMING_SOON; },
+  }) { return CARDS_LOCKED; },
 
-  async getCards() { return CARDS_COMING_SOON; },
+  async getCards() { return CARDS_LOCKED; },
 
-  async getCard(_cardId: string) { return CARDS_COMING_SOON; },
+  async getCard(_cardId: string) { return CARDS_LOCKED; },
 
   async getCardTransactions(_cardId: string, _filters?: {
     start_date?: string;
     end_date?: string;
     page?: string;
     page_size?: string;
-  }) { return CARDS_COMING_SOON; },
+  }) { return CARDS_LOCKED; },
 
-  async fundCard(_cardId: string, _amount: number) { return CARDS_COMING_SOON; },
+  async fundCard(_cardId: string, _amount: number) { return CARDS_LOCKED; },
 
-  async withdrawCard(_cardId: string, _amount: number) { return CARDS_COMING_SOON; },
+  async withdrawCard(_cardId: string, _amount: number) { return CARDS_LOCKED; },
 
-  async freezeCard(_cardId: string) { return CARDS_COMING_SOON; },
+  async freezeCard(_cardId: string) { return CARDS_LOCKED; },
 
-  async unfreezeCard(_cardId: string) { return CARDS_COMING_SOON; },
+  async unfreezeCard(_cardId: string) { return CARDS_LOCKED; },
 
-  async terminateCard(_cardId: string) { return CARDS_COMING_SOON; },
+  async terminateCard(_cardId: string) { return CARDS_LOCKED; },
 
   async getCardCharges(_filters?: {
     channel?: string;
@@ -470,7 +471,7 @@ export const cardAPI = {
     page?: number;
     page_size?: number;
     search?: string;
-  }) { return CARDS_COMING_SOON; },
+  }) { return CARDS_LOCKED; },
 };
 
 // ============================================================================
@@ -728,7 +729,7 @@ export const stablecoinAPI = {
   },
 
   /**
-   * Send stablecoin via Bridge. `chain` is uppercased, `coin` is uppercased,
+   * Send stablecoin through the active stablecoin rail. `chain` is uppercased,
    * and `amount` is sent as a decimal string to avoid float drift on the wire.
    * The transaction PIN is verified separately by the caller before this is
    * invoked — this method itself does NOT verify the PIN (server-side PIN
@@ -920,7 +921,7 @@ export const customersAPI = {
 //   • virtual_account (other)       → rails_future_state
 //   • local_currency (NGN/KES/...)  → rails_future_state (planned Yativo)
 //   • stablecoin                    → bridge-wallet
-//   • card                          → cards_coming_soon
+//   • card                          → cards_locked
 // All legacy provisioning paths (create-virtual-account, generate-address,
 // create-card) are QUARANTINED at this layer.
 // ============================================================================
@@ -953,7 +954,7 @@ export const provisioningAPI = {
         // African local currencies (NGN/KES/GHS/UGX/...) are future-state.
         return RAILS_FUTURE_STATE;
       case 'card':
-        return CARDS_COMING_SOON;
+        return CARDS_LOCKED;
       case 'stablecoin':
         return apiCall('bridge-wallet', {
           method: 'POST',

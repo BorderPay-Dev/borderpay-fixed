@@ -11,10 +11,10 @@ canonical wiring so it can't silently drift:
                       status via kyc-status.
   LEGACY (inert)    = kycAPI.submit / verifyBVN are quarantined stubs
                       (return RAILS_FUTURE_STATE; no network). No component calls
-                      the orphaned Maplerad-era `kyc-submit` edge function.
+                      the orphaned legacy `kyc-submit` edge function.
 
 This PR changes NO behavior and deletes NOTHING (kyc-submit retirement + stale
-Maplerad cleanup are deferred to PR3).
+removed-provider cleanup is handled separately).
 
 Invariants (fail closed):
 
