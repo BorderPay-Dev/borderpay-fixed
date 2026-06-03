@@ -121,11 +121,43 @@ export function storeUserProfile(profile: any): void {
   localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(cleaned));
 }
 
+function readAuthProfileHints(): any | null {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !/^sb-.+-auth-token$/.test(key)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const user = parsed?.user || parsed?.currentSession?.user;
+      const metadata = user?.user_metadata || {};
+      if (!user && !Object.keys(metadata).length) continue;
+      return {
+        id: user?.id,
+        email: user?.email,
+        full_name: metadata.full_name,
+        company_name: metadata.company_name,
+        account_type: metadata.account_type,
+        country: metadata.country,
+        phone: user?.phone || metadata.phone,
+      };
+    }
+  } catch { /* ignore auth hints */ }
+  return null;
+}
+
 export function readUserProfile(): any | null {
   try {
+    const hints = readAuthProfileHints();
     const raw = localStorage.getItem(USER_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    if (!raw) return hints;
+    const cached = JSON.parse(raw);
+    return {
+      ...hints,
+      ...cached,
+      account_type: cached?.account_type || hints?.account_type,
+      company_name: cached?.company_name || hints?.company_name,
+    };
   } catch {
     return null;
   }

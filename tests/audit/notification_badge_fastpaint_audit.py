@@ -7,6 +7,7 @@ Locks the AppShell notification badge contract:
   N2 Backend refresh writes the same cache through a single updater.
   N3 NotificationsScreen reports row changes back to MainApp so mark-read/delete
      actions update the shell badge immediately.
+  N4 Cached notification rows are per-user, never global.
 
 Non-runtime: parses source as text. No deploy, DB, or network.
 
@@ -56,6 +57,16 @@ def main() -> int:
         and notifications.count("onUnreadCountChange?.(") >= 4
         and "<NotificationsScreen onBack={navigateBack} onUnreadCountChange={updateUnreadCount} />" in main_app,
         "NotificationsScreen must publish unread changes back to MainApp for load, mark-read, mark-all-read, and delete",
+    ))
+
+    checks.append((
+        "N4 notification rows cache is per-user",
+        "NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:'" in notifications
+        and "currentNotificationCacheKey()" in notifications
+        and "user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null" in notifications
+        and "localStorage.setItem(key" in notifications
+        and "borderpay_notifications_cache'" not in notifications,
+        "Notification row cache must be keyed by user id, never a shared device-wide key",
     ))
 
     print("notification_badge_fastpaint_audit:")

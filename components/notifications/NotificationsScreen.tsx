@@ -36,6 +36,38 @@ interface NotificationsScreenProps {
   onUnreadCountChange?: (count: number) => void;
 }
 
+const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
+
+function currentNotificationCacheKey(): string | null {
+  try {
+    const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    return user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCachedNotifications(): NotificationRow[] {
+  try {
+    const key = currentNotificationCacheKey();
+    if (!key) return [];
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.rows) ? parsed.rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedNotifications(rows: NotificationRow[]): void {
+  try {
+    const key = currentNotificationCacheKey();
+    if (!key) return;
+    localStorage.setItem(key, JSON.stringify({ rows: rows.slice(0, 50), cached_at: Date.now() }));
+  } catch { /* ignore notification cache write */ }
+}
+
 function notifIcon(type?: string | null) {
   const t = (type || '').toLowerCase();
   if (t.includes('credit') || t.includes('deposit') || t.includes('received')) return ArrowDownLeft;
@@ -69,8 +101,8 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [rows, setRows]       = useState<NotificationRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows]       = useState<NotificationRow[]>(() => readCachedNotifications());
+  const [loading, setLoading] = useState(() => readCachedNotifications().length === 0);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
@@ -87,6 +119,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         : Array.isArray(r?.notifications)        ? r.notifications
         : [];
       setRows(data);
+      writeCachedNotifications(data);
       onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
       if (!r?.success && r?.error) setError(r.error);
     } catch (e: any) {
@@ -105,6 +138,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     setBusyId(n.id);
     setRows(prev => {
       const next = prev.map(r => r.id === n.id ? { ...r, read: true } : r);
+      writeCachedNotifications(next);
       onUnreadCountChange?.(next.filter(r => !r.read).length);
       return next;
     });
@@ -117,6 +151,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const handleMarkAllRead = async () => {
     setRows(prev => {
       const next = prev.map(r => ({ ...r, read: true }));
+      writeCachedNotifications(next);
       onUnreadCountChange?.(0);
       return next;
     });
@@ -127,6 +162,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     setBusyId(n.id);
     setRows(prev => {
       const next = prev.filter(r => r.id !== n.id);
+      writeCachedNotifications(next);
       onUnreadCountChange?.(next.filter(r => !r.read).length);
       return next;
     });

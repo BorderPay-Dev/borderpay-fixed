@@ -54,7 +54,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const tc = useThemeClasses();
   const stored = useMemo(() => authAPI.getStoredUser() || {}, []);
   const initialCompanyName = useMemo(
-    () => stored?.company_name || 'Your business',
+    () => stored?.company_name || '',
     [stored],
   );
 
@@ -80,7 +80,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     try {
       const r: any = await backendAPI.business.getProfile();
       if (r.success && r.data) {
-        const nextCompanyName = r.data.company_name || initialCompanyName || 'Your business';
+        const nextCompanyName = r.data.company_name || initialCompanyName;
         setCompanyName(nextCompanyName);
         setRegistrationNumber(r.data.registration_number);
         setCountry(r.data.country);
@@ -147,7 +147,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           </div>
           <div className="min-w-0">
             <p className={`text-[10px] uppercase tracking-[0.16em] ${tc.textMuted} font-semibold`}>Business</p>
-            <h1 className={`text-base font-semibold ${tc.text} truncate`}>{companyName}</h1>
+            {companyName ? (
+              <h1 className={`text-base font-semibold ${tc.text} truncate`}>{companyName}</h1>
+            ) : (
+              <div className={`h-5 w-36 rounded ${tc.bgAlt} animate-pulse`} aria-label="Loading business name" />
+            )}
           </div>
         </div>
         <button
