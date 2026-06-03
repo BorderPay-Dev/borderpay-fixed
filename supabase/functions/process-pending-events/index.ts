@@ -48,6 +48,107 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
 
 const WORKER_ID = `worker-${crypto.randomUUID().slice(0, 8)}`;
 
+// ── Webhook-email (KYC/KYB decisions only — v1) ──────────────────────────────
+// Per docs/bridge-webhook-email-policy.md. v1 wires ONLY terminal KYC/KYB
+// decisions (confirmed Bridge vocabulary). VA/wallet/transfer emails are NOT
+// wired — their terminal status vocabulary is unconfirmed from real payloads,
+// and transfer is dark behind TRANSFERS_LIVE regardless. All sends route through
+// the logged `send-email` (never direct Resend) and are BEST-EFFORT: a send
+// failure must never fail webhook processing.
+const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
+
+// Suppression config (DB/env only — never decided from the webhook payload).
+// An UNSET env var keeps the default; an explicitly empty value disables it
+// (e.g. to allow an operator smoke test).
+function envList(name: string, fallback: string[]): string[] {
+  const raw = Deno.env.get(name);
+  if (raw === undefined) return fallback;
+  return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+const EMAIL_SUPPRESS_LIST    = () => envList("WEBHOOK_EMAIL_SUPPRESS_LIST", []);
+const EMAIL_SUPPRESS_DOMAINS = () => envList("WEBHOOK_EMAIL_SUPPRESS_DOMAINS", ["borderpayafrica.com"]);
+
+/**
+ * Resolve the email recipient for a mapped user, applying the suppression
+ * predicate entirely from DB + env (never the webhook payload). Returns null
+ * when the email must be suppressed: no user, no/absent email, is_admin,
+ * suppress-list, suppress-domain, or unconfirmed email.
+ */
+async function resolveEmailRecipient(userId: string): Promise<{ email: string; full_name: string | null } | null> {
+  if (!userId) return null;
+  const { data: prof } = await supabase
+    .from("user_profiles")
+    .select("email, is_admin, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  const email = prof?.email ? String(prof.email).trim() : "";
+  if (!email) return null;
+  if (prof?.is_admin === true) return null;
+  const lower  = email.toLowerCase();
+  const domain = lower.split("@")[1] ?? "";
+  if (EMAIL_SUPPRESS_LIST().includes(lower)) return null;
+  if (EMAIL_SUPPRESS_DOMAINS().includes(domain)) return null;
+  // Email confirmation lives in auth.users (not user_profiles). Skip unconfirmed.
+  const { data: au } = await supabase.auth.admin.getUserById(userId);
+  if (!au?.user?.email_confirmed_at) return null;
+  return { email, full_name: prof?.full_name ?? null };
+}
+
+/**
+ * Best-effort terminal KYC/KYB decision email. NEVER throws — a failure is
+ * logged and swallowed so webhook processing still completes. Recipient +
+ * suppression are resolved from DB/env. Idempotency is keyed on the user,
+ * template, and terminal decision so a kyc_link.* decision plus the matching
+ * customer.* terminal status collapse into one customer email.
+ */
+async function emailKycDecisionBestEffort(
+  userId: string,
+  isKyb: boolean,
+  decision: "approved" | "rejected",
+): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(userId);
+    if (!rcpt) return;
+
+    let template: string;
+    let props: Record<string, unknown>;
+    if (isKyb) {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      template = "business.kyb_decision";
+      props = { company_name: biz?.company_name ?? null, decision };
+    } else {
+      template = "individual.kyc_decision";
+      props = { full_name: rcpt.full_name, decision };
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to:              rcpt.email,
+        user_id:         userId,
+        idempotency_key: `wh:kyc:${userId}:${template}:${decision}`,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email kyc/kyb send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email kyc/kyb best-effort error: ${(e as Error).message}`);
+  }
+}
+
 interface PendingEvent {
   id:           string;
   event_id:     string;
@@ -166,6 +267,11 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
     .update({ target_entity_type: isKyb ? "kyc_link" : "customer", target_entity_id: String(customer) })
     .eq("event_id", ev.event_id);
 
+  // Terminal KYC/KYB decision → best-effort email (approved/rejected only).
+  if (normalized === "approved" || normalized === "rejected") {
+    await emailKycDecisionBestEffort(resolved, isKyb || account_type === "business", normalized);
+  }
+
   await supabase.rpc("complete_pending_event", {
     p_event_id: ev.event_id,
     p_summary:  { source: "bridge", kind: isKyb ? "kyb" : "kyc", status: normalized },
@@ -204,6 +310,21 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     await supabase.from("user_profiles")
       .update(update)
       .eq("bridge_customer_id", String(customer));
+
+    // Terminal customer KYC decision → best-effort email. Individual only;
+    // business KYB decisions are emailed from handleBridgeKycKyb. active→approved,
+    // rejected→rejected (uses the v13 terminal mapping above).
+    if (canonicalKyc === "verified" || canonicalKyc === "rejected") {
+      try {
+        const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+        if (owner.account_type === "individual") {
+          await emailKycDecisionBestEffort(
+            owner.resolved, false,
+            canonicalKyc === "verified" ? "approved" : "rejected",
+          );
+        }
+      } catch { /* best-effort: never fail the webhook on email */ }
+    }
   }
   await supabase.from("bridge_webhook_events")
     .update({ target_entity_type: "customer", target_entity_id: String(customer) })
