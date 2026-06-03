@@ -53,8 +53,12 @@ function fmt(amount: number, currency: string): string {
 export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpgrade }: BusinessDashboardProps) {
   const tc = useThemeClasses();
   const stored = useMemo(() => authAPI.getStoredUser() || {}, []);
+  const initialCompanyName = useMemo(
+    () => stored?.company_name || stored?.full_name || 'Your business',
+    [stored],
+  );
 
-  const [companyName, setCompanyName]               = useState<string>('Your business');
+  const [companyName, setCompanyName]               = useState<string>(initialCompanyName);
   const [registrationNumber, setRegistrationNumber] = useState<string | null>(null);
   const [country, setCountry]                       = useState<string | null>(null);
   const [profileLoading, setProfileLoading]         = useState(true);
@@ -76,13 +80,17 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     try {
       const r: any = await backendAPI.business.getProfile();
       if (r.success && r.data) {
-        const nextCompanyName = r.data.company_name || 'Your business';
+        const nextCompanyName = r.data.company_name || initialCompanyName || 'Your business';
         setCompanyName(nextCompanyName);
         setRegistrationNumber(r.data.registration_number);
         setCountry(r.data.country);
         try {
           const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-          localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, account_type: 'business', company_name: nextCompanyName }));
+          localStorage.setItem('borderpay_user', JSON.stringify({
+            ...cached,
+            account_type: 'business',
+            ...(r.data.company_name ? { company_name: r.data.company_name } : {}),
+          }));
         } catch { /* ignore cache write */ }
       } else if (r.success && !r.data) {
         // No business profile yet — surface a friendly note.

@@ -296,13 +296,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         if (r?.success && r.data?.user) {
           const u: any = r.data.user;
           const t = u.account_type === 'business' ? 'business' : 'individual';
-          if (t === 'business') {
-            try {
-              const biz: any = await backendAPI.business.getProfile();
-              if (biz?.success && biz.data?.company_name) {
-                u.company_name = biz.data.company_name;
-              }
-            } catch { /* keep profile payload */ }
+          let cached: any = {};
+          try { cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}'); } catch { cached = {}; }
+          if (t === 'business' && !u.company_name && cached?.company_name) {
+            u.company_name = cached.company_name;
           }
           if (t !== accountType) setAccountType(t);
           // Shell display props — kept in MainApp so AppShell stays presentational.
@@ -313,9 +310,22 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           }
           // Update cache so other screens reading from localStorage are in sync.
           try {
-            const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
             localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, ...u, account_type: t }));
           } catch { /* ignore */ }
+          if (t === 'business') {
+            try {
+              const biz: any = await backendAPI.business.getProfile();
+              if (cancelled) return;
+              if (biz?.success && biz.data?.company_name) {
+                const company_name = biz.data.company_name;
+                if (company_name !== shellUserName) setShellUserName(company_name);
+                try {
+                  const latest = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+                  localStorage.setItem('borderpay_user', JSON.stringify({ ...latest, account_type: 'business', company_name }));
+                } catch { /* ignore company cache patch */ }
+              }
+            } catch { /* keep profile payload */ }
+          }
         }
       } catch { /* keep cached */ }
     })();
