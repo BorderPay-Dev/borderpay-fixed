@@ -38,17 +38,26 @@ Everything else stays **in-app only** (notifications), or is ignored.
 
 `send-email` already dedupes: `log_email_attempt(p_idem_key)` returns the existing
 row and `send-email` bails with `deduped: true` if a matching key already reached
-`status='sent'`. The worker MUST pass a stable key:
+`status='sent'`. The worker MUST pass a stable key.
+
+For KYC/KYB decision emails, the stable key is per user/template/decision:
 
 ```
-idempotency_key = `wh:${bridge_event_id}:${template}`
+idempotency_key = `wh:kyc:${user_id}:${template}:${decision}`
 ```
 
-- `bridge_event_id` = the Bridge `event_id` (e.g. `wh_…`), stable across retries.
-- Bridge re-delivery, worker retries (`attempts` up to 6), and replays therefore
+- `decision` = `approved` or `rejected`.
+- This deliberately collapses duplicate terminal signals for the same outcome
+  (for example a `kyc_link.*` approval plus a matching `customer.* active`) into
+  one customer email.
+- Bridge re-delivery, worker retries (`attempts` up to 6), matching terminal
+  events, and operator-approved replays of the same terminal outcome therefore
   **cannot double-send**.
 - Per-recipient safety: also include `user_id` in the key if one Bridge event can
   fan out to multiple users (not currently the case for customer-scoped events).
+- Future email families may define a different stable key, but the key must be
+  chosen around the customer-visible decision/outcome, not blindly around raw
+  webhook event ids when multiple event types can represent the same decision.
 
 ## 3. Allowlist — events that DO send email
 
