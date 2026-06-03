@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, isPasswordRecovery } from '../supabase/client';
+import { supabase, isPasswordRecovery, isBiometricLoginPending } from '../supabase/client';
 import type { Session, User } from '@supabase/supabase-js';
 
 interface AuthState {
@@ -56,8 +56,9 @@ export function useAuth() {
     // Background refresh will confirm/correct below.
     loading: !initial.user,
     // A Supabase password-recovery session is NOT a login — it must route to the
-    // reset-password screen, never the dashboard.
-    isAuthenticated: !!initial.user && !!initial.session && !isPasswordRecovery(),
+    // reset-password screen, never the dashboard. Likewise, a session restored
+    // mid-biometric-login is NOT yet authenticated until WebAuthn passes.
+    isAuthenticated: !!initial.user && !!initial.session && !isPasswordRecovery() && !isBiometricLoginPending(),
   });
 
   const loadAuth = useCallback(async () => {
@@ -87,8 +88,9 @@ export function useAuth() {
         user,
         session,
         loading: false,
-        // Recovery session ≠ login (see note above) — keep the app out of dashboard.
-        isAuthenticated: !!user && !!session && !isPasswordRecovery(),
+        // Recovery session ≠ login, and a mid-biometric-login refresh ≠ login yet
+        // (see notes above) — keep the app out of the dashboard until WebAuthn passes.
+        isAuthenticated: !!user && !!session && !isPasswordRecovery() && !isBiometricLoginPending(),
       });
     } catch {
       setAuthState({ user: null, session: null, loading: false, isAuthenticated: false });

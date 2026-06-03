@@ -35,6 +35,14 @@ Invariants (fail closed):
   (B9) deployed-only webauthn-auth-options is now under repo source control
        (verbatim: 401-without-user guard + challenge generation).
 
+  Router-race (refreshSession must not route the dashboard while pending):
+  (B10) client.ts defines the biometric-pending gate and clears it on SIGNED_OUT.
+  (B11) the handler sets pending BEFORE refreshSession().
+  (B12) the handler clears pending before navigation and in the failure teardown.
+  (B13) useAuth treats pending as NOT authenticated (every computed value).
+  (B14) AppContext treats pending as NOT authenticated (initial + reload).
+  (B15) App.tsx early-returns on pending before dashboard routing / token clear.
+
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
 Run: python3 tests/audit/biometric_login_session_first_audit.py  (exit 0 = pass)
@@ -45,9 +53,13 @@ import re
 import sys
 from pathlib import Path
 
-ROOT  = Path(__file__).resolve().parents[2]
-LOGIN = ROOT / "components" / "auth" / "LoginScreen.tsx"
-FN    = ROOT / "supabase" / "functions" / "webauthn-auth-options" / "index.ts"
+ROOT    = Path(__file__).resolve().parents[2]
+LOGIN   = ROOT / "components" / "auth" / "LoginScreen.tsx"
+FN      = ROOT / "supabase" / "functions" / "webauthn-auth-options" / "index.ts"
+CLIENT  = ROOT / "utils" / "supabase" / "client.ts"
+USEAUTH = ROOT / "utils" / "auth" / "useAuth.ts"
+APPCTX  = ROOT / "utils" / "app" / "AppContext.tsx"
+APP     = ROOT / "App.tsx"
 
 
 def read(p: Path) -> str:
@@ -144,6 +156,60 @@ def main() -> int:
                     and "error: 'Unauthorized' }, 401" in fn
                     and "supa.auth.getUser(token)" in fn),
                    "supabase/functions/webauthn-auth-options/index.ts missing or not verbatim"))
+
+    # ── Router-race invariants: refreshSession must NOT route the dashboard ─────
+    client  = read(CLIENT)
+    useauth = read(USEAUTH)
+    appctx  = read(APPCTX)
+    app     = read(APP)
+
+    # B10 — the pending gate exists and is cleared on sign-out
+    checks.append(("B10 biometric-pending gate defined + cleared on SIGNED_OUT",
+                   ("export function isBiometricLoginPending" in client
+                    and "export function setBiometricLoginPending" in client
+                    and "export function clearBiometricLoginPending" in client
+                    and re.search(r"SIGNED_OUT[\s\S]{0,200}clearBiometricLoginPending\(\)", client) is not None),
+                   "client.ts must define the pending gate and clear it in the SIGNED_OUT branch"))
+
+    # B11 — pending is set BEFORE refreshSession in the handler
+    i_set     = code.find("setBiometricLoginPending(")
+    i_refresh2 = code.find("refreshSession(")
+    checks.append(("B11 pending set before refreshSession",
+                   before(i_set, i_refresh2),
+                   f"setBiometricLoginPending({i_set}) must precede refreshSession({i_refresh2})"))
+
+    # B12 — pending cleared before navigation, and in the failure teardown
+    i_clear = code.find("clearBiometricLoginPending(")
+    nav_after_clear = before(i_clear, i_login) and before(i_clear, i_2fa)
+    teardown_clears = "clearBiometricLoginPending" in helper
+    checks.append(("B12 pending cleared before nav + in teardown",
+                   nav_after_clear and teardown_clears,
+                   "clearBiometricLoginPending must run before onLoginSuccess/setShow2FA and inside clearRestoredSession"))
+
+    # B13 — useAuth treats pending as NOT authenticated (every isAuthenticated calc)
+    ua_calcs = re.findall(r"isAuthenticated:\s*[^\n,]*", useauth)
+    ua_gated = [c for c in ua_calcs if "!!" in c]  # the real computations, not the type decl
+    checks.append(("B13 useAuth gates isAuthenticated on pending",
+                   len(ua_gated) >= 2 and all("isBiometricLoginPending()" in c for c in ua_gated),
+                   f"every computed isAuthenticated in useAuth must include !isBiometricLoginPending(): {ua_gated}"))
+
+    # B14 — AppContext gates pending (initial + reload early-return + success calc)
+    appctx_calcs = [c for c in re.findall(r"isAuthenticated:\s*[^\n,]*", appctx) if "!!" in c]
+    checks.append(("B14 AppContext gates isAuthenticated on pending",
+                   (len(appctx_calcs) >= 2
+                    and all("isBiometricLoginPending()" in c for c in appctx_calcs)
+                    and "if (isBiometricLoginPending())" in appctx),
+                   f"AppContext must gate every isAuthenticated calc + reload early-return on pending: {appctx_calcs}"))
+
+    # B15 — App.tsx refuses dashboard routing while pending, BEFORE the auth
+    # route AND before the not-authenticated branch clears borderpay_token.
+    rf = slice_fn(app, "const determineRoute = async () =>")
+    g = rf.find("if (isBiometricLoginPending())")
+    r = rf.find("if (isAuthenticated && user)")
+    t = rf.find("removeItem('borderpay_token')")
+    checks.append(("B15 App.tsx returns on pending before routing/token-clear",
+                   before(g, r) and (t < 0 or before(g, t)),
+                   f"determineRoute must early-return on pending({g}) before dashboard route({r}) and token clear({t})"))
 
     print("biometric_login_session_first_audit:")
     ok = True

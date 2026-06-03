@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
-import { authAPI, storeUserProfile } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending } from '../../utils/supabase/client';
 import { ENV_CONFIG } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -171,6 +171,9 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
   // pass WebAuthn. Clears the Supabase session and every local auth token so the
   // user is left fully signed out on the login screen.
   const clearRestoredSession = async () => {
+    // Lift the routing gate first so a failed/aborted attempt can't strand the
+    // app in a non-authenticated pending state.
+    clearBiometricLoginPending();
     try { await supabase.auth.signOut(); } catch { /* best-effort */ }
     localStorage.removeItem('borderpay_token');
     localStorage.removeItem('borderpay_refresh_token');
@@ -234,6 +237,12 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         return;
       }
 
+      // Mark biometric login as PENDING before refreshing. refreshSession() fires
+      // onAuthStateChange, which would otherwise flip global isAuthenticated true
+      // and let App.tsx route to the dashboard before WebAuthn runs. While pending,
+      // useAuth / AppContext / App.tsx all treat the app as NOT authenticated.
+      setBiometricLoginPending();
+
       // Step 3: Restore the Supabase session BEFORE any WebAuthn call, so the
       // authenticated options/verify endpoints receive a valid user JWT. We do
       // NOT navigate into the app here — access is still gated by WebAuthn below.
@@ -264,7 +273,10 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         return;
       }
 
-      // Step 6: WebAuthn succeeded → now it is safe to complete the login flow.
+      // Step 6: WebAuthn succeeded → lift the routing gate, then complete the
+      // login flow with controlled navigation (the only authorized entry to the
+      // dashboard for biometric sign-in).
+      clearBiometricLoginPending();
       completed = true;
       const sessionUser = refreshData.session.user;
       const mergedProfile = {

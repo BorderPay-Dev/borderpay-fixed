@@ -6,7 +6,7 @@ import { LoginScreen } from './components/auth/LoginScreen';
 import { SignUpFlow } from './components/auth/SignUpFlow';
 import { ForgotPassword } from './components/auth/ForgotPassword';
 import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
-import { isPasswordRecovery } from './utils/supabase/client';
+import { isPasswordRecovery, isBiometricLoginPending } from './utils/supabase/client';
 import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
 import { MainApp } from './components/app/MainApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
@@ -290,6 +290,16 @@ function AppContent() {
     const determineRoute = async () => {
       try {
         if (isLoggingOut) {
+          return;
+        }
+
+        // Biometric sign-in restores the Supabase session BEFORE WebAuthn runs.
+        // While that gate is pending we must NOT route to the dashboard AND must
+        // NOT clear borderpay_token (the else-branch below would) — the token was
+        // just set so the authenticated WebAuthn calls are authorized. Stay put
+        // until the handler clears the pending flag (on WebAuthn success → it
+        // calls onLoginSuccess directly; on failure it signs out).
+        if (isBiometricLoginPending()) {
           return;
         }
 

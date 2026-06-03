@@ -14,7 +14,7 @@
  */
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, ReactNode } from 'react';
-import { supabase, SUPABASE_URL, ANON_KEY, readUserProfile, storeUserProfile, isPasswordRecovery } from '../supabase/client';
+import { supabase, SUPABASE_URL, ANON_KEY, readUserProfile, storeUserProfile, isPasswordRecovery, isBiometricLoginPending } from '../supabase/client';
 import type { Session, User } from '@supabase/supabase-js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -148,8 +148,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     wallets: initialCache?.wallets || [],
     emailConfirmed: initialCache?.emailConfirmed ?? !!initialSession.user?.email_confirmed_at,
     // A Supabase password-recovery session is NOT a login — never authenticate
-    // (or hydrate dashboard data) while a recovery is in progress.
-    isAuthenticated: !!initialSession.user && !!initialSession.session && !isPasswordRecovery(),
+    // (or hydrate dashboard data) while a recovery is in progress. The same holds
+    // while a biometric login is pending (session restored, WebAuthn not yet passed).
+    isAuthenticated: !!initialSession.user && !!initialSession.session && !isPasswordRecovery() && !isBiometricLoginPending(),
     loading: !initialCache, // loading only if we had no cache to serve
   }));
 
@@ -164,6 +165,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Password-recovery session is NOT a login: do not hydrate profile/wallet or
     // mark authenticated. The reset-password screen drives this flow instead.
     if (isPasswordRecovery()) {
+      if (mountedRef.current) setState(s => ({
+        ...s,
+        user: null, session: null, profile: null, wallets: [],
+        emailConfirmed: false, isAuthenticated: false,
+        sessionChecked: true, loading: false,
+      }));
+      return;
+    }
+    // Biometric-login-pending is the same: the session was restored only so the
+    // WebAuthn assertion can run; do not hydrate or authenticate until it passes.
+    if (isBiometricLoginPending()) {
       if (mountedRef.current) setState(s => ({
         ...s,
         user: null, session: null, profile: null, wallets: [],
@@ -213,7 +225,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         user, session, profile,
         wallets,
         emailConfirmed,
-        isAuthenticated: !!user && !!session,
+        isAuthenticated: !!user && !!session && !isPasswordRecovery() && !isBiometricLoginPending(),
         loading: false,
       };
       if (mountedRef.current) setState(next);
