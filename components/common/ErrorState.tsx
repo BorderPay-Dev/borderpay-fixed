@@ -86,8 +86,8 @@ const variantDefaults: Record<ErrorVariant, {
     icon: <CreditCard size={28} />,
     iconBg: 'bg-[#C7FF00]/10',
     iconColor: 'text-[#C7FF00]',
-    title: 'No Virtual Cards',
-    message: 'Create your first virtual card to start making payments worldwide.',
+    title: 'Card Access Locked',
+    message: 'Cards are not live yet. BorderPay will enable this surface when card access is approved.',
   },
   'empty-transactions': {
     icon: <Clock size={28} />,

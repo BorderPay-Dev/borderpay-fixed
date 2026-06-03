@@ -307,9 +307,9 @@ export const userAPI = {
 // { wallets: WalletRow[] } }`) so callers (BusinessDashboard /
 // Dashboard / WalletScreen) don't change.
 //
-// `createVirtualAccount` routes USD/EUR/GBP to Bridge. Other currencies
-// (NGN/KES/GHS/...) are future-state (planned Yativo integration) and
-// return rails_future_state.
+// `createVirtualAccount` routes supported virtual-account currencies to the
+// current account backend. Other currencies (NGN/KES/GHS/...) are future-state
+// and return rails_future_state until BorderPay enables local rails.
 export const walletAPI = {
   async getWallets() {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
@@ -419,9 +419,9 @@ const CARDS_LOCKED = {
 };
 
 // Future-state stub returned by quarantined provisioning/transfer methods
-// where Bridge has no equivalent today (African local currency rails,
-// mobile money provisioning, off-ramp wiring, etc). African rails are
-// planned for the Yativo integration.
+// where the current account backend has no equivalent today (African local
+// currency rails, mobile-wallet provisioning, off-ramp wiring, etc).
+// These rails stay disabled until BorderPay enables them.
 const RAILS_FUTURE_STATE = {
   success: false as const,
   error: 'This rail is not yet available. We are bringing it online soon.',
@@ -627,8 +627,8 @@ export const localPaymentsAPI = {
   },
 
   // QUARANTINED — `transfer` and `borderPayTransfer` route to future-state
-  // (planned Yativo integration for local currency / mobile money / local
-  // bank rails). `verifyTransfer` and `getTransfers` are read-only and kept
+  // (future local currency / mobile-wallet / local bank rails).
+  // `verifyTransfer` and `getTransfers` are read-only and kept
   // operational for history display.
   async transfer(_data: any) {
     return RAILS_FUTURE_STATE;
@@ -679,8 +679,8 @@ export const usPaymentsAPI = {
 // `generateAddress` routes stablecoin deposit-address creation to
 // bridge-wallet. `_userId` is accepted for signature stability but ignored
 // — Bridge derives owner from JWT. `getAddress` stays operational as a
-// read-only lookup over legacy address rows. `updateOfframp` is
-// future-state (planned Yativo integration).
+// read-only lookup over legacy address rows. `updateOfframp` is future-state
+// until BorderPay enables local off-ramp rails.
 export const addressAPI = {
   async generateAddress(_userId: string, currency: string, network: string) {
     const symbol = (currency || '').toLowerCase();
@@ -787,8 +787,8 @@ export const stablecoinAPI = {
 // MOBILE MONEY
 // ============================================================================
 
-// QUARANTINED — Mobile money is a future-state African rail. Will be wired
-// to the planned Yativo integration. No calls go out from here.
+// QUARANTINED — Mobile-wallet collection is a future-state African rail.
+// No calls go out from here.
 export const mobileMoneyAPI = {
   async getProviders() { return RAILS_FUTURE_STATE; },
   async collect(_data: any) { return RAILS_FUTURE_STATE; },
@@ -837,7 +837,7 @@ export const notificationsAPI = {
 
 // `getAccounts` is read-only display of existing accounts.
 // `createUSDAccount` routes to Bridge VA(USD).
-// `createDynamicAccount` is future-state (African rails / planned Yativo).
+// `createDynamicAccount` is future-state (African local rails).
 // Counterparty methods (`createCounterparty`, `getCounterparty`,
 // `getAccountCounterparties`) and rail status (`checkAccountStatus`,
 // `getSupportedRails`) are transfer-adjacent and read-only respectively;
@@ -919,7 +919,7 @@ export const customersAPI = {
 // Routes the client request to the appropriate edge function:
 //   • virtual_account (USD/EUR/GBP) → bridge-virtual-account
 //   • virtual_account (other)       → rails_future_state
-//   • local_currency (NGN/KES/...)  → rails_future_state (planned Yativo)
+//   • local_currency (NGN/KES/...)  → rails_future_state
 //   • stablecoin                    → bridge-wallet
 //   • card                          → cards_locked
 // All legacy provisioning paths (create-virtual-account, generate-address,

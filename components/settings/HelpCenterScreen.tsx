@@ -14,7 +14,7 @@ interface HelpCenterScreenProps {
 const faqItems = [
   {
     question: 'How do I add money to my wallet?',
-    answer: 'Tap "Add Money" on the dashboard. You can fund your wallet via bank transfer, mobile money, or card deposit.',
+    answer: 'Tap "Receive" or "Add Money" on the dashboard to see the account and wallet options currently available for your country.',
   },
   {
     question: 'How long do transfers take?',
@@ -26,7 +26,7 @@ const faqItems = [
   },
   {
     question: 'How do I get a virtual card?',
-    answer: 'Go to Cards → Create Your First Card. Choose a design, fund it, and your card is ready instantly.',
+    answer: 'Cards are locked for now. BorderPay will enable card creation only after the card backend is approved and live.',
   },
   {
     question: 'Is my money safe?',

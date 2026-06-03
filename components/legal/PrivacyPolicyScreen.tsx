@@ -106,7 +106,7 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
             <div className="space-y-3">
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                 <p className="text-white font-semibold text-sm mb-1">Banking Infrastructure</p>
-                <p className="text-white/70 text-xs">Payment processing, virtual cards, wallet infrastructure</p>
+                <p className="text-white/70 text-xs">Payment processing, locked card access, wallet infrastructure</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                 <p className="text-white font-semibold text-sm mb-1">Identity Verification &amp; Infrastructure</p>

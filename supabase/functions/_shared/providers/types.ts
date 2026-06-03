@@ -1,8 +1,8 @@
 /**
  * Payment Provider Abstraction
  * ───────────────────────────────────────────────────────────────────────────
- * Every external financial-infrastructure provider (Bridge today, planned
- * Yativo for African rails) implements this interface. Edge functions write
+ * Every external financial-infrastructure provider implements this interface.
+ * Edge functions write
  * against the interface, never against a specific provider's API shape, so
  * we can add or swap providers without rewriting business logic.
  *

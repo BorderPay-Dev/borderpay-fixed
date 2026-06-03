@@ -17,7 +17,7 @@
  *      PYUSD/USDB) on Base/Ethereum/Solana/Optimism/Polygon.
  *   4. <CardsLockedCard/> — Cards are not yet issued.
  *   5. <AfricanRailsFutureCard/> — Local-currency rails are future-state
- *      (Yativo integration). NGN/KES/GHS/UGX/etc. show "Coming soon".
+ *      until BorderPay enables them. NGN/KES/GHS/UGX/etc. show "Coming soon".
  *
  * AppShell owns the top chrome for top-level routes, so this screen
  * renders body-only.

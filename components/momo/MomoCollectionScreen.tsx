@@ -1,8 +1,8 @@
 /**
  * BorderPay Africa — Mobile Money Collection (Coming Soon)
  *
- * Mobile money is a future-state African rail that will be brought online via
- * the planned Yativo integration. There is no live implementation today.
+ * Mobile-wallet collection is a future-state African rail. There is no live
+ * implementation today.
  *
  * This screen previously walked the user through currency / provider / phone
  * / amount / review / OTP and submitted to a legacy-provider collection

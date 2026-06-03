@@ -5,9 +5,8 @@
 // handled by:
 //   • bridge-transfer       — Bridge fiat / stablecoin orchestration
 //
-// African local-currency / mobile money payouts are future-state (planned
-// Yativo integration). Until that ships, those rails return rails_future_state
-// at the client layer.
+// African local-currency / mobile-wallet payouts are future-state. Until
+// BorderPay enables those rails, the client returns rails_future_state.
 //
 // Returns HTTP 410 Gone.
 

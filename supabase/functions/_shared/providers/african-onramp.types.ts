@@ -1,17 +1,15 @@
 /**
- * African on/off-ramp partner — future interface stub.
+ * African local-rails adapter — future interface stub.
  *
- * This file defines the contract a future African ramp partner (e.g.
- * one of the providers covering 20+ countries with mobile-money +
- * local-bank rails) must implement so they plug straight into our
- * orchestration layer.
+ * This file defines the contract a future African local-rails adapter must
+ * implement so it can plug straight into our orchestration layer.
  *
  * BorderPay's flow (once a partner is live):
  *
- *   user → Bridge stablecoin wallet → off-ramp partner → KES/NGN/GHS/UGX/TZS/XOF/CDF →
- *          mobile money OR local bank
+ *   user → stablecoin wallet → local-rails adapter → KES/NGN/GHS/UGX/TZS/XOF/CDF →
+ *          mobile wallet OR local bank
  *
- * Until a partner is signed: the orchestration layer in `bridge-transfer`
+ * Until local rails are enabled: the orchestration layer in `bridge-transfer`
  * detects that the destination currency is in `AFRICAN_RAMP_CURRENCIES`,
  * and returns `{ supported: false, reason: 'no_partner' }`. The frontend
  * surfaces "Coming soon for KES/NGN/…".

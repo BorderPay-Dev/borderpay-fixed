@@ -9,7 +9,9 @@ npm install --legacy-peer-deps
 npm run dev
 ```
 
-The app runs fully with **mock data** out of the box — no backend required for preview.
+The app is a live Supabase-backed PWA. Local preview requires the configured
+Supabase project and Edge Functions; mock-only product claims are not part of
+the current app contract.
 
 ## Connecting to Supabase
 
@@ -35,10 +37,10 @@ Run `utils/supabase/schema.sql` in your Supabase SQL editor to create all tables
 |---|---|
 | Auth | Splash, Login, Sign Up (6 steps), Forgot Password, App Lock, PIN Verify |
 | Main | Dashboard, Profile, Notifications, Referral |
-| Wallets | Wallets List, USD Account, Africa Wallet, Stablecoins |
-| Transfers | Send (Local/USD/Stablecoin/P2P), Receive, Add Money |
-| Exchange | Swap, FX History, Live Rates |
-| Cards | Cards List, Card Detail, Frozen Card, Issue Card |
+| Wallets | Wallets List, Virtual Accounts, Stablecoin Wallets |
+| Transfers | Send, Receive, Add Money, Future Rails Notice |
+| Exchange | Guarded Exchange Surface |
+| Cards | Locked Cards Boundary |
 | Transactions | History, Detail |
 | KYC | Intro, Settings, Identity, Address, Proof of Address, Review, Pending |
 | Security | PIN Setup, 2FA Setup, Biometric |
@@ -62,4 +64,3 @@ Run `utils/supabase/schema.sql` in your Supabase SQL editor to create all tables
 - Supabase (Auth + DB + Edge Functions)
 - Framer Motion
 - Lucide Icons
-- Maplerad (KYC, virtual accounts, cards, cross-border)

@@ -1,7 +1,7 @@
 // get-momo-providers — REMOVED (legacy provider).
 //
-// Mobile money is a future-state African rail and will be wired through the
-// planned Yativo integration. This endpoint returns HTTP 410 Gone. The
+// Mobile-wallet collection is a future-state African rail. This endpoint
+// returns HTTP 410 Gone. The
 // client (mobileMoneyAPI.getProviders) returns rails_future_state directly
 // without invoking this endpoint.
 
