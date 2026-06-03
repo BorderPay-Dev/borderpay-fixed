@@ -54,7 +54,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const tc = useThemeClasses();
   const stored = useMemo(() => authAPI.getStoredUser() || {}, []);
   const initialCompanyName = useMemo(
-    () => stored?.company_name || stored?.full_name || 'Your business',
+    () => stored?.company_name || 'Your business',
     [stored],
   );
 

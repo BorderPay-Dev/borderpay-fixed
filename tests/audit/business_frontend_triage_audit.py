@@ -94,15 +94,18 @@ def main() -> int:
         "'company_name'" in client
         and "company_name: formData.companyName" in signup
         and "getBusinessDisplayName(" in main_app
+        and "? (profile?.company_name || 'Business account')" in main_app
         and "backendAPI.business.getProfile()" in main_app
         and "company_name = biz.data.company_name" in main_app
         and "setShellUserName(company_name)" in main_app
         and "company_name" in business_dash
         and "initialCompanyName" in business_dash
+        and "stored?.company_name || 'Your business'" in business_dash
+        and "stored?.company_name || stored?.full_name || 'Your business'" not in business_dash
         and "Business name" in profile
         and "displayName = isBusinessAccount" in profile
         and "profile.company_name" in profile,
-        "Business shell/dashboard/profile must prefer business_profiles.company_name and cache it for first paint",
+        "Business shell/dashboard/profile must prefer business_profiles.company_name and never flash the owner's personal name",
     ))
 
     checks.append((
@@ -119,14 +122,14 @@ def main() -> int:
 
     checks.append((
         "B8 dashboard and shell fast-paint cached business name",
-        "stored?.company_name || stored?.full_name || 'Your business'" in business_dash
+        "stored?.company_name || 'Your business'" in business_dash
         and "useState<string>(initialCompanyName)" in business_dash
         and "r.data.company_name || initialCompanyName || 'Your business'" in business_dash
         and "cached?.company_name" in main_app
         and "const displayName = getBusinessDisplayName({ ...u, account_type: t })" in main_app
         and main_app.find("const displayName = getBusinessDisplayName({ ...u, account_type: t })") < main_app.find("backendAPI.business.getProfile()")
         and "localStorage.setItem('borderpay_user', JSON.stringify({ ...latest, account_type: 'business', company_name }))" in main_app,
-        "BusinessDashboard and MainApp shell must show cached company name before the business profile network refresh",
+        "BusinessDashboard and MainApp shell must show cached company name or neutral business copy before the business profile network refresh",
     ))
 
     print("business_frontend_triage_audit:")
