@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { authAPI, storeUserProfile } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { isFullEnrollment } from '../../utils/config/environment';
+import { isKycVerified } from '../../utils/config/environment';
 import { SecurityStatus } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
@@ -105,7 +105,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const cachedSecurity = useMemo(() => {
     try { return SecurityStatus.get(userId); } catch { return { hasPIN: false, has2FA: false }; }
   }, [userId]);
-  const isCachedVerified = isFullEnrollment(cachedProfile?.kyc_status);
+  const isCachedVerified = isKycVerified(cachedProfile);
 
   const [isVerified, setIsVerified]       = useState<boolean>(!!isCachedVerified);
   const { prefs, updatePrefs } = usePreferences();
@@ -187,7 +187,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       if (profileRes.status === 'fulfilled' && profileRes.value?.success) {
         const p = profileRes.value.data?.user;
         if (p) {
-          const verified   = isFullEnrollment(p.kyc_status);
+          const verified   = isKycVerified(p);
           // Only update if value changed — prevents an avoidable re-render
           // (and visible flicker) when nothing's actually different.
           setIsVerified(prev => prev === verified ? prev : verified);

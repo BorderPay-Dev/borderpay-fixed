@@ -7,7 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Building2, CreditCard, Smartphone, Bitcoin, Copy, CheckCircle, QrCode, Shield } from 'lucide-react';
-import { isFullEnrollment } from '../../utils/config/environment';
+import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { LoadingSpinner } from '../common/LoadingSpinner';
@@ -46,7 +46,7 @@ export function AddMoneyScreen({ userId, onBack }: AddMoneyScreenProps) {
       const stored = localStorage.getItem('borderpay_user');
       if (stored) {
         const user = JSON.parse(stored);
-        return user.kyc_status || 'pending';
+        return deriveKycStatus(user);            // Bridge-first (rejected overrides pending)
       }
     } catch {}
     return 'pending';

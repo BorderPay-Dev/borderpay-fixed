@@ -13,7 +13,7 @@ import { ArrowLeft, DollarSign, AlertCircle, Info, CheckCircle, ShieldAlert } fr
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BorderPayLogo } from './BorderPayLogo';
 import { motion, AnimatePresence } from 'motion/react';
-import { isFullEnrollment } from '../../utils/config/environment';
+import { isKycVerified } from '../../utils/config/environment';
 
 export interface CardDesign {
   id: string;
@@ -126,7 +126,7 @@ export function CardDesignSelector({
           const stored = localStorage.getItem('borderpay_user');
           if (!stored) return false;
           const user = JSON.parse(stored);
-          return isFullEnrollment(user?.kyc_status);
+          return isKycVerified(user);
         } catch { return false; }
       })();
 
