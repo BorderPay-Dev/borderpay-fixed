@@ -138,6 +138,7 @@ function ScreenSkeleton() {
 interface MainAppProps {
   userId: string;
   onLogout: () => void;
+  onLock?: () => void;
   newDeviceDetected?: boolean;
   onDismissNewDevice?: () => void;
   onTrustDevice?: () => void;
@@ -236,7 +237,7 @@ type StablecoinConfirmData = {
   txHash?: string;
 };
 
-export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
+export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('dashboard');
   const [navigationStack, setNavigationStack] = useState<AppScreen[]>(['dashboard']);
   const verificationStatus = useVerification(userId);
@@ -554,6 +555,7 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
             userId={userId}
             onBack={navigateBack}
             onLogout={onLogout}
+            onLock={onLock}
             onNavigate={navigateTo}
           />
         );
@@ -717,6 +719,7 @@ export function MainApp({ userId, onLogout, newDeviceDetected, onDismissNewDevic
                 } as ShellSubscription) : null}
                 isBusinessAccount={accountType === 'business'}
                 onSignOut={onLogout}
+                onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
               >
                 {renderScreen()}

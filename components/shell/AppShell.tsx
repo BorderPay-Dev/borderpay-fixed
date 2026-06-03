@@ -28,7 +28,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Menu, X, Home, ArrowUpRight, ArrowDownLeft, User as UserIcon,
   Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2,
-  Settings, FileText, ShieldCheck, LogOut, Banknote,
+  Settings, FileText, ShieldCheck, LogOut, Banknote, Lock,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -62,6 +62,10 @@ export interface AppShellProps {
   subscription?:      ShellSubscription | null;
   isBusinessAccount?: boolean;
   onSignOut?:         () => void;
+  /** "Lock app" — local-only lock that keeps a refreshable session behind
+   *  biometric. Shown beside Sign out so users who want a quick biometric
+   *  return don't tap full Log out by habit. */
+  onLock?:            () => void;
   /** When provided, a "Payout accounts" drawer item is shown. MainApp only
    *  passes this when EXTERNAL_ACCOUNTS_LIVE is true, so the entry is fully
    *  gated without plumbing a new AppRoute. */
@@ -89,7 +93,7 @@ const PREFETCH_BY_ROUTE: Record<AppRoute, string> = {
 
 export function AppShell({
   route, onRoute, userName, userInitials, avatarUrl,
-  unreadCount = 0, subscription, isBusinessAccount, onSignOut,
+  unreadCount = 0, subscription, isBusinessAccount, onSignOut, onLock,
   onOpenPayoutAccounts,
   children,
 }: AppShellProps) {
@@ -314,6 +318,9 @@ export function AppShell({
                 <div className={`my-2 border-t ${tc.borderLight}`} />
                 <DrawerItem icon={ShieldCheck} label={tt('nav.kyc',          'Identity & KYC')} active={route === 'kyc'}          onPrefetch={() => prefetchRoute('kyc')}          onClick={() => go('kyc')}          tc={tc} />
                 <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
+                {onLock && (
+                  <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       onClick={onLock}                   tc={tc} />
+                )}
                 {onSignOut && (
                   <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       onClick={onSignOut}                tc={tc} danger />
                 )}

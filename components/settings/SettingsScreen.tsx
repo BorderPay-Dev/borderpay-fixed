@@ -38,10 +38,11 @@ interface SettingsScreenProps {
   userId: string;
   onBack: () => void;
   onLogout: () => void;
+  onLock?: () => void;
   onNavigate: (screen: string) => void;
 }
 
-export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: SettingsScreenProps) {
+export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }: SettingsScreenProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [suspending, setSuspending] = useState(false);
   const [has2FA, setHas2FA] = useState(false);
@@ -124,6 +125,9 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
       title: t('settings.accountManagement'),
       items: [
         { icon: Trash2, label: t('settings.suspendAccount'), action: 'suspend', color: 'text-red-400' },
+        // "Lock app" sits beside Log out so a user wanting a quick biometric
+        // return doesn't full-logout by habit. Only shown when onLock is wired.
+        ...(onLock ? [{ icon: Lock, label: t('settings.lockApp') || 'Lock app', action: 'lock', color: 'text-gray-300' }] : []),
         { icon: LogOut, label: t('settings.logOut'), action: 'logout', color: 'text-red-500' },
       ]
     }
@@ -181,6 +185,8 @@ export function SettingsScreen({ userId, onBack, onLogout, onNavigate }: Setting
       if (confirm(t('settings.confirmLogout'))) {
         onLogout();
       }
+    } else if (item.action === 'lock') {
+      onLock?.();
     } else if (item.action === 'suspend') {
       handleSuspendAccount();
     } else if (item.action === 'disable-2fa') {

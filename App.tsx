@@ -6,7 +6,7 @@ import { LoginScreen } from './components/auth/LoginScreen';
 import { SignUpFlow } from './components/auth/SignUpFlow';
 import { ForgotPassword } from './components/auth/ForgotPassword';
 import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
-import { isPasswordRecovery, isBiometricLoginPending } from './utils/supabase/client';
+import { isPasswordRecovery, isBiometricLoginPending, isAppLocked, authAPI } from './utils/supabase/client';
 import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
 import { MainApp } from './components/app/MainApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
@@ -303,6 +303,15 @@ function AppContent() {
           return;
         }
 
+        // "Lock app" — keep the preserved session out of the dashboard and route
+        // to login (where biometric unlock is offered). Don't fall through to the
+        // not-authenticated branch (it would clear borderpay_token, but the lock
+        // already removed it; routing here is explicit and avoids onboarding).
+        if (isAppLocked()) {
+          setAppState('login');
+          return;
+        }
+
         if (isAuthenticated && user) {
           // Note: the pre-existing authenticated guard
           // `if (appState === 'signup') return;` lived here historically
@@ -428,6 +437,17 @@ function AppContent() {
       setAppState('login');
     } finally {
       setIsLoggingOut(false);
+    }
+  };
+
+  // "Lock app" — LOCAL-only sign-out that keeps a refreshable session behind
+  // biometric (distinct from Log out, which fully revokes). Routes to the login
+  // screen, where the biometric button is available for unlock.
+  const handleLock = async () => {
+    try {
+      await authAPI.lockApp();
+    } finally {
+      setAppState('login');
     }
   };
 
@@ -578,6 +598,7 @@ function AppContent() {
         <MainApp
           userId={user.id}
           onLogout={handleLogout}
+          onLock={handleLock}
           newDeviceDetected={newDeviceDetected}
           onDismissNewDevice={() => setNewDeviceDetected(false)}
           onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}

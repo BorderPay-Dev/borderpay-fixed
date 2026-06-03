@@ -125,15 +125,20 @@ def main() -> int:
                    before(i_check, i_login) and before(i_check, i_2fa),
                    f"'if (!result.success)'({i_check}) must precede onLoginSuccess({i_login})/setShow2FA({i_2fa})"))
 
-    # B6 — failure branch tears down the session
+    # B6 — failure branch tears down the session (hard-failure path). The branch
+    # may also have a soft "locked cancel/timeout → keep lock for retry" path that
+    # returns earlier; B6 verifies the hard path still calls clearRestoredSession
+    # within the failure branch (scanned up to the success step).
     fail_ok = False
     if i_check >= 0:
-        i_ret = code.find("return", i_check)
-        if i_ret > i_check:
-            fail_ok = "clearRestoredSession" in code[i_check:i_ret]
+        i_end = code.find("// Step 6", i_check)
+        if i_end < 0:
+            i_end = code.find("completed = true", i_check)
+        region = code[i_check:i_end] if i_end > i_check else code[i_check:]
+        fail_ok = "clearRestoredSession" in region
     checks.append(("B6 WebAuthn-failure branch tears down session",
                    fail_ok,
-                   "the !result.success branch must call clearRestoredSession() before returning"))
+                   "the !result.success branch must call clearRestoredSession() on the hard-failure path"))
 
     # B7 — teardown helper clears everything
     helper = slice_fn(raw, "const clearRestoredSession = async () =>")
