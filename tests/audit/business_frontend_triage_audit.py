@@ -100,8 +100,10 @@ def main() -> int:
         and "setShellUserName(company_name)" in main_app
         and "company_name" in business_dash
         and "initialCompanyName" in business_dash
-        and "stored?.company_name || 'Your business'" in business_dash
+        and "stored?.company_name || ''" in business_dash
         and "stored?.company_name || stored?.full_name || 'Your business'" not in business_dash
+        and "readAuthProfileHints" in client
+        and "company_name: metadata.company_name" in client
         and "Business name" in profile
         and "displayName = isBusinessAccount" in profile
         and "profile.company_name" in profile,
@@ -122,9 +124,10 @@ def main() -> int:
 
     checks.append((
         "B8 dashboard and shell fast-paint cached business name",
-        "stored?.company_name || 'Your business'" in business_dash
+        "stored?.company_name || ''" in business_dash
         and "useState<string>(initialCompanyName)" in business_dash
-        and "r.data.company_name || initialCompanyName || 'Your business'" in business_dash
+        and "r.data.company_name || initialCompanyName" in business_dash
+        and "Loading business name" in business_dash
         and "cached?.company_name" in main_app
         and "const displayName = getBusinessDisplayName({ ...u, account_type: t })" in main_app
         and main_app.find("const displayName = getBusinessDisplayName({ ...u, account_type: t })") < main_app.find("backendAPI.business.getProfile()")
