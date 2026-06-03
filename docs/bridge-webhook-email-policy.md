@@ -87,8 +87,8 @@ failed" template (`*.account_ready`). `business.kyb_decision`,
   `pending`, `not_started` → in-app at most. No email for non-terminal status.
 - **Signature-rejected / unknown / probe events** → never (security/no-op).
 - **Internal/test accounts** → excluded by the explicit suppression predicate (§5).
-- **Maplerad-source events** → provider removed; never email (already no-op in the
-  worker).
+- **Removed/unknown provider-source events** → never email; complete without
+  side effects.
 
 > Money-movement emails (`transfer.*`/`payout.*`) are **flag-gated on
 > `TRANSFERS_LIVE`** and stay dark until money movement is CEO/CTO-approved.

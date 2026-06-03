@@ -90,7 +90,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
               Use your USD account credentials for ACH/wire deposits, or
               share a stablecoin address for crypto transfers. Local-currency
-              rails are launching with our partner integration.
+              rails are launching through BorderPay.
             </p>
           </div>
         </div>

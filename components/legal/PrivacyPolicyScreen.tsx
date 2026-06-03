@@ -105,11 +105,11 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
             </div>
             <div className="space-y-3">
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                <p className="text-white font-semibold text-sm mb-1">FDIC-Insured Banking Partner</p>
+                <p className="text-white font-semibold text-sm mb-1">Banking Infrastructure</p>
                 <p className="text-white/70 text-xs">Payment processing, virtual cards, wallet infrastructure</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                <p className="text-white font-semibold text-sm mb-1">Identity Verification &amp; BaaS Partner</p>
+                <p className="text-white font-semibold text-sm mb-1">Identity Verification &amp; Infrastructure</p>
                 <p className="text-white/70 text-xs">KYC/AML identity verification, virtual accounts, custodial wallets, and stablecoin orchestration</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">

@@ -10,7 +10,6 @@ import {
   Shield, 
   Accessibility, 
   Lock, 
-  CreditCard, 
   HelpCircle, 
   FileText, 
   LogOut,
@@ -19,12 +18,7 @@ import {
   Key,
   Trash2,
   MapPin,
-  BookOpen,
-  Coins,
-  CheckCircle2,
-  Circle,
   Fingerprint,
-  Upload,
   Mail,
   Sparkles,
 } from 'lucide-react';
@@ -82,8 +76,8 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         { icon: Sparkles, label: 'Plans & pricing', screen: 'pricing', color: 'text-[#C7FF00]' },
         // Payment Methods option removed per product decision.
         // KYC documents and Proof of Address are deliberately not surfaced
-        // from Settings: identity verification is owned end-to-end by our
-        // verification partner via the hosted flow, and re-submission lives
+        // from Settings: identity verification is owned end-to-end by the
+        // hosted verification flow, and re-submission lives
         // inside that flow (Identity & KYC entry in the side drawer).
       ]
     },
@@ -104,9 +98,9 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       ]
     },
     {
-      title: t('cards.title'),
+      title: 'Country availability',
       items: [
-        { icon: MapPin, label: t('cards.geoRestrictions'), screen: 'card-restrictions', color: 'text-red-400' },
+        { icon: MapPin, label: 'Restricted countries', screen: 'country-eligibility', color: 'text-red-400' },
       ]
     },
     {

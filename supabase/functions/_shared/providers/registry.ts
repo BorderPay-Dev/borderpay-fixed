@@ -7,12 +7,11 @@
  *   • payment_provider IS NULL / empty     → Bridge (default for new users).
  *   • payment_provider === 'bridge'        → Bridge.
  *   • payment_provider === 'african_onramp'→ throw (not yet implemented).
- *   • any other value (including legacy
- *     'maplerad' or unknown providers)     → throw `Provider '<value>' has
- *     been removed or is unsupported`. We deliberately DO NOT reinterpret a
- *     legacy explicit provider value as Bridge — existing legacy users may
- *     not have Bridge customer state, and silently routing them to Bridge
- *     could create stranded customer rows or duplicate identities.
+ *   • any other value                      → throw `Provider '<value>' has
+ *     been removed or is unsupported`. We deliberately DO NOT reinterpret an
+ *     explicit non-live provider value as Bridge — those rows may not have
+ *     Bridge customer state, and silently routing them to Bridge could create
+ *     stranded customer rows or duplicate identities.
  *
  * `getDefaultProviderName()` is consulted only for missing/default settings,
  * never as a rescue for a removed provider value.
@@ -61,8 +60,8 @@ export async function getProviderForUser(userId: string): Promise<PaymentProvide
     throw new Error("Provider 'african_onramp' is not yet implemented");
   }
 
-  // Anything else (legacy 'maplerad', typos, future unknown values): fail
-  // closed. We never reinterpret an explicit non-Bridge provider as Bridge.
+  // Anything else (legacy values, typos, future unknown values): fail closed.
+  // We never reinterpret an explicit non-Bridge provider as Bridge.
   throw new Error(`Provider '${raw}' has been removed or is unsupported`);
 }
 

@@ -49,7 +49,7 @@ import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
-import { CardsComingSoonCard } from '../dashboard/bridge/CardsComingSoonCard';
+import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 
 // Pull cached profile once at module-eval — every initial-state hook below

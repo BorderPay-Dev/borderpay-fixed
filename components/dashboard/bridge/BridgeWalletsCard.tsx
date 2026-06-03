@@ -12,6 +12,8 @@ import { motion } from 'motion/react';
 import { Wallet, Plus, Copy, Loader2, Lock } from 'lucide-react';
 import { supabase } from '../../../utils/supabase/client';
 import { backendAPI } from '../../../utils/api/backendAPI';
+import { authAPI } from '../../../utils/supabase/client';
+import { isBridgeCustodialWalletSupported } from '../../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
 
@@ -41,8 +43,10 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [derivedApproved, setDerivedApproved] = useState(false);
+  const [country, setCountry] = useState<string | null>(() => authAPI.getStoredUser()?.country ?? null);
 
   const isApproved = kycApproved ?? derivedApproved;
+  const walletsSupported = isBridgeCustodialWalletSupported(country);
 
   const refresh = async () => {
     const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
@@ -62,23 +66,33 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
       if (isBusiness) {
         const { data } = await supabase
           .from('business_profiles')
-          .select('bridge_kyb_status')
+          .select('bridge_kyb_status, country')
           .eq('user_id', userId)
           .maybeSingle();
-        if (alive) setDerivedApproved(data?.bridge_kyb_status === 'approved');
+        if (alive) {
+          setDerivedApproved(data?.bridge_kyb_status === 'approved');
+          setCountry(data?.country ?? authAPI.getStoredUser()?.country ?? null);
+        }
       } else {
         const { data } = await supabase
           .from('user_profiles')
-          .select('bridge_kyc_status')
+          .select('bridge_kyc_status, country')
           .eq('id', userId)
           .maybeSingle();
-        if (alive) setDerivedApproved(data?.bridge_kyc_status === 'approved');
+        if (alive) {
+          setDerivedApproved(data?.bridge_kyc_status === 'approved');
+          setCountry(data?.country ?? authAPI.getStoredUser()?.country ?? null);
+        }
       }
     })();
     return () => { alive = false; };
   }, [userId, isBusiness, kycApproved]);
 
   const handleCreate = async () => {
+    if (!walletsSupported) {
+      showToast.error('Stablecoin wallets are not available for your country.');
+      return;
+    }
     setCreating(true);
     const r = await backendAPI.bridge.wallet.create({ symbol: DEFAULT_STABLECOIN.symbol, chain: DEFAULT_STABLECOIN.chain });
     setCreating(false);
@@ -110,7 +124,9 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
             {tt('dash.wallet.title', 'Stablecoin wallets')}
           </h3>
           <p className={`text-xs ${tc.textMuted}`}>
-            {tt('dash.wallet.subtitle', 'Custodial USDC and other stablecoins.')}
+            {walletsSupported
+              ? tt('dash.wallet.subtitle', 'Custodial USDC and other stablecoins.')
+              : tt('dash.wallet.subtitle.unavailable', 'Stablecoin wallets are not available for your country.')}
           </p>
         </div>
       </div>
@@ -120,6 +136,15 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
           <Lock className={`w-4 h-4 ${tc.textMuted}`} />
           <p className={`text-xs ${tc.textMuted}`}>
             {tt('dash.wallet.locked', 'Verify your identity to enable wallets.')}
+          </p>
+        </div>
+      )}
+
+      {country && !walletsSupported && (
+        <div className={`flex items-center gap-2 p-3 rounded-2xl ${tc.bgAlt} border ${tc.border} mb-3`}>
+          <Lock className={`w-4 h-4 ${tc.textMuted}`} />
+          <p className={`text-xs ${tc.textMuted}`}>
+            Stablecoin wallets are not currently available for your country.
           </p>
         </div>
       )}
@@ -153,10 +178,10 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
 
           {!hasDefault && (
             <button
-              disabled={!isApproved || creating}
+              disabled={!isApproved || !walletsSupported || creating}
               onClick={handleCreate}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition
-                ${isApproved
+                ${isApproved && walletsSupported
                   ? 'bg-[#C7FF00] text-black hover:opacity-90'
                   : `${tc.bgAlt} ${tc.textMuted} cursor-not-allowed`}`}
             >

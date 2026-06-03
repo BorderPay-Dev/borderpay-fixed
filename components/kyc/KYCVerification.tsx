@@ -155,7 +155,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         const code = (r as any)?.code;
         const msg =
           code === 'country_not_supported'
-            ? (r.error || 'Your country is not yet supported by our verification partner. We are bringing African local rails online soon.')
+            ? (r.error || 'Your country is not yet supported. We are bringing African local rails online soon.')
         : code === 'wrong_account_type'
             ? 'This verification flow does not match your account type.'
         : (r.error || tt('kyc.error.start_failed', 'Could not start verification. Please try again.'));
@@ -252,7 +252,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         </motion.div>
 
         <p className={`mt-4 text-xs ${tc.textMuted} text-center`}>
-          {tt('kyc.disclaimer.partner', 'Verification is performed by our regulated identity partner. We do not store your ID images.')}
+          {tt('kyc.disclaimer.partner', 'Verification is performed through BorderPay. We do not store your ID images.')}
         </p>
       </div>
     </div>
@@ -292,7 +292,7 @@ function KycBody({
         </div>
         <h2 className={`text-2xl font-bold ${tc.text} mb-2`}>{tt('kyc.rejected.title', 'Verification did not pass')}</h2>
         <p className={`${tc.textSecondary} mb-1 max-w-md mx-auto`}>
-          {tt('kyc.rejected.body', 'Our verification partner could not verify the documents provided. You can retry or contact support if you think this is in error.')}
+          {tt('kyc.rejected.body', 'We could not verify the documents provided. You can retry or contact support if you think this is in error.')}
         </p>
         {profile.rejected_reason && (
           <p className={`text-sm ${tc.textMuted} mb-4`}>{profile.rejected_reason}</p>
@@ -361,7 +361,7 @@ function KycBody({
       </h2>
       <p className={`${tc.textSecondary} mb-6 max-w-md mx-auto leading-relaxed`}>
         {isBusiness
-          ? tt('kyc.start.business.body',  "Business verification is handled by Bridge. You'll complete business, ownership, and address checks in the secure Bridge KYB flow. Timelines vary depending on the business and required documents.")
+          ? tt('kyc.start.business.body',  "Complete business, ownership, and address checks in BorderPay's secure verification flow. Timelines vary depending on the business and required documents.")
           : tt('kyc.start.individual.body','We need a government-issued ID and a quick selfie. The whole process takes about 2–3 minutes.')}
       </p>
       <ul className={`${tc.textMuted} text-sm space-y-1 mb-6 max-w-sm mx-auto text-left`}>

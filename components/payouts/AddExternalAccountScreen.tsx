@@ -136,7 +136,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <Banknote className="w-5 h-5 text-[#C7FF00]" />
           <p className={`text-xs ${tc.textMuted} leading-relaxed`}>
-            Add a bank account you own to receive payouts. Verification and payouts are handled by Bridge.
+            Add a bank account you own to receive payouts through BorderPay.
           </p>
         </div>
 

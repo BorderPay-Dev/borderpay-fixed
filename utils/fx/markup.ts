@@ -1,7 +1,7 @@
 /**
  * Platform FX markup.
  *
- * Applied on top of our banking partner's published rate to produce the
+ * Applied on top of the provider-published rate to produce the
  * customer-facing quote. This single constant is the source of truth — UI
  * widgets (DashboardRateWidget, ExchangeScreen) and any future server
  * quote endpoint should import it instead of hard-coding a value.

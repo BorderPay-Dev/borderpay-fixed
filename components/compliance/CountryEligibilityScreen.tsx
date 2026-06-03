@@ -1,13 +1,8 @@
 /**
- * Geographic restrictions screen (kept under the "card-restrictions" route
- * name for caller compatibility; surfaces partner country eligibility, not
- * card-network restrictions specifically).
+ * Country eligibility screen.
  *
- * Renders the three Bridge-restricted tiers as separate sections so the
- * copy doesn't conflate sanctions / commercial-unavailability with the
- * future-state "coming via local-rails partner" plan. Round-10 P2 fix.
- *
- * AppShell owns the top chrome; renders body-only.
+ * Renders product-country eligibility without exposing provider names to
+ * customers. AppShell owns the top chrome; this screen renders body-only.
  */
 
 import React from 'react';
@@ -21,7 +16,7 @@ import {
 } from '../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
-interface CardRestrictionsScreenProps {
+interface CountryEligibilityScreenProps {
   onBack: () => void;
 }
 
@@ -32,7 +27,7 @@ interface SectionProps {
   badge:    { text: string; classes: string };
 }
 
-export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) {
+export function CountryEligibilityScreen({ onBack }: CountryEligibilityScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
@@ -74,7 +69,7 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
     <div className={`min-h-screen ${tc.bg}`}>
       <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-5 pb-10">
         <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
-          {tt('cards.geoRestrictions', 'Geographic eligibility')}
+          {tt('eligibility.title', 'Country eligibility')}
         </p>
 
         <motion.div
@@ -88,19 +83,18 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
               Where our products are available
             </p>
             <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
-              Account signup is open across Africa. USD virtual accounts and
-              stablecoin wallets follow our regulated banking partner's
-              country eligibility. The sections below explain why specific
-              jurisdictions are not currently supported and which ones we
-              expect to bring online through a future local-rails partner.
+              Account signup is open across Africa. BorderPay account and
+              wallet availability depends on country eligibility. The sections
+              below explain why specific jurisdictions are not currently
+              supported and which ones we expect to bring online later.
             </p>
           </div>
         </motion.div>
 
-        {/* Section 1: Coming soon via local-rails partner (DRC only). */}
+        {/* Section 1: Coming soon via local rails (DRC only). */}
         <Section
-          title="Coming soon via local-rails partner"
-          subtitle="These countries will come online once our African local-rails partner is wired up. Signup is allowed; partner-backed products are not yet provisioned."
+          title="Coming soon via local rails"
+          subtitle="These countries will come online once BorderPay local rails are ready. Signup is allowed; financial products are not yet provisioned."
           entries={COMING_SOON_COUNTRIES}
           badge={{ text: 'Soon', classes: 'bg-amber-500/15 text-amber-300' }}
         />
@@ -113,8 +107,8 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
           </h2>
         </div>
         <p className={`text-[11px] ${tc.textMuted} mb-2.5 px-1 leading-snug`}>
-          Our regulated banking partner does not currently facilitate any
-          payment rail for residents of these jurisdictions. This is a
+          BorderPay does not currently facilitate any payment rail for
+          residents of these jurisdictions. This is a
           commercial / regulatory restriction, not a sanctions designation.
         </p>
         <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
@@ -173,9 +167,9 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
         <div className={`flex items-start gap-2 px-4 py-3 rounded-xl border ${tc.borderLight} ${tc.card}`}>
           <Info className={`w-3.5 h-3.5 mt-0.5 ${tc.textMuted} flex-shrink-0`} />
           <p className={`text-[11px] ${tc.textMuted} leading-snug`}>
-            Eligibility may change as our partner expands coverage and as
-            local regulations evolve. We'll email affected accounts when
-            their country becomes available.
+            Eligibility may change as BorderPay expands coverage and as local
+            regulations evolve. We'll email affected accounts when their country
+            becomes available.
           </p>
         </div>
 
@@ -190,4 +184,4 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
   );
 }
 
-export default CardRestrictionsScreen;
+export default CountryEligibilityScreen;

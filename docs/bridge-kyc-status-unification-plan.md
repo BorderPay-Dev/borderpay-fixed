@@ -77,7 +77,6 @@ helper. Known surfaces (from a read-only scan — confirm exact lines in the PR)
 | Wallet gate | `components/wallet/WalletScreen.tsx` (~55) | gating |
 | Provisioning modal | `components/wallet/RequestProvisioningModal.tsx` (~68, 78) | gating |
 | Send gate | `components/send/SendMoneyFlow.tsx` (~117) | gating |
-| Card design gate | `components/cards/CardDesignSelector.tsx` (~129) | gating |
 | Login verified check | `components/auth/LoginScreen.tsx` (~116, 135, 236) | gating |
 
 Already Bridge-aware (reference implementations, leave as-is or refactor onto the

@@ -310,7 +310,7 @@ export function AppShell({
                 {onOpenPayoutAccounts && (
                   <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
                 )}
-                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Coming Soon" />
+                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
                 <DrawerItem icon={Globe2}      label={tt('nav.pricing',      'Plans & pricing')}active={route === 'pricing'}      onPrefetch={() => prefetchRoute('pricing')}      onClick={() => go('pricing')}      tc={tc} highlight={!subscription?.is_paid} />
                 {isBusinessAccount && (
                   <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   active={route === 'team'}         onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />

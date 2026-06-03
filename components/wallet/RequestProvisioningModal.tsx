@@ -1,17 +1,16 @@
 /**
  * BorderPay Africa — Request Provisioning Modal (v2)
  *
- * Per-product policy aligned with the Bridge migration:
+ * Per-product policy aligned with BorderPay's current rails:
  *
- *   • Global Account        → Bridge virtual account for USD/EUR/GBP.
+ *   • Global Account        → BorderPay virtual account for supported currencies.
  *
- *   • African Currency      → Future-state local rails/mobile money partner.
+ *   • African Currency      → Future-state local rails/mobile money.
  *                              Requests are queued for ops visibility only.
  *
- *   • Stablecoin            → Bridge wallet.
+ *   • Stablecoin            → BorderPay stablecoin wallet.
  *
- *   • Virtual USD Card      → Coming Soon. Card issuance is paused under the
- *                              current Bridge plan.
+ *   • Card                  → Locked. Card issuing is not enabled.
  *
  * Provider errors are surfaced to the user. Only intentional future-state
  * products create `pending_provisioning_requests` rows.
@@ -26,6 +25,12 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { supabase } from '../../utils/supabase/client';
 import { authAPI } from '../../utils/supabase/client';
 import { isKycVerified } from '../../utils/config/environment';
+import {
+  bridgeVirtualAccountCurrenciesForCountry,
+  isBridgeCustodialWalletSupported,
+  isBridgeVirtualAccountCurrencyAvailable,
+  type BridgeVirtualAccountCurrency,
+} from '../../utils/compliance/partnerCountryPolicy';
 
 interface RequestProvisioningModalProps {
   open: boolean;
@@ -66,6 +71,9 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   // don't refuse a verified user because of cached 'pending'.
   const cachedUser           = authAPI.getStoredUser();
   const [verified, setVerified]                     = useState<boolean>(isKycVerified(cachedUser));
+  const [country, setCountry]                       = useState<string | null>(cachedUser?.country ?? null);
+  const availableVaCurrencies = bridgeVirtualAccountCurrenciesForCountry(country);
+  const stablecoinSupported = isBridgeCustodialWalletSupported(country);
 
   useEffect(() => {
     if (!open) return;
@@ -75,7 +83,17 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
         const r = await backendAPI.user.getProfile();
         if (cancelled) return;
         if (r?.success && r.data?.user) {
-          setVerified(isKycVerified(r.data.user));
+          const user = r.data.user;
+          setVerified(isKycVerified(user));
+          setCountry(user.country ?? cachedUser?.country ?? null);
+          if (user.account_type === 'business') {
+            try {
+              const br = await backendAPI.business.getProfile();
+              if (!cancelled && br?.success && br.data) {
+                setCountry(br.data.country ?? user.country ?? cachedUser?.country ?? null);
+              }
+            } catch { /* ignore — keep user profile country */ }
+          }
         }
       } catch { /* ignore — keep cached */ }
     })();
@@ -83,9 +101,9 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   }, [open]);
 
   const products: Product[] = [
-    { key: 'usd-va',     label: 'Global Account', blurb: 'USD, EUR or GBP — availability depends on your country', Icon: Banknote, accent: '#10B981' },
+    { key: 'usd-va',     label: 'Global Account', blurb: availableVaCurrencies.length > 0 ? `${availableVaCurrencies.join(' / ')} account rails available for your country` : 'Not available for your country', Icon: Banknote, accent: '#10B981' },
     { key: 'african',    label: 'African Currency',             blurb: 'Local currency and mobile money rails coming soon', Icon: Globe2,   accent: '#8B5CF6' },
-    { key: 'stablecoin', label: 'Stablecoin Wallet',            blurb: 'USDC · USDT · PYUSD · USDB',                Icon: Coins,    accent: '#F59E0B' },
+    { key: 'stablecoin', label: 'Stablecoin Wallet',            blurb: stablecoinSupported ? 'USDC · USDT · PYUSD · USDB' : 'Not available for your country',                Icon: Coins,    accent: '#F59E0B' },
     { key: 'card',       label: 'Virtual Card',                 blurb: 'Coming soon — card issuance is paused',     Icon: CreditCard, accent: '#C7FF00' },
   ];
 
@@ -107,10 +125,18 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
       toast.error('Cards are launching soon. We’ve paused new card issuance during the migration.');
       return;
     }
+    if (p.key === 'usd-va' && availableVaCurrencies.length === 0) {
+      toast.error('Global accounts are not available for your country.');
+      return;
+    }
+    if (p.key === 'stablecoin' && !stablecoinSupported) {
+      toast.error('Stablecoin wallets are not available for your country.');
+      return;
+    }
     setSelection(p);
     setDoneMessage(null);
     setErrMessage(null);
-    if (p.key === 'usd-va')          setCurrency('USD');
+    if (p.key === 'usd-va')          setCurrency(availableVaCurrencies[0] ?? '');
     else if (p.key === 'african')    setCurrency('NGN');
     else if (p.key === 'stablecoin') { setCurrency('USDC'); setNetwork('SOLANA'); }
   };
@@ -162,7 +188,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
       } else if (selection.key === 'african') {
         await submitAfrican();
       }
-      // 'card' is intentionally not handled here. Cards are Coming Soon and
+      // 'card' is intentionally not handled here. Cards are locked and
       // handleSelect() returns before a card selection can be set, so this
       // branch is unreachable. The dead submitCard() function below is
       // retained as a no-op for the duration of the cards quarantine.
@@ -177,6 +203,10 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
 
   // ── Stablecoin ──────────────────────────────────────────────────────
   const submitStablecoin = async () => {
+    if (!stablecoinSupported) {
+      setErrMessage('Stablecoin wallets are not available for your country.');
+      return;
+    }
     const r: any = await backendAPI.provisioning.request({
       type: 'stablecoin', currency, network: network.toLowerCase(),
     });
@@ -193,6 +223,10 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   // ── Global Account (USD / EUR / GBP) ────────────────────────────────
   const submitUsdVa = async () => {
     const ccy = (currency || 'USD').toUpperCase();
+    if (!isBridgeVirtualAccountCurrencyAvailable(country, ccy)) {
+      setErrMessage(`${ccy} global accounts are not available for your country.`);
+      return;
+    }
     if (!['USD', 'EUR', 'GBP'].includes(ccy)) {
       setErrMessage(`Unsupported currency: ${ccy}`); return;
     }
@@ -226,9 +260,9 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   // QUARANTINED: Virtual card issuance is paused. handleSelect() returns
   // before a card selection can be set, and submit() no longer routes to
   // this function. Retained as a no-op so any stale call surfaces a clean
-  // Coming Soon toast instead of attempting card provisioning.
+  // locked toast instead of attempting card provisioning.
   const submitCard = async () => {
-    toast.error('Cards are Coming Soon.');
+    toast.error('Cards are locked for your account.');
   };
   void submitCard;
 
@@ -448,7 +482,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
                     <div>
                       <label className="text-[11px] uppercase tracking-wider text-white/50">Currency</label>
                       <div className="mt-2 grid grid-cols-3 gap-2">
-                        {(['USD', 'EUR', 'GBP'] as const).map((c) => (
+                        {availableVaCurrencies.map((c: BridgeVirtualAccountCurrency) => (
                           <button
                             key={c}
                             onClick={() => setCurrency(c)}
@@ -466,10 +500,9 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
                     </div>
                     <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10">
                       <p className="text-xs text-white/70 leading-relaxed">
-                        Currency availability depends on your country — not every region can open
-                        every account. If {currency} is supported for you, it settles into your
+                        Currency availability depends on your country. If {currency} is supported for you, it settles into your
                         stablecoin wallet via {currency === 'USD' ? 'ACH/wire' : currency === 'EUR' ? 'SEPA' : 'Faster Payments'}.
-                        Activation runs once your KYC is verified by our partner — typically within
+                        Activation runs once your verification is approved — typically within
                         one business day. We'll email the routing/account/IBAN as soon as it's live,
                         or let you know if it isn't available in your country.
                       </p>

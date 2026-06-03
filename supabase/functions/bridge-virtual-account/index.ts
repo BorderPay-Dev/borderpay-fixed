@@ -7,7 +7,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
+import {
+  isBridgeBlocked,
+  bridgeCountryBlockResponse,
+  logControlledBridgeTraffic,
+  isBridgeVirtualAccountCurrencyAvailable,
+} from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -48,15 +53,38 @@ Deno.serve(async (req) => {
     .select("id, account_type, country, bridge_customer_id, bridge_kyc_status")
     .eq("id", user.id)
     .maybeSingle();
-  if (isBridgeBlocked(profile?.country)) {
-    return json(bridgeCountryBlockResponse(profile!.country!), 403);
+  const isBusiness = profile?.account_type === "business";
+  let productCountry = profile?.country ?? null;
+  let verificationStatus = profile?.bridge_kyc_status ?? null;
+
+  if (isBusiness) {
+    const { data: biz } = await supa
+      .from("business_profiles")
+      .select("country, bridge_kyb_status")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    productCountry = biz?.country ?? productCountry;
+    verificationStatus = biz?.bridge_kyb_status ?? verificationStatus;
   }
-  logControlledBridgeTraffic("bridge-virtual-account", profile?.country, user.id);
+
+  if (isBridgeBlocked(productCountry)) {
+    return json(bridgeCountryBlockResponse(productCountry!), 403);
+  }
+  if (!isBridgeVirtualAccountCurrencyAvailable(productCountry, currency)) {
+    return json({
+      success: false,
+      code: "country_rail_not_supported",
+      error: `${currency} virtual accounts are not available for your country through BorderPay.`,
+      country: productCountry,
+      currency,
+    }, 403);
+  }
+  logControlledBridgeTraffic("bridge-virtual-account", productCountry, user.id);
   if (!profile?.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }
-  if (profile.bridge_kyc_status !== "approved") {
-    return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
+  if (verificationStatus !== "approved") {
+    return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
 
   // Tier enforcement: the user's active subscription must allow this currency.
@@ -65,7 +93,6 @@ Deno.serve(async (req) => {
   //   • business_enterprise                    → USD + EUR + GBP.
   // We read the subscription owner row keyed on whether this is an
   // individual or business account.
-  const isBusiness = profile.account_type === "business";
   const subQuery = supa
     .from("user_subscriptions")
     .select("plan_key, status")
@@ -123,11 +150,6 @@ Deno.serve(async (req) => {
       } : {}),
     });
 
-    // Note: legacy-provider wallet columns on public.wallets (e.g.
-    // `maplerad_wallet_id`) are intentionally NOT set here. On INSERT they
-    // default to NULL; on UPDATE (existing row) legacy values are preserved
-    // untouched. Those columns stay on the schema pending an archival
-    // migration — see MAPLERAD_REMOVAL_CHECKLIST.md.
     await supa.from("wallets").upsert({
       user_id:                   user.id,
       currency,

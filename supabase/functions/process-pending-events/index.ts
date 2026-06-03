@@ -2,10 +2,7 @@
  * process-pending-events — background worker for the unified webhook queue.
  *
  * Sources:
- *   • 'bridge'   — Bridge events (customer KYC/KYB, virtual accounts, wallets, transfers).
- *   • 'maplerad' — legacy events from before Maplerad was removed. The worker
- *                  no longer applies their effects; rows are completed with a
- *                  `{ provider_removed: "maplerad" }` summary to drain the queue.
+ *   • 'bridge' — active events (customer KYC/KYB, virtual accounts, wallets, transfers).
  *
  * Top-level dispatch is on `pending_events.source`. Unknown sources fail
  * closed (no fall-through).
@@ -161,30 +158,14 @@ interface PendingEvent {
 
 // ── Top-level router (source-aware) ──────────────────────────────────────
 //
-// Bridge is the only active provider. Maplerad has been removed.
-// Any pending_events row with source='maplerad' is a leftover from before
-// removal — we mark it terminally completed with a `provider_removed` tag
-// so the queue keeps draining without crediting wallets, flipping KYC
-// status, or otherwise applying Maplerad-era business logic. Unknown
-// source values get the same treatment (fail-closed, never fall through).
+// BorderPay has one active provider path in this worker. Unknown source values
+// are terminally completed without side effects (fail-closed, never fall
+// through).
 
 async function processEvent(ev: PendingEvent): Promise<void> {
   switch (ev.source) {
     case "bridge":
       return await processBridgeEvent(ev);
-
-    case "maplerad":
-      // Provider removed. Do NOT credit wallets or update KYC from these
-      // events. Mark the row completed with a clear terminal reason.
-      await supabase.rpc("complete_pending_event", {
-        p_event_id: ev.event_id,
-        p_summary:  {
-          provider_removed: "maplerad",
-          event_type:        ev.event_type,
-          note:              "Maplerad has been removed; event dropped without side effects.",
-        },
-      });
-      return;
 
     default:
       // Unknown source — fail closed.

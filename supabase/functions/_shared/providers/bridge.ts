@@ -10,9 +10,8 @@
  *   • POST /v0/transfers                                  → orchestration / cross-border
  *
  * All calls go through `bridgeFetch` which adds Api-Key, Idempotency-Key,
- * exponential backoff. Cards are intentionally NOT implemented — Bridge
- * cards aren't in our self-serve plan, and the UI marks the section as
- * "Coming Soon".
+ * exponential backoff. Cards are intentionally NOT implemented until card
+ * access is approved; the UI marks the section as locked.
  */
 
 import { bridgeFetch } from "./bridge-client.ts";

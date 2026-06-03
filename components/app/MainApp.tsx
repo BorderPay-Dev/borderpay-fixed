@@ -42,7 +42,6 @@ const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ de
 const KYCVerification = lazyImport(() => import('../kyc/KYCVerification').then(m => ({ default: m.KYCVerification })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
 const TransactionsScreen = lazyImport(() => import('../transactions/TransactionsScreen').then(m => ({ default: m.TransactionsScreen })));
-const AddMoneyScreen = lazyImport(() => import('../deposit/AddMoneyScreen').then(m => ({ default: m.AddMoneyScreen })));
 const SettingsScreen = lazyImport(() => import('../settings/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
 const WalletScreen = lazyImport(() => import('../wallet/WalletScreen').then(m => ({ default: m.WalletScreen })));
 const ProfileScreen = lazyImport(() => import('../profile/ProfileScreen').then(m => ({ default: m.ProfileScreen })));
@@ -52,12 +51,11 @@ const PaymentMethods = lazyImport(() => import('../settings/PaymentMethods').the
 const TermsOfServiceScreen = lazyImport(() => import('../legal/TermsOfServiceScreen').then(m => ({ default: m.TermsOfServiceScreen })));
 const PrivacyPolicyScreen = lazyImport(() => import('../legal/PrivacyPolicyScreen').then(m => ({ default: m.PrivacyPolicyScreen })));
 const PreferencesScreen = lazyImport(() => import('../app/PreferencesScreen').then(m => ({ default: m.PreferencesScreen })));
-const CardRestrictionsScreen = lazyImport(() => import('../compliance/CardRestrictionsScreen').then(m => ({ default: m.CardRestrictionsScreen })));
+const CountryEligibilityScreen = lazyImport(() => import('../compliance/CountryEligibilityScreen').then(m => ({ default: m.CountryEligibilityScreen })));
 const ReceiveMoneyScreen = lazyImport(() => import('../receive/ReceiveMoneyScreen').then(m => ({ default: m.ReceiveMoneyScreen })));
 const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
-const CurrencyConverter = lazyImport(() => import('../conversion/CurrencyConverter').then(m => ({ default: m.CurrencyConverter })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
 const MomoCollectionScreen = lazyImport(() => import('../momo/MomoCollectionScreen').then(m => ({ default: m.MomoCollectionScreen })));
 const CreateCounterpartyScreen = lazyImport(() => import('../counterparty/CreateCounterpartyScreen').then(m => ({ default: m.CreateCounterpartyScreen })));
@@ -78,9 +76,9 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': (ReceiveMoneyScreen as any).preload,
   exchange: (ExchangeScreen as any).preload,
-  converter: (CurrencyConverter as any).preload,
-  deposit: (AddMoneyScreen as any).preload,
-  'add-money': (AddMoneyScreen as any).preload,
+  converter: (ExchangeScreen as any).preload,
+  deposit: (ReceiveMoneyScreen as any).preload,
+  'add-money': (ReceiveMoneyScreen as any).preload,
   'two-factor-setup': (TwoFactorSetup as any).preload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': (BiometricSetup as any).preload,
@@ -92,7 +90,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'change-pin': (ChangePIN as any).preload,
   'change-password': (ChangePassword as any).preload,
   'payment-methods': (PaymentMethods as any).preload,
-  'card-restrictions': (CardRestrictionsScreen as any).preload,
+  'country-eligibility': (CountryEligibilityScreen as any).preload,
   'terms-of-service': (TermsOfServiceScreen as any).preload,
   'privacy-policy': (PrivacyPolicyScreen as any).preload,
   preferences: (PreferencesScreen as any).preload,
@@ -167,7 +165,7 @@ export type AppScreen =
   | 'change-pin'
   | 'change-password'
   | 'payment-methods'
-  | 'card-restrictions'
+  | 'country-eligibility'
   | 'kyc'
   | 'settings'
   | 'profile'
@@ -501,18 +499,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         return <ExchangeScreen onBack={navigateBack} />;
 
       case 'converter':
-        return (
-          <CurrencyConverter
-            userId={userId}
-            standalone={true}
-            onBack={navigateBack}
-            onConvert={() => navigateTo('exchange')}
-          />
-        );
+        return <ExchangeScreen onBack={navigateBack} />;
 
       case 'deposit':
       case 'add-money':
-        return <AddMoneyScreen userId={userId} onBack={navigateBack} />;
+        return <ReceiveMoneyScreen onBack={navigateBack} />;
 
       case 'two-factor-setup':
         return (
@@ -587,8 +578,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'payment-methods':
         return <PaymentMethods onBack={navigateBack} />;
 
-      case 'card-restrictions':
-        return <CardRestrictionsScreen onBack={navigateBack} />;
+      case 'country-eligibility':
+        return <CountryEligibilityScreen onBack={navigateBack} />;
 
       case 'terms-of-service':
         return <TermsOfServiceScreen onBack={navigateBack} />;

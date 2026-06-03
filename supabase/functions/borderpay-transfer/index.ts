@@ -23,7 +23,7 @@ const CORS = {
 const GONE_BODY = JSON.stringify({
   success: false,
   code:    'provider_removed',
-  error:   'borderpay-transfer has been removed. Use bridge-transfer for Bridge-supported rails. African rails are future-state.',
+  error:   'borderpay-transfer has been removed. Use the current transfer service for supported rails. African rails are future-state.',
 });
 
 serve(async (req) => {

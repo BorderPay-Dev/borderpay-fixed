@@ -36,7 +36,7 @@ export const ENV_CONFIG = {
   /**
    * KYC status constants
    * 0 = not verified (blocks wallet/account/card creation)
-   * 2 = Fully verified via Bridge KYC/KYB (unlocks all features)
+   * 2 = Fully verified by KYC/KYB (unlocks all features)
    */
   kycTier: {
     NONE:            0,
@@ -135,4 +135,3 @@ export function canCreateFinancialProducts(kycStatus: string | null | undefined)
   if (isSandbox()) return true; // Beta bypass
   return isFullEnrollment(kycStatus);
 }
-

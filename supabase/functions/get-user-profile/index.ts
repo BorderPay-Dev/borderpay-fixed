@@ -1,4 +1,4 @@
-// get-user-profile v95 — Maplerad refs removed; partner-neutral; email_confirmed
+// get-user-profile — provider-neutral; email_confirmed
 // derived from auth.users.email_confirmed_at.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
           kyc_status:          profile?.kyc_status || userData?.kyc_status || "unverified",
           kyc_level:           profile?.kyc_level || 0,
           wallet_activated:    userData?.wallet_activated || false,
-          bridge_customer_id:  profile?.bridge_customer_id || userData?.bridge_customer_id || null,
+          bridge_customer_id:  profile?.bridge_customer_id || null,
           bridge_kyc_status:   profile?.bridge_kyc_status || null,
           bridge_account_status: profile?.bridge_account_status || null,
           bridge_kyb_status:   bridgeKybStatus,

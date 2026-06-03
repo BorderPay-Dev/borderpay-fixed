@@ -43,7 +43,6 @@ APPCTX = ROOT / "utils" / "app" / "AppContext.tsx"
 
 GATING = [
     "components/app/Dashboard.tsx",
-    "components/cards/CardDesignSelector.tsx",
     "components/wallet/RequestProvisioningModal.tsx",
     "components/wallet/WalletScreen.tsx",
     "components/accounts/USDAccountScreen.tsx",

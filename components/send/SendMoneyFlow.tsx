@@ -410,7 +410,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const code = (result as any)?.code;
         const friendly =
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
-        : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through our African partner.')
+        : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
         : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
         : code === 'no_customer'          ? 'Finish account setup before sending funds.'
@@ -576,7 +576,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
               <Info size={16} className="text-[#C7FF00] mt-0.5 flex-shrink-0" />
               <p className={`text-xs ${tc.textMuted}`}>
-                Stablecoin transfers settle in seconds. Other payout rails launch with our partner integration.
+                Stablecoin transfers settle in seconds. Other payout rails launch through BorderPay.
               </p>
             </div>
           </motion.div>

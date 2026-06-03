@@ -64,7 +64,7 @@ export function MomoCollectionScreen({ onBack }: Props) {
           <p className={`text-base ${tc.textSecondary} max-w-md mx-auto leading-relaxed`}>
             {tt(
               'momo.future.body',
-              'Mobile money cash-in and cash-out across African corridors is launching soon via our local payments partner.'
+              'Mobile money cash-in and cash-out across African corridors is launching soon through BorderPay.'
             )}
           </p>
 

@@ -239,6 +239,90 @@ export function isBridgeBlocked(countryCode: string | null | undefined): boolean
   return isBridgeProhibited(countryCode) || isBridgeUnavailable(countryCode);
 }
 
+export type BridgeVirtualAccountCurrency = "USD" | "EUR" | "GBP";
+
+/**
+ * Bridge product availability for the products BorderPay can actually
+ * provision today. This is intentionally narrower than Bridge's full rail
+ * table: the backend currently supports USD ACH/FedWire plus EUR/GBP
+ * SEPA/FPS virtual accounts, not MXN/BRL/COP or SWIFT products yet.
+ *
+ * Source: Bridge Supported Countries List, captured 2026-06-03.
+ * https://apidocs.bridge.xyz/platform/customers/compliance/supported-countries-list
+ */
+const BRIDGE_VA_NO_US_RAIL: ReadonlySet<string> = new Set([
+  "BD", // Bangladesh
+  "BT", // Bhutan
+  "DZ", // Algeria
+  "BI", // Burundi
+  "CN", // China
+  "GW", // Guinea-Bissau
+  "HT", // Haiti
+  "JP", // Japan
+  "KE", // Kenya
+  "XK", // Kosovo
+  "MA", // Morocco
+  "MZ", // Mozambique
+  "NP", // Nepal
+  "NE", // Niger
+  "PK", // Pakistan
+  "QA", // Qatar
+  "TN", // Tunisia
+  "ZW", // Zimbabwe
+]);
+
+const BRIDGE_VA_NO_SEPA_FPS_RAIL: ReadonlySet<string> = new Set([
+  "DZ", // Algeria
+  "BI", // Burundi
+  "CF", // Central African Republic
+  "CN", // China
+  "ER", // Eritrea
+  "GW", // Guinea-Bissau
+  "JP", // Japan
+  "ML", // Mali
+  "TN", // Tunisia
+]);
+
+const BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES: ReadonlySet<string> = new Set([
+  "AU", // Australia
+  "GW", // Guinea-Bissau
+  "HK", // Hong Kong
+  "ID", // Indonesia
+  "JP", // Japan
+  "MY", // Malaysia
+  "NZ", // New Zealand
+  "PH", // Philippines
+  "SG", // Singapore
+  "TH", // Thailand
+  "VN", // Vietnam
+]);
+
+export function bridgeVirtualAccountCurrenciesForCountry(
+  countryCode: string | null | undefined,
+): BridgeVirtualAccountCurrency[] {
+  if (!countryCode || isBridgeBlocked(countryCode)) return [];
+  const upper = countryCode.toUpperCase();
+  const currencies: BridgeVirtualAccountCurrency[] = [];
+  if (!BRIDGE_VA_NO_US_RAIL.has(upper)) currencies.push("USD");
+  if (!BRIDGE_VA_NO_SEPA_FPS_RAIL.has(upper)) currencies.push("EUR", "GBP");
+  return currencies;
+}
+
+export function isBridgeVirtualAccountCurrencyAvailable(
+  countryCode: string | null | undefined,
+  currency: string | null | undefined,
+): boolean {
+  if (!currency) return false;
+  return bridgeVirtualAccountCurrenciesForCountry(countryCode).includes(
+    currency.toUpperCase() as BridgeVirtualAccountCurrency,
+  );
+}
+
+export function isBridgeCustodialWalletSupported(countryCode: string | null | undefined): boolean {
+  if (!countryCode || isBridgeBlocked(countryCode)) return false;
+  return !BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES.has(countryCode.toUpperCase());
+}
+
 /** Tier classification for a country code (mirrors frontend
  *  partnerCountryTier). */
 export type BridgeCountryTier = "prohibited" | "unavailable" | "controlled" | "supported";
@@ -258,14 +342,14 @@ export function bridgeCountryTier(countryCode: string | null | undefined): Bridg
  *  should consult `reason` and render their own copy. The four-tier
  *  copy split is:
  *    • Prohibited (sanctions, the 17 non-DRC entries)  → "support is
- *      not available through our regulated banking partner"
+ *      not available through BorderPay"
  *      (sanctions-language section in the UI).
  *    • Prohibited + display-override (DRC only)        → "coming soon
- *      via local-rails partner" (display-level override applied at
+ *      via local rails" (display-level override applied at
  *      the UI layer in `COMING_SOON_COUNTRIES`; the server still
  *      returns reason=`prohibited`).
  *    • Unavailable (DZ / BI / CN / JP / TN)            → "not
- *      currently serviceable by our regulated banking partner"
+ *      currently serviceable by BorderPay"
  *      (commercial / regulatory, not sanctions).
  *  Controlled and Supported never reach this function (gate doesn't
  *  fire for them). */
@@ -281,8 +365,8 @@ export function bridgeCountryBlockResponse(countryCode: string) {
     success: false as const,
     code:    "country_not_supported",
     error:   reason === "unavailable"
-      ? `${humanCountry(upper)} is not currently serviceable by our regulated banking partner.`
-      : `${humanCountry(upper)} support is not available through our regulated banking partner.`,
+      ? `${humanCountry(upper)} is not currently serviceable by BorderPay.`
+      : `${humanCountry(upper)} support is not available through BorderPay.`,
     country: upper,
     reason,
   };

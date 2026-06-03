@@ -1,16 +1,17 @@
 # Bridge PR3 — `kyc-submit` retirement-safety investigation
 
 Status: **read-only investigation + planning. No deletion, no edits to functions,
-no deploy, no config change, no Maplerad text cleanup** (that remains a separate,
-later PR per CTO direction). This document records evidence and a verdict only.
+no deploy, no config change, no removed-provider text cleanup**. This document
+records evidence and a verdict only. The later source cleanup is now handled by
+#75.
 
 ## Verdict
 
 **`kyc-submit` is already retired on the deployed side — there is nothing to delete
 in production.** It is **not a deployed function**. The only residual is
-**source/config hygiene** (a repo 410 stub, a `config.toml` pin + stale Maplerad
+**source/config hygiene** (a repo 410 stub, a `config.toml` pin + stale removed-provider
 comment, and doc references), which should be handled in a **separate later cleanup
-PR** (it overlaps the deferred stale-Maplerad cleanup). No further action is taken here.
+PR**. No further action was taken in this investigation.
 
 > Caveat honoured: "orphaned" was treated as "no app caller, NOT proven deletable."
 > This investigation went past app callers to check deployment state, cron/workers,
@@ -24,8 +25,8 @@ PR** (it overlaps the deferred stale-Maplerad cleanup). No further action is tak
 | **Repo source** | `supabase/functions/kyc-submit/index.ts` is a **410 "Gone" stub** ("REMOVED (legacy provider)") — returns `{success:false, code:'provider_removed'}`. Not deployed. |
 | **App callers** | None in `components/` or `utils/` (locked by `kyc_path_canonical_audit.py`, PR2). |
 | **Cron / worker** | `cron.job` has only (1) the worker POST → `process-pending-events` and (2) `reap_stuck_processing(300)`. **Neither references `kyc-submit`.** |
-| **Repo refs outside components/utils** | Docs + audits + the `config.toml` pin only — no programmatic callers (`MAPLERAD_REMOVAL_CHECKLIST.md`, `DEPLOYMENT_AND_SMOKE_RUNBOOK.md`, `supabase/functions/README.md`, `_shared/email-templates/README.md`, `docs/bridge-core-contract.md`, `tests/audit/*`). |
-| **config.toml** | `[functions.kyc-submit] verify_jwt = true` pin present (+ a stale Maplerad comment). Harmless for a non-deployed function. |
+| **Repo refs outside components/utils** | Docs + audits + the `config.toml` pin only — no programmatic callers. |
+| **config.toml** | `[functions.kyc-submit] verify_jwt = true` pin present. Harmless for a non-deployed function. |
 | **DB tables** | `kyc_submissions`: 5 rows, latest **2026-04-24** (stale). `kyc_documents`: 0 rows. No recent writes → legacy write path is dead. |
 | **Edge logs** | **No `kyc-submit` invocations or 404s** in the captured ~24h window (only unrelated `session/activity` 404s). |
 | **External/admin risk** | `DEPLOYMENT_AND_SMOKE_RUNBOOK.md` notes "stale admin tooling may still call it." Acknowledged unknown — but since the function is already not deployed, any such caller already receives a platform **404** today. |
@@ -33,7 +34,7 @@ PR** (it overlaps the deferred stale-Maplerad cleanup). No further action is tak
 ## Correction to the record
 
 The Bridge Core contract (`docs/bridge-core-contract.md`, via PR2) and earlier
-gap-map notes described `kyc-submit` as "the **deployed** Maplerad-era … edge
+gap-map notes described `kyc-submit` as "the **deployed** legacy … edge
 function (orphaned)." **That is inaccurate — `kyc-submit` is NOT deployed.** Repo is
 a 410 stub; there is no deployed instance. Recommend fixing this wording as part of
 the later cleanup PR (kept out of this investigation-only change).
@@ -51,7 +52,6 @@ Either is fine; this is a product/ops preference, not a safety issue.
 
 ## Recommended next step (separate, later, source-only)
 
-Fold into ONE later cleanup PR (the deferred stale-Maplerad pass): correct the
-contract wording, decide (A) vs (B) above, and tidy the `config.toml`
-`[functions.kyc-submit]` pin/comment + the repo stub + stale doc references — one
-reviewable change, no money movement, no behavior change.
+Cleanup follow-up (#75): correct the contract wording, keep Decision A, and tidy
+removed-provider references in source/docs — one reviewable change, no money
+movement, no behavior change.
