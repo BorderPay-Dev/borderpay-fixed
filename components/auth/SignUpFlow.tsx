@@ -19,11 +19,10 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
  *     2. Confirm Email (verification link)
  *     → onSignUpSuccess() → BusinessDashboard.
  *     Business accounts do NOT run through steps 3-7 here. Identity,
- *     ownership, business address, and document collection are handled
- *     by Bridge through its hosted KYB link, started from the dashboard.
+ *     ownership, business address, and document collection continue from
+ *     the dashboard through BorderPay's secure verification flow.
  *
- * BorderPay does not verify documents. Bridge owns KYC/KYB via its
- * hosted KYC link (individual) or KYB link (business).
+ * BorderPay does not store ID images in this app surface.
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';

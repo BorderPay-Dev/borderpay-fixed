@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code:   "no_partner",
-      error:  `${destCurrency} payouts (mobile money / local bank) are coming soon. Your African on/off-ramp partner is not yet integrated.`,
+      error:  `${destCurrency} payouts are not live yet. This route is not currently available in BorderPay.`,
     }, 503);
   }
 

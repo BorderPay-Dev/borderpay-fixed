@@ -149,7 +149,7 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
         // Map structured server codes (bridge-kyc-link / bridge-kyb-link).
         //   country_not_supported → DRC / Bridge-prohibited jurisdiction.
         //     Bridge customer creation refuses these users until our
-        //     African on/off-ramp partner is wired.
+        //     BorderPay enables local rails.
         //   wrong_account_type → caller hit /kyb on an individual or vice
         //     versa. UI surface should not allow this, but fail closed.
         const code = (r as any)?.code;

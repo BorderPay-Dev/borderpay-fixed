@@ -1,13 +1,13 @@
 /**
- * BorderPay Africa - Card-Restricted Countries
- * Countries where virtual cards CANNOT be used due to geographic sanctions
+ * BorderPay Africa - Card Country Eligibility
+ * Countries where future card access is not currently eligible
  * 
  * IMPORTANT: This is separate from account signup restrictions
  * - Users CAN create accounts from some of these countries
- * - Users CANNOT use virtual cards while in these countries
- * - Cards will be declined if used in these jurisdictions
+ * - Card access remains locked until BorderPay enables cards
+ * - Country eligibility is shown only when that product is enabled
  * 
- * Compliance: OFAC, UN Security Council, EU Sanctions, Card Network Rules
+ * Compliance: OFAC, UN Security Council, EU Sanctions, and country rules
  */
 
 export interface CardRestrictedCountry {
@@ -18,28 +18,28 @@ export interface CardRestrictedCountry {
 }
 
 /**
- * Countries where card usage is restricted
- * Based on Visa/Mastercard sanctions and geographic restrictions
+ * Countries where future card access is not currently eligible
+ * Based on sanctions, compliance, and country rules
  */
 export const CARD_RESTRICTED_COUNTRIES: CardRestrictedCountry[] = [
   // North Africa
-  { code: 'DZ', name: 'Algeria', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'DZ', name: 'Algeria', reason: 'Country rules', category: 'geographic_sanctions' },
   { code: 'LY', name: 'Libya', reason: 'UN Security Council sanctions', category: 'geographic_sanctions' },
   { code: 'SD', name: 'Sudan', reason: 'US sanctions', category: 'geographic_sanctions' },
   
   // West Africa
-  { code: 'GM', name: 'Gambia (The)', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'GM', name: 'Gambia (The)', reason: 'Country rules', category: 'geographic_sanctions' },
   { code: 'LR', name: 'Liberia', reason: 'Financial sanctions', category: 'financial_sanctions' },
-  { code: 'TG', name: 'Togo', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'TG', name: 'Togo', reason: 'Country rules', category: 'geographic_sanctions' },
   
   // Central Africa
   { code: 'CF', name: 'Central African Republic', reason: 'UN sanctions', category: 'geographic_sanctions' },
-  { code: 'CG', name: 'Congo (The Republic of)', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'CG', name: 'Congo (The Republic of)', reason: 'Country rules', category: 'geographic_sanctions' },
   { code: 'CD', name: 'Congo (The Democratic Republic of the)', reason: 'UN sanctions', category: 'geographic_sanctions' },
   
   // East Africa
   { code: 'BI', name: 'Burundi', reason: 'EU sanctions', category: 'geographic_sanctions' },
-  { code: 'KM', name: 'Comoros', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'KM', name: 'Comoros', reason: 'Country rules', category: 'geographic_sanctions' },
   { code: 'SO', name: 'Somalia', reason: 'UN sanctions', category: 'geographic_sanctions' },
   { code: 'SS', name: 'South Sudan', reason: 'UN sanctions', category: 'geographic_sanctions' },
   
@@ -49,39 +49,39 @@ export const CARD_RESTRICTED_COUNTRIES: CardRestrictedCountry[] = [
   // Middle East
   { code: 'AF', name: 'Afghanistan', reason: 'US sanctions', category: 'geographic_sanctions' },
   { code: 'IR', name: 'Iran (Islamic Republic of)', reason: 'OFAC sanctions', category: 'geographic_sanctions' },
-  { code: 'IQ', name: 'Iraq', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'IQ', name: 'Iraq', reason: 'Country rules', category: 'geographic_sanctions' },
   { code: 'LB', name: 'Lebanon', reason: 'Financial sanctions', category: 'financial_sanctions' },
-  { code: 'PS', name: 'Palestine', reason: 'Card network restrictions', category: 'card_network_restriction' },
+  { code: 'PS', name: 'Palestine', reason: 'Country rules', category: 'card_network_restriction' },
   { code: 'SY', name: 'Syrian Arab Republic', reason: 'OFAC sanctions', category: 'geographic_sanctions' },
   { code: 'YE', name: 'Yemen (Republic of)', reason: 'UN sanctions', category: 'geographic_sanctions' },
   
   // Asia
   { code: 'KP', name: 'Korea (The Democratic People\'s Republic of, North)', reason: 'OFAC sanctions', category: 'geographic_sanctions' },
   { code: 'MM', name: 'Myanmar', reason: 'US sanctions', category: 'geographic_sanctions' },
-  { code: 'MV', name: 'Maldives', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'MV', name: 'Maldives', reason: 'Country rules', category: 'geographic_sanctions' },
   
   // Central Asia
-  { code: 'KG', name: 'Kyrgyzstan (AKA Kyrgyz Republic)', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
-  { code: 'TJ', name: 'Tajikistan', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
-  { code: 'TM', name: 'Turkmenistan', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
-  { code: 'UZ', name: 'Uzbekistan', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'KG', name: 'Kyrgyzstan (AKA Kyrgyz Republic)', reason: 'Country rules', category: 'geographic_sanctions' },
+  { code: 'TJ', name: 'Tajikistan', reason: 'Country rules', category: 'geographic_sanctions' },
+  { code: 'TM', name: 'Turkmenistan', reason: 'Country rules', category: 'geographic_sanctions' },
+  { code: 'UZ', name: 'Uzbekistan', reason: 'Country rules', category: 'geographic_sanctions' },
   
   // Europe
   { code: 'BY', name: 'Belarus', reason: 'EU and US sanctions', category: 'geographic_sanctions' },
-  { code: 'RS', name: 'Serbia', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'RS', name: 'Serbia', reason: 'Country rules', category: 'geographic_sanctions' },
   { code: 'RU', name: 'Russian Federation', reason: 'OFAC and EU sanctions', category: 'geographic_sanctions' },
-  { code: 'UA', name: 'Ukraine', reason: 'Card network restrictions (conflict zones)', category: 'card_network_restriction' },
+  { code: 'UA', name: 'Ukraine', reason: 'Country rules', category: 'card_network_restriction' },
   
   // Americas
   { code: 'CU', name: 'Cuba', reason: 'OFAC sanctions', category: 'geographic_sanctions' },
   { code: 'NI', name: 'Nicaragua', reason: 'US sanctions', category: 'geographic_sanctions' },
-  { code: 'SR', name: 'Suriname', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'SR', name: 'Suriname', reason: 'Country rules', category: 'geographic_sanctions' },
   { code: 'VE', name: 'Venezuela (Bolivarian Republic of)', reason: 'OFAC sanctions', category: 'geographic_sanctions' },
   
   // Territories & Dependencies
-  { code: 'SJ', name: 'Svalbard and Jan Mayen', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
-  { code: 'TK', name: 'Tokelau', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
-  { code: 'WF', name: 'Wallis and Futuna', reason: 'Geographic sanctions', category: 'geographic_sanctions' },
+  { code: 'SJ', name: 'Svalbard and Jan Mayen', reason: 'Country rules', category: 'geographic_sanctions' },
+  { code: 'TK', name: 'Tokelau', reason: 'Country rules', category: 'geographic_sanctions' },
+  { code: 'WF', name: 'Wallis and Futuna', reason: 'Country rules', category: 'geographic_sanctions' },
 ];
 
 /**
@@ -144,20 +144,20 @@ export function getCardRestrictionMessage(countryCode: string): string {
   const restriction = getCardRestrictionDetails(countryCode);
   
   if (!restriction) {
-    return 'Card usage is allowed in this country.';
+    return 'Card access is locked. Country availability will be shown when cards are enabled.';
   }
   
   const messages: Record<CardRestrictedCountry['category'], string> = {
-    geographic_sanctions: `Virtual cards cannot be used in ${restriction.name} due to international geographic sanctions. This restriction is enforced by Visa and Mastercard card networks.`,
-    card_network_restriction: `Virtual cards cannot be used in ${restriction.name} due to card network restrictions. Visa and Mastercard have temporarily suspended services in this region.`,
-    financial_sanctions: `Virtual cards cannot be used in ${restriction.name} due to financial sanctions. Transactions in this jurisdiction are prohibited by international compliance regulations.`,
+    geographic_sanctions: `Card access is locked. ${restriction.name} is not eligible under current country rules.`,
+    card_network_restriction: `Card access is locked. ${restriction.name} is not eligible under current country rules.`,
+    financial_sanctions: `Card access is locked. ${restriction.name} is not eligible under current country rules.`,
   };
   
   return messages[restriction.category];
 }
 
 /**
- * Statistics about card restrictions
+ * Statistics about card country eligibility
  */
 export function getCardRestrictionStats() {
   const total = CARD_RESTRICTED_COUNTRIES.length;

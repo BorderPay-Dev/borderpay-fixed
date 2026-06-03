@@ -2,7 +2,7 @@
  * AfricanRailsFutureCard — disabled product card surfacing future African
  * on/off-ramp coverage. Lists target corridors but no live action is
  * available. African local-currency / mobile-money rails are future-state
- * (planned Yativo integration). No backend call is made from this card.
+ * until BorderPay enables them. No backend call is made from this card.
  */
 
 import React from 'react';

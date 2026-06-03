@@ -157,19 +157,19 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
       content: (
         <>
           <p className="text-white/70 text-sm leading-relaxed mb-4">
-            BorderPay Africa provides a mobile application and digital banking platform for Pan-African cross-border payments, remittances, multi-currency digital wallets, virtual cards, and related fintech services.
+            BorderPay Africa provides a mobile application and digital banking platform for Pan-African cross-border payments, remittances, country-dependent wallet and account access, and related fintech services. Card access remains locked until enabled by BorderPay.
           </p>
           
           <h3 className="text-white font-bold text-sm mb-3">Core Services:</h3>
           <div className="grid grid-cols-1 gap-2 mb-4">
             {[
-              'Digital Wallet: Multi-currency support',
-              'Virtual Cards: Virtual Visa/Mastercard for online payments',
-              'Apple Pay & Google Pay: Digital wallet integration',
-              'Cross-Border Payments: International transfers',
-              'Mobile Money Integration: Connect with African mobile money providers',
-              'Remittances: Send and receive money across Africa',
-              'Currency Exchange: Hold and exchange major currencies',
+              'Digital Wallet: Available wallet options depend on your country',
+              'Virtual Accounts: Supported account currencies are shown in the app',
+              'Cards: Card access is locked until enabled by BorderPay',
+              'Transfers: Live routes and limits are shown before you submit',
+              'Local Rails: Local-currency and mobile-wallet routes are future-state until enabled',
+              'Verification: Identity and business checks are required for regulated services',
+              'Currency Exchange: Available only where enabled in the app',
             ].map((service, index) => (
               <div key={index} className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl p-3">
                 <Check className="w-4 h-4 text-[#C7FF00] flex-shrink-0 mt-0.5" />
@@ -189,11 +189,11 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
           <h3 className="text-white font-bold text-sm mb-3">What's Included</h3>
           <ul className="space-y-2 mb-4">
             {[
-              'Multi-currency wallets (USD + African currencies)',
-              'Virtual card issuance — $3.50 one-time issuance fee',
-              'Apple Pay & Google Pay integration',
+              'Country-dependent wallet and account options',
+              'Cards remain locked until BorderPay enables card access',
+              'Card network wallets are not live yet',
               'Stablecoin support (USDT, USDC, PYUSD, USDB)',
-              'Mobile money integration',
+              'Local mobile-wallet routes are future-state until enabled',
               'Customer support',
             ].map((item, index) => (
               <li key={index} className="flex items-start gap-2">

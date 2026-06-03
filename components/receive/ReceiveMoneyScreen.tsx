@@ -7,8 +7,8 @@
  * payment form would have wired money to nowhere. That entire block is
  * removed here.
  *
- * The Receive surface is now exactly what the partner has provisioned
- * for the user — no mock data:
+ * The Receive surface is now exactly what BorderPay has provisioned
+ * for the user:
  *   • USD / EUR / GBP virtual accounts → BridgeVirtualAccountsCard
  *     (reads bridge_virtual_accounts; offers Provision for currencies the
  *     user does not yet have, plan-gated server-side).
@@ -16,7 +16,7 @@
  *     (reads bridge_wallets; offers Provision for the default USDC/Base
  *     pair).
  *   • Local-currency rails are intentionally absent; they will surface
- *     once our on/off-ramp partner ships.
+ *     once BorderPay enables local rails.
  *
  * AppShell owns the top chrome; this renders body-only.
  */

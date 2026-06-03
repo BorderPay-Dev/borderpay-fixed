@@ -34,7 +34,7 @@ function supa(): SupabaseClient {
 
 const PROVIDERS: Record<ProviderName, PaymentProvider | null> = {
   bridge:         bridgeProvider,
-  african_onramp: null,    // future-state (planned Yativo integration); no live calls
+  african_onramp: null,    // future-state local rails; no live calls
 };
 
 export async function getProviderForUser(userId: string): Promise<PaymentProvider> {

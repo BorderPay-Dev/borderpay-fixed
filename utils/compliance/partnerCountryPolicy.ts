@@ -5,7 +5,7 @@
  * `supabase/functions/_shared/providers/bridge-country-policy.ts`.
  * The frontend cannot import server modules directly, so this file
  * restates the same THREE country sets for UI rendering (signup
- * country picker, Geographic restrictions screen, KYC pre-checks).
+ * country picker, country eligibility screen, KYC pre-checks).
  *
  * STRICT MIRROR: BRIDGE_PROHIBITED_COUNTRIES,
  * BRIDGE_UNAVAILABLE_COUNTRIES, and BRIDGE_CONTROLLED_COUNTRIES MUST
