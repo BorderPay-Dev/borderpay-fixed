@@ -118,7 +118,7 @@ if (typeof window !== 'undefined') {
 
 function getBusinessDisplayName(profile: any): string {
   return profile?.account_type === 'business'
-    ? (profile?.company_name || profile?.full_name || '')
+    ? (profile?.company_name || 'Business account')
     : (profile?.full_name || '');
 }
 
