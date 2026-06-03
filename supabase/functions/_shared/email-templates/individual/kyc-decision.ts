@@ -21,7 +21,7 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
 
   const heading = approved ? "Identity verified" : "Verification didn't pass";
   const introText = approved
-    ? `Hi ${name}, your identity is verified and your BorderPay account is active. Virtual accounts and wallets are now available.`
+    ? `Hi ${name}, your identity is verified and your BorderPay account is active. You can now request supported account and wallet services from your dashboard.`
     : `Hi ${name}, we couldn't verify your identity this time. Details are below.`;
 
   const reasonBlock = !approved && p.reason
@@ -29,7 +29,7 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
     : "";
 
   const closing = approved
-    ? "You can now provision a USD virtual account and a stablecoin wallet from your dashboard."
+    ? "Open BorderPay to view the services available for your account."
     : (p.retryable
         ? `You can retry verification from the app. If you have questions, contact ${BORDERPAY_BRAND.supportEmail}.`
         : `If you believe this is a mistake, contact ${BORDERPAY_BRAND.supportEmail}.`);

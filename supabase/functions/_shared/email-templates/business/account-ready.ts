@@ -33,7 +33,7 @@ export function render(p: BusinessAccountReadyProps): RenderedEmail {
     : "";
 
   const closing = ok
-    ? "Open BorderPay to see the account details and start moving money."
+    ? "Open BorderPay to see the account details."
     : `Please try again from the app, or contact ${BORDERPAY_BRAND.supportEmail} if it persists.`;
 
   const body = ok
