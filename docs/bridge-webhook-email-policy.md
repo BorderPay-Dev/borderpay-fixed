@@ -26,8 +26,8 @@ Everything else stays **in-app only** (notifications), or is ignored.
 - Sender stays the proven apex: `BorderPay <noreply@borderpayafrica.com>`
   (`BORDERPAY_FROM_EMAIL`).
 - **Recipient = `user_profiles.email` for the mapped customer only.** Never an
-  address taken from the webhook payload. Internal/founder accounts are excluded
-  (see §5).
+  address taken from the webhook payload. Internal/test accounts are excluded by
+  the explicit suppression predicate in §5.
 - Email sending is **best-effort and must NOT fail webhook processing.** The
   worker's authoritative job is status sync; a `send-email` failure is logged
   (`email_log` + a worker log line) and the `pending_events` row still completes.
@@ -77,7 +77,7 @@ failed" template (`*.account_ready`). `business.kyb_decision`,
 - **Lifecycle / intermediate states**: `*.created`, `*.updated`, `under_review`,
   `pending`, `not_started` → in-app at most. No email for non-terminal status.
 - **Signature-rejected / unknown / probe events** → never (security/no-op).
-- **Internal/founder/test accounts** → excluded by recipient rule (§5).
+- **Internal/test accounts** → excluded by the explicit suppression predicate (§5).
 - **Maplerad-source events** → provider removed; never email (already no-op in the
   worker).
 
@@ -88,8 +88,22 @@ failed" template (`*.account_ready`). `business.kyb_decision`,
 
 - Resolve recipient from `user_profiles` by the mapped `bridge_customer_id` /
   `user_id`; send to that row's `email`. Never from payload.
-- Skip send when: no mapped user; `is_admin` / internal/founder account; email
-  absent/unconfirmed (configurable — KYC decisions may still send to unconfirmed).
+- Skip send when any of these are true:
+  - no mapped user;
+  - `user_profiles.is_admin = true`;
+  - recipient email is listed in a server-side suppress list (for founder/test/
+    internal accounts; example secret/config name:
+    `WEBHOOK_EMAIL_SUPPRESS_LIST`);
+  - recipient domain is listed in a server-side suppress-domain list (default
+    candidate: `borderpayafrica.com`, unless explicitly disabled for an operator
+    smoke test);
+  - email absent; or
+  - email unconfirmed.
+- Any exception (for example KYC decisions to unconfirmed users) must be approved
+  and tested in the implementation PR, not silently enabled by this policy.
+- The implementation audit must assert that the worker resolves this predicate
+  from DB and config state, and never decides "internal" from webhook payload
+  fields.
 - No PII in logs beyond what `email_log` already stores; per-user ids stay out of
   the public repo.
 
@@ -128,5 +142,6 @@ idempotency_key })` → on failure, log and continue (never throw).
 
 No direct Resend · no email on non-terminal/lifecycle events · no payload-sourced
 recipients · idempotent via `send-email` · best-effort (never fails the webhook) ·
-deploy-gated · transfer emails behind `TRANSFERS_LIVE` · internal/founder excluded ·
-PII out of the repo. This doc changes no code and deploys nothing.
+deploy-gated · transfer emails behind `TRANSFERS_LIVE` · internal/test accounts
+excluded by the §5 suppression predicate · PII out of the repo. This doc changes
+no code and deploys nothing.
