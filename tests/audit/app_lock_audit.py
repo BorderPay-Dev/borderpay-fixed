@@ -28,6 +28,10 @@ Invariants (fail closed):
   (L9) a LOCKED cancel/timeout preserves the lock + session for retry
        (keepLockForRetry: keep refresh/user/lock, drop only the access token).
   (L10) a hard failure (or not locked) still tears down to password.
+  (L11) clearLocalSupabaseSession removes the local sb-*-auth-token only, with no
+        signOut / /logout (so the refresh token stays valid server-side).
+  (L12) onAuthStateChange does NOT write borderpay_token while locked.
+  (L13) biometric unlock still mints a session via refreshSession({refresh_token}).
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -72,17 +76,21 @@ def main() -> int:
 
     checks: list[tuple[str, bool, str]] = []
 
-    # L1 — lockApp is local-only and preserves the prerequisites
-    lock_fn = sl(client, "lockApp: async () =>", "getToken:")
+    # L1 — lockApp must NOT call any Supabase signOut (even scope:'local' hits
+    # /logout and invalidates the refresh token). It clears local session storage
+    # only and preserves the unlock prerequisites.
+    lock_fn = sl(client, "lockApp: () =>", "getToken:")
     l1 = (bool(lock_fn)
-          and "signOut({ scope: 'local' })" in lock_fn
+          and "signOut" not in lock_fn
+          and "scope: 'local'" not in lock_fn
           and "setAppLocked()" in lock_fn
           and "removeItem('borderpay_token')" in lock_fn
+          and "clearLocalSupabaseSession()" in lock_fn
           and "removeItem('borderpay_refresh_token')" not in lock_fn
           and "removeItem('borderpay_user')" not in lock_fn
           and "clearUserProfile" not in lock_fn)
-    checks.append(("L1 lockApp local-only + preserves session prerequisites", l1,
-                   "lockApp must use signOut({scope:'local'}), setAppLocked, remove only borderpay_token, keep user+refresh"))
+    checks.append(("L1 lockApp: no signOut, local session only, preserves prereqs", l1,
+                   "lockApp must NOT call signOut/scope:'local'; must setAppLocked, remove only borderpay_token, call clearLocalSupabaseSession, keep user+refresh"))
 
     # L2 — SIGNED_OUT preserves profile during a lock
     so = sl(client, "if (event === 'SIGNED_OUT') {", "} else if")
@@ -158,6 +166,27 @@ def main() -> int:
            and "isCancelOrTimeout(msg)" in fail_branch)
     checks.append(("L10 hard failure still tears down", l10,
                    "the failure branch must still clearRestoredSession() for hard failures / not-locked"))
+
+    # L11 — clearLocalSupabaseSession removes the local sb-*-auth-token only,
+    # WITHOUT any signOut / /logout.
+    cls = sl(client, "export function clearLocalSupabaseSession()", "\n}")
+    l11 = (bool(cls)
+           and "auth-token" in cls
+           and "signOut" not in cls
+           and "/logout" not in cls
+           and "removeItem" in cls)
+    checks.append(("L11 clearLocalSupabaseSession clears sb token only (no /logout)", l11,
+                   "clearLocalSupabaseSession must remove sb-*-auth-token locally with no signOut / /logout"))
+
+    # L12 — onAuthStateChange must NOT write borderpay_token while locked.
+    l12 = "session?.access_token && !isAppLocked()" in client
+    checks.append(("L12 no borderpay_token auto-write while locked", l12,
+                   "onAuthStateChange must guard the borderpay_token write with !isAppLocked()"))
+
+    # L13 — unlock still mints a session via refreshSession({ refresh_token }).
+    l13 = ("refreshSession({" in login and "refresh_token: refreshToken" in login)
+    checks.append(("L13 unlock uses refreshSession({ refresh_token })", l13,
+                   "biometric unlock must call supabase.auth.refreshSession({ refresh_token })"))
 
     print("app_lock_audit:")
     ok = True
