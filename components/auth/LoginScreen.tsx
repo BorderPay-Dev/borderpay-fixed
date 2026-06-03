@@ -50,12 +50,14 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
   const [show2FA, setShow2FA]       = useState(false);
   const [pendingUser, setPendingUser] = useState<any>(null);
 
-  // Check biometric enrollment on mount
+  // Show the biometric button ONLY when sign-in can actually run — i.e. all the
+  // local session context the handler needs exists (biometric_user_id + enrolled
+  // credential + cached borderpay_user + borderpay_refresh_token). Enrollment
+  // alone is NOT sufficient: logout/cancel/failure can clear the session context
+  // while leaving the enrollment flag, which would otherwise render a button that
+  // immediately errors with "No biometric session found".
   useEffect(() => {
-    const storedUserId = localStorage.getItem('borderpay_biometric_user_id');
-    if (storedUserId && BiometricManager.isEnrolled(storedUserId)) {
-      setBiometricAvailable(true);
-    }
+    setBiometricAvailable(BiometricManager.isLoginAvailable());
   }, []);
 
   // Auto-enroll biometrics after successful password login
@@ -126,9 +128,11 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
           userProfile.full_name = authName || data.user.email?.split('@')[0] || 'User';
         }
 
+        // Re-prime ALL biometric session state on explicit password login, so a
+        // future biometric sign-in has the full context isLoginAvailable() needs:
+        //   borderpay_token (L~92) · borderpay_user (storeUserProfile) ·
+        //   borderpay_refresh_token · borderpay_biometric_user_id.
         storeUserProfile(userProfile);
-
-        // Store refresh token + user ID for biometric login
         localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
         localStorage.setItem('borderpay_biometric_user_id', data.user.id);
 
