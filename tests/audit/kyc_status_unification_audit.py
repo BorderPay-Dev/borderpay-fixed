@@ -19,6 +19,7 @@ Invariants (fail closed):
        borderpay_user can be derived correctly.
   (U4) every display/gating surface routes through deriveKycStatus / isKycVerified.
   (U5) the old raw-kyc_status gating/display reads are gone on the key surfaces.
+  (U6) AppContext.UserProfile carries the Bridge fields used by the helper/cache.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -32,6 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ENV    = ROOT / "utils" / "config" / "environment.ts"
 CLIENT = ROOT / "utils" / "supabase" / "client.ts"
+APPCTX = ROOT / "utils" / "app" / "AppContext.tsx"
 
 GATING = [
     "components/app/Dashboard.tsx",
@@ -53,6 +55,7 @@ def read(p: Path) -> str:
 def main() -> int:
     env = read(ENV)
     client = read(CLIENT)
+    appctx = read(APPCTX)
     checks: list[tuple[str, bool, str]] = []
 
     # U1 — deriveKycStatus reads all signals + rejected-before-verified ordering
@@ -97,6 +100,11 @@ def main() -> int:
           and "deriveKycStatus(profile)" in prof)
     checks.append(("U5 raw kyc_status gating/display removed on key surfaces", u5,
                    "Dashboard/LoginScreen/ProfileScreen must not gate/display on raw kyc_status"))
+
+    # U6 — AppContext profile type includes all Bridge fields used for derivation.
+    u6 = all(k in appctx for k in ("bridge_kyc_status", "bridge_kyb_status", "bridge_account_status"))
+    checks.append(("U6 AppContext profile type carries Bridge derivation fields", u6,
+                   "UserProfile must include bridge_kyc_status, bridge_kyb_status, bridge_account_status"))
 
     print("kyc_status_unification_audit:")
     ok = True
