@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
-import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, clearAppLocked } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, isAppLocked, setAppLocked, clearAppLocked } from '../../utils/supabase/client';
 import { ENV_CONFIG } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -191,6 +191,22 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
     localStorage.removeItem('borderpay_user');
   };
 
+  // User cancelled / timed out the Face ID / Touch ID prompt (NOT a hard failure).
+  const isCancelOrTimeout = (msg?: string) => !!msg && /cancel|timed out/i.test(msg);
+
+  // Soft path for a LOCKED app when the user cancels/times out the biometric
+  // prompt: keep the lock + the preserved session so they can simply retry Face/
+  // Touch ID. Only the transient access token + the pending routing gate are
+  // dropped. Crucially we do NOT global signOut and do NOT clear
+  // borderpay_refresh_token / borderpay_user (that would be a full logout). A
+  // cancelled unlock must not punish the user by destroying the locked session.
+  const keepLockForRetry = () => {
+    clearBiometricLoginPending();
+    setAppLocked();                                   // ensure still locked (idempotent)
+    localStorage.removeItem('borderpay_token');       // drop only the transient access token
+    // borderpay_app_locked, borderpay_user, borderpay_refresh_token preserved.
+  };
+
   // ── Biometric Sign-In (session-first, WebAuthn-gated) ──────────────────────
   // ORDER CONTRACT (do not reorder):
   //   1. Restore the Supabase session from the stored refresh token FIRST, so the
@@ -276,9 +292,17 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
       // Step 4: WebAuthn assertion — the access gate. Still NOT in the app.
       const result = await BiometricManager.verify(storedUserId);
       if (!result.success) {
-        // Step 5: WebAuthn failed → tear down the restored session, stay on login.
-        await clearRestoredSession();
         const msg = result.error || 'Biometric verification failed, try again';
+        // Step 5a: LOCKED + user cancel/timeout → soft path. Keep the lock and the
+        // preserved session so they can retry Face/Touch ID; do NOT full-logout.
+        if (isAppLocked() && isCancelOrTimeout(msg)) {
+          keepLockForRetry();
+          toast.info('Biometric cancelled. Try again, or use your password.');
+          return;
+        }
+        // Step 5b: hard failure (expired refresh, unknown credential, server
+        // verification failure) OR not locked → tear down to password.
+        await clearRestoredSession();
         setInlineError(msg);
         toast.error(msg);
         return;
@@ -310,14 +334,21 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         onLoginSuccess(mergedProfile);
       }
     } catch (error: any) {
-      // Any unexpected error before completion must not leave a half-open
-      // session behind.
-      if (!completed) await clearRestoredSession();
-      const msg = error?.name === 'NotAllowedError'
+      const cancelled = error?.name === 'NotAllowedError' || isCancelOrTimeout(error?.message);
+      // Any unexpected error before completion must not leave a half-open session.
+      // Exception: a LOCKED app + user cancel/timeout keeps the lock for retry
+      // rather than tearing down to a full logout.
+      if (!completed) {
+        if (isAppLocked() && cancelled) {
+          keepLockForRetry();
+        } else {
+          await clearRestoredSession();
+        }
+      }
+      const msg = cancelled
         ? 'Biometric verification was cancelled or timed out.'
         : (error?.message || 'Biometric authentication failed. Please try again.');
-      setInlineError(msg);
-      toast.error(msg);
+      if (isAppLocked() && cancelled) { toast.info(msg); } else { setInlineError(msg); toast.error(msg); }
     } finally {
       setIsBiometricLoading(false);
     }

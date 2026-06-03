@@ -25,6 +25,9 @@ Invariants (fail closed):
   (L7) the UI exposes "Lock app" beside the logout surfaces (AppShell drawer +
        Settings), not Settings-only.
   (L8) the lock gate helpers are exported from client.ts.
+  (L9) a LOCKED cancel/timeout preserves the lock + session for retry
+       (keepLockForRetry: keep refresh/user/lock, drop only the access token).
+  (L10) a hard failure (or not locked) still tears down to password.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -134,6 +137,27 @@ def main() -> int:
              for fn in ("isAppLocked", "setAppLocked", "clearAppLocked"))
     checks.append(("L8 lock gate helpers exported", l8,
                    "client.ts must export isAppLocked/setAppLocked/clearAppLocked"))
+
+    # L9 — locked + cancel/timeout preserves the lock + session (soft retry path)
+    keep = sl(login, "const keepLockForRetry = () =>", "\n  };")
+    handler = sl(login, "const handleBiometricLogin = async () =>", "\n  };")
+    l9 = (bool(keep)
+          and "removeItem('borderpay_token')" in keep
+          and "removeItem('borderpay_refresh_token')" not in keep
+          and "removeItem('borderpay_user')" not in keep
+          and "signOut" not in keep
+          and "clearAppLocked" not in keep
+          and "isAppLocked() && isCancelOrTimeout(" in handler
+          and "keepLockForRetry()" in handler)
+    checks.append(("L9 locked cancel preserves lock + session (retry)", l9,
+                   "a locked cancel/timeout must call keepLockForRetry() (keep refresh/user/lock, drop only access token), not clearRestoredSession"))
+
+    # L10 — hard failure (or not locked) still tears down to password
+    fail_branch = sl(handler, "if (!result.success)", "// Step 6")
+    l10 = ("await clearRestoredSession();" in fail_branch
+           and "isCancelOrTimeout(msg)" in fail_branch)
+    checks.append(("L10 hard failure still tears down", l10,
+                   "the failure branch must still clearRestoredSession() for hard failures / not-locked"))
 
     print("app_lock_audit:")
     ok = True
