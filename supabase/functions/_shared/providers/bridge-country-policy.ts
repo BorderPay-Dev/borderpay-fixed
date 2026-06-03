@@ -272,11 +272,20 @@ export function bridgeCountryTier(countryCode: string | null | undefined): Bridg
 export function bridgeCountryBlockResponse(countryCode: string) {
   const upper = countryCode.toUpperCase();
   const tier  = bridgeCountryTier(upper);
-  // Tier is narrowed to the blocked tiers because callers should only
-  // invoke this after isBridgeBlocked returned true; the fallback
-  // 'prohibited' default is just for type safety.
-  const reason: "prohibited" | "unavailable" =
-    tier === "unavailable" ? "unavailable" : "prohibited";
+  // Fail loud (round-11 P2 follow-up — Issue #4 item 2): the previous
+  // version silently defaulted any non-Unavailable tier to "prohibited",
+  // which masked misuse. A caller that bypassed isBridgeBlocked and
+  // invoked this with a Controlled or Supported country would receive
+  // sanctions-style 403 copy without any signal that the call shape
+  // was wrong. Throwing here surfaces the misuse at the edge function
+  // log level so a future bug doesn't ride along silently.
+  if (tier !== "prohibited" && tier !== "unavailable") {
+    throw new Error(
+      `bridgeCountryBlockResponse called with non-blocked country (tier=${tier}, code=${upper}); ` +
+      `gate with isBridgeBlocked() before calling this. This indicates a code-path bug.`,
+    );
+  }
+  const reason: "prohibited" | "unavailable" = tier;
   return {
     success: false as const,
     code:    "country_not_supported",
@@ -310,10 +319,62 @@ export function logControlledBridgeTraffic(
   );
 }
 
+/** Friendly display names for every country that can hit
+ *  `bridgeCountryBlockResponse` — i.e. every Prohibited + Unavailable
+ *  code. This table uses short forms (DRC, DPRK) where the long form
+ *  would be too verbose in a 403 error string embedded in a sentence.
+ *
+ *  ── Mirror note (Issue #4 item 5, round-11) ─────────────────────
+ *  The frontend has a separate, FULL-name table in
+ *  `utils/compliance/partnerCountryPolicy.ts` (PROHIBITED /
+ *  SANCTIONED / UNAVAILABLE_COUNTRY_ENTRIES) used for the
+ *  geographic-restrictions UI. That table uses full names like
+ *  "Democratic Republic of the Congo" and "Palestinian Territories"
+ *  because the UI renders them as standalone list items, not embedded
+ *  in a sentence.
+ *
+ *  These two tables are intentionally NOT unified: they serve
+ *  different copy needs (terse error string vs. verbose list item)
+ *  and the Deno edge function runtime cannot import from `utils/`
+ *  outside `supabase/functions/`. The audit script enforces ISO-2 set
+ *  parity between server and frontend, which is the only fact that
+ *  must stay in sync at runtime. Display-name drift is a copy concern,
+ *  not a runtime bug. See the matching note in the frontend file.
+ *  ────────────────────────────────────────────────────────────────
+ *
+ *  Round-11 P2 follow-up (Issue #4 item 1): expanded from the original
+ *  3 entries (CD / KP / PS) to all 23 blocked codes so a 403 never
+ *  reads "JP is not currently serviceable" — it now reads
+ *  "Japan is not currently serviceable". */
+const COUNTRY_FRIENDLY_NAMES: Readonly<Record<string, string>> = {
+  // Prohibited (sanctions; the 18 codes in BRIDGE_PROHIBITED_COUNTRIES)
+  AF: "Afghanistan",
+  BY: "Belarus",
+  CD: "DRC",
+  CU: "Cuba",
+  PS: "Palestinian Territories",
+  IR: "Iran",
+  IQ: "Iraq",
+  LB: "Lebanon",
+  LY: "Libya",
+  MM: "Myanmar",
+  KP: "DPRK",
+  RU: "Russia",
+  SO: "Somalia",
+  SS: "South Sudan",
+  SD: "Sudan",
+  SY: "Syria",
+  VE: "Venezuela",
+  YE: "Yemen",
+  // Unavailable (commercial; the 5 codes in BRIDGE_UNAVAILABLE_COUNTRIES)
+  DZ: "Algeria",
+  BI: "Burundi",
+  CN: "China",
+  JP: "Japan",
+  TN: "Tunisia",
+};
+
 function humanCountry(code: string): string {
   const u = code.toUpperCase();
-  if (u === "CD") return "DRC";
-  if (u === "KP") return "DPRK";
-  if (u === "PS") return "Palestinian Territories";
-  return u;
+  return COUNTRY_FRIENDLY_NAMES[u] ?? u;
 }

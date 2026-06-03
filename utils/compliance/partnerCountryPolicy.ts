@@ -7,6 +7,37 @@
  * restates the same THREE country sets for UI rendering (signup
  * country picker, Geographic restrictions screen, KYC pre-checks).
  *
+ * ── Country display-name duplication (Issue #4 item 5, round-11) ────
+ * This file's PROHIBITED_COUNTRY_ENTRIES / SANCTIONED_COUNTRY_ENTRIES /
+ * UNAVAILABLE_COUNTRY_ENTRIES carry full friendly names like
+ * "Democratic Republic of the Congo" and "Palestinian Territories"
+ * for the geographic-restrictions UI. The BACKEND has its own,
+ * narrower `COUNTRY_FRIENDLY_NAMES` table in
+ * `supabase/functions/_shared/providers/bridge-country-policy.ts`
+ * that uses short forms like "DRC" and "DPRK" — because those are
+ * embedded into a single-sentence 403 error string where the long
+ * form reads awkwardly ("Democratic Republic of the Congo support
+ * is not available …").
+ *
+ * The two name tables are intentionally NOT unified. Reasons:
+ *   • They serve different consumers with different copy needs:
+ *     a full-list UI (verbose) vs a one-line error (terse).
+ *   • The Deno edge function runtime cannot import from `utils/`
+ *     outside `supabase/functions/`, so a single shared module would
+ *     need a build-time copy step. The ISO-2 SETS already live in
+ *     both files and are validated for byte-equality by the audit
+ *     script; adding a third shared table would expand the surface
+ *     the audit has to cover for marginal gain.
+ *   • Drift risk is low: the only fact that needs to stay in sync
+ *     is the set of ISO-2 codes that exist in each tier, which IS
+ *     enforced. Display-name drift is purely a copy concern and
+ *     surfaces in product review, not in a runtime bug.
+ *
+ * If a future refactor consolidates these (e.g. by generating both
+ * files from one source spec), the consolidation should still keep
+ * tier-appropriate short vs long forms — they're not interchangeable.
+ * ─────────────────────────────────────────────────────────────────────
+ *
  * STRICT MIRROR: BRIDGE_PROHIBITED_COUNTRIES,
  * BRIDGE_UNAVAILABLE_COUNTRIES, and BRIDGE_CONTROLLED_COUNTRIES MUST
  * stay byte-identical to the server file. Enforced by

@@ -7,6 +7,11 @@
  * copy doesn't conflate sanctions / commercial-unavailability with the
  * future-state "coming via local-rails partner" plan. Round-10 P2 fix.
  *
+ * Round-11 P2 follow-up (Issue #4 item 3): the three sections now share
+ * a single Section helper that accepts an optional leading icon. The
+ * previous version used the helper for one section and inlined two
+ * near-identical copies for the others; that's collapsed here.
+ *
  * AppShell owns the top chrome; renders body-only.
  */
 
@@ -26,10 +31,14 @@ interface CardRestrictionsScreenProps {
 }
 
 interface SectionProps {
-  title:    string;
-  subtitle: string;
-  entries:  readonly PartnerCountryEntry[];
-  badge:    { text: string; classes: string };
+  title:     string;
+  subtitle:  string;
+  /** Optional leading icon for the section heading. */
+  icon?:     React.ComponentType<{ className?: string }>;
+  /** Tailwind colour class for the icon stroke (e.g. 'text-red-400'). */
+  iconColor?: string;
+  entries:   readonly PartnerCountryEntry[];
+  badge:     { text: string; classes: string };
 }
 
 export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) {
@@ -37,13 +46,19 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  function Section({ title, subtitle, entries, badge }: SectionProps) {
+  function Section({ title, subtitle, icon: Icon, iconColor, entries, badge }: SectionProps) {
     if (entries.length === 0) return null;
+    const headingClasses = `text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`;
     return (
       <div className="mb-6">
-        <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-1 px-1`}>
-          {title} ({entries.length})
-        </h2>
+        {Icon ? (
+          <div className="flex items-center gap-2 mb-1 px-1">
+            <Icon className={`w-3 h-3 ${iconColor ?? ''}`} />
+            <h2 className={headingClasses}>{title} ({entries.length})</h2>
+          </div>
+        ) : (
+          <h2 className={`${headingClasses} mb-1 px-1`}>{title} ({entries.length})</h2>
+        )}
         <p className={`text-[11px] ${tc.textMuted} mb-2.5 px-1 leading-snug`}>{subtitle}</p>
         <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
           {entries.map((c, i) => (
@@ -97,7 +112,8 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
           </div>
         </motion.div>
 
-        {/* Section 1: Coming soon via local-rails partner (DRC only). */}
+        {/* Section 1: Coming soon via local-rails partner (DRC only).
+            No icon — this is the most "promising" tier. */}
         <Section
           title="Coming soon via local-rails partner"
           subtitle="These countries will come online once our African local-rails partner is wired up. Signup is allowed; partner-backed products are not yet provisioned."
@@ -106,69 +122,25 @@ export function CardRestrictionsScreen({ onBack }: CardRestrictionsScreenProps) 
         />
 
         {/* Section 2: Not currently serviceable (commercial / regulatory). */}
-        <div className="flex items-center gap-2 mb-1 px-1">
-          <Ban className="w-3 h-3 text-orange-400" />
-          <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
-            Not currently serviceable ({UNAVAILABLE_COUNTRY_ENTRIES.length})
-          </h2>
-        </div>
-        <p className={`text-[11px] ${tc.textMuted} mb-2.5 px-1 leading-snug`}>
-          Our regulated banking partner does not currently facilitate any
-          payment rail for residents of these jurisdictions. This is a
-          commercial / regulatory restriction, not a sanctions designation.
-        </p>
-        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-          {UNAVAILABLE_COUNTRY_ENTRIES.map((c, i) => (
-            <div
-              key={c.code}
-              className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
-            >
-              <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
-                {c.code}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-300 flex-shrink-0">
-                Unavailable
-              </span>
-            </div>
-          ))}
-        </div>
+        <Section
+          title="Not currently serviceable"
+          subtitle="Our regulated banking partner does not currently facilitate any payment rail for residents of these jurisdictions. This is a commercial / regulatory restriction, not a sanctions designation."
+          icon={Ban}
+          iconColor="text-orange-400"
+          entries={UNAVAILABLE_COUNTRY_ENTRIES}
+          badge={{ text: 'Unavailable', classes: 'bg-orange-500/15 text-orange-300' }}
+        />
 
         {/* Section 3: Sanctioned (regulatory / OFAC-style). Distinct copy
             from "coming soon" — these are NOT coming soon. */}
-        <div className="flex items-center gap-2 mb-1 px-1">
-          <ShieldOff className="w-3 h-3 text-red-400" />
-          <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
-            Restricted ({SANCTIONED_COUNTRY_ENTRIES.length})
-          </h2>
-        </div>
-        <p className={`text-[11px] ${tc.textMuted} mb-2.5 px-1 leading-snug`}>
-          These jurisdictions are subject to international sanctions and
-          we cannot onboard residents under any product tier.
-        </p>
-        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-          {SANCTIONED_COUNTRY_ENTRIES.map((c, i) => (
-            <div
-              key={c.code}
-              className={`px-4 py-3.5 flex items-start gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
-            >
-              <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${tc.text}`}>
-                {c.code}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-semibold ${tc.text}`}>{c.name}</p>
-                {c.reason && (
-                  <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>{c.reason}</p>
-                )}
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 flex-shrink-0">
-                Restricted
-              </span>
-            </div>
-          ))}
-        </div>
+        <Section
+          title="Restricted"
+          subtitle="These jurisdictions are subject to international sanctions and we cannot onboard residents under any product tier."
+          icon={ShieldOff}
+          iconColor="text-red-400"
+          entries={SANCTIONED_COUNTRY_ENTRIES}
+          badge={{ text: 'Restricted', classes: 'bg-red-500/15 text-red-300' }}
+        />
 
         <div className={`flex items-start gap-2 px-4 py-3 rounded-xl border ${tc.borderLight} ${tc.card}`}>
           <Info className={`w-3.5 h-3.5 mt-0.5 ${tc.textMuted} flex-shrink-0`} />
