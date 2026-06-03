@@ -105,6 +105,8 @@ const SAFE_FIELDS = [
   'admin_kyc_decision',              // KYC review screen reads this
   'is_admin',                        // admin panel routing
   'account_status',
+  'email_confirmed',
+  'email_confirmed_at',
   'created_at',
   'date_of_birth', 'address', 'city', 'state', 'postal_code',
 ];
