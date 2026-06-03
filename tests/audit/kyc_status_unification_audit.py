@@ -24,6 +24,8 @@ Invariants (fail closed):
        derived rejected KYC into Starter.
   (U8) Rejected dashboard account badge renders normal/title case, matching
        Profile, while other account badges can stay uppercase.
+  (U9) AppContext.reload fetches business_profiles.bridge_kyb_status for business
+       profiles before storing the cached borderpay_user profile.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -128,6 +130,13 @@ def main() -> int:
           and "font-semibold ${labelCase}" in badge)
     checks.append(("U8 rejected account badge is not forced uppercase", u8,
                    "Rejected account badge should render normal/title case like Profile, not uppercase"))
+
+    u9 = ("profile?.account_type === 'business'" in appctx
+          and "business_profiles?user_id=eq.${user.id}&select=bridge_kyb_status" in appctx
+          and "bridge_kyb_status:" in appctx
+          and appctx.find("business_profiles?user_id=eq.${user.id}&select=bridge_kyb_status") < appctx.find("storeUserProfile(profile)"))
+    checks.append(("U9 AppContext caches business bridge_kyb_status", u9,
+                   "AppContext.reload must fetch business_profiles.bridge_kyb_status before storeUserProfile(profile)"))
 
     print("kyc_status_unification_audit:")
     ok = True
