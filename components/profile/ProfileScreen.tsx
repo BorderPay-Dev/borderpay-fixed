@@ -119,6 +119,13 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
 
+  const mergeProfileCache = (next: Record<string, unknown>) => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, ...next }));
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => {
     loadProfile();
   }, [userId]);
@@ -130,9 +137,12 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
       if (result.success && result.data?.user) {
         const u = result.data.user;
+        const cachedCompanyName = profile.company_name || (() => {
+          try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.company_name || ''; } catch { return ''; }
+        })();
         const profileData = {
           full_name: u.full_name || '',
-          company_name: u.company_name || '',
+          company_name: u.company_name || cachedCompanyName || '',
           email: u.email || '',
           phone: u.phone || '',
           address: u.address || '',
@@ -152,18 +162,21 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           profile_picture_url: u.profile_picture_url || null,
           two_factor_enabled: u.two_factor_enabled || false,
         };
+        setProfile(profileData);
+        setEditedProfile(profileData);
+        mergeProfileCache({ ...u, company_name: profileData.company_name });
+
         if (profileData.account_type === 'business') {
           try {
             const biz: any = await backendAPI.business.getProfile();
             if (biz?.success && biz.data?.company_name) {
-              profileData.company_name = biz.data.company_name;
+              const company_name = biz.data.company_name;
+              setProfile((p) => ({ ...p, company_name }));
+              setEditedProfile((p) => ({ ...p, company_name }));
+              mergeProfileCache({ company_name, account_type: 'business' });
             }
           } catch { /* keep profile payload/cache */ }
         }
-        setProfile(profileData);
-        setEditedProfile(profileData);
-        // Update cache for next time
-        localStorage.setItem('borderpay_user', JSON.stringify({ ...u, company_name: profileData.company_name }));
       }
       // No error toast — screen already shows cached or default data
     } catch (_) {
