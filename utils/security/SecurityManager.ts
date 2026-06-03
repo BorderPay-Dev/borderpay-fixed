@@ -564,6 +564,28 @@ export const BiometricManager = {
   },
 
   /**
+   * Whether biometric SIGN-IN can actually run. Enrollment alone is NOT enough:
+   * handleBiometricLogin needs the cached session context to restore a session
+   * before WebAuthn. If logout/cancel/failure cleared borderpay_user or
+   * borderpay_refresh_token but left the enrollment flag + biometric_user_id, the
+   * button must NOT show (otherwise it errors with "No biometric session found").
+   * Requires ALL of: biometric_user_id, enrolled credential, cached profile,
+   * and a refresh token.
+   */
+  isLoginAvailable(): boolean {
+    try {
+      const userId = localStorage.getItem('borderpay_biometric_user_id');
+      if (!userId) return false;
+      if (!this.isEnrolled(userId)) return false;
+      if (!localStorage.getItem('borderpay_user')) return false;
+      if (!localStorage.getItem('borderpay_refresh_token')) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /**
    * Enroll a new platform authenticator. Calls webauthn-register-options,
    * runs navigator.credentials.create, ships the attestation to
    * webauthn-register-verify which persists to webauthn_credentials.
