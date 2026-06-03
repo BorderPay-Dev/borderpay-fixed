@@ -83,6 +83,7 @@ export function AccountStatusBadge({ status, size = 'md' }: AccountStatusBadgePr
   const config = statusConfig[status];
   const sizeStyles = sizeConfig[size];
   const Icon = config.icon;
+  const labelCase = status === 'rejected' ? 'normal-case tracking-normal' : 'uppercase tracking-wide';
 
   return (
     <div
@@ -96,7 +97,7 @@ export function AccountStatusBadge({ status, size = 'md' }: AccountStatusBadgePr
         size={sizeStyles.iconSize}
         strokeWidth={2.5}
       />
-      <span className={`${config.textColor} ${sizeStyles.textSize} font-semibold uppercase tracking-wide`}>
+      <span className={`${config.textColor} ${sizeStyles.textSize} font-semibold ${labelCase}`}>
         {config.label}
       </span>
     </div>
