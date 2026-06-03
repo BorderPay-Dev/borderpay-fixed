@@ -8,7 +8,9 @@ recovery.
 ## Why this is prevention, not recovery
 
 - All webhook failures/rejections are from a **2026-05-29 → 06-01 setup window**;
-  **0 in the last 24h**, queue drained, **no current live failure**.
+  **0 in the last 24h**, queue drained, and **no current live failure is proven
+  from available webhook data** (note: no webhook traffic since 2026-06-01 also
+  means low signal — absence of failures is not positive proof of health).
 - The 14 failed `pending_events` mapped to **2 real users + 1 internal account**.
 - The 2 real users were reconciled **directly against Bridge** (read-only
   `GET /v0/customers/{id}`): both are **`not_started` / incomplete**, NOT
