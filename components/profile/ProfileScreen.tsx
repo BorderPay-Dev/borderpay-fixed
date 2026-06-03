@@ -32,6 +32,25 @@ interface ProfileScreenProps {
   onBack: () => void;
 }
 
+function readLocalEmailConfirmed(): boolean {
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !/^sb-.+-auth-token$/.test(key)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const user = parsed?.currentSession?.user ?? parsed?.user;
+      if (user?.email_confirmed_at || user?.confirmed_at) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+function deriveEmailConfirmed(u: any): boolean {
+  return !!(u?.email_confirmed || u?.email_confirmed_at || u?.confirmed_at || readLocalEmailConfirmed());
+}
+
 export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,7 +101,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           bridge_account_status: u.bridge_account_status ?? null,
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
-          email_confirmed: u.email_confirmed || false,
+          email_confirmed: deriveEmailConfirmed(u),
           last_sign_in_at: u.last_sign_in_at || null,
           created_at: u.created_at || '',
           profile_picture_url: u.profile_picture_url || null,
@@ -124,7 +143,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           bridge_account_status: u.bridge_account_status ?? null,
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
-          email_confirmed: u.email_confirmed || false,
+          email_confirmed: deriveEmailConfirmed(u),
           last_sign_in_at: u.last_sign_in_at || null,
           created_at: u.created_at || '',
           profile_picture_url: u.profile_picture_url || null,
