@@ -65,7 +65,11 @@ function getOrCreateClient(): SupabaseClient {
       if (!isAppLocked()) {
         clearUserProfile();
       }
-    } else if (session?.access_token) {
+    } else if (session?.access_token && !isAppLocked()) {
+      // While the app is LOCKED ("Lock app"), never auto-write borderpay_token
+      // from a session / TOKEN_REFRESHED event — the app must stay locked until
+      // biometric unlock (or password) explicitly completes. The unlock handler
+      // sets borderpay_token itself once WebAuthn passes.
       localStorage.setItem('borderpay_token', session.access_token);
     }
   });
@@ -227,6 +231,24 @@ export function clearAppLocked(): void {
   try { localStorage.removeItem(APP_LOCKED_FLAG_KEY); } catch { /* ignore */ }
 }
 
+// Remove ONLY the local Supabase session storage (sb-<project-ref>-auth-token)
+// WITHOUT calling supabase.auth.signOut(). signOut() — even scope:'local' — hits
+// the /logout endpoint and invalidates the refresh token server-side, which would
+// make biometric unlock's refreshSession() fail. Clearing the storage key locally
+// removes the active session from this browser while leaving the refresh token
+// valid server-side, so unlock can mint a fresh session.
+export function clearLocalSupabaseSession(): void {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      // Supabase default storageKey is `sb-<project-ref>-auth-token`.
+      if (k && /^sb-.+-auth-token$/.test(k)) keys.push(k);
+    }
+    keys.forEach((k) => localStorage.removeItem(k));
+  } catch { /* ignore */ }
+}
+
 // ── Auth API ─────────────────────────────────────────────────────────────────
 export const authAPI = {
   /** Sign in with Supabase auth */
@@ -356,22 +378,20 @@ export const authAPI = {
   getStoredUser: () => readUserProfile(),
 
   /**
-   * "Lock app" — LOCAL-only sign-out for biometric quick-return. Unlike signout()
-   * this does NOT revoke the refresh token server-side (scope:'local'), and keeps
-   * borderpay_user + borderpay_refresh_token + biometric ids so the login screen
-   * can offer biometric unlock. Sets the app-locked marker BEFORE the local
-   * sign-out so the SIGNED_OUT handler preserves the profile.
+   * "Lock app" — biometric quick-return. Distinct from signout() (full Log out),
+   * which revokes server-side and clears everything. Lock must NOT call any
+   * Supabase signOut: even signOut({scope:'local'}) hits /logout and invalidates
+   * the refresh token server-side, breaking biometric unlock. Instead we clear
+   * the LOCAL Supabase session storage only and keep borderpay_user +
+   * borderpay_refresh_token + biometric ids so refreshSession() works on unlock.
    */
-  lockApp: async () => {
+  lockApp: () => {
     try {
       setAppLocked();
-      localStorage.removeItem('borderpay_token');
-      if (supabase?.auth) {
-        // scope:'local' clears only the local session; the refresh token stays
-        // valid server-side so biometric unlock's refreshSession() can succeed.
-        await supabase.auth.signOut({ scope: 'local' });
-      }
-    } catch { /* best-effort: marker is set, token removed */ }
+      localStorage.removeItem('borderpay_token');     // drop the transient access token
+      clearLocalSupabaseSession();                    // local session only — NO /logout
+      // borderpay_user / borderpay_refresh_token / biometric ids preserved.
+    } catch { /* best-effort: marker set, token removed */ }
   },
 
   getToken: () => localStorage.getItem('borderpay_token'),
