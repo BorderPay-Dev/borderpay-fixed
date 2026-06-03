@@ -58,6 +58,7 @@ function getOrCreateClient(): SupabaseClient {
       localStorage.removeItem('borderpay_token');
       clearUserProfile();
       clearPasswordRecovery();
+      clearBiometricLoginPending();
     } else if (session?.access_token) {
       localStorage.setItem('borderpay_token', session.access_token);
     }
@@ -152,6 +153,45 @@ export function clearPasswordRecovery(): void {
     // Clean up any legacy sessionStorage markers from earlier builds.
     sessionStorage.removeItem(RECOVERY_TOKEN_KEY);
     sessionStorage.removeItem(RECOVERY_FLAG_KEY);
+  } catch { /* ignore */ }
+}
+
+// ── Biometric-login pending gate ────────────────────────────────────────────
+// Biometric sign-in restores the Supabase session BEFORE running the WebAuthn
+// assertion (the WebAuthn endpoints need a valid user JWT). That refresh fires
+// onAuthStateChange → useAuth/AppContext would otherwise flip isAuthenticated
+// true and App.tsx would route to the dashboard — bypassing the biometric gate.
+// To prevent that race we mark "biometric login pending" BEFORE refreshSession;
+// useAuth, AppContext and App.tsx all treat a pending state as NOT authenticated
+// (same pattern as password recovery). The flag is short-lived and self-heals so
+// a crash mid-flow can never strand the app in a non-authenticated state. It is
+// cleared on WebAuthn success (right before navigation) and on every
+// failure / sign-out path.
+const BIOMETRIC_PENDING_FLAG_KEY = 'borderpay_biometric_login_pending';
+const BIOMETRIC_PENDING_EXP_KEY  = 'borderpay_biometric_login_pending_expires_at';
+const BIOMETRIC_PENDING_TTL_MS   = 2 * 60 * 1000; // 2 min — covers refresh + Touch ID/Face ID prompt
+
+export function isBiometricLoginPending(): boolean {
+  try {
+    if (localStorage.getItem(BIOMETRIC_PENDING_FLAG_KEY) !== '1') return false;
+    const raw = localStorage.getItem(BIOMETRIC_PENDING_EXP_KEY);
+    const exp = raw ? Number(raw) : 0;
+    // Self-heal: once the short window passes, drop the marker so normal auth
+    // routing resumes even if a failure path was missed.
+    if (!exp || Date.now() >= exp) { clearBiometricLoginPending(); return false; }
+    return true;
+  } catch { return false; }
+}
+export function setBiometricLoginPending(): void {
+  try {
+    localStorage.setItem(BIOMETRIC_PENDING_FLAG_KEY, '1');
+    localStorage.setItem(BIOMETRIC_PENDING_EXP_KEY, String(Date.now() + BIOMETRIC_PENDING_TTL_MS));
+  } catch { /* ignore */ }
+}
+export function clearBiometricLoginPending(): void {
+  try {
+    localStorage.removeItem(BIOMETRIC_PENDING_FLAG_KEY);
+    localStorage.removeItem(BIOMETRIC_PENDING_EXP_KEY);
   } catch { /* ignore */ }
 }
 

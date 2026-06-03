@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
-import { authAPI, storeUserProfile } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending } from '../../utils/supabase/client';
 import { ENV_CONFIG } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -83,6 +83,11 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
     setInlineError('');
     setIsLoading(true);
+
+    // Explicit password login is authoritative credential auth — clear any stale
+    // biometric-pending gate (e.g. left behind by a crash mid-biometric) so it
+    // can't block this login until the 2-min self-heal expiry.
+    clearBiometricLoginPending();
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -167,18 +172,43 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
     toast.info('Please sign in again');
   };
 
-  // ── Biometric Sign-In (Fixed) ─────────────────────────────────────────────
+  // Tear down a session that was restored for the biometric gate but did NOT
+  // pass WebAuthn. Clears the Supabase session and every local auth token so the
+  // user is left fully signed out on the login screen.
+  const clearRestoredSession = async () => {
+    // Lift the routing gate first so a failed/aborted attempt can't strand the
+    // app in a non-authenticated pending state.
+    clearBiometricLoginPending();
+    try { await supabase.auth.signOut(); } catch { /* best-effort */ }
+    localStorage.removeItem('borderpay_token');
+    localStorage.removeItem('borderpay_refresh_token');
+    localStorage.removeItem('borderpay_user');
+  };
+
+  // ── Biometric Sign-In (session-first, WebAuthn-gated) ──────────────────────
+  // ORDER CONTRACT (do not reorder):
+  //   1. Restore the Supabase session from the stored refresh token FIRST, so the
+  //      authenticated WebAuthn options/verify endpoints receive a valid user JWT
+  //      (they return 401 without one).
+  //   2. DO NOT navigate into the app yet.
+  //   3. Run the WebAuthn assertion (the real access gate).
+  //   4. Only on WebAuthn success complete the existing login flow.
+  //   5. On WebAuthn failure, sign the session out and clear local auth, then
+  //      stay on the login screen.
+  // This is NOT passwordless passkey login: the refresh token restores the
+  // session and biometric gates access. No Supabase native passkeys / MFA.
   const handleBiometricLogin = async () => {
     setIsBiometricLoading(true);
+    let completed = false;
 
     try {
-      // Step 1: Check device biometric support
+      // Step 1: Device support
       if (!window.PublicKeyCredential) {
         toast.error('Biometric authentication not supported on this browser');
         return;
       }
 
-      // Step 2: Get stored user context
+      // Step 2: Stored biometric context
       const storedUserId   = localStorage.getItem('borderpay_biometric_user_id');
       const storedUser     = localStorage.getItem('borderpay_user');
       const refreshToken   = localStorage.getItem('borderpay_refresh_token');
@@ -192,7 +222,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
       const userProfile = JSON.parse(storedUser);
 
-      // Step 3: WebAuthn device biometric check (Touch ID / Face ID)
       if (!BiometricManager.isEnrolled(storedUserId)) {
         toast.info('Biometric not set up yet. Sign in with your password — biometrics will be enabled automatically.');
         if (userProfile.email) setEmail(userProfile.email);
@@ -206,53 +235,80 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         return;
       }
 
-      const result = await BiometricManager.verify(storedUserId);
-      if (!result.success) {
-        toast.error('Biometric verification failed, try again');
+      if (!refreshToken) {
+        // No refresh token to restore a session — WebAuthn options would 401.
+        toast.info('Session expired. Please sign in with your password.');
+        if (userProfile.email) setEmail(userProfile.email);
         return;
       }
 
-      // Step 4: Restore Supabase session via refresh_token (most reliable path)
-      if (refreshToken) {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession({
-          refresh_token: refreshToken,
-        });
+      // Mark biometric login as PENDING before refreshing. refreshSession() fires
+      // onAuthStateChange, which would otherwise flip global isAuthenticated true
+      // and let App.tsx route to the dashboard before WebAuthn runs. While pending,
+      // useAuth / AppContext / App.tsx all treat the app as NOT authenticated.
+      setBiometricLoginPending();
 
-        if (refreshData?.session && !refreshError) {
-          // Session refreshed successfully
-          localStorage.setItem('borderpay_token', refreshData.session.access_token);
-          localStorage.setItem('borderpay_refresh_token', refreshData.session.refresh_token);
-          localStorage.setItem('borderpay_user', JSON.stringify({
-            ...userProfile,
-            ...refreshData.session.user?.user_metadata,
-            id:    refreshData.session.user?.id || userProfile.id,
-            email: refreshData.session.user?.email || userProfile.email,
-          }));
+      // Step 3: Restore the Supabase session BEFORE any WebAuthn call, so the
+      // authenticated options/verify endpoints receive a valid user JWT. We do
+      // NOT navigate into the app here — access is still gated by WebAuthn below.
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession({
+        refresh_token: refreshToken,
+      });
 
-          toast.success('Biometric authentication successful!');
-
-          // Check 2FA
-          const has2FA = TOTPManager.isEnabled(userProfile.id);
-          const isVerified = userProfile.kyc_status === 'verified' || userProfile.kyc_status === 'approved';
-          if (isVerified && (has2FA || userProfile.two_factor_enabled || userProfile.mfa_enabled)) {
-            setPendingUser(userProfile);
-            setShow2FA(true);
-          } else {
-            onLoginSuccess(userProfile);
-          }
-          return;
-        }
-
+      if (refreshError || !refreshData?.session) {
+        await clearRestoredSession();
+        toast.info('Session expired. Please sign in with your password.');
+        if (userProfile.email) setEmail(userProfile.email);
+        return;
       }
 
-      // Step 5: Refresh token exhausted or missing → prompt for password
-      toast.info('Session expired. Please sign in with your password.');
-      if (userProfile.email) setEmail(userProfile.email);
+      // Make the fresh access token visible to the API layer (apiCall reads
+      // borderpay_token) so the WebAuthn calls below are authorized.
+      localStorage.setItem('borderpay_token', refreshData.session.access_token);
+      localStorage.setItem('borderpay_refresh_token', refreshData.session.refresh_token);
 
+      // Step 4: WebAuthn assertion — the access gate. Still NOT in the app.
+      const result = await BiometricManager.verify(storedUserId);
+      if (!result.success) {
+        // Step 5: WebAuthn failed → tear down the restored session, stay on login.
+        await clearRestoredSession();
+        const msg = result.error || 'Biometric verification failed, try again';
+        setInlineError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      // Step 6: WebAuthn succeeded → lift the routing gate, then complete the
+      // login flow with controlled navigation (the only authorized entry to the
+      // dashboard for biometric sign-in).
+      clearBiometricLoginPending();
+      completed = true;
+      const sessionUser = refreshData.session.user;
+      const mergedProfile = {
+        ...userProfile,
+        ...sessionUser?.user_metadata,
+        id:    sessionUser?.id || userProfile.id,
+        email: sessionUser?.email || userProfile.email,
+      };
+      storeUserProfile(mergedProfile);
+
+      toast.success('Biometric authentication successful!');
+
+      const has2FA = TOTPManager.isEnabled(mergedProfile.id);
+      const isVerified = mergedProfile.kyc_status === 'verified' || mergedProfile.kyc_status === 'approved';
+      if (isVerified && (has2FA || mergedProfile.two_factor_enabled || mergedProfile.mfa_enabled)) {
+        setPendingUser(mergedProfile);
+        setShow2FA(true);
+      } else {
+        onLoginSuccess(mergedProfile);
+      }
     } catch (error: any) {
-      const msg = error.name === 'NotAllowedError'
+      // Any unexpected error before completion must not leave a half-open
+      // session behind.
+      if (!completed) await clearRestoredSession();
+      const msg = error?.name === 'NotAllowedError'
         ? 'Biometric verification was cancelled or timed out.'
-        : (error.message || 'Biometric authentication failed. Please try again.');
+        : (error?.message || 'Biometric authentication failed. Please try again.');
       setInlineError(msg);
       toast.error(msg);
     } finally {
