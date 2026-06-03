@@ -408,8 +408,10 @@ function AppContent() {
         email: loginUser.email,
         full_name: fullName || loginUser.email?.split('@')[0] || 'User',
       });
+      setAppState('dashboard');
     } catch {
       // Non-critical — Supabase auth already succeeded
+      setAppState('dashboard');
     }
   };
 
