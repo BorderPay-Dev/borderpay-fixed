@@ -22,6 +22,8 @@ Invariants (fail closed):
   (U6) AppContext.UserProfile carries the Bridge fields used by the helper/cache.
   (U7) Dashboard account badge has a rejected state and does not flatten
        derived rejected KYC into Starter.
+  (U8) Rejected dashboard account badge renders normal/title case, matching
+       Profile, while other account badges can stay uppercase.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -121,6 +123,11 @@ def main() -> int:
           and "kycStatus === 'rejected' ? 'rejected' : 'starter'" in dash)
     checks.append(("U7 dashboard account badge preserves rejected status", u7,
                    "Dashboard/AccountStatusBadge must represent rejected separately from starter"))
+
+    u8 = ("const labelCase = status === 'rejected' ? 'normal-case tracking-normal' : 'uppercase tracking-wide'" in badge
+          and "font-semibold ${labelCase}" in badge)
+    checks.append(("U8 rejected account badge is not forced uppercase", u8,
+                   "Rejected account badge should render normal/title case like Profile, not uppercase"))
 
     print("kyc_status_unification_audit:")
     ok = True
