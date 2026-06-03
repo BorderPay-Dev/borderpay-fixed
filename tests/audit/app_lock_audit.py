@@ -2,16 +2,18 @@
 """
 "Lock app" (biometric quick-return) audit.
 
-"Lock app" is a LOCAL-only sign-out that preserves a refreshable session behind
+"Lock app" is a local browser lock that preserves a refreshable session behind
 WebAuthn so the user can re-enter via Face/Touch ID. It is DISTINCT from
-"Log out", which revokes the session server-side and clears everything. This audit
-locks the security contract so the two can't drift into each other.
+"Log out", which revokes the session server-side and clears everything. Lock
+must not call any Supabase signOut because every signOut scope hits /logout and
+can invalidate the refresh token.
 
 Invariants (fail closed):
 
-  (L1) lockApp() is LOCAL-only: uses signOut({ scope: 'local' }) (does NOT revoke
-       server-side), sets the lock marker, removes only borderpay_token, and does
-       NOT clear borderpay_user / borderpay_refresh_token (biometric needs them).
+  (L1) lockApp() is local-only without Supabase signOut: sets the lock marker,
+       removes only borderpay_token, clears only local Supabase session storage,
+       and does NOT clear borderpay_user / borderpay_refresh_token (biometric
+       needs them).
   (L2) the SIGNED_OUT handler preserves the profile during a lock
        (clearUserProfile guarded by !isAppLocked()).
   (L3) useAuth AND AppContext treat locked as NOT authenticated (every computed
@@ -32,6 +34,8 @@ Invariants (fail closed):
         signOut / /logout (so the refresh token stays valid server-side).
   (L12) onAuthStateChange does NOT write borderpay_token while locked.
   (L13) biometric unlock still mints a session via refreshSession({refresh_token}).
+  (L14) biometric unlock clears gates, reloads auth, then calls onLoginSuccess;
+        App.handleLoginSuccess routes dashboard in both success/catch paths.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -187,6 +191,24 @@ def main() -> int:
     l13 = ("refreshSession({" in login and "refresh_token: refreshToken" in login)
     checks.append(("L13 unlock uses refreshSession({ refresh_token })", l13,
                    "biometric unlock must call supabase.auth.refreshSession({ refresh_token })"))
+
+    # L14 — success must not rely on a second auth event that may never fire.
+    # The auth listener intentionally suppresses the mid-lock/pending session;
+    # after WebAuthn succeeds, clear gates, reload auth, then route dashboard.
+    success = sl(handler, "// Step 6:", "\n    } catch")
+    i_clear_pending = success.find("clearBiometricLoginPending()")
+    i_clear_lock = success.find("clearAppLocked()")
+    i_reload = success.find("__borderpay_reload_auth")
+    i_on_success = success.find("onLoginSuccess(")
+    handle_success = sl(app, "const handleLoginSuccess = async (loginUser: any) =>", "\n  };")
+    l14 = (i_clear_pending >= 0
+           and i_clear_lock >= 0
+           and i_reload >= 0
+           and i_on_success >= 0
+           and i_clear_pending < i_clear_lock < i_reload < i_on_success
+           and handle_success.count("setAppState('dashboard')") >= 2)
+    checks.append(("L14 unlock success reloads auth + routes dashboard", l14,
+                   "biometric success must clear gates, reload auth before onLoginSuccess, and handleLoginSuccess must set dashboard in try/catch"))
 
     print("app_lock_audit:")
     ok = True

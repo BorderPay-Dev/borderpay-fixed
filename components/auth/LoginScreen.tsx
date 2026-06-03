@@ -313,6 +313,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
       // authorized entry to the dashboard for biometric sign-in / unlock).
       clearBiometricLoginPending();
       clearAppLocked();
+      await (window as any).__borderpay_reload_auth?.();
       completed = true;
       const sessionUser = refreshData.session.user;
       const mergedProfile = {
