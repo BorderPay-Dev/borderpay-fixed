@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { PINVerify } from '../auth/PINVerify';
-import { ENV_CONFIG, isFullEnrollment } from '../../utils/config/environment';
+import { ENV_CONFIG, isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { authAPI } from '../../utils/supabase/client';
 
 /* ──────────────────────────── Types ──────────────────────────── */
@@ -121,7 +121,7 @@ export function USDAccountScreen({ onBack, onComplete }: Props) {
 
   // KYC gate check
   const storedUser    = authAPI.getStoredUser();
-  const kycStatus     = storedUser?.kyc_status || 'pending';
+  const kycStatus     = deriveKycStatus(storedUser);   // Bridge-first (rejected overrides pending)
   const userIsVerified = isFullEnrollment(kycStatus);
 
   // Block if not KYC verified (in live mode)

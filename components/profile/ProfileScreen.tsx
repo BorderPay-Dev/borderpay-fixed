@@ -25,6 +25,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { deriveKycStatus } from '../../utils/config/environment';
 
 interface ProfileScreenProps {
   userId: string;
@@ -51,6 +52,9 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       postal_code: '',
       date_of_birth: '',
       kyc_status: 'pending',
+      bridge_kyc_status: null as string | null,
+      bridge_kyb_status: null as string | null,
+      bridge_account_status: null as string | null,
       account_type: 'individual',
       is_unlocked: false,
       email_confirmed: false,
@@ -73,6 +77,9 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           postal_code: u.postal_code || '',
           date_of_birth: u.date_of_birth || '',
           kyc_status: u.kyc_status || 'pending',
+          bridge_kyc_status: u.bridge_kyc_status ?? null,
+          bridge_kyb_status: u.bridge_kyb_status ?? null,
+          bridge_account_status: u.bridge_account_status ?? null,
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
           email_confirmed: u.email_confirmed || false,
@@ -112,6 +119,9 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           postal_code: u.postal_code || '',
           date_of_birth: u.date_of_birth || '',
           kyc_status: u.kyc_status || 'pending',
+          bridge_kyc_status: u.bridge_kyc_status ?? null,
+          bridge_kyb_status: u.bridge_kyb_status ?? null,
+          bridge_account_status: u.bridge_account_status ?? null,
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
           email_confirmed: u.email_confirmed || false,
@@ -203,10 +213,14 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   };
 
   const getKycBadge = () => {
-    switch (profile.kyc_status) {
+    // Bridge-first: a Bridge rejection shows "did not pass" even if legacy
+    // kyc_status is still 'pending'; legacy-verified users are preserved.
+    switch (deriveKycStatus(profile)) {
       case 'verified':
         return { label: t('profile.verified'), color: 'text-[#C7FF00]', bg: 'bg-[#C7FF00]/10 border-[#C7FF00]/20' };
-      case 'reviewing':
+      case 'rejected':
+        return { label: t('profile.rejected') || 'Verification failed', color: 'text-red-400', bg: 'bg-red-400/10 border-red-400/20' };
+      case 'under_review':
         return { label: t('profile.underReview'), color: 'text-yellow-400', bg: 'bg-yellow-400/10 border-yellow-400/20' };
       case 'pending':
         return { label: t('profile.unverified'), color: 'text-orange-400', bg: 'bg-orange-400/10 border-orange-400/20' };

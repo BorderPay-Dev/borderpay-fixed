@@ -27,7 +27,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Shield, Eye, EyeOff } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { isFullEnrollment } from '../../utils/config/environment';
+import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { supabase } from '../../utils/supabase/client';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
@@ -52,7 +52,7 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
   const [kycStatus] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
-      if (stored) return (JSON.parse(stored).kyc_status as string) || 'pending';
+      if (stored) return deriveKycStatus(JSON.parse(stored));   // Bridge-first
     } catch { /* ignore */ }
     return 'pending';
   });

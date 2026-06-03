@@ -100,6 +100,8 @@ const SAFE_FIELDS = [
   'avatar_url', 'profile_picture_url', 'currency',
   'bridge_customer_id',              // Bridge identity, used by KYC/KYB flows
   'bridge_kyc_status',               // Bridge KYC status badge on dashboards
+  'bridge_kyb_status',               // Bridge KYB status (business) — deriveKycStatus
+  'bridge_account_status',           // Bridge account status — deriveKycStatus (reject signal)
   'admin_kyc_decision',              // KYC review screen reads this
   'is_admin',                        // admin panel routing
   'account_status',

@@ -64,6 +64,68 @@ export function isFullEnrollment(kycStatus: string | null | undefined): boolean 
   );
 }
 
+/** Canonical KYC status used by display + gating across the app. */
+export type DerivedKycStatus =
+  | 'rejected' | 'verified' | 'under_review' | 'pending' | 'not_started';
+
+/** Minimal profile shape deriveKycStatus reads (all optional / defensive). */
+export interface KycProfileLike {
+  account_type?:          string | null;
+  kyc_status?:            string | null;
+  bridge_kyc_status?:     string | null;
+  bridge_kyb_status?:     string | null;
+  bridge_account_status?: string | null;
+}
+
+/**
+ * Bridge-first KYC status derivation (Bridge Core PR — status unification).
+ *
+ * Bridge identity status is authoritative ONLY when terminal (approved/rejected),
+ * so a Bridge rejection is shown even when legacy kyc_status is still 'pending'
+ * (the exact display/trust bug we are fixing), WITHOUT downgrading a previously
+ * legacy-verified user whose Bridge status is merely non-terminal (pending /
+ * under_review / not_started).
+ *
+ * Precedence:
+ *   1. Bridge terminal REJECT  -> 'rejected'   (bridge_kyc/kyb or account)
+ *   2. Bridge terminal APPROVE -> 'verified'   (bridge_kyc/kyb === approved)
+ *   3. legacy terminal         -> 'rejected' | 'verified'
+ *   4. most-informative in-progress state (prefer Bridge's) -> under_review/pending
+ *   5. otherwise               -> 'not_started'
+ *
+ * NOTE: bridge_account_status is used only as a REJECT signal here; marking a user
+ * verified from account_status alone is deferred to the (separate, deploy-gated)
+ * backend propagation PR after Bridge status semantics are confirmed.
+ */
+export function deriveKycStatus(profile: KycProfileLike | null | undefined): DerivedKycStatus {
+  if (!profile) return 'not_started';
+  const norm = (s?: string | null) => String(s ?? '').trim().toLowerCase();
+
+  const isBusiness = norm(profile.account_type) === 'business';
+  const bridgeKyc  = isBusiness ? norm(profile.bridge_kyb_status) : norm(profile.bridge_kyc_status);
+  const bridgeAcct = norm(profile.bridge_account_status);
+  const legacy     = norm(profile.kyc_status);
+
+  // 1. Bridge terminal rejection wins (overrides a stale legacy 'pending').
+  if (bridgeKyc === 'rejected' || bridgeAcct === 'rejected') return 'rejected';
+  // 2. Bridge terminal approval.
+  if (bridgeKyc === 'approved') return 'verified';
+  // 3. Legacy terminal states (preserve existing verified users when Bridge is
+  //    non-terminal/absent).
+  if (legacy === 'rejected' || legacy === 'failed') return 'rejected';
+  if (isFullEnrollment(legacy)) return 'verified';
+  // 4. In-progress — prefer the more specific Bridge state for display.
+  if (bridgeKyc === 'under_review') return 'under_review';
+  if (bridgeKyc === 'pending' || legacy === 'pending') return 'pending';
+  // 5. Nothing started.
+  return 'not_started';
+}
+
+/** Gating helper — true only when the Bridge-first derived status is verified. */
+export function isKycVerified(profile: KycProfileLike | null | undefined): boolean {
+  return deriveKycStatus(profile) === 'verified';
+}
+
 /**
  * Returns true if user is allowed to create wallets / accounts / cards.
  * In sandbox: always true (beta bypass).

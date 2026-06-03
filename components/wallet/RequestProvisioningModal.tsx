@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { supabase } from '../../utils/supabase/client';
 import { authAPI } from '../../utils/supabase/client';
-import { isFullEnrollment } from '../../utils/config/environment';
+import { isKycVerified } from '../../utils/config/environment';
 
 interface RequestProvisioningModalProps {
   open: boolean;
@@ -65,7 +65,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   // Live-refreshed user state — covers a stale localStorage cache so we
   // don't refuse a verified user because of cached 'pending'.
   const cachedUser           = authAPI.getStoredUser();
-  const [verified, setVerified]                     = useState<boolean>(isFullEnrollment(cachedUser?.kyc_status));
+  const [verified, setVerified]                     = useState<boolean>(isKycVerified(cachedUser));
 
   useEffect(() => {
     if (!open) return;
@@ -75,7 +75,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
         const r = await backendAPI.user.getProfile();
         if (cancelled) return;
         if (r?.success && r.data?.user) {
-          setVerified(isFullEnrollment(r.data.user.kyc_status));
+          setVerified(isKycVerified(r.data.user));
         }
       } catch { /* ignore — keep cached */ }
     })();

@@ -27,7 +27,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
 import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, isAppLocked, setAppLocked, clearAppLocked } from '../../utils/supabase/client';
-import { ENV_CONFIG } from '../../utils/config/environment';
+import { ENV_CONFIG, isKycVerified } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface LoginScreenProps {
@@ -142,7 +142,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
         const has2FA      = TOTPManager.isEnabled(userProfile.id);
         const profileHas2FA = userProfile.two_factor_enabled || userProfile.mfa_enabled;
-        const isVerified  = userProfile.kyc_status === 'verified' || userProfile.kyc_status === 'approved';
+        const isVerified  = isKycVerified(userProfile);
 
         if (isVerified && (has2FA || profileHas2FA)) {
           setPendingUser(userProfile);
@@ -327,7 +327,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
       toast.success('Biometric authentication successful!');
 
       const has2FA = TOTPManager.isEnabled(mergedProfile.id);
-      const isVerified = mergedProfile.kyc_status === 'verified' || mergedProfile.kyc_status === 'approved';
+      const isVerified = isKycVerified(mergedProfile);
       if (isVerified && (has2FA || mergedProfile.two_factor_enabled || mergedProfile.mfa_enabled)) {
         setPendingUser(mergedProfile);
         setShow2FA(true);

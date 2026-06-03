@@ -27,7 +27,7 @@ import {
   InputOTPSlot,
 } from '../ui/input-otp';
 import { USPaymentDetails } from './USPaymentDetails';
-import { isFullEnrollment } from '../../utils/config/environment';
+import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { getTransferFee, validateTransferAmount, FeeResult } from '../../utils/fees';
 
@@ -114,7 +114,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       const stored = localStorage.getItem('borderpay_user');
       if (stored) {
         const user = JSON.parse(stored);
-        return user.kyc_status || 'pending';
+        return deriveKycStatus(user);            // Bridge-first (rejected overrides pending)
       }
     } catch {}
     return 'pending';
