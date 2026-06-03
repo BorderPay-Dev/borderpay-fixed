@@ -62,6 +62,21 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
+    // Business KYB status lives on business_profiles (not user_profiles). Fetch it
+    // for business accounts so the payload carries the same Bridge status fields
+    // the frontend deriveKycStatus() expects (bridge_kyc_status / bridge_account_status
+    // come from user_profiles above; bridge_kyb_status from here).
+    const accountType = profile?.account_type || userData?.account_type || "individual";
+    let bridgeKybStatus: string | null = null;
+    if (accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("bridge_kyb_status")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      bridgeKybStatus = biz?.bridge_kyb_status ?? null;
+    }
+
     // The single source of truth for email-confirmed state is
     // auth.users.email_confirmed_at. Anything else (cached profile rows,
     // metadata flags) can lag behind the verification webhook.
@@ -79,12 +94,14 @@ Deno.serve(async (req) => {
           full_name:           profile?.full_name || userData?.full_name || null,
           phone:               profile?.phone || userData?.phone || null,
           country:             profile?.country || userData?.country || null,
-          account_type:        profile?.account_type || userData?.account_type || "individual",
+          account_type:        accountType,
           kyc_status:          profile?.kyc_status || userData?.kyc_status || "unverified",
           kyc_level:           profile?.kyc_level || 0,
           wallet_activated:    userData?.wallet_activated || false,
           bridge_customer_id:  profile?.bridge_customer_id || userData?.bridge_customer_id || null,
           bridge_kyc_status:   profile?.bridge_kyc_status || null,
+          bridge_account_status: profile?.bridge_account_status || null,
+          bridge_kyb_status:   bridgeKybStatus,
           address:             profile?.address || null,
           city:                profile?.city || null,
           state:               profile?.state || null,
