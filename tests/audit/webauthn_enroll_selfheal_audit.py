@@ -81,6 +81,22 @@ def main() -> int:
 
     create_calls = len(re.findall(r"await runCreate\(\)", enroll))
 
+    # H7 — service worker is versioned + bumped to at least the floor where this
+    # self-heal shipped (v2.5.0). Version-agnostic: parse CACHE_NAME and
+    # RUNTIME_CACHE semver and require them to match and be >= the floor, so later
+    # SW bumps (v2.12.0, …) keep passing instead of pinning a stale literal.
+    SW_VERSION_FLOOR = (2, 5, 0)
+
+    def sw_ver(pat: str):
+        m = re.search(pat, sw)
+        return tuple(int(g) for g in m.groups()) if m else None
+
+    cache_ver   = sw_ver(r"borderpay-app-v(\d+)\.(\d+)\.(\d+)")
+    runtime_ver = sw_ver(r"borderpay-app-runtime-v(\d+)\.(\d+)\.(\d+)")
+    h7_ok = (cache_ver is not None and runtime_ver is not None
+             and cache_ver == runtime_ver
+             and cache_ver >= SW_VERSION_FLOOR)
+
     checks = [
         ("H1 enroll InvalidStateError branch calls backendAPI.webauthn.disable()",
          "InvalidStateError" in enroll and "backendAPI.webauthn.disable" in ise,
@@ -112,9 +128,10 @@ def main() -> int:
          and disable.index("backendAPI.webauthn.disable") < disable.index("removeItem"),
          "BiometricManager.disable must return on !success before removeItem"),
 
-        ("H7 service-worker cache bumped to v2.5.0",
-         "borderpay-app-v2.5.0" in sw and "borderpay-app-runtime-v2.5.0" in sw,
-         "expected CACHE_NAME/RUNTIME_CACHE at v2.5.0"),
+        ("H7 service-worker is versioned + bumped (CACHE==RUNTIME, >= v2.5.0 floor)",
+         h7_ok,
+         f"expected CACHE_NAME/RUNTIME_CACHE coherent semver >= {SW_VERSION_FLOOR}; "
+         f"found cache={cache_ver} runtime={runtime_ver}"),
     ]
 
     print("webauthn_enroll_selfheal_audit:")
