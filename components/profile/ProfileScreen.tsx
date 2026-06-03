@@ -249,6 +249,10 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   };
 
   const kycBadge = getKycBadge();
+  const isBusinessAccount = profile.account_type === 'business';
+  const profileTitle = isBusinessAccount ? 'Business profile' : t('profile.title');
+  const informationTitle = isBusinessAccount ? 'Business information' : 'Personal Information';
+  const nameLabel = isBusinessAccount ? 'Primary contact' : 'Full Name';
 
   return (
     <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
@@ -265,7 +269,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           for top-level routes; we no longer render a duplicate sticky bar. */}
       <div className="max-w-2xl mx-auto px-5 pt-5 flex items-center justify-between">
         <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
-          {t('profile.title')}
+          {profileTitle}
         </p>
         <button
           onClick={() => (editing ? handleCancel() : setEditing(true))}
@@ -320,13 +324,13 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           </div>
         </div>
 
-        {/* Personal Info */}
+        {/* Profile info */}
         <div className="space-y-3">
-          <h3 className="text-xs text-gray-400 font-semibold uppercase tracking-wider px-1">Personal Information</h3>
+          <h3 className="text-xs text-gray-400 font-semibold uppercase tracking-wider px-1">{informationTitle}</h3>
 
           <ProfileField
             icon={User}
-            label="Full Name"
+            label={nameLabel}
             value={editing ? editedProfile.full_name : profile.full_name}
             editing={editing}
             onChange={(value) => setEditedProfile({ ...editedProfile, full_name: value })}

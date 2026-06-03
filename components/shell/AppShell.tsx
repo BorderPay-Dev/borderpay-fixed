@@ -316,7 +316,7 @@ export function AppShell({
                   <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   active={route === 'team'}         onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
                 )}
                 <div className={`my-2 border-t ${tc.borderLight}`} />
-                <DrawerItem icon={ShieldCheck} label={tt('nav.kyc',          'Identity & KYC')} active={route === 'kyc'}          onPrefetch={() => prefetchRoute('kyc')}          onClick={() => go('kyc')}          tc={tc} />
+                <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} active={route === 'kyc'}          onPrefetch={() => prefetchRoute('kyc')}          onClick={() => go('kyc')}          tc={tc} />
                 <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
                 {onLock && (
                   <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       onClick={onLock}                   tc={tc} />

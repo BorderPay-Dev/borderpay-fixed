@@ -49,6 +49,17 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
+const TEAM_LOAD_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenProps) {
   const tc = useThemeClasses();
@@ -99,7 +110,11 @@ function BusinessTeamPanel({
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await backendAPI.team.list();
+      const r = await withTimeout(
+        backendAPI.team.list(),
+        TEAM_LOAD_TIMEOUT_MS,
+        'Team is taking longer than expected. Please try again.'
+      );
       if (r.success && r.data) {
         setRoster(r.data);
       } else {
@@ -206,9 +221,18 @@ function BusinessTeamPanel({
 
         {/* Error banner */}
         {error && (
-          <div className="rounded-2xl bg-red-500/10 border border-red-500/30 px-4 py-3 flex items-start gap-2">
+          <div className="rounded-2xl bg-red-500/10 border border-red-500/30 px-4 py-3 flex items-start gap-3">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-            <p className={`text-xs ${tc.text}`}>{error}</p>
+            <div className="flex-1 min-w-0">
+              <p className={`text-xs ${tc.text}`}>{error}</p>
+              <button
+                type="button"
+                onClick={load}
+                className="mt-2 text-xs font-semibold text-red-200 hover:text-white"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         )}
 
