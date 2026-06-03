@@ -181,8 +181,28 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
 
   const accountStatus = String(d?.status ?? d?.account_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
   if (accountStatus) {
+    // #53 item 4 — terminal-status propagation into canonical kyc_status.
+    // Bridge customer terminal states (confirmed from our webhook data):
+    //   active   = KYC passed  -> canonical kyc_status 'verified'
+    //   rejected = KYC failed   -> canonical kyc_status 'rejected'
+    // NON-terminal states (not_started / incomplete / pending / under_review)
+    // must NOT move canonical kyc_status — only mirror bridge_account_status, as
+    // before. This deliberately fires ONLY on a terminal customer status, never
+    // on every customer.updated. Business KYB is handled by handleBridgeKycKyb
+    // (this individual-customer path updates user_profiles only). No email here.
+    const canonicalKyc =
+      accountStatus === "active"   ? "verified"
+      : accountStatus === "rejected" ? "rejected"
+      : null; // non-terminal → leave canonical kyc_status untouched
+
+    const update: Record<string, unknown> = {
+      bridge_account_status: accountStatus,
+      updated_at:            new Date().toISOString(),
+    };
+    if (canonicalKyc) update.kyc_status = canonicalKyc;
+
     await supabase.from("user_profiles")
-      .update({ bridge_account_status: accountStatus, updated_at: new Date().toISOString() })
+      .update(update)
       .eq("bridge_customer_id", String(customer));
   }
   await supabase.from("bridge_webhook_events")
