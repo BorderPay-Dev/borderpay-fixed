@@ -5,10 +5,10 @@
  */
 
 import React from 'react';
-import { Shield, ShieldCheck, Sparkles, Zap } from 'lucide-react';
+import { AlertTriangle, Shield, ShieldCheck, Sparkles, Zap } from 'lucide-react';
 import { ENV_CONFIG } from '../../utils/config/environment';
 
-export type AccountStatus = 'starter' | 'verified' | 'active';
+export type AccountStatus = 'starter' | 'verified' | 'active' | 'rejected';
 
 interface AccountStatusBadgeProps {
   status: AccountStatus;
@@ -39,6 +39,14 @@ const statusConfig = {
     textColor: 'text-[#C7FF00]',
     iconColor: 'text-[#C7FF00]',
     borderColor: 'border-[#C7FF00]/20',
+  },
+  rejected: {
+    label: 'Verification failed',
+    icon: AlertTriangle,
+    bgColor: 'bg-red-500/10',
+    textColor: 'text-red-400',
+    iconColor: 'text-red-500',
+    borderColor: 'border-red-500/20',
   },
 };
 

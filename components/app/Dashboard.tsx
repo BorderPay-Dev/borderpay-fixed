@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { authAPI, storeUserProfile } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { isKycVerified } from '../../utils/config/environment';
+import { deriveKycStatus, isKycVerified } from '../../utils/config/environment';
 import { SecurityStatus } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
@@ -105,9 +105,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const cachedSecurity = useMemo(() => {
     try { return SecurityStatus.get(userId); } catch { return { hasPIN: false, has2FA: false }; }
   }, [userId]);
-  const isCachedVerified = isKycVerified(cachedProfile);
+  const cachedKycStatus = deriveKycStatus(cachedProfile);
+  const isCachedVerified = cachedKycStatus === 'verified';
 
   const [isVerified, setIsVerified]       = useState<boolean>(!!isCachedVerified);
+  const [kycStatus, setKycStatus]         = useState(cachedKycStatus);
   const { prefs, updatePrefs } = usePreferences();
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
@@ -118,6 +120,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [accountStatus, setAccountStatus] = useState<AccountStatus>(() => {
     if (cachedSecurity.hasPIN && cachedSecurity.has2FA && isCachedVerified) return 'active';
     if (isCachedVerified) return 'verified';
+    if (cachedKycStatus === 'rejected') return 'rejected';
     return 'starter';
   });
   const [has2FA, setHas2FA]               = useState<boolean>(!!cachedSecurity.has2FA);
@@ -187,10 +190,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       if (profileRes.status === 'fulfilled' && profileRes.value?.success) {
         const p = profileRes.value.data?.user;
         if (p) {
-          const verified   = isKycVerified(p);
+          const nextKycStatus = deriveKycStatus(p);
+          const verified   = nextKycStatus === 'verified';
           // Only update if value changed — prevents an avoidable re-render
           // (and visible flicker) when nothing's actually different.
           setIsVerified(prev => prev === verified ? prev : verified);
+          setKycStatus(prev => prev === nextKycStatus ? prev : nextKycStatus);
           if (p.profile_picture_url) setProfilePicUrl(p.profile_picture_url);
           if (p.full_name) setUserFullName(p.full_name);
           if (p.email) setUserEmail(p.email);
@@ -265,13 +270,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // the moment the user finishes their last step.
   const allStepsComplete = has2FA && hasPIN && isVerified;
   useEffect(() => {
-    setAccountStatus(allStepsComplete ? 'active' : isVerified ? 'verified' : 'starter');
+    setAccountStatus(allStepsComplete ? 'active' : isVerified ? 'verified' : kycStatus === 'rejected' ? 'rejected' : 'starter');
     // Permanently dismiss the setup banner once the user is fully set up
     // so it doesn't reappear on the next login.
     if (allStepsComplete) {
       try { localStorage.setItem('borderpay_setup_complete', 'true'); } catch {}
     }
-  }, [allStepsComplete, isVerified]);
+  }, [allStepsComplete, isVerified, kycStatus]);
 
   const handleLockedFeatureClick = (_featureName: string, action: string) => {
     handleNavigate(action);

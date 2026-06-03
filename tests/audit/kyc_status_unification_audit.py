@@ -20,6 +20,8 @@ Invariants (fail closed):
   (U4) every display/gating surface routes through deriveKycStatus / isKycVerified.
   (U5) the old raw-kyc_status gating/display reads are gone on the key surfaces.
   (U6) AppContext.UserProfile carries the Bridge fields used by the helper/cache.
+  (U7) Dashboard account badge has a rejected state and does not flatten
+       derived rejected KYC into Starter.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -110,6 +112,15 @@ def main() -> int:
     u6 = all(k in appctx for k in ("bridge_kyc_status", "bridge_kyb_status", "bridge_account_status"))
     checks.append(("U6 AppContext profile type carries Bridge derivation fields", u6,
                    "UserProfile must include bridge_kyc_status, bridge_kyb_status, bridge_account_status"))
+
+    badge = read(ROOT / "components" / "activation" / "AccountStatusBadge.tsx")
+    u7 = ("'active' | 'rejected'" in badge
+          and "Verification failed" in badge
+          and "const [kycStatus, setKycStatus]" in dash
+          and "setKycStatus(" in dash
+          and "kycStatus === 'rejected' ? 'rejected' : 'starter'" in dash)
+    checks.append(("U7 dashboard account badge preserves rejected status", u7,
+                   "Dashboard/AccountStatusBadge must represent rejected separately from starter"))
 
     print("kyc_status_unification_audit:")
     ok = True
