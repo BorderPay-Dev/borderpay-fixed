@@ -6,9 +6,11 @@
  *     content scrolls beneath it; the user sees the next row of content
  *     emerging through the header without losing context.
  *   • A pull-down menu hands off to a full-screen overlay drawer
- *     (slide-from-left) — primary navigation lives there, not in a tab bar.
- *   • Bottom action bar holds 4 primary jumps: Home, Send, Receive, Account.
- *     The bar is semitransparent + safe-area aware.
+ *     (slide-from-left) for secondary navigation and account actions.
+ *   • Floating tab bar holds the primary jumps. Individual accounts see
+ *     Home, Send, Receive, Wallet, Account. Business accounts see Home,
+ *     Send, Receive, Team, Account.
+ *     The bar is semitransparent, rounded, and safe-area aware.
  *   • Lime CTA accent (#C7FF00) only on primary CTAs, plan-active state, and
  *     subscription badges.
  *   • Subtle motion: 220ms ease-out on overlay; reduced-motion respected.
@@ -28,7 +30,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Menu, X, Home, ArrowUpRight, ArrowDownLeft, User as UserIcon,
   Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2,
-  Settings, FileText, ShieldCheck, LogOut, Banknote, Lock,
+  Settings, FileText, ShieldCheck, LogOut, Banknote, Lock, Users,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -74,7 +76,7 @@ export interface AppShellProps {
 }
 
 const HEADER_HEIGHT_PX = 64;
-const FOOTER_HEIGHT_PX = 72;
+const FOOTER_HEIGHT_PX = 92;
 
 const PREFETCH_BY_ROUTE: Record<AppRoute, string> = {
   dashboard:     'dashboard',
@@ -146,6 +148,29 @@ export function AppShell({
     if (!drawerOpen) return;
     (['wallet', 'transactions', 'pricing', 'kyc', 'settings'] as AppRoute[]).forEach(prefetchRoute);
   }, [drawerOpen, prefetchRoute]);
+
+  const primaryTabs = useMemo(() => {
+    const shared = [
+      { route: 'dashboard' as AppRoute, icon: Home, label: tt('nav.home', 'Home') },
+      { route: 'send' as AppRoute, icon: ArrowUpRight, label: tt('nav.send', 'Send') },
+      { route: 'receive' as AppRoute, icon: ArrowDownLeft, label: tt('nav.receive', 'Receive') },
+    ];
+
+    return isBusinessAccount
+      ? [
+          ...shared,
+          { route: 'team' as AppRoute, icon: Users, label: tt('nav.teamShort', 'Team') },
+          { route: 'account' as AppRoute, icon: UserIcon, label: tt('nav.account', 'Account') },
+        ]
+      : [
+          ...shared,
+          { route: 'wallet' as AppRoute, icon: Wallet, label: tt('nav.wallet', 'Wallet') },
+          { route: 'account' as AppRoute, icon: UserIcon, label: tt('nav.account', 'Account') },
+        ];
+    // `tt` is intentionally not a dependency; labels update when the shell
+    // re-renders from the language context.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBusinessAccount, t]);
 
   return (
     <div className={`min-h-screen ${tc.bg} relative`}>
@@ -231,17 +256,28 @@ export function AppShell({
         </div>
       </header>
 
-      {/* ── Bottom primary action bar ────────────────────────────────────── */}
+      {/* ── Floating primary tab bar ─────────────────────────────────────── */}
       <nav
-        className={`fixed bottom-0 inset-x-0 z-30 ${tc.headerBg} border-t ${tc.borderLight}`}
-        style={{ height: FOOTER_HEIGHT_PX, paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 10px)' }}
         aria-label={tt('shell.bottomNav', 'Primary navigation')}
       >
-        <div className="h-full max-w-screen-md mx-auto px-2 grid grid-cols-4">
-          <BottomButton active={route === 'dashboard'} icon={Home}         label={tt('nav.home',    'Home')}    onPrefetch={() => prefetchRoute('dashboard')} onClick={() => go('dashboard')} tc={tc} />
-          <BottomButton active={route === 'send'}      icon={ArrowUpRight} label={tt('nav.send',    'Send')}    onPrefetch={() => prefetchRoute('send')}      onClick={() => go('send')}      tc={tc} />
-          <BottomButton active={route === 'receive'}   icon={ArrowDownLeft}label={tt('nav.receive', 'Receive')} onPrefetch={() => prefetchRoute('receive')}   onClick={() => go('receive')}   tc={tc} />
-          <BottomButton active={route === 'account'}   icon={UserIcon}     label={tt('nav.account', 'Account')} onPrefetch={() => prefetchRoute('account')}   onClick={() => go('account')}   tc={tc} />
+        <div className="max-w-screen-sm mx-auto">
+          <div
+            className={`pointer-events-auto h-[66px] grid grid-cols-5 items-stretch rounded-[28px] border ${tc.borderLight} ${tc.headerBg} px-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.34)] backdrop-blur-2xl`}
+          >
+            {primaryTabs.map(tab => (
+              <BottomButton
+                key={tab.route}
+                active={route === tab.route}
+                icon={tab.icon}
+                label={tab.label}
+                onPrefetch={() => prefetchRoute(tab.route)}
+                onClick={() => go(tab.route)}
+                tc={tc}
+              />
+            ))}
+          </div>
         </div>
       </nav>
 
@@ -349,14 +385,22 @@ function BottomButton({
       onPointerDown={onPrefetch}
       onMouseEnter={onPrefetch}
       onClick={onClick}
-      className="relative h-full flex flex-col items-center justify-center gap-0.5"
+      aria-current={active ? 'page' : undefined}
+      className="relative h-full min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-[22px] transition-colors"
     >
-      <Icon className={`w-5 h-5 ${active ? 'text-[#C7FF00]' : tc.textMuted}`} />
-      <span className={`text-[10px] font-medium ${active ? 'text-[#C7FF00]' : tc.textMuted}`}>{label}</span>
       {active && (
         <motion.span
-          layoutId="bottom-nav-active"
-          className="absolute top-1 w-8 h-0.5 rounded-full bg-[#C7FF00]"
+          layoutId="bottom-nav-active-bg"
+          className={`absolute inset-1.5 rounded-[20px] ${tc.isLight ? 'bg-black/[0.06]' : 'bg-white/[0.08]'}`}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+        />
+      )}
+      <Icon className={`relative z-[1] w-5 h-5 ${active ? 'text-[#C7FF00]' : tc.textMuted}`} />
+      <span className={`relative z-[1] max-w-full truncate text-[10px] font-semibold ${active ? 'text-[#C7FF00]' : tc.textMuted}`}>{label}</span>
+      {active && (
+        <motion.span
+          layoutId="bottom-nav-active-dot"
+          className="absolute top-1.5 z-[1] w-1.5 h-1.5 rounded-full bg-[#C7FF00]"
           transition={{ duration: 0.22, ease: 'easeOut' }}
         />
       )}
