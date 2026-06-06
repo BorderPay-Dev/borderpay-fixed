@@ -2,9 +2,8 @@
  * BorderPay AppShell — premium glass overlay navigation.
  *
  * Design intent (mobile-first, signed-in app):
- *   • Header is fixed, transparent, blurred (Telegram/WhatsApp pattern):
- *     content scrolls beneath it; the user sees the next row of content
- *     emerging through the header without losing context.
+ *   • Header is a Telegram-style floating glass capsule: fixed, blurred,
+ *     centered, and collapsible on scroll.
  *   • A pull-down menu hands off to a full-screen overlay drawer
  *     (slide-from-left) for secondary navigation and account actions.
  *   • Floating tab bar holds the primary jumps. Individual accounts see
@@ -75,7 +74,8 @@ export interface AppShellProps {
   children:           React.ReactNode;
 }
 
-const HEADER_HEIGHT_PX = 64;
+const HEADER_HEIGHT_PX = 58;
+const HEADER_FLOAT_OFFSET_PX = 10;
 const FOOTER_HEIGHT_PX = 92;
 
 const PREFETCH_BY_ROUTE: Record<AppRoute, string> = {
@@ -216,25 +216,25 @@ export function AppShell({
         {children}
       </main>
 
-      {/* ── Collapsible glass header (transparent, content scrolls beneath) ──
-          Renders inside the iOS / Android safe-area (notch). We drop the
-          BorderPay wordmark per product direction; the plan badge stays. */}
+      {/* ── Floating collapsible glass header ────────────────────────────
+          Telegram-style: the full-width container stays invisible, only the
+          rounded glass capsule floats above scrolling content. */}
       <motion.header
-        className={`fixed top-0 inset-x-0 z-30 ${tc.headerBg} border-b ${tc.borderLight} pt-safe`}
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
-        animate={{ y: headerHidden ? '-110%' : '0%' }}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
+        className="fixed top-0 inset-x-0 z-30 pointer-events-none px-3"
+        style={{ paddingTop: `calc(env(safe-area-inset-top, 0px) + ${HEADER_FLOAT_OFFSET_PX}px)` }}
+        animate={{ y: headerHidden ? '-125%' : '0%', opacity: headerHidden ? 0 : 1 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
         aria-label={tt('shell.header', 'App header')}
       >
         <div
-          className="max-w-screen-md mx-auto px-4 flex items-center gap-3"
+          className={`pointer-events-auto max-w-screen-sm mx-auto h-[58px] rounded-[28px] border ${tc.borderLight} ${tc.headerBg} px-2.5 flex items-center gap-2 shadow-[0_18px_55px_rgba(0,0,0,0.28)] backdrop-blur-2xl`}
           style={{ height: HEADER_HEIGHT_PX }}
         >
           <button
             type="button"
             aria-label={tt('shell.menu.open', 'Open menu')}
             onClick={() => setDrawerOpen(true)}
-            className={`p-2 -ml-2 rounded-full ${tc.hoverBg} transition-colors`}
+            className={`w-10 h-10 rounded-full ${tc.hoverBg} flex items-center justify-center transition-colors`}
           >
             <Menu className={`w-5 h-5 ${tc.text}`} />
           </button>
@@ -254,7 +254,7 @@ export function AppShell({
             onPointerDown={() => prefetchRoute('notifications')}
             onMouseEnter={() => prefetchRoute('notifications')}
             onClick={() => go('notifications')}
-            className={`relative p-2 rounded-full ${tc.hoverBg} transition-colors`}
+            className={`relative w-10 h-10 rounded-full ${tc.hoverBg} flex items-center justify-center transition-colors`}
           >
             <Bell className={`w-5 h-5 ${tc.text}`} />
             {unreadCount > 0 && (
@@ -270,7 +270,7 @@ export function AppShell({
             onPointerDown={() => prefetchRoute('account')}
             onMouseEnter={() => prefetchRoute('account')}
             onClick={() => go('account')}
-            className="ml-1"
+            className="ml-0.5"
           >
             {avatarUrl ? (
               <img

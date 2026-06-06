@@ -125,7 +125,7 @@ def main() -> int:
     ))
 
     checks.append((
-        "P7 AppShell header collapses on scroll and reveals on route/drawer",
+        "P7 AppShell header is floating, collapsible, and reveals on route/drawer",
         "headerHidden" in shell
         and "window.addEventListener('scroll', onScroll, { passive: true })" in shell
         and "delta > 8 && y > HEADER_HEIGHT_PX" in shell
@@ -133,8 +133,13 @@ def main() -> int:
         and "setHeaderHidden(false)" in shell
         and "useEffect(() => {\n    setHeaderHidden(false);\n  }, [route]);" in shell
         and "<motion.header" in shell
-        and "animate={{ y: headerHidden ? '-110%' : '0%' }}" in shell,
-        "AppShell must hide the header on scroll down and reveal it on scroll up, drawer open, or route change",
+        and "pointer-events-none px-3" in shell
+        and "max-w-screen-sm mx-auto" in shell
+        and "rounded-[28px]" in shell
+        and "shadow-[0_18px_55px_rgba(0,0,0,0.28)]" in shell
+        and "backdrop-blur-2xl" in shell
+        and "animate={{ y: headerHidden ? '-125%' : '0%', opacity: headerHidden ? 0 : 1 }}" in shell,
+        "AppShell must use a floating Telegram-style header, hide on scroll down, and reveal on scroll up, drawer open, or route change",
     ))
 
     ok = True
