@@ -1786,3 +1786,33 @@
     border-radius: 0;
   }
 }
+
+/* ============================================
+   FLOATING CHROME — hide the scrolling container line
+   The signed-in app uses a floating top header + floating tab bar that
+   overlay a single scrolling page. A visible scrollbar "line" breaks that
+   floating aesthetic, so we hide it app-wide while keeping scroll behaviour
+   intact (content is still fully scrollable via wheel/touch/keys).
+   ============================================ */
+html,
+body {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* legacy Edge / IE */
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;                  /* Chrome / Safari / WebKit */
+}
+
+/* Opt-in utility for any inner scroll container (drawers, lists, modals). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}

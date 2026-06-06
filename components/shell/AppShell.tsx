@@ -75,8 +75,14 @@ export interface AppShellProps {
   children:           React.ReactNode;
 }
 
-const HEADER_HEIGHT_PX = 64;
-const FOOTER_HEIGHT_PX = 92;
+// Floating top header geometry. The header is no longer a full-width bar;
+// it's a detached pill (same language as the bottom tab bar). We reserve
+// HEADER_BAR_PX + HEADER_TOP_GAP_PX (+breathing room) at the top of <main>
+// so content never starts underneath the floating bar.
+const HEADER_BAR_PX     = 56;  // height of the floating pill
+const HEADER_TOP_GAP_PX = 10;  // gap between the safe-area top and the pill
+const HEADER_HEIGHT_PX  = HEADER_BAR_PX + HEADER_TOP_GAP_PX; // scroll threshold
+const FOOTER_HEIGHT_PX  = 92;
 
 const PREFETCH_BY_ROUTE: Record<AppRoute, string> = {
   dashboard:     'dashboard',
@@ -135,18 +141,34 @@ export function AppShell({
       return;
     }
 
+    // Instagram-style direction tracking. We accumulate signed scroll delta
+    // and flip the header once it crosses a direction threshold:
+    //   • scrolling DOWN  > 5px  → hide  (transform: translateY(-100%))
+    //   • scrolling UP   > 10px  → reveal (transform: translateY(0))
+    // The reveal threshold is larger so tiny upward jitters during a downward
+    // flick don't pop the header back in. rAF-throttled to one update/frame.
     let lastY = window.scrollY;
-    const onScroll = () => {
+    let ticking = false;
+
+    const update = () => {
       const y = window.scrollY;
       const delta = y - lastY;
       if (y < 24) {
-        setHeaderHidden(false);
-      } else if (delta > 8 && y > HEADER_HEIGHT_PX) {
-        setHeaderHidden(true);
-      } else if (delta < -8) {
-        setHeaderHidden(false);
+        setHeaderHidden(false);               // always visible near the top
+      } else if (delta > 5 && y > HEADER_HEIGHT_PX) {
+        setHeaderHidden(true);                // scrolling DOWN → hide
+      } else if (delta < -10) {
+        setHeaderHidden(false);               // scrolling UP → reveal
       }
       lastY = y;
+      ticking = false;
+    };
+
+    const onScroll = () => {
+      if (!ticking) {
+        ticking = true;
+        window.requestAnimationFrame(update);
+      }
     };
 
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -209,83 +231,94 @@ export function AppShell({
       <main
         className="relative z-0"
         style={{
-          paddingTop:    `calc(env(safe-area-inset-top, 0px) + ${HEADER_HEIGHT_PX}px)`,
+          paddingTop:    `calc(env(safe-area-inset-top, 0px) + ${HEADER_BAR_PX + HEADER_TOP_GAP_PX + 16}px)`,
           paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${FOOTER_HEIGHT_PX + 16}px)`,
         }}
       >
         {children}
       </main>
 
-      {/* ── Collapsible glass header (transparent, content scrolls beneath) ──
-          Renders inside the iOS / Android safe-area (notch). We drop the
-          BorderPay wordmark per product direction; the plan badge stays. */}
-      <motion.header
-        className={`fixed top-0 inset-x-0 z-30 ${tc.headerBg} border-b ${tc.borderLight} pt-safe`}
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
-        animate={{ y: headerHidden ? '-110%' : '0%' }}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
+      {/* ── Floating collapsible glass header ────────────────────────────────
+          A detached pill (same visual language as the bottom tab bar) that
+          carries the burger menu, notifications and profile toggles. It is
+          sticky, hides on scroll-down and reveals on scroll-up, and floats
+          over the content with NO full-width divider line. Renders inside the
+          iOS / Android safe-area (notch). */}
+      <header
+        className="fixed top-0 inset-x-0 z-30 pointer-events-none px-3 will-change-transform"
+        style={{
+          paddingTop: `calc(env(safe-area-inset-top, 0px) + ${HEADER_TOP_GAP_PX}px)`,
+          // Instagram-style: hide on scroll-down, reveal on scroll-up. Driven
+          // by a raw CSS transform (not framer-motion) for a direct, snappy
+          // translate. headerHidden is also forced false on route change and
+          // when the drawer opens (see effects above).
+          transform: headerHidden ? 'translateY(-100%)' : 'translateY(0)',
+          transition: 'transform 0.2s ease',
+        }}
         aria-label={tt('shell.header', 'App header')}
       >
-        <div
-          className="max-w-screen-md mx-auto px-4 flex items-center gap-3"
-          style={{ height: HEADER_HEIGHT_PX }}
-        >
-          <button
-            type="button"
-            aria-label={tt('shell.menu.open', 'Open menu')}
-            onClick={() => setDrawerOpen(true)}
-            className={`p-2 -ml-2 rounded-full ${tc.hoverBg} transition-colors`}
+        <div className="max-w-screen-md mx-auto">
+          <div
+            className={`pointer-events-auto flex items-center gap-2 rounded-[28px] border ${tc.borderLight} ${tc.headerBg} px-2 shadow-[0_18px_55px_rgba(0,0,0,0.34)] backdrop-blur-2xl`}
+            style={{ height: HEADER_BAR_PX }}
           >
-            <Menu className={`w-5 h-5 ${tc.text}`} />
-          </button>
+            <button
+              type="button"
+              aria-label={tt('shell.menu.open', 'Open menu')}
+              onClick={() => setDrawerOpen(true)}
+              className={`p-2.5 rounded-full ${tc.hoverBg} transition-colors`}
+            >
+              <Menu className={`w-5 h-5 ${tc.text}`} />
+            </button>
 
-          <div className="flex-1 flex items-center gap-2 min-w-0">
-            {subscription?.is_paid && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#C7FF00] text-black text-[10px] font-bold tracking-wider uppercase">
-                <Sparkles className="w-2.5 h-2.5" />
-                {subscription.display_name}
-              </span>
-            )}
+            <div className="flex-1 flex items-center gap-2 min-w-0">
+              {subscription?.is_paid && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#C7FF00] text-black text-[10px] font-bold tracking-wider uppercase">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  {subscription.display_name}
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              aria-label={tt('shell.notifications', 'Notifications')}
+              onPointerDown={() => prefetchRoute('notifications')}
+              onMouseEnter={() => prefetchRoute('notifications')}
+              onClick={() => go('notifications')}
+              className={`relative p-2.5 rounded-full ${tc.hoverBg} transition-colors`}
+            >
+              <Bell className={`w-5 h-5 ${tc.text}`} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-[#C7FF00] text-black text-[9px] font-bold">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              aria-label={tt('shell.account', 'Account')}
+              onPointerDown={() => prefetchRoute('account')}
+              onMouseEnter={() => prefetchRoute('account')}
+              onClick={() => go('account')}
+              className="mr-0.5 shrink-0"
+            >
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={userName ?? 'avatar'}
+                  className="w-9 h-9 rounded-full object-cover border border-white/10"
+                />
+              ) : (
+                <div className={`w-9 h-9 rounded-full bg-[#C7FF00] text-black font-bold text-xs flex items-center justify-center`}>
+                  {initials}
+                </div>
+              )}
+            </button>
           </div>
-
-          <button
-            type="button"
-            aria-label={tt('shell.notifications', 'Notifications')}
-            onPointerDown={() => prefetchRoute('notifications')}
-            onMouseEnter={() => prefetchRoute('notifications')}
-            onClick={() => go('notifications')}
-            className={`relative p-2 rounded-full ${tc.hoverBg} transition-colors`}
-          >
-            <Bell className={`w-5 h-5 ${tc.text}`} />
-            {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-[#C7FF00] text-black text-[9px] font-bold">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            aria-label={tt('shell.account', 'Account')}
-            onPointerDown={() => prefetchRoute('account')}
-            onMouseEnter={() => prefetchRoute('account')}
-            onClick={() => go('account')}
-            className="ml-1"
-          >
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={userName ?? 'avatar'}
-                className="w-9 h-9 rounded-full object-cover border border-white/10"
-              />
-            ) : (
-              <div className={`w-9 h-9 rounded-full bg-[#C7FF00] text-black font-bold text-xs flex items-center justify-center`}>
-                {initials}
-              </div>
-            )}
-          </button>
         </div>
-      </motion.header>
+      </header>
 
       {/* ── Floating primary tab bar ─────────────────────────────────────── */}
       <nav
@@ -326,7 +359,7 @@ export function AppShell({
               aria-hidden="true"
             />
             <motion.aside
-              className={`fixed top-0 bottom-0 left-0 z-50 w-[88%] max-w-[360px] ${tc.bg} border-r ${tc.border} shadow-2xl overflow-y-auto`}
+              className={`fixed top-0 bottom-0 left-0 z-50 w-[88%] max-w-[360px] ${tc.bg} border-r ${tc.border} shadow-2xl overflow-y-auto no-scrollbar`}
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}

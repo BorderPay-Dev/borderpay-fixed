@@ -4,9 +4,12 @@
 //   {
 //     source:         { payment_rail, currency, chain?, amount },  // amount = decimal string
 //     destination:    { payment_rail, currency, chain?, address?, bank_account? },
-//     developer_fee?: { percentage?, flat_amount? },
 //     idempotency_key: string   // REQUIRED. Client-provided.
 //   }
+//
+//   NOTE: developer_fee is NOT accepted from the client. It is computed and
+//   enforced server-side from the canonical schedule in _shared/fees/schedule.ts
+//   (stablecoin 0.99% / fiat 2.5%). Any developer_fee in the body is ignored.
 //
 // Feature-flag gate (P0.2):
 //
@@ -60,6 +63,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { AFRICAN_RAMP_CURRENCIES } from "../_shared/providers/african-onramp.types.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 
@@ -178,17 +182,26 @@ Deno.serve(async (req) => {
     }
   }
 
+  // BorderPay developer fee is enforced SERVER-SIDE and is NOT taken from the
+  // request body — a client could otherwise omit or lower it. Bridge deducts
+  // this percentage out of the transfer (its native developer_fee_percent):
+  //   • stablecoin rail (USDT/USDC/…) → 0.99% (fixed)
+  //   • fiat rail (ach/wire/sepa)     → 2.5%
+  // The canonical schedule lives in _shared/fees/schedule.ts.
+  const sourceRail    = body.source.payment_rail || "stablecoin";
+  const devFeePercent = bridgeDeveloperFeePercent(sourceRail, body.source.currency);
+
   try {
     const result = await bridgeProvider.createTransfer({
       source: {
         customer_id:  profile.bridge_customer_id,
-        payment_rail: body.source.payment_rail || "stablecoin",
+        payment_rail: sourceRail,
         currency:     body.source.currency,
         chain:        body.source.chain,
         amount:       String(body.source.amount),
       },
       destination:     body.destination,
-      developer_fee:   body.developer_fee,
+      developer_fee:   { percentage: devFeePercent },
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.

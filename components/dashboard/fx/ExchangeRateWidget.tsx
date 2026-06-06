@@ -159,7 +159,9 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
               </span>
             </div>
             <p className={`text-[10px] ${tc.textMuted} mt-1`}>
-              Includes {markupLabel()} markup
+              {PARTNER_FX_MARKUP > 0
+                ? `Includes ${markupLabel()} markup`
+                : 'Real mid-market rate · no FX markup'}
               {updatedAt && ' · last updated ' + new Date(updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
 

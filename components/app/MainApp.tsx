@@ -744,7 +744,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       <div className="glass-gradient-bg" />
       <div className="glass-noise-overlay" />
 
-      <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden relative z-[2]" style={{ WebkitOverflowScrolling: 'auto', overscrollBehavior: 'none' }}>
+      <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden relative z-[2] no-scrollbar" style={{ WebkitOverflowScrolling: 'auto', overscrollBehavior: 'none' }}>
         <ErrorBoundary key={currentScreen}>
           <Suspense fallback={<ScreenSkeleton />}>
             {TOP_LEVEL_SCREENS.has(currentScreen) ? (

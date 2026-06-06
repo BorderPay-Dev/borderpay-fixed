@@ -128,13 +128,16 @@ def main() -> int:
         "P7 AppShell header collapses on scroll and reveals on route/drawer",
         "headerHidden" in shell
         and "window.addEventListener('scroll', onScroll, { passive: true })" in shell
-        and "delta > 8 && y > HEADER_HEIGHT_PX" in shell
-        and "delta < -8" in shell
+        # Instagram-style direction thresholds: 5px to hide, 10px to reveal.
+        and "delta > 5 && y > HEADER_HEIGHT_PX" in shell
+        and "delta < -10" in shell
         and "setHeaderHidden(false)" in shell
         and "useEffect(() => {\n    setHeaderHidden(false);\n  }, [route]);" in shell
-        and "<motion.header" in shell
-        and "animate={{ y: headerHidden ? '-110%' : '0%' }}" in shell,
-        "AppShell must hide the header on scroll down and reveal it on scroll up, drawer open, or route change",
+        # Raw CSS transform translate (not framer-motion): hide -100% / reveal 0.
+        and "<header" in shell
+        and "headerHidden ? 'translateY(-100%)' : 'translateY(0)'" in shell,
+        "AppShell must hide the header on scroll down (translateY(-100%)) and reveal it "
+        "on scroll up, drawer open, or route change (translateY(0))",
     ))
 
     ok = True
