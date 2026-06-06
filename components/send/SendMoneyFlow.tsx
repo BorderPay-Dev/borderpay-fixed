@@ -15,7 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Building2, Smartphone, Users, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
-  Send, Info, ArrowRight, Copy, XCircle, DollarSign, Zap, Shield, Coins,
+  Send, Info, ArrowRight, Copy, XCircle, Zap, Shield, Coins,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -33,7 +33,7 @@ import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { ExternalCryptoWithdrawalFields, isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
-import { TRANSFERS_LIVE } from '../../utils/featureFlags';
+import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,6 +186,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return 'individual';
   }, []);
 
+  // Region gate: African users withdraw via stablecoin only; international
+  // regions (US / EEA / LatAm / RoW) also get External Bank Account (ACH/SEPA).
+  const isAfricanRegion = useMemo(() => {
+    try {
+      const s = localStorage.getItem('borderpay_user');
+      if (s) return classifyCorridor(JSON.parse(s).country) === 'african';
+    } catch { /* default below */ }
+    return false;
+  }, []);
+
   // BorderPay Network Fee — corridor-aware, via the revenue fee engine.
   // Provider stays invisible; the total is fully disclosed to the user.
   const networkFee = useMemo(() => {
@@ -198,7 +208,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     const corridor: 'international' | 'stablecoin' =
       method === 'stablecoin'
         ? 'stablecoin'
-        : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
+        : method === 'us_ach_wire'
+          ? 'international'                                    // ACH/SEPA external bank
+          : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
   }, [amount, selectedCurrency, accountType, method]);
   const [limitError, setLimitError] = useState<string | null>(null);
@@ -569,28 +581,41 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
               )}
 
-              {/* Coming soon, non-interactive */}
-              <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60`}>
-                <div className={`w-12 h-12 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
-                  <Building2 size={22} className={tc.textMuted} />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>Bank & mobile money</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Local African rails — coming soon</p>
-                </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
-              </div>
-
-              <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60`}>
-                <div className={`w-12 h-12 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
-                  <DollarSign size={22} className={tc.textMuted} />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>US bank payout (ACH / Wire)</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>Pay out USD to any US bank account — coming soon</p>
-                </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
-              </div>
+              {/* External Bank Account (ACH / SEPA / local) — international
+                  regions only (US / EEA / LatAm / RoW). African regions are
+                  stablecoin-only. Interactive when EXTERNAL_ACCOUNTS_LIVE. */}
+              {!isAfricanRegion && (
+                EXTERNAL_ACCOUNTS_LIVE ? (
+                  <button
+                    type="button"
+                    onClick={() => { setMethod('us_ach_wire'); setStep('details'); }}
+                    className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-colors`}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-[#C7FF00]/15 flex items-center justify-center flex-shrink-0">
+                      <Building2 size={22} className="text-[#C7FF00]" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>ACH (US) · SEPA (EEA) · local bank — pay to a linked account</p>
+                    </div>
+                    <ArrowRight size={18} className={tc.textMuted} />
+                  </button>
+                ) : (
+                  <div
+                    className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60 cursor-not-allowed`}
+                    aria-disabled="true"
+                  >
+                    <div className={`w-12 h-12 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
+                      <Building2 size={22} className={tc.textMuted} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>ACH (US) · SEPA (EEA) · local bank — coming soon</p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
+                  </div>
+                )
+              )}
             </div>
 
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
