@@ -8,7 +8,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
-import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/launch-gates.ts";
+import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody, verificationGate, loadVerificationContext } from "../_shared/launch-gates.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -34,6 +34,14 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+
+  // Stepped verification gate (#4 + #5): require a PAID plan + admin
+  // authorization before any billable Bridge call. The env pause remains the
+  // outer guard (checked above), so production stays paused until enabled.
+  {
+    const __gate = verificationGate(await loadVerificationContext(supa, user.id));
+    if (!__gate.allowed) return json(__gate.body, __gate.status);
+  }
 
   const { data: profile } = await supa
     .from("user_profiles")
