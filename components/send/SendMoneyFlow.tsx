@@ -10,7 +10,7 @@
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Building2, Smartphone, Users, Search,
@@ -29,7 +29,9 @@ import {
 import { USPaymentDetails } from './USPaymentDetails';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import { getTransferFee, validateTransferAmount, FeeResult } from '../../utils/fees';
+import { validateTransferAmount } from '../../utils/fees';
+import { computePayoutFee } from '../../utils/fees/engine';
+import { classifyCorridor } from '../../utils/payouts/corridor';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -182,9 +184,24 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
 
-  // Fee & limits
-  const [feeResult, setFeeResult] = useState<FeeResult | null>(null);
-  const [feeLoading, setFeeLoading] = useState(false);
+  // Account type (drives the African payout markup tier in the fee engine).
+  const accountType: 'individual' | 'business' = useMemo(() => {
+    try {
+      const s = localStorage.getItem('borderpay_user');
+      if (s) return JSON.parse(s).account_type === 'business' ? 'business' : 'individual';
+    } catch { /* default below */ }
+    return 'individual';
+  }, []);
+
+  // BorderPay Network Fee — corridor-aware, via the revenue fee engine.
+  // Provider stays invisible; the total is fully disclosed to the user.
+  const networkFee = useMemo(() => {
+    const num = parseFloat(amount);
+    if (!num || num <= 0) return null;
+    const country = SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.country;
+    const corridor = classifyCorridor(country);
+    return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
+  }, [amount, selectedCurrency, accountType]);
   const [limitError, setLimitError] = useState<string | null>(null);
 
   // PIN & result
@@ -294,17 +311,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setLimitError(err);
   }, [amount, selectedCurrency, method]);
 
-  // Load fee when entering review step
-  useEffect(() => {
-    if (step !== 'review') return;
-    const num = parseFloat(amount);
-    if (!num) return;
-    setFeeLoading(true);
-    getTransferFee(method, selectedCurrency, num)
-      .then(f => setFeeResult(f))
-      .catch(() => setFeeResult(null))
-      .finally(() => setFeeLoading(false));
-  }, [step]);
+  // Fee is computed synchronously by the engine (networkFee useMemo) — no async
+  // fetch needed for the review step.
 
   // ---------------------------------------------------------------------------
   // Navigation helpers
@@ -1189,38 +1197,39 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
             </div>
 
-            {/* Fee breakdown */}
-            {(feeLoading || feeResult) && (
+            {/* BorderPay Network Fee — unified, fully-disclosed total.
+                Provider stays invisible; the user sees exactly what they pay. */}
+            {networkFee && (
               <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-4`}>
-                {feeLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <Loader2 size={12} className="animate-spin" />
-                    Calculating fee…
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className={tc.textMuted}>Amount</span>
+                    <span className={tc.text}>{getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {selectedCurrency}</span>
                   </div>
-                ) : feeResult ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className={tc.textMuted}>Amount</span>
-                      <span className={tc.text}>{getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {selectedCurrency}</span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className={tc.textMuted}>Fee ({feeResult.breakdown})</span>
-                      <span className={feeResult.zero_fee ? 'text-[#C7FF00]' : tc.text}>
-                        {feeResult.zero_fee
-                          ? 'Free'
-                          : `${feeResult.user_pays.toLocaleString(undefined, { minimumFractionDigits: 2 })} ${feeResult.currency}`
-                        }
-                      </span>
-                    </div>
-                    <div className={`h-px ${tc.border} my-1`} />
-                    <div className="flex justify-between text-sm font-bold">
-                      <span className={tc.text}>Total</span>
-                      <span className="text-[#C7FF00]">
-                        {getCurrencySymbol(selectedCurrency)}{(parseFloat(amount) + feeResult.user_pays).toLocaleString(undefined, { minimumFractionDigits: 2 })} {selectedCurrency}
-                      </span>
-                    </div>
+                  <div className="flex justify-between text-xs">
+                    <span className={tc.textMuted}>
+                      BorderPay Network Fee{networkFee.feePercent > 0 ? ` (${networkFee.feePercent.toFixed(networkFee.feePercent < 1 ? 2 : 3)}%)` : ''}
+                    </span>
+                    <span className={networkFee.totalFee === 0 ? 'text-[#C7FF00]' : tc.text}>
+                      {networkFee.totalFee === 0
+                        ? 'Free'
+                        : `${getCurrencySymbol(selectedCurrency)}${networkFee.totalFee.toLocaleString(undefined, { minimumFractionDigits: 2 })} ${selectedCurrency}`}
+                    </span>
                   </div>
-                ) : null}
+                  <div className={`h-px ${tc.border} my-1`} />
+                  <div className="flex justify-between text-sm font-bold">
+                    <span className={tc.text}>Total</span>
+                    <span className="text-[#C7FF00]">
+                      {getCurrencySymbol(selectedCurrency)}{(parseFloat(amount) + networkFee.totalFee).toLocaleString(undefined, { minimumFractionDigits: 2 })} {selectedCurrency}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className={tc.textMuted}>Recipient gets</span>
+                    <span className={tc.textMuted}>
+                      {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {selectedCurrency}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
 

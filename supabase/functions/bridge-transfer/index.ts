@@ -65,6 +65,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { AFRICAN_RAMP_CURRENCIES } from "../_shared/providers/african-onramp.types.ts";
+import { classifyCorridor } from "../_shared/payouts/corridor-router.ts";
+import { executeAfricanPayout } from "../_shared/payouts/african-aggregator.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
@@ -155,17 +157,40 @@ Deno.serve(async (req) => {
   }
 
   const destCurrency = String(body.destination.currency || "").toUpperCase();
-  if ((AFRICAN_RAMP_CURRENCIES as readonly string[]).includes(destCurrency)) {
-    return json({
-      success: false,
-      code:   "no_partner",
-      error:  `${destCurrency} payouts are not live yet. This route is not currently available in BorderPay.`,
-    }, 503);
-  }
+  const destCountry  = String(body.destination.country || "").toUpperCase();
 
   // Canonicalise: include user.id so two users can't collide on the same key.
   const clientKey = body.idempotency_key as string;
   const idem      = `borderpay:transfer:${user.id}:${clientKey}`;
+
+  // ── Corridor routing (#B1) ──────────────────────────────────────────────
+  // Classify by the destination bank country (preferred) or local-currency
+  // fallback. African corridors settle through the localized aggregator;
+  // US / EU / LatAm / rest-of-world stay on the international payout track.
+  const corridor = destCountry
+    ? classifyCorridor(destCountry)
+    : ((AFRICAN_RAMP_CURRENCIES as readonly string[]).includes(destCurrency) ? "african" : "international");
+
+  if (corridor === "african") {
+    // Route to the localized African aggregator. PLACEHOLDER today: fails
+    // closed with no_partner and makes NO provider call until a partner is
+    // integrated. Mobile-money vs bank destination handled by the form.
+    const ba = body.destination.bank_account;
+    const mm = body.destination.mobile;
+    const agg = await executeAfricanPayout({
+      country:         destCountry,
+      currency:        destCurrency,
+      amount:          String(body.source.amount),
+      method:          body.destination.method === "mobile_money" ? "mobile_money" : "bank_account",
+      bank:            ba ? { account_number: ba.account_number, bank_code: ba.bank_code || ba.routing_number } : undefined,
+      mobile:          mm ? { phone: mm.phone, network: mm.network } : undefined,
+      idempotency_key: idem,
+    });
+    if (!agg.ok) {
+      return json({ success: false, code: agg.code, error: agg.error }, agg.code === "no_partner" ? 503 : 400);
+    }
+    return json({ success: true, data: { transfer_id: agg.payout_id, state: "pending", route: "african_aggregator" } });
+  }
 
   // DB pre-check: if we already have a transactions row for this idempotency
   // key, return the previous transfer_id without touching Bridge. Guards

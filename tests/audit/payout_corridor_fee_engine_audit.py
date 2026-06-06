@@ -24,6 +24,9 @@ ENGINE = ROOT / "utils/fees/engine.ts"
 SCHED  = ROOT / "utils/fees/schedule.ts"
 ROUTER = ROOT / "supabase/functions/_shared/payouts/corridor-router.ts"
 POLICY = ROOT / "supabase/functions/_shared/providers/bridge-country-policy.ts"
+FE_CORRIDOR = ROOT / "utils/payouts/corridor.ts"
+BTRANSFER = ROOT / "supabase/functions/bridge-transfer/index.ts"
+SENDFLOW = ROOT / "components/send/SendMoneyFlow.tsx"
 AGG    = ROOT / "supabase/functions/_shared/payouts/african-aggregator.ts"
 FORM   = ROOT / "components/payouts/AfricanPayoutFields.tsx"
 
@@ -43,6 +46,9 @@ router = read(ROUTER)
 policy = read(POLICY)
 agg = read(AGG)
 form = read(FORM)
+fe_corridor = read(FE_CORRIDOR)
+btransfer = read(BTRANSFER)
+sendflow = read(SENDFLOW)
 
 
 def has_num(text: str, key: str, val: str) -> bool:
@@ -92,15 +98,43 @@ if engine:
         if re.search(r"bridge", label, re.I):
             failures.append(f"PE5 engine breakdown label names provider: {label}")
 
+# PE6 — bridge-transfer wires the corridor router + aggregator ------------
+if btransfer:
+    for tok in ["classifyCorridor", "executeAfricanPayout", 'corridor === "african"']:
+        if tok not in btransfer:
+            failures.append(f"PE6 bridge-transfer not wired: missing {tok}")
+
+# PE7 — frontend corridor set parity with backend -------------------------
+def african_codes(src: str) -> set:
+    m = re.search(r"AFRICAN_PAYOUT_COUNTRIES[^\[]*\[(.*?)\]", src, re.S)
+    return set(re.findall(r"[A-Z]{2}", m.group(1))) if m else set()
+
+if fe_corridor and policy:
+    fe_set = african_codes(fe_corridor)
+    be_set = african_codes(policy)
+    if not fe_set:
+        failures.append("PE7 frontend corridor African set not found")
+    elif fe_set != be_set:
+        failures.append(f"PE7 frontend/backend African set drift: {fe_set ^ be_set}")
+
+# PE8 — checkout (SendMoneyFlow) uses the engine + discloses the fee -------
+if sendflow:
+    for tok in ["computePayoutFee", "classifyCorridor", "BorderPay Network Fee"]:
+        if tok not in sendflow:
+            failures.append(f"PE8 SendMoneyFlow checkout missing {tok}")
+
 if failures:
     print("PAYOUT CORRIDOR + FEE ENGINE AUDIT: FAIL")
     for f in failures:
         print(f"  ✗ {f}")
     sys.exit(1)
 
-print("PAYOUT CORRIDOR + FEE ENGINE AUDIT: PASS (5/5)")
+print("PAYOUT CORRIDOR + FEE ENGINE AUDIT: PASS (8/8)")
 print("  ✓ PE1 international 0.35+0.999+2.5; African 0.75 indiv / 0.50 biz")
 print("  ✓ PE2 corridor router (African→aggregator, else→bridge_payout)")
 print("  ✓ PE3 African aggregator placeholder fails closed, no network call")
 print("  ✓ PE4 mobile-money form switches bank vs mobile fields")
 print("  ✓ PE5 fee engine labels are white-labeled")
+print("  ✓ PE6 bridge-transfer wired to corridor router + aggregator")
+print("  ✓ PE7 frontend/backend African corridor sets in parity")
+print("  ✓ PE8 checkout uses fee engine + discloses 'BorderPay Network Fee'")
