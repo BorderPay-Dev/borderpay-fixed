@@ -505,20 +505,28 @@ export const fxAPI = {
   },
 
   /**
-   * Client-side FX fallback. The legacy `get-fx-rates` edge function has
-   * been removed; until a new rate feed is wired, we return a deterministic
-   * synthetic rate snapshot tagged `source: 'fallback'`.
-   * Callers should treat this as "indicative only" — TransactionsScreen, the
-   * dashboard widget and CurrencyConverter already key off `source` to label
-   * the rate appropriately.
+   * Live mid-market FX rates.
+   *
+   * Fetches real rates from the ExchangeRate-API open endpoint
+   * (https://open.er-api.com — no key, CORS-enabled, broad currency coverage
+   * incl. African corridors; free tier refreshes daily). We derive the pair
+   * set the app needs from a USD-base snapshot. These are real mid-market
+   * rates — with PARTNER_FX_MARKUP suspended, what we display is the true
+   * mid-market price.
+   *
+   * On any network/parse failure we fall back to an indicative static
+   * snapshot tagged `source: 'fallback'` so the UI degrades gracefully.
+   * Callers key off `source` ('live' | 'fallback') to label the rate.
+   *
+   * NOTE: African corridors remain display-only (indicative) until local
+   * payout rails are wired; this only feeds the rate display, not execution.
    */
   async getLiveRates() {
-    const generatedAt = new Date().toISOString();
-    return {
+    const FALLBACK = {
       success: true as const,
       data: {
         source:       'fallback' as const,
-        generated_at: generatedAt,
+        generated_at: new Date().toISOString(),
         rates: {
           USD_EUR: 0.92,
           USD_GBP: 0.79,
@@ -527,9 +535,60 @@ export const fxAPI = {
           EUR_GBP: 0.8587,
           GBP_EUR: 1.1645,
         } as Record<string, number>,
-        note: 'Indicative fallback rates. A live rates feed will be wired in a future release.',
+        note: 'Indicative rates — live feed unavailable.',
       },
     };
+
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 7000);
+      const resp = await fetch('https://open.er-api.com/v6/latest/USD', { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!resp.ok) return FALLBACK;
+
+      const j: any = await resp.json();
+      const R = j?.rates;
+      if (j?.result !== 'success' || !R || typeof R !== 'object') return FALLBACK;
+
+      const n = (v: unknown): number | null => {
+        const x = Number(v);
+        return Number.isFinite(x) && x > 0 ? x : null;
+      };
+      const rates: Record<string, number> = {};
+      const put = (key: string, val: number | null) => { if (val) rates[key] = val; };
+
+      // African corridors (display-only / indicative) + majors, USD base.
+      put('USD_NGN', n(R.NGN));
+      put('USD_KES', n(R.KES));
+      put('USD_GHS', n(R.GHS));
+      put('USD_ZAR', n(R.ZAR));
+      put('USD_XOF', n(R.XOF));
+      put('USD_UGX', n(R.UGX));
+      put('USD_TZS', n(R.TZS));
+      put('USD_EUR', n(R.EUR));
+      put('USD_GBP', n(R.GBP));
+      // Major crosses derived from the USD base.
+      const eur = n(R.EUR), gbp = n(R.GBP);
+      if (eur) put('EUR_USD', 1 / eur);
+      if (gbp) put('GBP_USD', 1 / gbp);
+      if (eur && gbp) { put('EUR_GBP', gbp / eur); put('GBP_EUR', eur / gbp); }
+
+      if (Object.keys(rates).length === 0) return FALLBACK;
+
+      return {
+        success: true as const,
+        data: {
+          source:       'live' as const,
+          generated_at: j?.time_last_update_utc
+            ? new Date(j.time_last_update_utc).toISOString()
+            : new Date().toISOString(),
+          rates,
+          note: 'Live mid-market rates.',
+        },
+      };
+    } catch {
+      return FALLBACK;
+    }
   },
 };
 

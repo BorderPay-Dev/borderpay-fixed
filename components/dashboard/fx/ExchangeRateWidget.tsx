@@ -1,23 +1,23 @@
 /**
  * ExchangeRateWidget — small, scannable FX card for the Home dashboard.
  *
- * Pulled from backendAPI.fx.getLiveRates (currently indicative fallback rates
- * — a live rates feed will replace it without changing this UI). The
- * customer-facing rate is the partner mid-rate × (1 + PARTNER_FX_MARKUP)
- * so what we render is exactly what would land in the Convert flow.
+ * Pulled from backendAPI.fx.getLiveRates, which now fetches REAL live
+ * mid-market rates (ExchangeRate-API open feed). With PARTNER_FX_MARKUP
+ * suspended, the customer-facing rate equals the true mid-market price.
  *
  * Shows:
  *   • Currently selected pair (default USD → NGN)
- *   • Last-updated timestamp
- *   • Tiny SVG sparkline of synthetic last-24h motion (deterministic per
- *     pair so it doesn't change on every render)
+ *   • Live "updated" timestamp from the feed
+ *   • Tiny SVG sparkline + % change built from REAL sampled rate history
+ *     (persisted locally; fills in as the live feed moves — no fabrication)
  *   • "Convert" primary CTA → routes to /exchange
  *   • Tap a chip to switch pair without leaving the dashboard
  *
- * African currencies (NGN/KES/GHS/UGX/XAF/etc.) are shown as indicative
- * rates only — actual convert/payout for those rails is gated until our
+ * African currencies (NGN/KES/GHS/UGX/XOF/etc.) show real rates but remain
+ * display-only — actual convert/payout for those rails is gated until our
  * African local rails are wired (the Exchange screen surfaces a
- * "Convert launching soon" notice today).
+ * "Convert launching soon" notice today). If the live feed is unreachable
+ * the widget falls back to an indicative snapshot and labels it as such.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -36,35 +36,26 @@ interface PairRow {
   pair:    string;        // 'USD_NGN'
   base:    string;
   quote:   string;
-  rate:    number;        // customer-facing (with markup)
-  midRate: number;        // partner mid-rate
-  change:  number;        // synthetic 24h % move
-  spark:   number[];      // synthetic spark series
+  rate:    number;        // customer-facing (= mid; markup suspended)
+  midRate: number;        // live mid-market rate
+  change:  number;        // real % move since the previous sampled rate
+  spark:   number[];      // real sampled rate history
 }
 
-// Deterministic pseudo-random so the sparkline doesn't change on re-render.
-function hashSeed(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = (h ^ s.charCodeAt(i)) * 16777619 >>> 0;
-  return h;
+// Real rate history, persisted locally so the change % and sparkline reflect
+// ACTUAL sampled movement across loads (no fabricated data). We keep the last
+// few distinct mid-rates per pair; the series fills in as the live feed moves.
+const FX_HIST_KEY = 'borderpay_fx_hist_v1';
+const FX_HIST_MAX = 24;
+
+function readHist(): Record<string, number[]> {
+  try {
+    const v = JSON.parse(localStorage.getItem(FX_HIST_KEY) || '{}');
+    return v && typeof v === 'object' ? v : {};
+  } catch { return {}; }
 }
-function mulberry32(seed: number) {
-  return function () {
-    let t = (seed += 0x6D2B79F5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function synthSpark(seed: string, base: number, vol: number, n = 24): number[] {
-  const rng = mulberry32(hashSeed(seed));
-  const out: number[] = [];
-  let v = base;
-  for (let i = 0; i < n; i++) {
-    v += (rng() - 0.5) * vol;
-    out.push(v);
-  }
-  return out;
+function writeHist(h: Record<string, number[]>): void {
+  try { localStorage.setItem(FX_HIST_KEY, JSON.stringify(h)); } catch { /* quota / private mode */ }
 }
 
 const DEFAULT_PAIR = 'USD_NGN';
@@ -77,6 +68,7 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
   const [pairs, setPairs] = useState<PairRow[]>([]);
   const [selected, setSelected] = useState<string>(DEFAULT_PAIR);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [isLive, setIsLive] = useState(true);
   const [loading, setLoading] = useState(true);
   const prefetchExchange = () => {
     if (typeof window !== 'undefined') {
@@ -89,24 +81,33 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
     try {
       const r: any = await backendAPI.fx.getLiveRates();
       if (r?.success && r.data?.rates) {
+        const hist = readHist();
         const rows: PairRow[] = Object.entries(r.data.rates).map(([pair, midRate]) => {
           const [base, quote] = pair.split('_');
           const mid = Number(midRate);
-          const seed = `${pair}-${Math.floor(Date.now() / 1000 / 3600)}`;
-          const change = (mulberry32(hashSeed(seed))() - 0.5) * 2;  // -1..+1
+          const arr = Array.isArray(hist[pair]) ? hist[pair] : [];
+          const prev = arr.length ? arr[arr.length - 1] : null;
+          // Real movement since the last sampled rate (0 on first ever sample).
+          const change = prev != null && prev > 0 ? ((mid - prev) / prev) * 100 : 0;
+          // Append only when the rate actually moved, so the series is real
+          // and doesn't spam identical points across same-day refreshes.
+          const nextArr = prev == null || mid !== prev ? [...arr, mid].slice(-FX_HIST_MAX) : arr;
+          hist[pair] = nextArr;
           return {
             pair, base, quote,
             midRate: mid,
             rate:    withMarkup(mid),
             change,
-            spark:   synthSpark(seed, withMarkup(mid), withMarkup(mid) * 0.005),
+            spark:   nextArr.map((v) => withMarkup(v)),
           };
         });
+        writeHist(hist);
         // Stable order: USD first, then alphabetical
         rows.sort((a, b) =>
           (a.base === 'USD' ? 0 : 1) - (b.base === 'USD' ? 0 : 1) ||
           a.pair.localeCompare(b.pair));
         setPairs(rows);
+        setIsLive(r.data.source === 'live');
         setUpdatedAt(r.data.generated_at || new Date().toISOString());
       }
     } finally {
@@ -161,8 +162,10 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
             <p className={`text-[10px] ${tc.textMuted} mt-1`}>
               {PARTNER_FX_MARKUP > 0
                 ? `Includes ${markupLabel()} markup`
-                : 'Real mid-market rate · no FX markup'}
-              {updatedAt && ' · last updated ' + new Date(updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                : isLive
+                  ? 'Live mid-market rate · no FX markup'
+                  : 'Indicative rate · live feed unavailable'}
+              {updatedAt && ' · updated ' + new Date(updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </p>
 
             {/* Live line graphic */}
@@ -211,10 +214,14 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
 function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
   if (!data.length) return null;
   const width = 320, height = 36;
-  const min = Math.min(...data), max = Math.max(...data);
+  // With a single real sample we can't draw a trend yet — render a flat
+  // baseline rather than fabricating motion. The line fills in as the live
+  // feed moves and we collect more samples.
+  const series = data.length === 1 ? [data[0], data[0]] : data;
+  const min = Math.min(...series), max = Math.max(...series);
   const range = max - min || 1;
-  const step = width / (data.length - 1);
-  const points = data.map((v, i) => `${(i * step).toFixed(2)},${(height - ((v - min) / range) * (height - 4) - 2).toFixed(2)}`).join(' ');
+  const step = width / (series.length - 1);
+  const points = series.map((v, i) => `${(i * step).toFixed(2)},${(height - ((v - min) / range) * (height - 4) - 2).toFixed(2)}`).join(' ');
   const stroke = positive ? '#34D399' : '#F87171';
   return (
     <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="mt-3 w-full h-9">
