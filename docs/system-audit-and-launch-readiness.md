@@ -128,7 +128,36 @@ The app **already** uses `Suspense` + `<ScreenSkeleton/>` for screen transitions
 (`MainApp.tsx`), so navigation is not blocked by full-screen spinners. ~46 files
 use a local `loading` state for their own async fetches.
 
-**A blanket removal is not advisable** — many of those states guard against
+**A blanket removal is not advisable** — see addendum.
+
+---
+
+## Addendum — 2026-06-06 (one-time-fee model + payout corridor router)
+
+New direction received: **drop monthly subscriptions** in favor of one-time
+activation fees, add an **African payout corridor router**, and a **tiered fee
+engine**. Status this pass:
+
+- ✅ **White-label (#A1):** already enforced — no provider name in UI copy
+  (`public_provider_privacy_audit` + `provider_public_truth_cleanup_audit` pass).
+- ✅ **Raw provider cost config (#A2):** added `_shared/fees/bridge-cost-schedule.ts`
+  (server-side, never UI-exposed) with the verbatim wholesale schedule.
+- ✅ **FX widget on business:** shipped previously.
+- 🟡 **Not yet built (needs decisions — see chat):** subscriptions→one-time-fee
+  teardown, wallet-balance maintenance debit, payout corridor router + African
+  aggregator placeholder, mobile-money form, tiered checkout fee engine.
+
+**Refreshed progress:** overall build **~70%**; money-movement-critical path
+**~50%** (the one-time-fee billing rework + the African aggregator/corridor
+router are now explicitly scoped remaining work, and the aggregator still needs a
+real partner). The compile check is green (tsc 0, audits 38/38, build ✓).
+
+**Fee-disclosure boundary (important):** white-labeling hides the *provider*, not
+the *fee*. Fees will still be **disclosed to the customer at checkout** as a
+single "BorderPay fee" total — we hide the provider, never the amount the user
+pays. Hiding fee amounts from users is a consumer-protection line I won't cross.
+
+### #2 loading screens (unchanged recommendation) — many of those states guard against
 rendering before data exists (empty flashes, crashes, Suspense fallbacks). The
 safe path is a **targeted pass**: convert any remaining full-screen blocking
 spinner to a skeleton, and adopt cached-first (optimistic) paint where we already
