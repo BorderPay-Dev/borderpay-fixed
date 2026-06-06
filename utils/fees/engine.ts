@@ -21,7 +21,7 @@
 
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from './schedule';
 
-export type Corridor    = 'international' | 'african';
+export type Corridor    = 'international' | 'stablecoin';
 export type FeeAccount  = 'individual' | 'business';
 
 /** International stack components (percent). */

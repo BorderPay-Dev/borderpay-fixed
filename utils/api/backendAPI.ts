@@ -798,7 +798,7 @@ export const stablecoinAPI = {
     amount: number;
     reason?: string;
     address: string;
-    chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon';
+    chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon' | 'tron' | 'arbitrum';
     coin: 'usdc' | 'usdt' | 'pyusd' | 'usdb' | 'eurc';
     funding_source?: 'USD';
     transaction_pin?: string;

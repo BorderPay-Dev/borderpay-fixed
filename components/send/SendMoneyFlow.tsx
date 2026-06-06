@@ -15,7 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Building2, Smartphone, Users, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
-  Send, Info, ArrowRight, Copy, XCircle, DollarSign, Zap, Shield, Coins, Link,
+  Send, Info, ArrowRight, Copy, XCircle, DollarSign, Zap, Shield, Coins,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -32,6 +32,8 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
 import { classifyCorridor } from '../../utils/payouts/corridor';
+import { ExternalCryptoWithdrawalFields, isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
+import { TRANSFERS_LIVE } from '../../utils/featureFlags';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,13 +96,6 @@ function getCurrencySymbol(code: string) {
   return CURRENCY_SYMBOLS[code] || code;
 }
 
-const STABLECOIN_CHAINS = [
-  { id: 'base' as const, label: 'Base', color: 'text-blue-400', bg: 'bg-blue-500/15' },
-  { id: 'ethereum' as const, label: 'Ethereum', color: 'text-purple-400', bg: 'bg-purple-500/15' },
-  { id: 'optimism' as const, label: 'Optimism', color: 'text-red-400', bg: 'bg-red-500/15' },
-  { id: 'solana' as const, label: 'Solana', color: 'text-green-400', bg: 'bg-green-500/15' },
-  { id: 'polygon' as const, label: 'Polygon', color: 'text-violet-400', bg: 'bg-violet-500/15' },
-];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -168,8 +163,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [cpPostalCode, setCpPostalCode] = useState('');
   const [creatingCounterparty, setCreatingCounterparty] = useState(false);
 
-  // Stablecoin transfer
-  const [stablecoinAddress, setStablecoinAddress] = useState('');
+  // External stablecoin withdrawal — network + token + destination address.
+  const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'tron', token: 'USDT', address: '' });
   // Client-controlled idempotency key for the bridge-transfer call.
   // Generated ONCE per Send-screen mount so that retries / Confirm
   // double-taps reuse the same key. Regenerate with newIdempotencyKey()
@@ -177,8 +172,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [transferIdempotencyKey] = useState(() =>
     `bp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`
   );
-  const [stablecoinChain, setStablecoinChain] = useState<'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon'>('base');
-  const [stablecoinCoin, setStablecoinCoin] = useState<'usdc'>('usdc');
 
   // Amount & reason
   const [amount, setAmount] = useState('');
@@ -198,10 +191,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const networkFee = useMemo(() => {
     const num = parseFloat(amount);
     if (!num || num <= 0) return null;
+    // The crypto withdrawal track forces the stablecoin route (flat 1.00%),
+    // bypassing any country classification. Otherwise classify by destination
+    // country (African countries also settle via stablecoin → 1.00%).
     const country = SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.country;
-    const corridor = classifyCorridor(country);
+    const corridor: 'international' | 'stablecoin' =
+      method === 'stablecoin'
+        ? 'stablecoin'
+        : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
-  }, [amount, selectedCurrency, accountType]);
+  }, [amount, selectedCurrency, accountType, method]);
   const [limitError, setLimitError] = useState<string | null>(null);
 
   // PIN & result
@@ -332,7 +331,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const canProceedDetails = () => {
     if (method === 'borderpay') return recipientIdentifier.trim().length > 0;
     if (method === 'us_ach_wire') return !!selectedCounterparty;
-    if (method === 'stablecoin') return stablecoinAddress.trim().length >= 20;
+    if (method === 'stablecoin') return isValidCryptoAddress(crypto.network, crypto.address);
     return !!selectedBank && accountNumber.length >= 6;
   };
 
@@ -362,9 +361,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         result = await backendAPI.stablecoin.sendTransfer({
           amount: parseFloat(amount),
           reason: reason || 'Stablecoin transfer',
-          address: stablecoinAddress.trim(),
-          chain: stablecoinChain,
-          coin: stablecoinCoin,
+          address: crypto.address.trim(),
+          chain: crypto.network,                                  // tron|polygon|arbitrum|solana|base|ethereum
+          coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
           funding_source: 'USD',
           transaction_pin: verifiedPin,
           // Required by bridge-transfer v2. Reusing the per-mount key
@@ -532,30 +531,43 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           >
             <p className={`text-sm ${tc.textSecondary} mb-3`}>{t('send.chooseMethod')}</p>
 
-            {/* Stablecoin send is intentionally non-interactive in this
-                build. The backend (bridge-transfer v2) is deployed with
-                client-controlled idempotency, but no end-to-end Bridge
-                sandbox evidence package has been collected yet, so the
-                CTO review held the user-facing path off. The card is
-                still shown so users see what's coming; tapping it does
-                nothing. To re-enable: replace `disabled` + the visible
-                "Pending evidence" badge with the original setMethod
-                handler once the evidence package is attached to the
-                CTO_REVIEW_HANDOFF.md. */}
+            {/* External Stablecoin Withdrawal — the primary African/global payout
+                track. Interactive only when TRANSFERS_LIVE is on; until the
+                money-movement flag flips it stays a non-interactive "Pending
+                evidence" card (no user-facing money movement). The crypto form,
+                fee engine (flat 1.00%), and address validation are fully wired
+                behind this gate. */}
             <div className="space-y-3">
-              <div
-                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60 cursor-not-allowed`}
-                aria-disabled="true"
-              >
-                <div className="w-12 h-12 rounded-full bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
-                  <Coins size={22} className="text-cyan-400" />
+              {TRANSFERS_LIVE ? (
+                <button
+                  type="button"
+                  onClick={() => { setMethod('stablecoin'); setStep('details'); }}
+                  className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-colors`}
+                >
+                  <div className="w-12 h-12 rounded-full bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
+                    <Coins size={22} className="text-cyan-400" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${tc.text}`}>External Stablecoin Withdrawal</p>
+                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDT / USDC to any external wallet — TRON, Polygon, Arbitrum, Solana, Base</p>
+                  </div>
+                  <ArrowRight size={18} className={tc.textMuted} />
+                </button>
+              ) : (
+                <div
+                  className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60 cursor-not-allowed`}
+                  aria-disabled="true"
+                >
+                  <div className="w-12 h-12 rounded-full bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
+                    <Coins size={22} className="text-cyan-400" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${tc.text}`}>External Stablecoin Withdrawal</p>
+                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDT / USDC to an external wallet — pending sandbox evidence sign-off</p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Pending evidence</span>
                 </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${tc.text}`}>Stablecoin transfer</p>
-                  <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDC / USDT / PYUSD / USDB — pending sandbox evidence sign-off</p>
-                </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Pending evidence</span>
-              </div>
+              )}
 
               {/* Coming soon, non-interactive */}
               <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60`}>
@@ -834,55 +846,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             {/* Stablecoin Transfer Details */}
             {method === 'stablecoin' && (
               <>
-                {/* Chain Selection */}
+                {/* External crypto withdrawal — network + token + validated address */}
                 <div className="mb-5">
-                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Blockchain Network</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {STABLECOIN_CHAINS.map(chain => (
-                      <button
-                        key={chain.id}
-                        onClick={() => setStablecoinChain(chain.id)}
-                        className={`px-3 py-3 rounded-2xl text-xs font-semibold transition-all flex items-center gap-2 ${
-                          stablecoinChain === chain.id
-                            ? 'bg-[#C7FF00] text-black'
-                            : `${tc.card} border ${tc.borderLight} ${tc.text} ${tc.hoverBg}`
-                        }`}
-                      >
-                        <Link size={14} />
-                        <span>{chain.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Coin Selection */}
-                <div className="mb-5">
-                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Coin</label>
-                  <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
-                    <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
-                      <span className="text-xs font-bold text-blue-400">$</span>
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-sm font-semibold ${tc.text}`}>USDC</p>
-                      <p className={`text-xs ${tc.textMuted}`}>USD Coin</p>
-                    </div>
-                    <CheckCircle size={16} className="text-[#C7FF00]" />
-                  </div>
-                </div>
-
-                {/* Wallet Address */}
-                <div className="mb-5">
-                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Recipient Address</label>
-                  <input
-                    type="text"
-                    value={stablecoinAddress}
-                    onChange={e => setStablecoinAddress(e.target.value)}
-                    placeholder="0x... or wallet address"
-                    className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm font-mono focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                  <ExternalCryptoWithdrawalFields
+                    values={crypto}
+                    onChange={(patch) => setCrypto((c) => ({ ...c, ...patch }))}
                   />
-                  {stablecoinAddress.length > 0 && stablecoinAddress.length < 20 && (
-                    <p className="text-xs text-red-400 mt-1.5 px-1">Address too short</p>
-                  )}
                 </div>
 
                 {/* Funding Source */}
@@ -965,12 +934,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <p className={`text-xs ${tc.textMuted} mb-1`}>{t('send.sendingTo')}</p>
               {method === 'stablecoin' ? (
                 <>
-                  <p className={`text-sm font-mono font-semibold ${tc.text} truncate`}>{stablecoinAddress}</p>
+                  <p className={`text-sm font-mono font-semibold ${tc.text} truncate`}>{crypto.address}</p>
                   <div className="flex items-center gap-1.5 mt-1.5">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.bg} ${STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.color}`}>
-                      {STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.label}
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#C7FF00]/15 text-[#C7FF00] uppercase">
+                      {crypto.network}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-400">USDC</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-400">{crypto.token}</span>
                   </div>
                 </>
               ) : method === 'us_ach_wire' ? (
@@ -1157,17 +1126,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Network</span>
-                      <span className={`text-sm font-semibold ${STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.color || tc.text}`}>
-                        {STABLECOIN_CHAINS.find(c => c.id === stablecoinChain)?.label}
-                      </span>
+                      <span className={`text-sm font-semibold ${tc.text} uppercase`}>{crypto.network}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Coin</span>
-                      <span className={`text-sm font-medium ${tc.text}`}>USDC</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{crypto.token}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Address</span>
-                      <span className={`text-xs font-mono ${tc.text} truncate ml-4 max-w-[180px]`}>{stablecoinAddress}</span>
+                      <span className={`text-xs font-mono ${tc.text} truncate ml-4 max-w-[180px]`}>{crypto.address}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Funding Source</span>
@@ -1265,7 +1232,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
               <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
               <p className={`text-sm ${tc.textSecondary}`}>
-                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${stablecoinAddress.slice(0, 8)}...${stablecoinAddress.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
+                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
               </p>
             </div>
 
@@ -1357,7 +1324,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
             <p className={`text-sm ${tc.textMuted} mb-6`}>
-              → {method === 'stablecoin' ? `${stablecoinAddress.slice(0, 8)}...${stablecoinAddress.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
+              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : method === 'borderpay' ? recipientIdentifier : resolvedName || accountNumber}
             </p>
 
             {/* Transaction details */}
