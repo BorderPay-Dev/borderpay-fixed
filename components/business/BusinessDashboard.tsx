@@ -23,6 +23,7 @@ import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
+import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import type { PlanKey } from '../../utils/subscriptions/plans';
 
 interface BusinessDashboardProps {
@@ -297,6 +298,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           <CardsLockedCard />
           <AfricanRailsFutureCard />
         </section>
+
+        {/* ── 6b. Exchange rates (live, shared with individual dashboard) ─ */}
+        <ExchangeRateWidget onNavigate={onNavigate} />
 
         {/* ── 7. Trust line ────────────────────────────────────────── */}
         <section className="px-5 sm:px-6 pt-1 flex items-center justify-center gap-1.5">
