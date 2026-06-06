@@ -1,4 +1,4 @@
--- Stepped verification gate (#4 + #5) — SOURCE ONLY, NOT YET APPLIED.
+-- Stepped verification gate (#4 + #5) — APPLIED to production 2026-06-07 (project orwrcpwsffjlvzuraxjc).
 --
 -- Adds the manual-review state that gates billable Bridge KYC/KYB calls. Bridge
 -- bills per verification ($2 KYC / $10 KYB), so the rule is:
@@ -19,6 +19,21 @@ DO $$ BEGIN
     ADD CONSTRAINT user_profiles_verification_review_status_chk
     CHECK (verification_review_status IN ('pending_manual_review', 'authorized', 'rejected'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- 1b) Sensible backfill so already-verified/rejected users aren't dumped into
+--     the manual-review queue; only genuinely-unreviewed users stay pending.
+UPDATE public.user_profiles
+   SET verification_review_status = CASE
+     WHEN lower(coalesce(kyc_status::text,'')) IN ('verified','approved','full enrollment')
+       OR lower(coalesce(admin_kyc_decision::text,'')) = 'approved'
+       OR lower(coalesce(bridge_kyc_status::text,'')) = 'approved'
+       OR lower(coalesce(bridge_account_status::text,'')) = 'active'   THEN 'authorized'
+     WHEN lower(coalesce(kyc_status::text,'')) IN ('rejected','failed')
+       OR lower(coalesce(admin_kyc_decision::text,'')) = 'rejected'
+       OR lower(coalesce(bridge_kyc_status::text,'')) = 'rejected'
+       OR lower(coalesce(bridge_account_status::text,'')) = 'rejected' THEN 'rejected'
+     ELSE 'pending_manual_review'
+   END;
 
 -- 2) Admin authorization RPC. The caller's admin-ness is checked against
 --    p_actor (the authenticated admin's id, supplied by the authorize-verification
@@ -49,5 +64,5 @@ BEGIN
 END
 $$;
 
-REVOKE ALL ON FUNCTION public.authorize_verification(uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.authorize_verification(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.authorize_verification(uuid, uuid) TO service_role;

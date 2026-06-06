@@ -1,4 +1,4 @@
--- Virtual-account maintenance fees (#3) — SOURCE ONLY, NOT YET APPLIED.
+-- Virtual-account maintenance fees (#3) — APPLIED to production 2026-06-07 (project orwrcpwsffjlvzuraxjc).
 --
 -- After activation, each ACTIVE virtual account incurs a monthly maintenance
 -- fee ($2.00 USD per account, no markup — the raw provider cost) debited
@@ -94,5 +94,5 @@ BEGIN
 END
 $$;
 
-REVOKE ALL ON FUNCTION public.charge_va_maintenance(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.charge_va_maintenance(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.charge_va_maintenance(uuid) TO service_role;
