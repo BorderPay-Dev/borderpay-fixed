@@ -14,6 +14,7 @@ import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, Loader2 } from 'lucide-react';
 import { supabase } from '../../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
+import { BRIDGE_ONBOARDING_LIVE } from '../../../utils/featureFlags';
 import { deriveKycStatus } from '../../../utils/config/environment';
 
 type CardStatus = 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected';
@@ -34,6 +35,10 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const [loading, setLoading]         = useState(true);
 
   useEffect(() => {
+    if (!BRIDGE_ONBOARDING_LIVE) {
+      setLoading(false);
+      return;
+    }
     let alive = true;
     (async () => {
       const { data: prof } = await supabase
@@ -66,6 +71,32 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
     })();
     return () => { alive = false; };
   }, [userId]);
+
+  if (!BRIDGE_ONBOARDING_LIVE) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+        className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-5 sm:p-6`}
+      >
+        <div className="flex items-start gap-4">
+          <div className="shrink-0 w-12 h-12 rounded-2xl bg-[#C7FF00]/20 flex items-center justify-center">
+            <Clock className="w-6 h-6 text-black" strokeWidth={2} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className={`text-base font-semibold ${tc.text} mb-1`}>
+              {tt('dash.kyc.paused.title', 'Verification paused')}
+            </h3>
+            <p className={`text-sm ${tc.textSecondary}`}>
+              {tt(
+                'dash.kyc.paused.body',
+                'KYC and KYB onboarding is paused until BorderPay launches money movement.',
+              )}
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   const isBusiness = accountType === 'business';
 
