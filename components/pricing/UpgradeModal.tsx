@@ -52,7 +52,7 @@ export function UpgradeModal({
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const plan = getPlan(planKey);
-  const priceCents = plan.price_monthly_usd ?? 0;
+  const priceCents = plan.activation_fee_usd ?? 0;
   const priceUsd   = priceCents / 100;
 
   const [vas, setVas]               = useState<UsdVa[]>([]);
@@ -106,7 +106,7 @@ export function UpgradeModal({
     setError(null);
     try {
       const r = await backendAPI.subscription.upgrade({
-        plan_key:     planKey as 'individual_premium' | 'business_growth',
+        plan_key:     planKey as 'individual_activated' | 'business_activated',
         bridge_va_id: selectedVa,
       });
       if (!r.success) {
@@ -177,11 +177,11 @@ export function UpgradeModal({
                 {/* Price row */}
                 <div className={`mt-5 flex items-center justify-between p-4 rounded-2xl ${tc.bgAlt} border ${tc.border}`}>
                   <div>
-                    <div className={`text-xs ${tc.textMuted}`}>{tt('upgrade.price', 'Monthly price')}</div>
+                    <div className={`text-xs ${tc.textMuted}`}>{tt('upgrade.price', 'One-time activation fee')}</div>
                     <div className={`mt-0.5 text-2xl font-bold ${tc.text}`}>${priceUsd.toFixed(2)}</div>
                   </div>
                   <div className={`text-xs ${tc.textMuted} text-right`}>
-                    {tt('upgrade.period', '30 days')}<br />
+                    {tt('upgrade.period', 'one-time')}<br />
                     USD
                   </div>
                 </div>
@@ -305,20 +305,17 @@ function SuccessState({
   tc:        ReturnType<typeof useThemeClasses>;
   tt:        (k: string, fb: string) => string;
 }) {
-  const dt = new Date(periodEnd);
+  void planLabel; void periodEnd; // one-time model: no plan name / expiry shown
   return (
     <div className="text-center py-3">
       <div className="mx-auto w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mb-4">
         <CheckCircle2 className="w-10 h-10 text-black" strokeWidth={2} />
       </div>
       <h2 className={`text-2xl font-bold ${tc.text}`}>
-        {tt('upgrade.success.title', 'Welcome to')} {planLabel}
+        {tt('upgrade.success.title', 'Account activated')}
       </h2>
       <p className={`mt-2 text-sm ${tc.textSecondary}`}>
-        {tt('upgrade.success.body', 'Your plan is active. Enjoy the full BorderPay experience.')}
-      </p>
-      <p className={`mt-1 text-xs ${tc.textMuted}`}>
-        {tt('upgrade.success.until', 'Active until')} {dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+        {tt('upgrade.success.body', 'Your one-time activation is complete. Multi-wallet functionality is unlocked.')}
       </p>
       <button
         onClick={onDone}

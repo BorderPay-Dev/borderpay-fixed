@@ -89,11 +89,11 @@ export function PricingScreen({
           <p className={`mt-4 text-base sm:text-lg ${tc.textSecondary} max-w-2xl mx-auto`}>
             {tt(
               'pricing.subhead',
-              'Start free. Upgrade when you need EUR, GBP, or business-grade controls. No card required — pay your subscription from any USD virtual account balance.',
+              'Start free. Pay a single one-time activation fee to unlock USD, EUR & GBP wallets — no subscriptions, no monthly bills. Paid from any USD virtual account balance.',
             )}
           </p>
           <p className={`mt-2 text-xs ${tc.textMuted}`}>
-            {tt('pricing.currency_note', 'Prices shown in USD. Charged monthly from your selected USD virtual account.')}
+            {tt('pricing.currency_note', 'One-time fee shown in USD, charged once from your selected USD virtual account. Active virtual accounts incur a small monthly maintenance fee from your wallet balance.')}
           </p>
         </motion.div>
 
@@ -122,7 +122,7 @@ export function PricingScreen({
               key={plan.key}
               plan={plan}
               isCurrent={currentPlanKey === plan.key}
-              canUpgrade={!!onUpgrade && !plan.is_contact_sales && !plan.is_default && currentPlanKey !== plan.key}
+              canUpgrade={!!onUpgrade && plan.is_activated && currentPlanKey !== plan.key}
               signedIn={!!currentPlanKey || !!accountType}
               onUpgrade={onUpgrade}
               onSignUp={onSignUp}
@@ -176,7 +176,7 @@ function PlanCard({
   tc:         ReturnType<typeof useThemeClasses>;
   tt:         (k: string, fb: string) => string;
 }) {
-  const isPaid = (plan.price_monthly_usd ?? 0) > 0 && !plan.is_contact_sales;
+  const isPaid = plan.is_activated;
 
   const ringClass = isCurrent
     ? 'ring-2 ring-[#C7FF00] shadow-[0_0_0_4px_rgba(199,255,0,0.15)]'
@@ -208,14 +208,12 @@ function PlanCard({
 
       <div className="mt-5 flex items-baseline gap-2">
         <span className={`text-4xl font-bold ${tc.text} tracking-tight`}>
-          {plan.is_contact_sales
-            ? tt('pricing.custom', 'Custom')
-            : plan.price_monthly_usd === 0
-              ? tt('pricing.free', 'Free')
-              : `$${(plan.price_monthly_usd! / 100).toFixed(2)}`}
+          {plan.activation_fee_usd === 0
+            ? tt('pricing.free', 'Free')
+            : `$${(plan.activation_fee_usd / 100).toFixed(2)}`}
         </span>
-        {!plan.is_contact_sales && plan.price_monthly_usd! > 0 && (
-          <span className={`text-sm ${tc.textMuted}`}>{tt('pricing.permonth', '/ month')}</span>
+        {plan.activation_fee_usd > 0 && (
+          <span className={`text-sm ${tc.textMuted}`}>{tt('pricing.onetime', 'one-time')}</span>
         )}
       </div>
 
@@ -230,14 +228,7 @@ function PlanCard({
 
       {/* CTA */}
       <div className="mt-7">
-        {plan.is_contact_sales ? (
-          <a
-            href="mailto:sales@borderpayafrica.com"
-            className={`w-full inline-flex items-center justify-center px-4 py-3 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg} transition`}
-          >
-            {plan.cta_label}
-          </a>
-        ) : isCurrent ? (
+        {isCurrent ? (
           <button disabled
                   className={`w-full inline-flex items-center justify-center px-4 py-3 rounded-full ${tc.bgAlt} ${tc.textMuted} text-sm font-semibold cursor-not-allowed`}>
             {tt('pricing.your_plan', 'Your plan')}

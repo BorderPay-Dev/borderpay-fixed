@@ -40,13 +40,12 @@ export function bridgeOnboardingPausedBody() {
 export const PAYMENT_REQUIRED_CODE       = "payment_required";
 export const PENDING_MANUAL_REVIEW_CODE  = "pending_manual_review";
 
-/** Paid plan keys (price > 0 in utils/subscriptions/plans.ts). Free tiers
- *  (individual_starter / business_starter) are intentionally excluded — Free is
- *  view-only and never triggers a billable Bridge call. */
+/** Activated plan keys (one-time activation fee paid; see plans.ts). Free
+ *  tiers (individual_starter / business_starter) are intentionally excluded —
+ *  Free is view-only and never triggers a billable Bridge call. */
 export const PAID_PLAN_KEYS: ReadonlySet<string> = new Set([
-  "individual_premium",
-  "business_growth",
-  "business_enterprise",
+  "individual_activated",
+  "business_activated",
 ]);
 
 export function isPaidPlanKey(planKey: string | null | undefined): boolean {

@@ -11,17 +11,14 @@
  * a PAID plan. Enterprise (contact-sales, no monthly price) counts as paid.
  */
 
-import { PLANS, type PlanKey } from './plans';
+import { isActivatedPlanKey } from './plans';
 
-/** True for paid plans (monthly price > 0, or enterprise/contact-sales). */
+/** True once the one-time activation fee is paid (the activated plan). */
 export function isPaidPlanKey(planKey: string | null | undefined): boolean {
-  const p = PLANS[planKey as PlanKey];
-  if (!p) return false;
-  if (p.is_contact_sales) return true;               // enterprise = paid
-  return (p.price_monthly_usd ?? 0) > 0;
+  return isActivatedPlanKey(planKey);
 }
 
-/** Free plans must upgrade before money movement / verification. */
+/** Free/un-activated accounts must pay the activation fee before money movement. */
 export function requiresPaidPlan(planKey: string | null | undefined): boolean {
   return !isPaidPlanKey(planKey);
 }

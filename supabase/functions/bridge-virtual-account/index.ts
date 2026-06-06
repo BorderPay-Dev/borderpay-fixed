@@ -87,12 +87,10 @@ Deno.serve(async (req) => {
     return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
 
-  // Tier enforcement: the user's active subscription must allow this currency.
-  //   • individual_starter / business_starter → USD only.
-  //   • individual_premium / business_growth  → USD + EUR + GBP.
-  //   • business_enterprise                    → USD + EUR + GBP.
-  // We read the subscription owner row keyed on whether this is an
-  // individual or business account.
+  // Activation enforcement: the user must have paid the one-time activation
+  // fee to open ANY virtual account (free starter is view-only). Activated
+  // accounts unlock USD + EUR + GBP. We read the subscription owner row keyed
+  // on whether this is an individual or business account.
   const subQuery = supa
     .from("user_subscriptions")
     .select("plan_key, status")
@@ -105,22 +103,21 @@ Deno.serve(async (req) => {
   // Plan currency matrix (mirrors utils/subscriptions/plans.ts).
   // Kept in sync manually; if you change one, change the other.
   const PLAN_CURRENCIES: Record<string, ReadonlySet<string>> = {
-    individual_starter:   new Set(["USD"]),
-    individual_premium:   new Set(["USD", "EUR", "GBP"]),
-    business_starter:     new Set(["USD"]),
-    business_growth:      new Set(["USD", "EUR", "GBP"]),
-    business_enterprise:  new Set(["USD", "EUR", "GBP"]),
+    individual_starter:    new Set([]),                       // view-only
+    individual_activated:  new Set(["USD", "EUR", "GBP"]),
+    business_starter:      new Set([]),                       // view-only
+    business_activated:    new Set(["USD", "EUR", "GBP"]),
   };
   const planKey = sub?.plan_key ?? (isBusiness ? "business_starter" : "individual_starter");
-  const allowed = PLAN_CURRENCIES[planKey] ?? new Set(["USD"]);
+  const allowed = PLAN_CURRENCIES[planKey] ?? new Set([]);
   if (!allowed.has(currency)) {
     return json({
       success: false,
       code:    "plan_required",
-      error:   `${currency} virtual accounts require a ${isBusiness ? "Growth or Enterprise" : "Premium"} plan. Your current plan: ${planKey.replace("_", " ")}.`,
+      error:   `Activate your account to open ${currency} wallets. Your account is not activated yet.`,
       required_currency: currency,
       current_plan:      planKey,
-      upgrade_to:        isBusiness ? "business_growth" : "individual_premium",
+      upgrade_to:        isBusiness ? "business_activated" : "individual_activated",
     }, 402);  // 402 Payment Required
   }
 

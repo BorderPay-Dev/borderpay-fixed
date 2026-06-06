@@ -131,11 +131,20 @@ Deno.serve(async (req) => {
 
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("country, bridge_customer_id, bridge_kyc_status, payment_provider")
+    .select("country, bridge_customer_id, bridge_kyc_status, payment_provider, maintenance_overdue")
     .eq("id", user.id)
     .maybeSingle();
   if (isBridgeBlocked(profile?.country)) {
     return json(bridgeCountryBlockResponse(profile!.country!), 403);
+  }
+  // Maintenance gate (#3): block OUTBOUND money movement while a virtual-account
+  // maintenance fee is unpaid. Inbound/top-ups stay open so the user can clear it.
+  if (profile?.maintenance_overdue === true) {
+    return json({
+      success: false,
+      code:    "maintenance_due",
+      error:   "Top up your wallet to cover your account maintenance fee before sending. Outbound transfers are paused until then.",
+    }, 402);
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile?.bridge_customer_id) {

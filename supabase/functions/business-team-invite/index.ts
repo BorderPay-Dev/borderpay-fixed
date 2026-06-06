@@ -7,15 +7,14 @@
 //   • Caller must be owner OR admin on the business. Members/viewers cannot
 //     invite. Anyone else: 403.
 //
-// Seat enforcement:
+// Seat enforcement (flat one-time activation model — no Growth/Enterprise):
 //   • Reads the business's active plan_key from user_subscriptions.
-//     business_starter   →  5 seats max.
-//     business_growth    →  20 seats max.
-//     business_enterprise → unlimited.
+//     business_starter   →  10 seats (view-only until activated).
+//     business_activated →  10 seats.
 //   • Counts currently-occupied seats via count_active_team_seats RPC. If
-//     adding one more would exceed the cap, returns HTTP 402 with code
-//     'plan_required' + upgrade_to: 'business_growth' (or absent for
-//     enterprise — already unlimited).
+//     adding one more would exceed the cap: un-activated → 402 'plan_required'
+//     + upgrade_to: 'business_activated'; activated-at-cap → 402
+//     'seat_limit_reached' (no higher tier).
 //
 // Idempotency:
 //   • UNIQUE (business_user_id, invited_email) is enforced by the schema.
@@ -43,9 +42,9 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 });
 
 const PLAN_MAX_SEATS: Record<string, number | null> = {
-  business_starter:    5,
-  business_growth:     20,
-  business_enterprise: null,
+  // Flat business team-seat default (no Growth/Enterprise tiers).
+  business_starter:    10,
+  business_activated:  10,
 };
 
 const VALID_ROLES = new Set(["admin", "member", "viewer"]);
@@ -129,12 +128,17 @@ Deno.serve(async (req) => {
     const { data: used } = await supa.rpc("count_active_team_seats", { p_business_user_id: businessUserId });
     const usedN = typeof used === "number" ? used : 0;
     if (usedN >= cap) {
+      const notActivated = planKey === "business_starter";
       return json({
         success:           false,
-        code:              "plan_required",
-        error:             `Your ${planKey.replace("_", " ")} plan is limited to ${cap} seats. Upgrade to add more.`,
+        code:              notActivated ? "plan_required" : "seat_limit_reached",
+        error:             notActivated
+          ? `Activate your business to add team members (up to ${cap} seats).`
+          : `Your plan includes ${cap} team seats, which are all in use.`,
         current_plan:      planKey,
-        upgrade_to:        planKey === "business_starter" ? "business_growth" : "business_enterprise",
+        // Only an un-activated business has an upgrade path; activated is the
+        // single paid tier (flat 10-seat cap), so no higher tier to point to.
+        ...(notActivated ? { upgrade_to: "business_activated" } : {}),
         seats_used:        usedN,
         seats_cap:         cap,
       }, 402);

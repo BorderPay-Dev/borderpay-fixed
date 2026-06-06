@@ -1423,7 +1423,7 @@ export const subscriptionAPI = {
    * Server creates the invoice and charges atomically; no client-supplied
    * prices are honoured.
    */
-  upgrade: async (input: { plan_key: 'individual_premium' | 'business_growth'; bridge_va_id: string }) =>
+  upgrade: async (input: { plan_key: 'individual_activated' | 'business_activated'; bridge_va_id: string }) =>
     apiCall<{
       invoice_id: string;
       subscription_id: string;

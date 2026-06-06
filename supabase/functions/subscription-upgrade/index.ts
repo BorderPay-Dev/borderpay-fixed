@@ -2,7 +2,7 @@
 //
 // POST body:
 //   {
-//     plan_key:        'individual_premium' | 'business_growth',
+//     plan_key:        'individual_activated' | 'business_activated',  (one-time)
 //     bridge_va_id:    string   // bridge_virtual_account_id of the USD VA to charge
 //   }
 //
@@ -46,15 +46,16 @@ const CORS = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
-// Plan price catalogue (server-side authority). Mirrors utils/subscriptions/plans.ts;
-// keep in sync if you change either.
+// One-time activation fee catalogue (server-side authority). Mirrors
+// utils/subscriptions/plans.ts; keep in sync if you change either. These are
+// ONE-TIME activation fees, not recurring subscriptions.
 const PLAN_PRICES_CENTS: Record<string, number> = {
-  individual_premium: 999,
-  business_growth:    2999,
+  individual_activated: 999,
+  business_activated:   2999,
 };
 const PLAN_ACCOUNT_TYPE: Record<string, "individual" | "business"> = {
-  individual_premium: "individual",
-  business_growth:    "business",
+  individual_activated: "individual",
+  business_activated:   "business",
 };
 
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {

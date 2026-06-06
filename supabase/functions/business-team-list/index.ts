@@ -45,12 +45,12 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 // Plan → seat-cap mirror of utils/subscriptions/plans.ts. Kept in sync
 // manually; if you change one, change the other.
 const PLAN_MAX_SEATS: Record<string, number | null> = {
-  business_starter:    5,
-  business_growth:     20,
-  business_enterprise: null,    // unlimited
+  // Flat business team-seat default (no Growth/Enterprise tiers).
+  business_starter:    10,
+  business_activated:  10,
   // Individual plans never reach this surface.
-  individual_starter:  null,
-  individual_premium:  null,
+  individual_starter:   null,
+  individual_activated: null,
 };
 
 Deno.serve(async (req) => {

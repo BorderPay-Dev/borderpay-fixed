@@ -64,9 +64,9 @@ if gate:
     # Free tiers must NOT be in the paid set.
     paid_block = re.search(r"PAID_PLAN_KEYS[^\]]*?new Set\(\[(.*?)\]\)", gate, re.S)
     body = paid_block.group(1) if paid_block else ""
-    for paid in ["individual_premium", "business_growth", "business_enterprise"]:
+    for paid in ["individual_activated", "business_activated"]:
         if paid not in body:
-            failures.append(f"V1 PAID_PLAN_KEYS missing paid plan {paid}")
+            failures.append(f"V1 PAID_PLAN_KEYS missing activated plan {paid}")
     for free in ["individual_starter", "business_starter"]:
         if free in body:
             failures.append(f"V1 PAID_PLAN_KEYS must NOT include free plan {free}")

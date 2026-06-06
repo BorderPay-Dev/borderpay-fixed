@@ -19,7 +19,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 import { UpgradeModal } from '../pricing/UpgradeModal';
-import { getDefaultPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
+import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
@@ -403,7 +403,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const onPlanRequired = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const target = (detail.upgrade_to as PlanKey | undefined)
-        ?? (accountType === 'business' ? 'business_growth' : 'individual_premium');
+        ?? getActivatedPlanFor(accountType).key;
       setUpgradeTarget(target);
     };
     window.addEventListener('borderpay:plan_required', onPlanRequired as EventListener);
@@ -722,7 +722,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
               onLogout={onLogout}
               onNavigate={navigateTo as (s: string) => void}
               planKey={currentPlanKey}
-              onUpgrade={() => setUpgradeTarget('business_growth')}
+              onUpgrade={() => setUpgradeTarget('business_activated')}
             />
           );
         }
@@ -733,7 +733,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onNavigate={navigateTo}
             currentScreen={currentScreen}
             planKey={currentPlanKey}
-            onUpgrade={() => setUpgradeTarget('individual_premium')}
+            onUpgrade={() => setUpgradeTarget('individual_activated')}
           />
         );
     }
@@ -757,7 +757,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 subscription={currentPlanKey ? ({
                   plan_key:     currentPlanKey,
                   display_name: getPlan(currentPlanKey).display_name,
-                  is_paid:      (getPlan(currentPlanKey).price_monthly_usd ?? 0) > 0,
+                  is_paid:      getPlan(currentPlanKey).is_activated,
                 } as ShellSubscription) : null}
                 isBusinessAccount={accountType === 'business'}
                 onSignOut={onLogout}

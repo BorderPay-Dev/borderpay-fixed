@@ -2,7 +2,7 @@
  * PlanStatusCard — compact subscription summary for the signed-in dashboard.
  *
  * Renders on both Dashboard (individual) and BusinessDashboard. Shows:
- *   • Plan display name + monthly price (e.g. "Premium · $9.99/mo").
+ *   • Plan display name + one-time activation fee (e.g. "Activated · $9.99 one-time").
  *   • Free vs paid styling: lime accent ring + Sparkles for paid plans;
  *     muted card for starter with a prominent "Upgrade" CTA.
  *   • For business accounts: live team-seat usage ("3 of 5 seats used").
@@ -59,8 +59,7 @@ export function PlanStatusCard({
   }
 
   const plan = getPlan(planKey);
-  const isPaid = (plan.price_monthly_usd ?? 0) > 0;
-  const isEnterprise = plan.is_contact_sales;
+  const isPaid = plan.is_activated;
 
   // ── Business: live team-seat usage (null cap = unlimited) ─────────────
   const isBusiness = accountType === 'business';
@@ -123,7 +122,7 @@ export function PlanStatusCard({
               </span>
             </h3>
             <span className={`text-xs font-medium ${tc.textSecondary} font-mono`}>
-              {isEnterprise ? 'Custom pricing' : formatPlanPrice(plan)}
+              {formatPlanPrice(plan)}
             </span>
           </div>
           {(seatLabel || plan.tagline) && (
@@ -134,7 +133,7 @@ export function PlanStatusCard({
         </div>
 
         {/* CTA */}
-        {!isPaid && !isEnterprise && onUpgrade && (
+        {!isPaid && onUpgrade && (
           <button
             type="button"
             onClick={onUpgrade}
@@ -144,7 +143,7 @@ export function PlanStatusCard({
             <ArrowRight className="w-3 h-3" />
           </button>
         )}
-        {(isPaid || isEnterprise) && (
+        {isPaid && (
           <button
             type="button"
             onClick={onManagePlans}
@@ -156,7 +155,7 @@ export function PlanStatusCard({
       </div>
 
       {/* Business seat-cap exhaustion hint (only when near/at cap) */}
-      {isBusiness && seatCap !== null && seatsUsed !== null && seatsUsed >= seatCap && !isEnterprise && (
+      {isBusiness && seatCap !== null && seatsUsed !== null && seatsUsed >= seatCap && (
         <div className="mt-3 pt-3 border-t border-amber-500/20 flex items-start gap-2">
           <Loader2 className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-px" />
           <p className="text-[11px] text-amber-300/90 leading-snug">
