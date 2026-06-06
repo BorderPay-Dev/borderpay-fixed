@@ -239,11 +239,11 @@ export function AppShell({
       </main>
 
       {/* ── Floating collapsible glass header ────────────────────────────────
-          A detached pill (same visual language as the bottom tab bar) that
-          carries the burger menu, notifications and profile toggles. It is
-          sticky, hides on scroll-down and reveals on scroll-up, and floats
-          over the content with NO full-width divider line. Renders inside the
-          iOS / Android safe-area (notch). */}
+          Instagram-style: the burger, notifications and profile toggles are
+          three SEPARATE floating circular chips (each its own glass bg +
+          shadow), not joined into a single bar. The whole row is sticky,
+          hides on scroll-down and reveals on scroll-up, with NO full-width
+          divider line. Renders inside the iOS / Android safe-area (notch). */}
       <header
         className="fixed top-0 inset-x-0 z-30 pointer-events-none px-3 will-change-transform"
         style={{
@@ -257,66 +257,70 @@ export function AppShell({
         }}
         aria-label={tt('shell.header', 'App header')}
       >
-        <div className="max-w-screen-md mx-auto">
-          <div
-            className={`pointer-events-auto flex items-center gap-2 rounded-[28px] border ${tc.borderLight} ${tc.headerBg} px-2 shadow-[0_18px_55px_rgba(0,0,0,0.34)] backdrop-blur-2xl`}
-            style={{ height: HEADER_BAR_PX }}
+        {/* Instagram-style: each control is its OWN floating circular chip
+            (separate glass background + shadow), not joined into one bar. */}
+        <div
+          className="max-w-screen-md mx-auto flex items-center gap-2"
+          style={{ height: HEADER_BAR_PX }}
+        >
+          {/* Burger — own floating chip (left) */}
+          <button
+            type="button"
+            aria-label={tt('shell.menu.open', 'Open menu')}
+            onClick={() => setDrawerOpen(true)}
+            className={`pointer-events-auto shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
           >
-            <button
-              type="button"
-              aria-label={tt('shell.menu.open', 'Open menu')}
-              onClick={() => setDrawerOpen(true)}
-              className={`p-2.5 rounded-full ${tc.hoverBg} transition-colors`}
-            >
-              <Menu className={`w-5 h-5 ${tc.text}`} />
-            </button>
+            <Menu className={`w-5 h-5 ${tc.text}`} />
+          </button>
 
-            <div className="flex-1 flex items-center gap-2 min-w-0">
-              {subscription?.is_paid && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#C7FF00] text-black text-[10px] font-bold tracking-wider uppercase">
-                  <Sparkles className="w-2.5 h-2.5" />
-                  {subscription.display_name}
-                </span>
-              )}
-            </div>
+          {/* Plan badge — own floating chip, only when paid */}
+          {subscription?.is_paid && (
+            <span className="pointer-events-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-[#C7FF00] text-black text-[10px] font-bold tracking-wider uppercase shadow-[0_10px_30px_rgba(0,0,0,0.30)]">
+              <Sparkles className="w-2.5 h-2.5" />
+              {subscription.display_name}
+            </span>
+          )}
 
-            <button
-              type="button"
-              aria-label={tt('shell.notifications', 'Notifications')}
-              onPointerDown={() => prefetchRoute('notifications')}
-              onMouseEnter={() => prefetchRoute('notifications')}
-              onClick={() => go('notifications')}
-              className={`relative p-2.5 rounded-full ${tc.hoverBg} transition-colors`}
-            >
-              <Bell className={`w-5 h-5 ${tc.text}`} />
-              {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-[#C7FF00] text-black text-[9px] font-bold">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
+          <div className="flex-1" />
 
-            <button
-              type="button"
-              aria-label={tt('shell.account', 'Account')}
-              onPointerDown={() => prefetchRoute('account')}
-              onMouseEnter={() => prefetchRoute('account')}
-              onClick={() => go('account')}
-              className="mr-0.5 shrink-0"
-            >
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={userName ?? 'avatar'}
-                  className="w-9 h-9 rounded-full object-cover border border-white/10"
-                />
-              ) : (
-                <div className={`w-9 h-9 rounded-full bg-[#C7FF00] text-black font-bold text-xs flex items-center justify-center`}>
-                  {initials}
-                </div>
-              )}
-            </button>
-          </div>
+          {/* Notifications — own floating chip (right) */}
+          <button
+            type="button"
+            aria-label={tt('shell.notifications', 'Notifications')}
+            onPointerDown={() => prefetchRoute('notifications')}
+            onMouseEnter={() => prefetchRoute('notifications')}
+            onClick={() => go('notifications')}
+            className={`pointer-events-auto relative shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
+          >
+            <Bell className={`w-5 h-5 ${tc.text}`} />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-[#C7FF00] text-black text-[9px] font-bold">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {/* Profile — own floating chip (right) */}
+          <button
+            type="button"
+            aria-label={tt('shell.account', 'Account')}
+            onPointerDown={() => prefetchRoute('account')}
+            onMouseEnter={() => prefetchRoute('account')}
+            onClick={() => go('account')}
+            className={`pointer-events-auto shrink-0 w-11 h-11 rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] overflow-hidden flex items-center justify-center`}
+          >
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={userName ?? 'avatar'}
+                className="w-full h-full rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full rounded-full bg-[#C7FF00] text-black font-bold text-xs flex items-center justify-center">
+                {initials}
+              </div>
+            )}
+          </button>
         </div>
       </header>
 
