@@ -3,19 +3,23 @@
  *
  * Computes the customer-facing payout fee for the checkout screen, by corridor.
  * The PROVIDER is white-labeled (no provider name in any label), but the total
- * fee the customer pays IS disclosed — labels are neutral/BorderPay-branded.
+ * fee the customer pays IS disclosed — under a single "BorderPay Network Fee".
  *
  * Tiers (exact figures):
- *   International (US / EU / LatAm — routed through the international payout API):
- *     0.35% orchestration + 0.999% fixed settlement + 2.5% BorderPay developer
- *     markup, for BOTH individual and business. Third-party/network costs are
- *     passed through AT COST (absolute, added on top).
- *   African (routed through the localized aggregator):
- *     raw local settlement (pass-through) cost + BorderPay markup of
- *     0.75% (individual) / 0.50% (business).
+ *   International (US / EU / LatAm — international fiat payout):
+ *     0.35% orchestration + 0.999% fixed settlement + 2.5% BorderPay markup,
+ *     for BOTH individual and business. Third-party/network costs pass through.
+ *   African (EXTERNAL STABLECOIN withdrawal — USDT/USDC over TRON/Polygon/
+ *     Solana/Arbitrum/Base):
+ *     0.10% Bridge USDT support cost + 0.90% BorderPay markup = 1.00% flat,
+ *     both account types.
+ *
+ * NOTE: the 2.5% virtual-account developer fee is intentionally NOT shown at
+ * payout. It is applied/mapped at virtual-account creation and never surfaced
+ * to the user at withdrawal — a deliberate trust/pricing decision.
  */
 
-import { BRIDGE_DEVELOPER_FEE_PERCENT, africanPayoutMarkupPercentForAccount } from './schedule';
+import { BRIDGE_DEVELOPER_FEE_PERCENT } from './schedule';
 
 export type Corridor    = 'international' | 'african';
 export type FeeAccount  = 'individual' | 'business';
@@ -25,11 +29,16 @@ export const INTL_ORCHESTRATION_PERCENT   = 0.35;
 export const INTL_FIXED_SETTLEMENT_PERCENT = 0.999;
 export const INTL_DEVELOPER_MARKUP_PERCENT = BRIDGE_DEVELOPER_FEE_PERCENT.fiat; // 2.5
 
+/** African external-stablecoin components (percent). Flat for both account types. */
+export const STABLECOIN_BRIDGE_USDT_PERCENT = 0.10;  // raw Bridge USDT support cost
+export const STABLECOIN_APP_MARKUP_PERCENT  = 0.90;  // BorderPay markup
+export const STABLECOIN_TOTAL_PERCENT       = STABLECOIN_BRIDGE_USDT_PERCENT + STABLECOIN_APP_MARKUP_PERCENT; // 1.00
+
 export interface PayoutFeeInput {
   corridor:        Corridor;
   accountType:     FeeAccount;
   amount:          number;   // source-currency amount being sent
-  /** Third-party / local settlement cost passed through at cost (absolute). */
+  /** Third-party / network cost passed through at cost (absolute). */
   passThroughCost?: number;
 }
 
@@ -64,9 +73,14 @@ export function computePayoutFee(input: PayoutFeeInput): PayoutFeeResult {
       breakdown.push({ label, percent: pct, amount: round2(amount * pct / 100) });
     }
   } else {
-    const markup = africanPayoutMarkupPercentForAccount(input.accountType);
-    feePercent += markup;
-    breakdown.push({ label: 'BorderPay fee', percent: markup, amount: round2(amount * markup / 100) });
+    // African → external stablecoin. 0.10% Bridge USDT + 0.90% markup = 1.00%,
+    // disclosed as a single combined line (the 2.5% VA dev fee is NOT shown).
+    feePercent += STABLECOIN_TOTAL_PERCENT;
+    breakdown.push({
+      label:   'BorderPay Network Fee',
+      percent: STABLECOIN_TOTAL_PERCENT,
+      amount:  round2(amount * STABLECOIN_TOTAL_PERCENT / 100),
+    });
   }
 
   const percentFee = round2(amount * feePercent / 100);
@@ -86,5 +100,5 @@ export function computePayoutFee(input: PayoutFeeInput): PayoutFeeResult {
 
 /** Single disclosed total label for the checkout summary (provider hidden). */
 export function feeSummaryLabel(result: PayoutFeeResult): string {
-  return `BorderPay fee: ${result.totalFee.toFixed(2)} (${result.feePercent.toFixed(2)}%${result.passThroughCost > 0 ? ' + network' : ''})`;
+  return `BorderPay Network Fee: ${result.totalFee.toFixed(2)} (${result.feePercent.toFixed(2)}%${result.passThroughCost > 0 ? ' + network' : ''})`;
 }
