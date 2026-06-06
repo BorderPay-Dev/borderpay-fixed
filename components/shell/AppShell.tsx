@@ -111,6 +111,7 @@ export function AppShell({
   };
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [headerHidden, setHeaderHidden] = useState(false);
 
   // Esc closes the drawer.
   useEffect(() => {
@@ -127,6 +128,34 @@ export function AppShell({
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
   }, [drawerOpen]);
+
+  useEffect(() => {
+    if (drawerOpen) {
+      setHeaderHidden(false);
+      return;
+    }
+
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const delta = y - lastY;
+      if (y < 24) {
+        setHeaderHidden(false);
+      } else if (delta > 8 && y > HEADER_HEIGHT_PX) {
+        setHeaderHidden(true);
+      } else if (delta < -8) {
+        setHeaderHidden(false);
+      }
+      lastY = y;
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [drawerOpen]);
+
+  useEffect(() => {
+    setHeaderHidden(false);
+  }, [route]);
 
   const initials = useMemo(() => {
     if (userInitials) return userInitials;
@@ -187,12 +216,14 @@ export function AppShell({
         {children}
       </main>
 
-      {/* ── Premium glass header (transparent, content scrolls beneath) ──
+      {/* ── Collapsible glass header (transparent, content scrolls beneath) ──
           Renders inside the iOS / Android safe-area (notch). We drop the
           BorderPay wordmark per product direction; the plan badge stays. */}
-      <header
+      <motion.header
         className={`fixed top-0 inset-x-0 z-30 ${tc.headerBg} border-b ${tc.borderLight} pt-safe`}
         style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
+        animate={{ y: headerHidden ? '-110%' : '0%' }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
         aria-label={tt('shell.header', 'App header')}
       >
         <div
@@ -254,7 +285,7 @@ export function AppShell({
             )}
           </button>
         </div>
-      </header>
+      </motion.header>
 
       {/* ── Floating primary tab bar ─────────────────────────────────────── */}
       <nav

@@ -29,6 +29,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { supabase } from '../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../common/StatusToast';
+import { BRIDGE_ONBOARDING_LIVE } from '../../utils/featureFlags';
 
 interface KYCVerificationProps {
   userId:    string;
@@ -203,6 +204,27 @@ export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVe
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
+      {!BRIDGE_ONBOARDING_LIVE && (
+        <div className={`fixed inset-0 z-20 ${tc.bg} flex items-center justify-center px-6`}>
+          <div className={`max-w-sm w-full rounded-3xl border ${tc.cardBorder} ${tc.card} p-6 text-center`}>
+            <div className="w-16 h-16 rounded-2xl bg-[#C7FF00]/12 flex items-center justify-center mx-auto mb-4">
+              <Clock className="w-8 h-8 text-[#C7FF00]" />
+            </div>
+            <h2 className={`text-xl font-bold ${tc.text} mb-2`}>
+              Verification paused
+            </h2>
+            <p className={`${tc.textSecondary} text-sm leading-relaxed mb-6`}>
+              KYC and KYB onboarding is paused until BorderPay launches money movement. You can keep using the rest of the app.
+            </p>
+            <button
+              onClick={onBack}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#C7FF00] text-black font-semibold"
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      )}
       <div className={`sticky top-0 z-10 ${tc.headerBg} border-b ${tc.border}`}>
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
           <button onClick={onBack} aria-label={tt('common.back', 'Back')}

@@ -15,6 +15,7 @@ import {
   bridgeCountryBlockResponse,
   logControlledBridgeTraffic,
 } from "../_shared/providers/bridge-country-policy.ts";
+import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/launch-gates.ts";
 
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
@@ -90,6 +91,7 @@ function extractLink(parsed: any): { link_url: string; link_id: string; customer
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+  if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();

@@ -42,6 +42,20 @@
 export const TRANSFERS_LIVE: boolean = false;
 
 /**
+ * Whether Bridge onboarding (customer creation + KYC/KYB hosted-link start)
+ * is live for end users.
+ *
+ * - false: dashboard KYC/KYB entry points render a paused state and the
+ *          Bridge onboarding edge functions fail closed before any provider
+ *          call.
+ * - true:  existing KYC/KYB start flows render normally.
+ *
+ * Keep this in lockstep with the server-side `BRIDGE_ONBOARDING_ENABLED`
+ * gate on the Bridge onboarding functions.
+ */
+export const BRIDGE_ONBOARDING_LIVE: boolean = false;
+
+/**
  * Whether the Bridge external-accounts (payout destinations) feature is
  * live for end users.
  *
