@@ -401,3 +401,21 @@ function humanCountry(code: string): string {
   if (u === "PS") return "Palestinian Territories";
   return u;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// African payout-corridor classification (#B1). Distinct from the Bridge
+// eligibility tiers above: this set decides which destinations route through the
+// localized African aggregator vs the international payout API. Centralized here
+// so country sets stay in one canonical module (per the parity audit).
+// ─────────────────────────────────────────────────────────────────────────────
+export const AFRICAN_PAYOUT_COUNTRIES: ReadonlySet<string> = new Set([
+  "DZ", "AO", "BJ", "BW", "BF", "BI", "CM", "CV", "CF", "TD", "KM", "CG", "CD",
+  "CI", "DJ", "EG", "GQ", "ER", "SZ", "ET", "GA", "GM", "GH", "GN", "GW", "KE",
+  "LS", "LR", "LY", "MG", "MW", "ML", "MR", "MU", "MA", "MZ", "NA", "NE", "NG",
+  "RW", "ST", "SN", "SC", "SL", "SO", "ZA", "SS", "SD", "TZ", "TG", "TN", "UG",
+  "ZM", "ZW",
+]);
+
+export function isAfricanPayoutCountry(countryCode: string | null | undefined): boolean {
+  return AFRICAN_PAYOUT_COUNTRIES.has(String(countryCode ?? "").trim().toUpperCase());
+}

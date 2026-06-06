@@ -37,6 +37,24 @@ export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> =
 /** Lowest-tier markup used as the safe default when a plan key is unknown. */
 export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
 
+/**
+ * African payout markup by ACCOUNT TYPE (current model — flat, plan-independent,
+ * since monthly plans are being replaced by a one-time activation fee):
+ *   • Individual: 0.75%
+ *   • Business:   0.50%
+ * Stacked on the raw local-currency settlement (pass-through) cost.
+ */
+export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT: Record<'individual' | 'business', number> = {
+  individual: 0.75,
+  business:   0.50,
+};
+
+export function africanPayoutMarkupPercentForAccount(accountType: string | null | undefined): number {
+  return String(accountType ?? '').toLowerCase() === 'business'
+    ? AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT.business
+    : AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT.individual;
+}
+
 const STABLECOIN_SYMBOLS: ReadonlySet<string> = new Set([
   'USDC', 'USDT', 'PYUSD', 'USDB', 'EURC',
 ]);
