@@ -42,8 +42,8 @@ country.
 
 ## 4. Feature flags (compile-time, lockstep with backend env)
 
-- `TRANSFERS_LIVE = false` — Send routes to `TransfersComingSoonScreen`; no `bridge-transfer` calls.
-- `EXTERNAL_ACCOUNTS_LIVE = false` — payout-accounts UI hidden; no `bridge-external-account` calls.
+- `TRANSFERS_LIVE = true` — **go-live build**: Send shows live stablecoin/external-account rails; `bridge-transfer` is callable. Must be flipped in lockstep with backend `BRIDGE_TRANSFERS_ENABLED` at deploy.
+- `EXTERNAL_ACCOUNTS_LIVE = true` — **go-live build**: payout-accounts (ACH/SEPA) UI live for international regions; `bridge-external-account` callable.
 
 Flipping either is a **gated money-movement decision**, not a Bridge Core PR1+ action.
 

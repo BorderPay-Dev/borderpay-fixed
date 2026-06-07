@@ -39,7 +39,7 @@
  *          (`get-account-rails`, `resolve-account`, etc.).
  * - true:  Existing SendMoneyFlow renders normally.
  */
-export const TRANSFERS_LIVE: boolean = false;
+export const TRANSFERS_LIVE: boolean = true;
 
 /**
  * Whether Bridge onboarding (customer creation + KYC/KYB hosted-link start)
@@ -53,7 +53,7 @@ export const TRANSFERS_LIVE: boolean = false;
  * Keep this in lockstep with the server-side `BRIDGE_ONBOARDING_ENABLED`
  * gate on the Bridge onboarding functions.
  */
-export const BRIDGE_ONBOARDING_LIVE: boolean = false;
+export const BRIDGE_ONBOARDING_LIVE: boolean = true;
 
 /**
  * Whether the Bridge external-accounts (payout destinations) feature is
@@ -75,4 +75,4 @@ export const BRIDGE_ONBOARDING_LIVE: boolean = false;
  * Like TRANSFERS_LIVE, this is a compile-time constant, not a runtime
  * config service — the UI ships/disappears atomically with a commit.
  */
-export const EXTERNAL_ACCOUNTS_LIVE: boolean = false;
+export const EXTERNAL_ACCOUNTS_LIVE: boolean = true;

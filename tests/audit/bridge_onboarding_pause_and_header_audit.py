@@ -68,10 +68,10 @@ def main() -> int:
     checks: list[tuple[str, bool, str]] = []
 
     checks.append((
-        "P1 onboarding flag defaults off and no money-movement flag was added",
-        "export const BRIDGE_ONBOARDING_LIVE: boolean = false" in flags
+        "P1 onboarding flag LIVE (go-live) and no rogue money-movement flag added",
+        "export const BRIDGE_ONBOARDING_LIVE: boolean = true" in flags
         and "MONEY_MOVEMENT_LIVE" not in flags,
-        "featureFlags.ts must pause only onboarding, not money movement",
+        "go-live: onboarding is intentionally live; backend BRIDGE_ONBOARDING_ENABLED must match at deploy",
     ))
 
     checks.append((

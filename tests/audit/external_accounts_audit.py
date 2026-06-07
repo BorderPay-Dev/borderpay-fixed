@@ -64,12 +64,12 @@ def main() -> int:
     add_scr = read(ADD_SCR)
     migr    = read(MIGR)
 
-    # (G1)
+    # (G1) go-live build: external accounts are intentionally LIVE.
     m = re.search(r"export\s+const\s+EXTERNAL_ACCOUNTS_LIVE\s*:\s*boolean\s*=\s*(true|false)", flags)
     if not m:
         fail("G1: EXTERNAL_ACCOUNTS_LIVE not exported with explicit boolean default")
-    if m.group(1) != "false":
-        fail(f"G1: EXTERNAL_ACCOUNTS_LIVE must default to false (got {m.group(1)})")
+    if m.group(1) != "true":
+        fail(f"G1: EXTERNAL_ACCOUNTS_LIVE must be true for the go-live release (got {m.group(1)})")
 
     # (G2) both routes gate on the flag
     for route in ("external-accounts", "add-external-account"):
