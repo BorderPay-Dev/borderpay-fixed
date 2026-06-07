@@ -22,6 +22,7 @@ import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAcco
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
+import { TreasuryCard } from './TreasuryCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import type { PlanKey } from '../../utils/subscriptions/plans';
 
@@ -196,6 +197,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             <BizChip label="Team"    Icon={Users}    onClick={() => onNavigate('team')}          tc={tc} primary />
           </div>
         </section>
+
+        {/* ── Treasury management ─────────────────────────────────── */}
+        <TreasuryCard totalUsd={usdLikeTotal} wallets={wallets} />
 
         {/* Profile error */}
         {profileError && (
