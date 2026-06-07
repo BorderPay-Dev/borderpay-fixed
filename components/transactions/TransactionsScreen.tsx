@@ -9,6 +9,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Filter, Download, Search, ArrowUpRight, ArrowDownLeft, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { txDirection } from '../../utils/transactions/direction';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -21,7 +22,9 @@ interface TransactionsScreenProps {
 
 interface Transaction {
   id: string;
-  type: 'credit' | 'debit';
+  // DB transaction_type enum (deposit/withdrawal/transfer/...); direction is
+  // derived via txDirection(), not assumed to be credit/debit.
+  type: string;
   amount: number;
   currency: string;
   description: string;
@@ -29,6 +32,7 @@ interface Transaction {
   created_at: string;
   recipient?: string;
   sender?: string;
+  metadata?: any;
 }
 
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
@@ -88,7 +92,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const filteredTransactions = transactions.filter(txn => {
     // Apply type filter (was previously sent as a filter arg to the
     // never-deployed `get-customer-transactions`; now applied locally).
-    if (filterType !== 'all' && txn.type !== filterType) return false;
+    if (filterType !== 'all' && txDirection(txn) !== filterType) return false;
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -254,11 +258,11 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
                     >
                       <div className="flex items-center gap-4">
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                          txn.type === 'credit'
+                          txDirection(txn) === 'credit'
                             ? 'bg-green-500/20'
                             : 'bg-red-500/20'
                         }`}>
-                          {txn.type === 'credit' ? (
+                          {txDirection(txn) === 'credit' ? (
                             <ArrowDownLeft size={20} className="text-green-500" />
                           ) : (
                             <ArrowUpRight size={20} className="text-red-500" />
@@ -277,9 +281,9 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
 
                         <div className="text-right">
                           <p className={`bp-text-body font-bold ${
-                            txn.type === 'credit' ? 'text-green-500' : 'text-red-500'
+                            txDirection(txn) === 'credit' ? 'text-green-500' : 'text-red-500'
                           }`}>
-                            {txn.type === 'credit' ? '+' : '-'}${txn.amount.toFixed(2)}
+                            {txDirection(txn) === 'credit' ? '+' : '-'}${txn.amount.toFixed(2)}
                           </p>
                           <p className={`bp-text-small ${
                             txn.status === 'completed' ? 'text-green-400' :

@@ -11,6 +11,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { TrendingUp, TrendingDown, Landmark } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { txDirection } from '../../utils/transactions/direction';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface WalletRow { currency: string; balance: number }
@@ -27,7 +28,7 @@ const PERIODS: { key: Period; days: number; points: number }[] = [
 ];
 
 const DAY = 86_400_000;
-const signed = (t: any) => (t.type === 'credit' ? 1 : -1) * Number(t.amount || 0);
+const signed = (t: any) => (txDirection(t) === 'credit' ? 1 : -1) * Number(t.amount || 0);
 
 // balance(t) = currentTotal − Σ(signed flows after t). Real ledger reconstruction.
 function buildSeries(txs: any[], currentTotal: number, days: number, points: number): { values: number[]; times: number[] } {
