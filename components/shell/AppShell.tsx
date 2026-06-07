@@ -197,8 +197,10 @@ export function AppShell({
 
   useEffect(() => {
     if (!drawerOpen) return;
-    (['wallet', 'transactions', 'pricing', 'kyc', 'settings'] as AppRoute[]).forEach(prefetchRoute);
-  }, [drawerOpen, prefetchRoute]);
+    (['wallet', 'transactions', 'kyc', 'settings'] as AppRoute[]).forEach(prefetchRoute);
+    // Warm the payout-accounts chunk too (not a shell route) so it opens instantly.
+    if (onOpenPayoutAccounts) (window as any).__borderpay_prefetch?.('external-accounts');
+  }, [drawerOpen, prefetchRoute, onOpenPayoutAccounts]);
 
   const primaryTabs = useMemo(() => {
     const shared = [

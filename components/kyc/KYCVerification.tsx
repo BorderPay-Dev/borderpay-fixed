@@ -15,8 +15,9 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail } from 'lucide-react';
 import { supabase } from '../../utils/supabase/client';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface KYCVerificationProps {
@@ -137,16 +138,12 @@ export function KYCVerification({ userId, userEmail, onBack }: KYCVerificationPr
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
+      <FloatingBackButton onBack={onBack} />
       <header
-        className="flex items-center justify-between px-5 sm:px-6 pb-3 max-w-2xl mx-auto"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.25rem)' }}
+        className="flex items-center justify-between pl-16 pr-5 sm:pr-6 pb-3 max-w-2xl mx-auto"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
       >
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center`} aria-label="Back">
-            <ArrowLeft className={`w-4 h-4 ${tc.text}`} />
-          </button>
-          <h1 className={`text-base font-semibold ${tc.text}`}>{title}</h1>
-        </div>
+        <h1 className={`text-base font-semibold ${tc.text}`}>{title}</h1>
         <button
           onClick={refresh}
           aria-label="Refresh status"

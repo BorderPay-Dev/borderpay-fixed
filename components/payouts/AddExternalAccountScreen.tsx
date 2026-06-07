@@ -17,7 +17,8 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowLeft, Banknote, Loader2, Building2, User as UserIcon } from 'lucide-react';
+import { Banknote, Loader2, Building2, User as UserIcon } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -125,10 +126,11 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <header className="flex items-center gap-3 px-5 sm:px-6 pt-5 pb-3">
-        <button onClick={onBack} className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center`} aria-label="Back">
-          <ArrowLeft className={`w-4 h-4 ${tc.text}`} />
-        </button>
+      <FloatingBackButton onBack={onBack} />
+      <header
+        className="flex items-center gap-3 pl-16 pr-5 sm:pr-6 pb-3"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
+      >
         <h1 className={`text-base font-semibold ${tc.text}`}>Add payout account</h1>
       </header>
 

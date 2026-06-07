@@ -106,6 +106,8 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   pricing:       (PricingScreen as any).preload,
   team:          (TeamScreen    as any).preload,
   notifications: (NotificationsScreen as any).preload,
+  'external-accounts':   (ExternalAccountsScreen as any).preload,
+  'add-external-account': (AddExternalAccountScreen as any).preload,
 };
 
 export function prefetchScreen(name: string) {
@@ -310,8 +312,21 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [accountType, setAccountType] = useState<'individual' | 'business'>(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
-      return cached?.account_type === 'business' ? 'business' : 'individual';
-    } catch { return 'individual'; }
+      if (cached?.account_type === 'business') return 'business';
+      if (cached?.account_type === 'individual') return 'individual';
+      // Fallback: the cached profile may not carry account_type yet (e.g. when
+      // get-user-profile omitted it). Read it synchronously from the Supabase
+      // auth-token metadata (set at signup) so business users don't first-paint
+      // the individual dashboard and then flip.
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !/^sb-.+-auth-token$/.test(k)) continue;
+        const p = JSON.parse(localStorage.getItem(k) || 'null');
+        const meta = (p?.user || p?.currentSession?.user)?.user_metadata || {};
+        if (meta.account_type === 'business') return 'business';
+      }
+    } catch { /* fall through */ }
+    return 'individual';
   });
 
   useEffect(() => {
