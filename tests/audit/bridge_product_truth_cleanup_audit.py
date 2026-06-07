@@ -69,6 +69,7 @@ def main() -> int:
     va_fn = read("supabase/functions/bridge-virtual-account/index.ts")
     wallet_fn = read("supabase/functions/bridge-wallet/index.ts")
     main_app = read("components/app/MainApp.tsx")
+    funding = read("components/deposit/FundingScreen.tsx")
 
     checks: list[tuple[str, bool, str]] = []
 
@@ -163,9 +164,19 @@ def main() -> int:
     checks.append(check(
         "P6 fake live routes removed from mounted app paths",
         "const CurrencyConverter" not in main_app
+        # The legacy mock funding screen (mobile-money / card mocks) must never
+        # be mounted. The live funding route now mounts the self-contained
+        # FundingScreen, which composes the SAME truthful Bridge surfaces.
         and "const AddMoneyScreen" not in main_app
+        and "AddMoneyScreen" not in main_app
         and re.search(r"case 'converter':\s*return <ExchangeScreen", main_app)
-        and re.search(r"case 'deposit':\s*case 'add-money':\s*return <ReceiveMoneyScreen", main_app)
+        and re.search(r"case 'deposit':\s*case 'add-money':\s*return <FundingScreen", main_app)
+        # FundingScreen must be the real Bridge surface (provisioned VA +
+        # stablecoin), not a mock: no fabricated mobile-money / card flows.
+        and "BridgeVirtualAccountsCard" in funding
+        and "BridgeWalletsCard" in funding
+        and "mobileMoney" not in funding
+        and "MTN" not in funding
         and "USD, EUR, GBP, or stablecoin" not in business_dashboard,
         "interactive mock converter/deposit screens must not be mounted as live routes",
     ))
