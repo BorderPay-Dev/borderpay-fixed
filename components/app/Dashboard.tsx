@@ -743,15 +743,13 @@ type RatePair = {
   vol: number;    // sparkline volatility, scaled to the pair's magnitude
 };
 
-// Tier-1 African corridors surfaced by default. If the live API returns these
-// pairs they replace the fallback; if not, the fallback keeps the widget
-// populated rather than rendering empty.
+// Major currency pairs (USD / EUR / GBP) surfaced by default. If the live API
+// returns these pairs they replace the fallback; if not, the fallback keeps the
+// widget populated rather than rendering empty.
 const FALLBACK_PAIRS: RatePair[] = [
-  { from: 'USD', to: 'NGN', rate: 1552.30 * (1 + PLATFORM_MARKUP), base: 1552.30, change: +0.82, vol: 80 },
-  { from: 'USD', to: 'KES', rate: 129.45  * (1 + PLATFORM_MARKUP), base: 129.45,  change: -0.34, vol: 4 },
-  { from: 'USD', to: 'GHS', rate: 15.52   * (1 + PLATFORM_MARKUP), base: 15.52,   change: +1.12, vol: 0.8 },
-  { from: 'USD', to: 'UGX', rate: 3702.0  * (1 + PLATFORM_MARKUP), base: 3702.0,  change: +0.25, vol: 120 },
-  { from: 'USD', to: 'XAF', rate: 605.80  * (1 + PLATFORM_MARKUP), base: 605.80,  change: -0.18, vol: 8 },
+  { from: 'USD', to: 'EUR', rate: 0.92 * (1 + PLATFORM_MARKUP), base: 0.92, change: +0.12, vol: 0.004 },
+  { from: 'USD', to: 'GBP', rate: 0.79 * (1 + PLATFORM_MARKUP), base: 0.79, change: -0.08, vol: 0.003 },
+  { from: 'EUR', to: 'GBP', rate: 0.86 * (1 + PLATFORM_MARKUP), base: 0.86, change: +0.04, vol: 0.003 },
 ];
 
 // ── HeroAction ──────────────────────────────────────────────────────────
@@ -789,7 +787,7 @@ function HeroAction({
   );
 }
 
-const CORRIDOR_ALLOWLIST = new Set(['NGN', 'KES', 'GHS', 'UGX', 'XAF', 'TZS', 'ZAR', 'XOF']);
+const CORRIDOR_ALLOWLIST = new Set(['EUR', 'GBP']);
 
 // Mulberry32 — deterministic pseudo-random so sparklines stay stable across
 // re-renders (previous impl used Math.random which made the lines twitch on
@@ -909,7 +907,7 @@ function DashboardRateWidget({ onNavigate }: { onNavigate: (screen: string) => v
         if (live.length > 0) {
           // Preserve the visual ordering from FALLBACK_PAIRS so the layout
           // stays stable when rates come back.
-          const order = ['NGN', 'KES', 'GHS', 'UGX', 'XAF', 'TZS', 'ZAR', 'XOF'];
+          const order = ['EUR', 'GBP'];
           live.sort((a, b) => order.indexOf(a.to) - order.indexOf(b.to));
           setPairs(live);
           setIsLive(true);
