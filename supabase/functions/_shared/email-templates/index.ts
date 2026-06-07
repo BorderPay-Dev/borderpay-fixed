@@ -17,6 +17,7 @@ import { render as individualTransactionNotification }from "./individual/transac
 import { render as individualKycDecision }            from "./individual/kyc-decision.ts";
 import { render as individualAccountReady }           from "./individual/account-ready.ts";
 import { render as individualVerificationAuthorized }  from "./individual/verification-authorized.ts";
+import { render as individualPaymentReceived }         from "./individual/payment-received.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessKybSubmitted }             from "./business/kyb-submitted.ts";
@@ -25,6 +26,7 @@ import { render as businessTransactionNotification }  from "./business/transacti
 import { render as businessAccountActivated }         from "./business/account-activated.ts";
 import { render as businessAccountReady }             from "./business/account-ready.ts";
 import { render as businessVerificationAuthorized }    from "./business/verification-authorized.ts";
+import { render as businessPaymentReceived }           from "./business/payment-received.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -33,13 +35,15 @@ export type TemplateName =
   | "individual.kyc_decision"
   | "individual.account_ready"
   | "individual.verification_authorized"
+  | "individual.payment_received"
   | "business.email_verification"
   | "business.kyb_submitted"
   | "business.kyb_decision"
   | "business.transaction_notification"
   | "business.account_activated"
   | "business.account_ready"
-  | "business.verification_authorized";
+  | "business.verification_authorized"
+  | "business.payment_received";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -50,6 +54,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.kyc_decision":            individualKycDecision,
   "individual.account_ready":           individualAccountReady,
   "individual.verification_authorized": individualVerificationAuthorized,
+  "individual.payment_received":        individualPaymentReceived,
   "business.email_verification":        businessEmailVerification,
   "business.kyb_submitted":             businessKybSubmitted,
   "business.kyb_decision":              businessKybDecision,
@@ -57,6 +62,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.account_activated":         businessAccountActivated,
   "business.account_ready":             businessAccountReady,
   "business.verification_authorized":   businessVerificationAuthorized,
+  "business.payment_received":          businessPaymentReceived,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {

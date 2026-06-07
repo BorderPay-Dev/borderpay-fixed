@@ -62,6 +62,110 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+// ── Post-payment verification email ───────────────────────────────────────
+// After a successful activation payment we email the user a SECURE HOSTED
+// verification link (Bridge /v0/kyc_links). The in-app KYC screen is read-only
+// status, so the link is delivered by email. This whole path is BEST-EFFORT:
+// it never blocks or fails the activation response (the money already moved).
+const BRIDGE_BASE_URL  = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
+const BRIDGE_API_KEY   = Deno.env.get("BRIDGE_API_KEY") ?? "";
+const APP_URL          = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
+const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
+const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
+
+function extractKycLink(parsed: any): { link_url: string; link_id: string; customer_id?: string } | null {
+  if (!parsed) return null;
+  const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
+  for (const c of candidates) {
+    const link_url: string | null =
+      c?.kyc_link?.url || (typeof c?.kyc_link === "string" ? c.kyc_link : null) || c?.url || c?.link;
+    const link_id: string | null = c?.kyc_link?.id || c?.id;
+    const customer_id: string | undefined = c?.customer_id || c?.kyc_link?.customer_id;
+    if (link_url && link_id) return { link_url, link_id, customer_id };
+  }
+  return null;
+}
+
+async function bridgeKycPost(body: unknown, idemKey: string): Promise<any> {
+  if (!BRIDGE_API_KEY) return null;
+  const res = await fetch(`${BRIDGE_BASE_URL}/v0/kyc_links`, {
+    method: "POST",
+    headers: {
+      "Api-Key": BRIDGE_API_KEY, "Accept": "application/json", "Content-Type": "application/json",
+      "Idempotency-Key": idemKey, "User-Agent": "borderpay-edge/1.0",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  try { return text ? JSON.parse(text) : null; } catch { return null; }
+}
+
+async function postSendEmail(userId: string, to: string, template: string, props: Record<string, unknown>): Promise<void> {
+  await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SEND_EMAIL_TOKEN}` },
+    body: JSON.stringify({ to, template, props, user_id: userId, idempotency_key: `activation:verify:${userId}` }),
+  });
+}
+
+/** Best-effort: ensure a hosted verification link exists, then email it. Never throws. */
+async function emailVerificationLink(userId: string, accountType: "individual" | "business"): Promise<void> {
+  try {
+    if (!BRIDGE_API_KEY || !SEND_EMAIL_TOKEN) return;
+
+    if (accountType === "business") {
+      const { data: prof } = await supa.from("user_profiles").select("email").eq("id", userId).maybeSingle();
+      const { data: biz } = await supa.from("business_profiles")
+        .select("company_name, bridge_customer_id, bridge_kyb_status, bridge_kyb_link_id, bridge_kyb_link_url")
+        .eq("user_id", userId).maybeSingle();
+      const email = prof?.email;
+      if (!email || !biz?.company_name) return;
+      if ((biz.bridge_kyb_status || "").toLowerCase() === "approved") return;
+      let link_url = biz.bridge_kyb_link_url as string | null;
+      if (!link_url) {
+        const reqBody: Record<string, unknown> = {
+          type: "business", email, business_legal_name: biz.company_name,
+          endorsements: ["base"], redirect_uri: `${APP_URL}/onboarding/kyc-complete`,
+        };
+        if (biz.bridge_customer_id) reqBody.customer_id = biz.bridge_customer_id;
+        const link = extractKycLink(await bridgeKycPost(reqBody, `borderpay:kyb:business:${biz.bridge_customer_id || userId}`));
+        if (!link) return;
+        link_url = link.link_url;
+        await supa.from("business_profiles").update({
+          bridge_kyb_link_id: link.link_id, bridge_kyb_link_url: link.link_url, bridge_kyb_status: "pending",
+          ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}), updated_at: new Date().toISOString(),
+        }).eq("user_id", userId);
+      }
+      await postSendEmail(userId, email, "business.payment_received", { company_name: biz.company_name, kyc_url: link_url });
+      return;
+    }
+
+    const { data: prof } = await supa.from("user_profiles")
+      .select("email, full_name, bridge_customer_id, bridge_kyc_status, bridge_kyc_link_id, bridge_kyc_link_url")
+      .eq("id", userId).maybeSingle();
+    if (!prof?.email) return;
+    if ((prof.bridge_kyc_status || "").toLowerCase() === "approved") return;
+    let link_url = prof.bridge_kyc_link_url as string | null;
+    if (!link_url) {
+      const reqBody: Record<string, unknown> = {
+        type: "individual", email: prof.email, full_name: prof.full_name || "User",
+        endorsements: ["base"], redirect_uri: `${APP_URL}/onboarding/kyc-complete`,
+      };
+      if (prof.bridge_customer_id) reqBody.customer_id = prof.bridge_customer_id;
+      const link = extractKycLink(await bridgeKycPost(reqBody, `borderpay:kyc:individual:${prof.bridge_customer_id || userId}`));
+      if (!link) return;
+      link_url = link.link_url;
+      await supa.from("user_profiles").update({
+        bridge_kyc_link_id: link.link_id, bridge_kyc_link_url: link.link_url, bridge_kyc_status: "pending",
+        ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}), updated_at: new Date().toISOString(),
+      }).eq("id", userId);
+    }
+    await postSendEmail(userId, prof.email, "individual.payment_received", { full_name: prof.full_name, kyc_url: link_url });
+  } catch (e) {
+    console.error("emailVerificationLink (best-effort) failed:", (e as Error).message);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -155,6 +259,10 @@ Deno.serve(async (req) => {
     p_subscription_id: sub.id,
     p_new_plan_key:    planKey,
   });
+
+  // 4. Best-effort: email the hosted verification link now that payment
+  //    succeeded. Wrapped so it can never fail the activation response.
+  await emailVerificationLink(user.id, profile.account_type as "individual" | "business");
 
   return json({
     success: true,
