@@ -61,6 +61,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
+// Roster cache — instant mount on revisit, refreshed in the background.
+const TEAM_CACHE_KEY = 'borderpay_team_roster_v1';
+function readRosterCache(): TeamRosterResponse | null {
+  try { const v = JSON.parse(localStorage.getItem(TEAM_CACHE_KEY) || 'null'); return v && typeof v === 'object' ? v : null; }
+  catch { return null; }
+}
+function writeRosterCache(r: TeamRosterResponse): void {
+  try { localStorage.setItem(TEAM_CACHE_KEY, JSON.stringify(r)); } catch { /* quota */ }
+}
+
 export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenProps) {
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
@@ -96,9 +106,12 @@ function BusinessTeamPanel({
   onBack: () => void;
   onManagePlans: () => void;
 }) {
-  const [loading, setLoading]   = useState(true);
+  // Native-app pattern: seed the roster from the last-loaded cache so the panel
+  // mounts INSTANTLY, then refresh in the background.
+  const cachedRoster = readRosterCache();
+  const [loading, setLoading]   = useState(cachedRoster === null);
   const [error, setError]       = useState<string | null>(null);
-  const [roster, setRoster]     = useState<TeamRosterResponse | null>(null);
+  const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
   const [busyId, setBusyId]     = useState<string | null>(null);
 
   // Invite form
@@ -107,8 +120,9 @@ function BusinessTeamPanel({
   const [role, setRole]             = useState<Exclude<TeamRole, 'owner'>>('member');
   const [inviting, setInviting]     = useState(false);
 
+  // Background refresh — does not blank the cached roster (no setLoading(true)).
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
+    setError(null);
     try {
       const r = await withTimeout(
         backendAPI.team.list(),
@@ -117,14 +131,16 @@ function BusinessTeamPanel({
       );
       if (r.success && r.data) {
         setRoster(r.data);
-      } else {
+        writeRosterCache(r.data);
+      } else if (!roster) {
         setError(r.error || 'Could not load team');
       }
     } catch (e: any) {
-      setError(e?.message || 'Could not load team');
+      if (!roster) setError(e?.message || 'Could not load team');
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { load(); }, [load]);

@@ -32,25 +32,37 @@ interface ExternalAccountsScreenProps {
   onAdd: () => void;
 }
 
+// Native-app pattern: cache the last-loaded list so the screen mounts INSTANTLY
+// with known data on the next visit, then refreshes in the background.
+const CACHE_KEY = 'borderpay_payout_accounts_v1';
+function readCache(): ExternalAccountRow[] {
+  try { const v = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+  catch { return []; }
+}
+
 export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
   const tc = useThemeClasses();
-  const [rows, setRows] = useState<ExternalAccountRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cached = readCache();
+  const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
+  // Only show skeletons when we have nothing cached to render instantly.
+  const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
+  // Background refresh — never blanks the cached view; no setLoading(true) here.
   const load = async () => {
-    setLoading(true);
     setError(null);
     try {
       const r: any = await backendAPI.bridge.externalAccount.list();
       if (r?.success) {
-        setRows((r.data?.external_accounts || []) as ExternalAccountRow[]);
-      } else {
+        const next = (r.data?.external_accounts || []) as ExternalAccountRow[];
+        setRows(next);
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+      } else if (rows.length === 0) {
         setError(r?.error || 'Could not load payout accounts');
       }
     } catch (e: any) {
-      setError(e?.message || 'Could not load payout accounts');
+      if (rows.length === 0) setError(e?.message || 'Could not load payout accounts');
     } finally {
       setLoading(false);
     }
@@ -64,7 +76,11 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       const r: any = await backendAPI.bridge.externalAccount.remove(extId);
       if (r?.success) {
         toast.success('Payout account removed.');
-        setRows(prev => prev.filter(x => x.bridge_external_account_id !== extId));
+        setRows(prev => {
+          const next = prev.filter(x => x.bridge_external_account_id !== extId);
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+          return next;
+        });
       } else {
         toast.error(r?.error || 'Could not remove the payout account.');
       }
