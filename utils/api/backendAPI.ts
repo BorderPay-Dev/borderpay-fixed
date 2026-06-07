@@ -557,14 +557,7 @@ export const fxAPI = {
       const rates: Record<string, number> = {};
       const put = (key: string, val: number | null) => { if (val) rates[key] = val; };
 
-      // African corridors (display-only / indicative) + majors, USD base.
-      put('USD_NGN', n(R.NGN));
-      put('USD_KES', n(R.KES));
-      put('USD_GHS', n(R.GHS));
-      put('USD_ZAR', n(R.ZAR));
-      put('USD_XOF', n(R.XOF));
-      put('USD_UGX', n(R.UGX));
-      put('USD_TZS', n(R.TZS));
+      // Majors only (USD / EUR / GBP), USD base.
       put('USD_EUR', n(R.EUR));
       put('USD_GBP', n(R.GBP));
       // Major crosses derived from the USD base.

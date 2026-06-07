@@ -24,27 +24,17 @@ interface Currency {
   flag: string;
 }
 
-// Supported FX currencies
+// Supported FX currencies (multi-currency accounts)
 const FX_CURRENCIES: Currency[] = [
   { code: 'USD', name: 'US Dollar', symbol: '$', flag: '🇺🇸' },
-  { code: 'NGN', name: 'Nigerian Naira', symbol: '₦', flag: '🇳🇬' },
-  { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh', flag: '🇰🇪' },
-  { code: 'GHS', name: 'Ghanaian Cedi', symbol: '₵', flag: '🇬🇭' },
-  { code: 'TZS', name: 'Tanzanian Shilling', symbol: 'TSh', flag: '🇹🇿' },
-  { code: 'UGX', name: 'Ugandan Shilling', symbol: 'USh', flag: '🇺🇬' },
-  { code: 'XAF', name: 'Central African CFA', symbol: 'FCFA', flag: '🇨🇲' },
-  { code: 'XOF', name: 'West African CFA', symbol: 'FCFA', flag: '🌍' },
-  { code: 'SLE', name: 'Sierra Leonean Leone', symbol: 'Le', flag: '🇸🇱' },
-  { code: 'MZN', name: 'Mozambican Metical', symbol: 'MT', flag: '🇲🇿' },
-  { code: 'MWK', name: 'Malawian Kwacha', symbol: 'MK', flag: '🇲🇼' },
+  { code: 'EUR', name: 'Euro', symbol: '€', flag: '🇪🇺' },
+  { code: 'GBP', name: 'British Pound', symbol: '£', flag: '🇬🇧' },
 ];
 
 // Stablecoins (1:1 with USD, no FX quote needed)
 const STABLECOIN_CURRENCIES: Currency[] = [
-  { code: 'USDT',  name: 'Tether',     symbol: '₮', flag: '₮' },
-  { code: 'USDC',  name: 'USD Coin',   symbol: '$', flag: '💵' },
-  { code: 'PYUSD', name: 'PayPal USD', symbol: '$', flag: '💳' },
-  { code: 'USDB',  name: 'Backed USD', symbol: '$', flag: '💵' },
+  { code: 'USDT', name: 'Tether',   symbol: '₮', flag: '₮' },
+  { code: 'USDC', name: 'USD Coin', symbol: '$', flag: '💵' },
 ];
 
 const ALL_CURRENCIES = [...FX_CURRENCIES, ...STABLECOIN_CURRENCIES];
