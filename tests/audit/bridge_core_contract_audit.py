@@ -39,12 +39,14 @@ def main() -> int:
     checks: list[tuple[str, bool, str]] = []
 
     flags = read(ROOT / "utils" / "featureFlags.ts")
-    checks.append(("B1 TRANSFERS_LIVE = false",
-                   bool(re.search(r"TRANSFERS_LIVE\s*:\s*boolean\s*=\s*false", flags)),
-                   "transfers must stay gated off"))
-    checks.append(("B2 EXTERNAL_ACCOUNTS_LIVE = false",
-                   bool(re.search(r"EXTERNAL_ACCOUNTS_LIVE\s*:\s*boolean\s*=\s*false", flags)),
-                   "external accounts must stay gated off"))
+    # release/go-live build: money-movement flags are intentionally LIVE. The
+    # backend env (BRIDGE_TRANSFERS_ENABLED) must be flipped in lockstep at deploy.
+    checks.append(("B1 TRANSFERS_LIVE = true (go-live)",
+                   bool(re.search(r"TRANSFERS_LIVE\s*:\s*boolean\s*=\s*true", flags)),
+                   "transfers are intentionally live for this release"))
+    checks.append(("B2 EXTERNAL_ACCOUNTS_LIVE = true (go-live)",
+                   bool(re.search(r"EXTERNAL_ACCOUNTS_LIVE\s*:\s*boolean\s*=\s*true", flags)),
+                   "external accounts are intentionally live for this release"))
 
     cards = read(ROOT / "components" / "cards" / "CardsScreen.tsx").lower()
     checks.append(("B3 cards remain locked",
@@ -94,8 +96,8 @@ def main() -> int:
     doc_ok = all(s in doc for s in [
         "Bridge is the primary eligibility layer",
         "Out of scope",
-        "TRANSFERS_LIVE = false",
-        "EXTERNAL_ACCOUNTS_LIVE = false",
+        "TRANSFERS_LIVE = true",
+        "EXTERNAL_ACCOUNTS_LIVE = true",
     ])
     checks.append(("B7 contract doc present with key sections", doc_ok,
                    "docs/bridge-core-contract.md missing or incomplete"))
