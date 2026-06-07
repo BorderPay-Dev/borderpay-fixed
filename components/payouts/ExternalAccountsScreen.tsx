@@ -79,7 +79,10 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <header className="flex items-center justify-between px-5 sm:px-6 pt-5 pb-3">
+      <header
+        className="flex items-center justify-between px-5 sm:px-6 pb-3"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.25rem)' }}
+      >
         <div className="flex items-center gap-3">
           <button onClick={onBack} className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center`} aria-label="Back">
             <ArrowLeft className={`w-4 h-4 ${tc.text}`} />
@@ -93,8 +96,16 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
 
       <main className="px-5 sm:px-6 pb-10 max-w-md mx-auto">
         {loading ? (
-          <div className={`flex items-center gap-3 ${tc.textMuted} py-10 justify-center`}>
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading…
+          <div className="space-y-3">
+            {[0, 1].map(i => (
+              <div key={i} className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 flex items-center gap-3 animate-pulse`}>
+                <div className={`w-10 h-10 rounded-xl ${tc.bgAlt}`} />
+                <div className="flex-1 space-y-2">
+                  <div className={`h-3 w-32 rounded ${tc.bgAlt}`} />
+                  <div className={`h-2.5 w-20 rounded ${tc.bgAlt}`} />
+                </div>
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-300">{error}</div>

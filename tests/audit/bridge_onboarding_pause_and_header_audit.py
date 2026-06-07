@@ -110,18 +110,18 @@ def main() -> int:
         "signup must remain able to onboard users without KYC/KYB",
     ))
 
+    # Go-live + read-only KYC: onboarding is LIVE and the in-app KYC screen is a
+    # read-only STATUS view (verification is initiated by the emailed link, not
+    # in-app), so the old "paused copy" requirement is retired. The standing
+    # invariant is white-label: KYC/KYB entry points must never surface the
+    # underlying provider's name to users.
     checks.append((
-        "P6 KYC/KYB public entry points render paused copy without provider naming",
-        "BRIDGE_ONBOARDING_LIVE" in kyc_screen
-        and "Verification paused" in kyc_screen_render
-        and "KYC and KYB onboarding is paused" in kyc_screen_render
-        and "BRIDGE_ONBOARDING_LIVE" in kyc_card
-        and "KYC and KYB onboarding is paused" in kyc_card_render
-        and "Bridge KYC" not in kyc_screen_render
+        "P6 KYC/KYB entry points do not expose the provider name (white-label)",
+        "Bridge KYC" not in kyc_screen_render
         and "Bridge KYC" not in kyc_card_render
         and "Bridge KYB" not in kyc_screen_render
         and "Bridge KYB" not in kyc_card_render,
-        "KYCVerification and BridgeKycStatusCard must show paused copy without public partner names",
+        "KYCVerification and BridgeKycStatusCard must not surface public partner names",
     ))
 
     checks.append((

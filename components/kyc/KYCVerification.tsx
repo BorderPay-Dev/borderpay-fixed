@@ -1,435 +1,211 @@
 /**
- * BorderPay Africa — KYC / KYB
+ * BorderPay Africa — Identity & KYC (read-only status)
  *
- * Bridge hosted-link flow. Replaces the prior 1400-line legacy-provider
- * document-upload form. The component now does five things only:
+ * Verification is initiated by a secure link we email the user after payment —
+ * never started in-app. This screen therefore only READS and DISPLAYS the
+ * current Bridge KYC/KYB status:
  *
- *   1. Fetches the user's current Bridge KYC/KYB status from the database.
- *   2. Decides whether to drive Individual KYC or Business KYB based on
- *      user_profiles.account_type.
- *   3. Calls bridge-kyc-link or bridge-kyb-link to obtain a hosted Bridge URL.
- *   4. Opens the URL in a new tab/window so the user completes ID + selfie +
- *      (for KYB) ownership / corporate docs on Bridge's hosted page.
- *   5. Polls the database for status flips written by the bridge-webhook
- *      handler. When approved, calls onComplete(). When rejected, surfaces
- *      Bridge's reason and offers Retry.
+ *   not started · pending · under review · verified · verification failed
  *
- * Bridge is the source of truth. We never collect ID images directly here.
- *
- * Props are unchanged from the prior version so MainApp.tsx keeps working.
+ * Status is seeded synchronously from the cached profile (so the screen opens
+ * instantly, no loading spinner) and refreshed in the background. No start
+ * button, no hosted link — Bridge remains the source of truth and developer/
+ * internal rejection reasons are never surfaced.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import {
-  ArrowLeft, ShieldCheck, ExternalLink, Loader2, CheckCircle2, AlertCircle,
-  Clock, RefreshCw, Building2, User as UserIcon,
-} from 'lucide-react';
-import { backendAPI } from '../../utils/api/backendAPI';
+import { ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail } from 'lucide-react';
 import { supabase } from '../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { showToast } from '../common/StatusToast';
-import { BRIDGE_ONBOARDING_LIVE } from '../../utils/featureFlags';
 
 interface KYCVerificationProps {
-  userId:    string;
-  userEmail: string;
-  onBack:    () => void;
+  userId:     string;
+  userEmail:  string;
+  onBack:     () => void;
   onComplete: () => void;
 }
 
-type AccountType   = 'individual' | 'business';
-type BridgeStatus  = 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected';
+type AccountType  = 'individual' | 'business';
+type KycView      = 'not_started' | 'pending' | 'under_review' | 'verified' | 'rejected';
 
-interface ProfileSnapshot {
-  account_type:    AccountType;
-  bridge_status:   BridgeStatus;
-  bridge_link_url: string | null;
-  rejected_reason: string | null;
+function mapBridge(raw: string | null | undefined): KycView {
+  switch ((raw || '').toLowerCase()) {
+    case 'approved':
+    case 'active':
+    case 'verified':     return 'verified';
+    case 'rejected':     return 'rejected';
+    case 'under_review': return 'under_review';
+    case 'pending':
+    case 'incomplete':   return 'pending';
+    default:             return 'not_started';
+  }
 }
 
-const POLL_INTERVAL_MS  = 8_000;
-const POLL_MAX_DURATION = 5 * 60_000;
+/** Synchronous seed from the cached profile so the screen never flashes a loader. */
+function seedFromCache(): { accountType: AccountType; status: KycView } {
+  try {
+    const u = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    const accountType: AccountType = u.account_type === 'business' ? 'business' : 'individual';
+    if (String(u.bridge_account_status || '').toLowerCase() === 'rejected') {
+      return { accountType, status: 'rejected' };
+    }
+    const raw = accountType === 'business' ? u.bridge_kyb_status : u.bridge_kyc_status;
+    return { accountType, status: mapBridge(raw) };
+  } catch {
+    return { accountType: 'individual', status: 'not_started' };
+  }
+}
 
-export function KYCVerification({ userId, userEmail, onBack, onComplete }: KYCVerificationProps) {
+export function KYCVerification({ userId, userEmail, onBack }: KYCVerificationProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const tt = (k: string, fallback: string) => ((t as any)?.(k) ?? fallback) as string;
+  const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [profile, setProfile]     = useState<ProfileSnapshot | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [starting, setStarting]   = useState(false);
-  const [polling, setPolling]     = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-  const pollTimer = useRef<number | null>(null);
-  const pollUntil = useRef<number>(0);
+  const seed = useMemo(() => seedFromCache(), []);
+  const [accountType, setAccountType] = useState<AccountType>(seed.accountType);
+  const [status, setStatus] = useState<KycView>(seed.status);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchProfile = useCallback(async (): Promise<ProfileSnapshot | null> => {
-    const { data: prof, error: pErr } = await supabase
-      .from('user_profiles')
-      .select('account_type, bridge_kyc_status, bridge_kyc_link_url')
-      .eq('id', userId)
-      .maybeSingle();
-    if (pErr || !prof) {
-      setError(pErr?.message || 'Could not load your profile.');
-      return null;
-    }
-    const accountType: AccountType = prof.account_type === 'business' ? 'business' : 'individual';
-
-    if (accountType === 'business') {
-      const { data: biz } = await supabase
-        .from('business_profiles')
-        .select('bridge_kyb_status, bridge_kyb_link_url')
-        .eq('user_id', userId)
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const { data: prof } = await supabase
+        .from('user_profiles')
+        .select('account_type, bridge_kyc_status, bridge_account_status')
+        .eq('id', userId)
         .maybeSingle();
-      const snap: ProfileSnapshot = {
-        account_type:    'business',
-        bridge_status:   (biz?.bridge_kyb_status as BridgeStatus) ?? 'not_started',
-        bridge_link_url: biz?.bridge_kyb_link_url ?? null,
-        rejected_reason: null,
-      };
-      setProfile(snap);
-      return snap;
-    }
-
-    const snap: ProfileSnapshot = {
-      account_type:    'individual',
-      bridge_status:   (prof.bridge_kyc_status as BridgeStatus) ?? 'not_started',
-      bridge_link_url: prof.bridge_kyc_link_url ?? null,
-      rejected_reason: null,
-    };
-    setProfile(snap);
-    return snap;
+      if (prof) {
+        const at: AccountType = prof.account_type === 'business' ? 'business' : 'individual';
+        setAccountType(at);
+        if (String(prof.bridge_account_status || '').toLowerCase() === 'rejected') {
+          setStatus('rejected');
+        } else if (at === 'business') {
+          const { data: biz } = await supabase
+            .from('business_profiles')
+            .select('bridge_kyb_status')
+            .eq('user_id', userId)
+            .maybeSingle();
+          setStatus(mapBridge(biz?.bridge_kyb_status));
+        } else {
+          setStatus(mapBridge(prof.bridge_kyc_status));
+        }
+      }
+    } catch { /* keep the cached status on any error */ }
+    finally { setRefreshing(false); }
   }, [userId]);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      const snap = await fetchProfile();
-      if (!alive) return;
-      setLoading(false);
-      if (snap?.bridge_status === 'approved') onComplete();
-    })();
-    return () => { alive = false; };
-  }, [fetchProfile, onComplete]);
+  // Background refresh on mount — no loading gate; the seed already rendered.
+  useEffect(() => { refresh(); }, [refresh]);
 
-  useEffect(() => () => {
-    if (pollTimer.current) window.clearInterval(pollTimer.current);
-  }, []);
+  const isBusiness = accountType === 'business';
 
-  const startPolling = useCallback(() => {
-    if (pollTimer.current) window.clearInterval(pollTimer.current);
-    setPolling(true);
-    pollUntil.current = Date.now() + POLL_MAX_DURATION;
-    pollTimer.current = window.setInterval(async () => {
-      const snap = await fetchProfile();
-      if (snap?.bridge_status === 'approved') {
-        if (pollTimer.current) window.clearInterval(pollTimer.current);
-        setPolling(false);
-        onComplete();
-        return;
-      }
-      if (snap?.bridge_status === 'rejected' || Date.now() > pollUntil.current) {
-        if (pollTimer.current) window.clearInterval(pollTimer.current);
-        setPolling(false);
-      }
-    }, POLL_INTERVAL_MS);
-  }, [fetchProfile, onComplete]);
+  const VIEW: Record<KycView, { Icon: typeof Clock; tone: string; bg: string; title: string; body: string }> = {
+    not_started: {
+      Icon: Mail, tone: 'text-amber-400', bg: 'bg-amber-500/15',
+      title: tt('kyc.status.notStarted.title', 'Verification not started'),
+      body: isBusiness
+        ? tt('kyc.status.notStarted.bizBody', 'After activation we email you a secure link to verify your business. Check your inbox to begin.')
+        : tt('kyc.status.notStarted.body', 'After activation we email you a secure link to verify your identity. Check your inbox to begin.'),
+    },
+    pending: {
+      Icon: Clock, tone: 'text-amber-400', bg: 'bg-amber-500/15',
+      title: tt('kyc.status.pending.title', 'Verification pending'),
+      body: tt('kyc.status.pending.body', 'Your details have been received and are awaiting review. We’ll update this automatically.'),
+    },
+    under_review: {
+      Icon: Clock, tone: 'text-blue-400', bg: 'bg-blue-500/15',
+      title: tt('kyc.status.review.title', 'Under review'),
+      body: tt('kyc.status.review.body', 'We’re reviewing your verification. This usually takes just a few minutes.'),
+    },
+    verified: {
+      Icon: CheckCircle2, tone: 'text-[#C7FF00]', bg: 'bg-[#C7FF00]/15',
+      title: tt('kyc.status.verified.title', 'Verified'),
+      body: isBusiness
+        ? tt('kyc.status.verified.bizBody', 'Your business is verified. Your account and multi-currency features are unlocked.')
+        : tt('kyc.status.verified.body', 'Your identity is verified. Your account and multi-currency features are unlocked.'),
+    },
+    rejected: {
+      Icon: AlertCircle, tone: 'text-red-400', bg: 'bg-red-500/15',
+      title: tt('kyc.status.failed.title', 'Verification failed'),
+      body: tt('kyc.status.failed.body', 'We couldn’t verify your details. Our team can help you resolve this — please contact support.'),
+    },
+  };
 
-  const handleStart = useCallback(async () => {
-    if (!profile) return;
-    setError(null);
-    setStarting(true);
-    try {
-      const r = profile.account_type === 'business'
-        ? await backendAPI.bridge.kyb.startBusiness({ redirect_url: `${window.location.origin}/onboarding/kyc-complete` })
-        : await backendAPI.bridge.kyc.startIndividual({ redirect_url: `${window.location.origin}/onboarding/kyc-complete` });
-
-      if (!r.success) {
-        // Map structured server codes (bridge-kyc-link / bridge-kyb-link).
-        //   country_not_supported → DRC / Bridge-prohibited jurisdiction.
-        //     Bridge customer creation refuses these users until our
-        //     BorderPay enables local rails.
-        //   wrong_account_type → caller hit /kyb on an individual or vice
-        //     versa. UI surface should not allow this, but fail closed.
-        const code = (r as any)?.code;
-        const msg =
-          code === 'country_not_supported'
-            ? (r.error || 'Your country is not yet supported. We are bringing African local rails online soon.')
-        : code === 'wrong_account_type'
-            ? 'This verification flow does not match your account type.'
-        : (r.error || tt('kyc.error.start_failed', 'Could not start verification. Please try again.'));
-        setError(msg);
-        showToast.error(msg);
-        return;
-      }
-      const url = r.data?.link_url;
-      if (r.data?.already_approved) {
-        await fetchProfile();
-        onComplete();
-        return;
-      }
-      if (!url) {
-        setError(tt('kyc.error.no_link', 'Verification link not available. Please try again.'));
-        return;
-      }
-
-      window.open(url, '_blank', 'noopener,noreferrer');
-      await fetchProfile();
-      startPolling();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setStarting(false);
-    }
-  }, [profile, fetchProfile, onComplete, startPolling, tt]);
-
-  const handleContinue = useCallback(() => {
-    if (!profile?.bridge_link_url) return;
-    window.open(profile.bridge_link_url, '_blank', 'noopener,noreferrer');
-    startPolling();
-  }, [profile, startPolling]);
-
-  const handleManualRefresh = useCallback(async () => {
-    const snap = await fetchProfile();
-    if (snap?.bridge_status === 'approved') onComplete();
-  }, [fetchProfile, onComplete]);
-
-  const headerText = useMemo(() => {
-    const isBusiness = profile?.account_type === 'business';
-    if (isBusiness) return tt('kyc.header.business', 'Business verification (KYB)');
-    return tt('kyc.header.individual', 'Identity verification (KYC)');
-  }, [profile, tt]);
+  const v = VIEW[status];
+  const title = isBusiness ? tt('kyc.title.business', 'Business verification') : tt('kyc.title.individual', 'Identity & KYC');
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      {!BRIDGE_ONBOARDING_LIVE && (
-        <div className={`fixed inset-0 z-20 ${tc.bg} flex items-center justify-center px-6`}>
-          <div className={`max-w-sm w-full rounded-3xl border ${tc.cardBorder} ${tc.card} p-6 text-center`}>
-            <div className="w-16 h-16 rounded-2xl bg-[#C7FF00]/12 flex items-center justify-center mx-auto mb-4">
-              <Clock className="w-8 h-8 text-[#C7FF00]" />
-            </div>
-            <h2 className={`text-xl font-bold ${tc.text} mb-2`}>
-              Verification paused
-            </h2>
-            <p className={`${tc.textSecondary} text-sm leading-relaxed mb-6`}>
-              KYC and KYB onboarding is paused until BorderPay launches money movement. You can keep using the rest of the app.
-            </p>
-            <button
-              onClick={onBack}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#C7FF00] text-black font-semibold"
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      )}
-      <div className={`sticky top-0 z-10 ${tc.headerBg} border-b ${tc.border}`}>
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
-          <button onClick={onBack} aria-label={tt('common.back', 'Back')}
-                  className={`p-2 -ml-2 rounded-full ${tc.hoverBg} transition`}>
-            <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
+      <header
+        className="flex items-center justify-between px-5 sm:px-6 pb-3 max-w-2xl mx-auto"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.25rem)' }}
+      >
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center`} aria-label="Back">
+            <ArrowLeft className={`w-4 h-4 ${tc.text}`} />
           </button>
-          <h1 className={`text-lg font-semibold ${tc.text}`}>{headerText}</h1>
+          <h1 className={`text-base font-semibold ${tc.text}`}>{title}</h1>
         </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: 'easeOut' }}
-          className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-6 sm:p-10`}
+        <button
+          onClick={refresh}
+          aria-label="Refresh status"
+          className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center ${tc.hoverBg}`}
         >
-          {loading ? (
-            <div className="flex flex-col items-center py-10">
-              <Loader2 className={`w-6 h-6 ${tc.textSecondary} animate-spin mb-3`} />
-              <p className={tc.textMuted}>{tt('common.loading', 'Loading…')}</p>
+          <RefreshCw className={`w-3.5 h-3.5 ${tc.textMuted} ${refreshing ? 'animate-spin' : ''}`} />
+        </button>
+      </header>
+
+      <main className="px-5 sm:px-6 pb-10 max-w-2xl mx-auto">
+        {/* Status card */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-6 sm:p-7`}
+        >
+          <div className="flex items-start gap-4">
+            <div className={`w-12 h-12 rounded-2xl ${v.bg} flex items-center justify-center flex-shrink-0`}>
+              <v.Icon className={`w-6 h-6 ${v.tone}`} />
             </div>
-          ) : !profile ? (
-            <div className="flex flex-col items-center py-10 text-center">
-              <AlertCircle className="w-8 h-8 text-red-500 mb-3" />
-              <p className={`${tc.text} mb-2`}>{tt('kyc.error.profile_missing', 'Could not load your profile.')}</p>
-              {error && <p className={`text-sm ${tc.textMuted}`}>{error}</p>}
-              <button onClick={handleManualRefresh}
-                      className={`mt-4 px-4 py-2 rounded-full ${tc.glassButton}`}>
-                {tt('common.retry', 'Retry')}
-              </button>
+            <div className="min-w-0">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${tc.borderLight} ${tc.bgAlt} mb-2`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${v.bg} ${v.tone}`} style={{ backgroundColor: 'currentColor' }} />
+                <span className={`text-[10px] font-bold tracking-wider uppercase ${v.tone}`}>{status.replace('_', ' ')}</span>
+              </span>
+              <h2 className={`text-xl font-semibold ${tc.text} tracking-tight mb-1.5`}>{v.title}</h2>
+              <p className={`text-sm ${tc.textMuted} leading-relaxed`}>{v.body}</p>
             </div>
-          ) : (
-            <KycBody
-              profile={profile}
-              email={userEmail}
-              starting={starting}
-              polling={polling}
-              error={error}
-              onStart={handleStart}
-              onContinue={handleContinue}
-              onRefresh={handleManualRefresh}
-              tt={tt}
-              tc={tc}
-            />
+          </div>
+
+          {/* Email reminder for the link (read-only flows) */}
+          {(status === 'not_started' || status === 'pending') && (
+            <div className={`mt-5 flex items-start gap-2.5 rounded-2xl border ${tc.borderLight} ${tc.bgAlt} px-4 py-3`}>
+              <Mail className={`w-4 h-4 ${tc.textMuted} mt-0.5 flex-shrink-0`} />
+              <p className={`text-xs ${tc.textMuted} leading-snug`}>
+                {tt('kyc.emailNote', 'Your secure verification link is sent to your email')}
+                {userEmail ? <> — <span className={tc.textSecondary}>{userEmail}</span></> : null}.
+              </p>
+            </div>
+          )}
+
+          {/* Support entry for the failed state (no developer reasons shown) */}
+          {status === 'rejected' && (
+            <a
+              href="mailto:support@borderpayafrica.com"
+              className={`mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg}`}
+            >
+              <Mail className="w-4 h-4" /> {tt('kyc.contactSupport', 'Contact support')}
+            </a>
           )}
         </motion.div>
 
-        <p className={`mt-4 text-xs ${tc.textMuted} text-center`}>
-          {tt('kyc.disclaimer.partner', 'Verification is performed through BorderPay. We do not store your ID images.')}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function KycBody({
-  profile, email, starting, polling, error,
-  onStart, onContinue, onRefresh, tt, tc,
-}: {
-  profile:  ProfileSnapshot;
-  email:    string;
-  starting: boolean;
-  polling:  boolean;
-  error:    string | null;
-  onStart:    () => void;
-  onContinue: () => void;
-  onRefresh:  () => void;
-  tt: (k: string, fb: string) => string;
-  tc: ReturnType<typeof useThemeClasses>;
-}) {
-  const isBusiness = profile.account_type === 'business';
-  const Icon = isBusiness ? Building2 : UserIcon;
-
-  if (profile.bridge_status === 'approved') {
-    return (
-      <Centered icon={<CheckCircle2 className="w-10 h-10 text-black" />} accent
-                title={tt('kyc.approved.title', 'Verification complete')}
-                subtitle={tt('kyc.approved.body', 'You can now access all BorderPay financial features.')} tc={tc} />
-    );
-  }
-  if (profile.bridge_status === 'rejected') {
-    return (
-      <div className="text-center">
-        <div className="mx-auto w-20 h-20 rounded-2xl bg-red-100 flex items-center justify-center mb-5">
-          <AlertCircle className="w-10 h-10 text-red-600" />
+        <div className="mt-6 flex items-center justify-center gap-1.5">
+          <ShieldCheck className="w-3 h-3 text-[#C7FF00]" />
+          <span className={`text-[10px] ${tc.textMuted}`}>
+            {tt('kyc.secured', 'Identity verification is handled securely by our licensed partner')}
+          </span>
         </div>
-        <h2 className={`text-2xl font-bold ${tc.text} mb-2`}>{tt('kyc.rejected.title', 'Verification did not pass')}</h2>
-        <p className={`${tc.textSecondary} mb-1 max-w-md mx-auto`}>
-          {tt('kyc.rejected.body', 'We could not verify the documents provided. You can retry or contact support if you think this is in error.')}
-        </p>
-        {profile.rejected_reason && (
-          <p className={`text-sm ${tc.textMuted} mb-4`}>{profile.rejected_reason}</p>
-        )}
-        <button onClick={onStart} disabled={starting}
-                className="mt-4 inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#C7FF00] text-black font-semibold hover:opacity-90 disabled:opacity-50 transition">
-          {starting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {tt('kyc.action.retry', 'Retry verification')}
-        </button>
-      </div>
-    );
-  }
-  if (profile.bridge_status === 'under_review') {
-    return (
-      <Centered
-        icon={<Clock className="w-10 h-10 text-black" />} accent
-        title={tt('kyc.review.title', 'We are reviewing your submission')}
-        subtitle={tt('kyc.review.body', 'Most reviews complete within a few minutes. We will email you at this address as soon as it is done.')}
-        secondary={email}
-        action={
-          <button onClick={onRefresh}
-                  className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full ${tc.glassButton}`}>
-            <RefreshCw className="w-4 h-4" /> {tt('common.refresh', 'Refresh status')}
-          </button>
-        }
-        tc={tc}
-      />
-    );
-  }
-  if (profile.bridge_status === 'pending' && profile.bridge_link_url) {
-    return (
-      <div className="text-center">
-        <div className="mx-auto w-20 h-20 rounded-2xl bg-[#C7FF00] flex items-center justify-center mb-5">
-          <Icon className="w-10 h-10 text-black" />
-        </div>
-        <h2 className={`text-2xl font-bold ${tc.text} mb-2`}>
-          {tt('kyc.continue.title', 'Continue your verification')}
-        </h2>
-        <p className={`${tc.textSecondary} mb-6 max-w-md mx-auto`}>
-          {tt('kyc.continue.body', 'You started verification but did not finish. You can pick up where you left off.')}
-        </p>
-        <button onClick={onContinue}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#C7FF00] text-black font-semibold hover:opacity-90 transition">
-          <ExternalLink className="w-4 h-4" />
-          {tt('kyc.action.continue', 'Continue verification')}
-        </button>
-        {polling && (
-          <p className={`mt-4 text-xs ${tc.textMuted}`}>
-            <Loader2 className="w-3 h-3 inline animate-spin mr-1 align-middle" />
-            {tt('kyc.polling', 'Checking for completion…')}
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="text-center">
-      <div className="mx-auto w-20 h-20 rounded-2xl bg-[#C7FF00] flex items-center justify-center mb-5">
-        <ShieldCheck className="w-10 h-10 text-black" strokeWidth={2} />
-      </div>
-      <h2 className={`text-2xl font-bold ${tc.text} mb-2`}>
-        {isBusiness
-          ? tt('kyc.start.business.title',  'Verify your business')
-          : tt('kyc.start.individual.title', 'Verify your identity')}
-      </h2>
-      <p className={`${tc.textSecondary} mb-6 max-w-md mx-auto leading-relaxed`}>
-        {isBusiness
-          ? tt('kyc.start.business.body',  "Complete business, ownership, and address checks in BorderPay's secure verification flow. Timelines vary depending on the business and required documents.")
-          : tt('kyc.start.individual.body','We need a government-issued ID and a quick selfie. The whole process takes about 2–3 minutes.')}
-      </p>
-      <ul className={`${tc.textMuted} text-sm space-y-1 mb-6 max-w-sm mx-auto text-left`}>
-        {(isBusiness
-          ? ['Certificate of incorporation', 'Beneficial owners (≥ 25%)', 'Director ID + selfie']
-          : ['Government ID (passport / driver licence / national ID)', 'Selfie for liveness check', 'Proof of address (utility bill or bank statement)']
-        ).map((row) => (
-          <li key={row} className="flex items-start gap-2">
-            <span className="mt-1 inline-block w-1.5 h-1.5 rounded-full bg-[#C7FF00]" />
-            <span>{row}</span>
-          </li>
-        ))}
-      </ul>
-      <button onClick={onStart} disabled={starting}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#C7FF00] text-black font-semibold hover:opacity-90 disabled:opacity-50 transition">
-        {starting && <Loader2 className="w-4 h-4 animate-spin" />}
-        {!starting && <ExternalLink className="w-4 h-4" />}
-        {isBusiness
-          ? tt('kyc.action.start.business',  'Start business verification')
-          : tt('kyc.action.start.individual','Start identity verification')}
-      </button>
-      {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
-    </div>
-  );
-}
-
-function Centered({
-  icon, title, subtitle, secondary, action, accent, tc,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle?: string;
-  secondary?: string;
-  action?: React.ReactNode;
-  accent?: boolean;
-  tc: ReturnType<typeof useThemeClasses>;
-}) {
-  return (
-    <div className="text-center">
-      <div className={`mx-auto w-20 h-20 rounded-2xl ${accent ? 'bg-[#C7FF00]' : 'bg-gray-100'} flex items-center justify-center mb-5`}>
-        {icon}
-      </div>
-      <h2 className={`text-2xl font-bold ${tc.text} mb-2`}>{title}</h2>
-      {subtitle && <p className={`${tc.textSecondary} mb-1 max-w-md mx-auto`}>{subtitle}</p>}
-      {secondary && <p className={`${tc.textMuted} text-sm`}>{secondary}</p>}
-      {action}
+      </main>
     </div>
   );
 }

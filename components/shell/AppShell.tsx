@@ -381,18 +381,6 @@ export function AppShell({
                   )}
                   <div className="min-w-0">
                     <div className={`text-sm font-semibold ${tc.text} truncate`}>{userName || tt('shell.guest', 'Guest')}</div>
-                    {subscription && (
-                      <div className="inline-flex items-center gap-1 mt-0.5">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wider ${subscription.is_paid ? 'text-[#C7FF00]' : tc.textMuted}`}>
-                          {subscription.display_name}
-                        </span>
-                        {!subscription.is_paid && (
-                          <button onClick={() => go('pricing')} className="text-[10px] font-semibold text-[#C7FF00] hover:underline">
-                            {tt('shell.upgrade', 'Upgrade')}
-                          </button>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
                 <button
@@ -415,7 +403,6 @@ export function AppShell({
                   <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} description={tt('nav.payout_accounts.desc', 'Manage withdrawal destinations')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
                 )}
                 <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
-                <DrawerItem icon={Globe2}      label={tt('nav.pricing',      'Plans & pricing')}description={tt('nav.pricing.desc',      'Your plan & upgrade options')}     active={route === 'pricing'}      onPrefetch={() => prefetchRoute('pricing')}      onClick={() => go('pricing')}      tc={tc} highlight={!subscription?.is_paid} />
                 {isBusinessAccount && (
                   <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
                 )}

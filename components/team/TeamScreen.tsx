@@ -198,24 +198,13 @@ function BusinessTeamPanel({
               <Sparkles className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className={`text-sm font-semibold ${tc.text}`}>
-                {roster.plan.plan_key.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
-              </p>
+              <p className={`text-sm font-semibold ${tc.text}`}>Team seats</p>
               <p className={`text-[11px] ${tc.textMuted}`}>
                 {roster.seats.cap === null
                   ? `${roster.seats.used} ${roster.seats.used === 1 ? 'seat' : 'seats'} · unlimited`
                   : `${roster.seats.used} of ${roster.seats.cap} seats used`}
               </p>
             </div>
-            {roster.seats.cap !== null && (
-              <button
-                type="button"
-                onClick={onManagePlans}
-                className="text-[11px] font-semibold text-[#C7FF00] flex-shrink-0"
-              >
-                Manage plan
-              </button>
-            )}
           </div>
         )}
 
