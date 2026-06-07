@@ -21,7 +21,6 @@ import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
-import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import type { PlanKey } from '../../utils/subscriptions/plans';
@@ -42,8 +41,7 @@ interface WalletRow {
 }
 
 const CURRENCY_SYMBOL: Record<string, string> = {
-  USD: '$', NGN: '₦', KES: 'KSh', GHS: 'GH₵', UGX: 'USh', TZS: 'TSh',
-  XAF: 'FCFA', XOF: 'CFA', EUR: '€', GBP: '£',
+  USD: '$', EUR: '€', GBP: '£', USDT: '$', USDC: '$',
 };
 
 function fmt(amount: number, currency: string): string {
@@ -296,7 +294,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           <BridgeVirtualAccountsCard userId={userId} isBusiness />
           <BridgeWalletsCard userId={userId} isBusiness />
           <CardsLockedCard />
-          <AfricanRailsFutureCard />
         </section>
 
         {/* ── 6b. Exchange rates (live, shared with individual dashboard) ─ */}

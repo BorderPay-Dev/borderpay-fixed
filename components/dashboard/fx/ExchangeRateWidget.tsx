@@ -58,7 +58,7 @@ function writeHist(h: Record<string, number[]>): void {
   try { localStorage.setItem(FX_HIST_KEY, JSON.stringify(h)); } catch { /* quota / private mode */ }
 }
 
-const DEFAULT_PAIR = 'USD_NGN';
+const DEFAULT_PAIR = 'USD_EUR';
 
 export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
   const { t } = useThemeLanguage();

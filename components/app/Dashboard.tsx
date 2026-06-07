@@ -50,7 +50,6 @@ import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
-import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 
 // Pull cached profile once at module-eval — every initial-state hook below
 // reads from this synchronously so the dashboard never flickers.
@@ -82,20 +81,11 @@ interface DashboardProps {
 }
 
 const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
-  USD:  { symbol: '$',    color: '#10B981' },
-  TZS:  { symbol: 'TSh',  color: '#3B82F6' },
-  XOF:  { symbol: 'FCFA', color: '#8B5CF6' },
-  XAF:  { symbol: 'FCFA', color: '#A855F7' },
-  NGN:  { symbol: '₦',   color: '#F59E0B' },
-  KES:  { symbol: 'KSh', color: '#EC4899' },
-  GHS:  { symbol: '₵',   color: '#06B6D4' },
-  UGX:  { symbol: 'USh', color: '#EF4444' },
-  SLE:  { symbol: 'Le',  color: '#22D3EE' },
-  MZN:  { symbol: 'MT',  color: '#F97316' },
-  MWK:  { symbol: 'MK',  color: '#14B8A6' },
-  USDT: { symbol: '₮',   color: '#26A17B' },
-  USDC: { symbol: '$',   color: '#2775CA' },
-  PYUSD:{ symbol: '$',   color: '#0074D9' },
+  USD:  { symbol: '$',  color: '#10B981' },
+  EUR:  { symbol: '€',  color: '#3B82F6' },
+  GBP:  { symbol: '£',  color: '#8B5CF6' },
+  USDT: { symbol: '₮',  color: '#26A17B' },
+  USDC: { symbol: '$',  color: '#2775CA' },
 };
 
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {
@@ -743,15 +733,13 @@ type RatePair = {
   vol: number;    // sparkline volatility, scaled to the pair's magnitude
 };
 
-// Tier-1 African corridors surfaced by default. If the live API returns these
-// pairs they replace the fallback; if not, the fallback keeps the widget
-// populated rather than rendering empty.
+// Major currency pairs (USD / EUR / GBP) surfaced by default. If the live API
+// returns these pairs they replace the fallback; if not, the fallback keeps the
+// widget populated rather than rendering empty.
 const FALLBACK_PAIRS: RatePair[] = [
-  { from: 'USD', to: 'NGN', rate: 1552.30 * (1 + PLATFORM_MARKUP), base: 1552.30, change: +0.82, vol: 80 },
-  { from: 'USD', to: 'KES', rate: 129.45  * (1 + PLATFORM_MARKUP), base: 129.45,  change: -0.34, vol: 4 },
-  { from: 'USD', to: 'GHS', rate: 15.52   * (1 + PLATFORM_MARKUP), base: 15.52,   change: +1.12, vol: 0.8 },
-  { from: 'USD', to: 'UGX', rate: 3702.0  * (1 + PLATFORM_MARKUP), base: 3702.0,  change: +0.25, vol: 120 },
-  { from: 'USD', to: 'XAF', rate: 605.80  * (1 + PLATFORM_MARKUP), base: 605.80,  change: -0.18, vol: 8 },
+  { from: 'USD', to: 'EUR', rate: 0.92 * (1 + PLATFORM_MARKUP), base: 0.92, change: +0.12, vol: 0.004 },
+  { from: 'USD', to: 'GBP', rate: 0.79 * (1 + PLATFORM_MARKUP), base: 0.79, change: -0.08, vol: 0.003 },
+  { from: 'EUR', to: 'GBP', rate: 0.86 * (1 + PLATFORM_MARKUP), base: 0.86, change: +0.04, vol: 0.003 },
 ];
 
 // ── HeroAction ──────────────────────────────────────────────────────────
@@ -789,7 +777,7 @@ function HeroAction({
   );
 }
 
-const CORRIDOR_ALLOWLIST = new Set(['NGN', 'KES', 'GHS', 'UGX', 'XAF', 'TZS', 'ZAR', 'XOF']);
+const CORRIDOR_ALLOWLIST = new Set(['EUR', 'GBP']);
 
 // Mulberry32 — deterministic pseudo-random so sparklines stay stable across
 // re-renders (previous impl used Math.random which made the lines twitch on
@@ -909,7 +897,7 @@ function DashboardRateWidget({ onNavigate }: { onNavigate: (screen: string) => v
         if (live.length > 0) {
           // Preserve the visual ordering from FALLBACK_PAIRS so the layout
           // stays stable when rates come back.
-          const order = ['NGN', 'KES', 'GHS', 'UGX', 'XAF', 'TZS', 'ZAR', 'XOF'];
+          const order = ['EUR', 'GBP'];
           live.sort((a, b) => order.indexOf(a.to) - order.indexOf(b.to));
           setPairs(live);
           setIsLive(true);

@@ -32,7 +32,6 @@ import { supabase } from '../../utils/supabase/client';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
-import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 import { usePreferences } from '../../utils/hooks/usePreferences';
 
 interface WalletScreenProps {
@@ -200,11 +199,6 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
           <CardsLockedCard />
         </div>
 
-        {/* ── Section: African rails (future) ───────────────────────── */}
-        <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
-          {tt('wallet.localRails', 'Local African rails')}
-        </h2>
-        <AfricanRailsFutureCard />
       </div>
     </div>
   );

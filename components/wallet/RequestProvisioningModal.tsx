@@ -102,8 +102,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
 
   const products: Product[] = [
     { key: 'usd-va',     label: 'Global Account', blurb: availableVaCurrencies.length > 0 ? `${availableVaCurrencies.join(' / ')} account rails available for your country` : 'Not available for your country', Icon: Banknote, accent: '#10B981' },
-    { key: 'african',    label: 'African Currency',             blurb: 'Local currency and mobile money rails coming soon', Icon: Globe2,   accent: '#8B5CF6' },
-    { key: 'stablecoin', label: 'Stablecoin Wallet',            blurb: stablecoinSupported ? 'USDC · USDT · PYUSD · USDB' : 'Not available for your country',                Icon: Coins,    accent: '#F59E0B' },
+    { key: 'stablecoin', label: 'Stablecoin Wallet',            blurb: stablecoinSupported ? 'USDC · USDT' : 'Not available for your country',                Icon: Coins,    accent: '#F59E0B' },
     { key: 'card',       label: 'Virtual Card',                 blurb: 'Coming soon — card issuance is paused',     Icon: CreditCard, accent: '#C7FF00' },
   ];
 
