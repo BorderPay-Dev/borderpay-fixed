@@ -111,22 +111,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
           <BridgeWalletsCard userId={userId} />
         </div>
 
-        {/* Local rails — non-interactive Soon notice */}
-        <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
-          {tt('receive.localRails', 'Local African rails')}
-        </h2>
-        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-center gap-3 opacity-70`}>
-          <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
-            <Inbox className={`w-4 h-4 ${tc.textMuted}`} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className={`text-sm font-semibold ${tc.text}`}>NGN · KES · GHS · UGX · TZS · XAF · XOF</p>
-            <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
-              Local bank + mobile money inboxes — coming soon
-            </p>
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
-        </div>
       </div>
     </div>
   );

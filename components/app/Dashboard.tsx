@@ -50,7 +50,6 @@ import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
-import { AfricanRailsFutureCard } from '../dashboard/bridge/AfricanRailsFutureCard';
 
 // Pull cached profile once at module-eval — every initial-state hook below
 // reads from this synchronously so the dashboard never flickers.
@@ -82,20 +81,11 @@ interface DashboardProps {
 }
 
 const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
-  USD:  { symbol: '$',    color: '#10B981' },
-  TZS:  { symbol: 'TSh',  color: '#3B82F6' },
-  XOF:  { symbol: 'FCFA', color: '#8B5CF6' },
-  XAF:  { symbol: 'FCFA', color: '#A855F7' },
-  NGN:  { symbol: '₦',   color: '#F59E0B' },
-  KES:  { symbol: 'KSh', color: '#EC4899' },
-  GHS:  { symbol: '₵',   color: '#06B6D4' },
-  UGX:  { symbol: 'USh', color: '#EF4444' },
-  SLE:  { symbol: 'Le',  color: '#22D3EE' },
-  MZN:  { symbol: 'MT',  color: '#F97316' },
-  MWK:  { symbol: 'MK',  color: '#14B8A6' },
-  USDT: { symbol: '₮',   color: '#26A17B' },
-  USDC: { symbol: '$',   color: '#2775CA' },
-  PYUSD:{ symbol: '$',   color: '#0074D9' },
+  USD:  { symbol: '$',  color: '#10B981' },
+  EUR:  { symbol: '€',  color: '#3B82F6' },
+  GBP:  { symbol: '£',  color: '#8B5CF6' },
+  USDT: { symbol: '₮',  color: '#26A17B' },
+  USDC: { symbol: '$',  color: '#2775CA' },
 };
 
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {
