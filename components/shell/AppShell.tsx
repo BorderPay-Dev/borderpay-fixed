@@ -406,27 +406,27 @@ export function AppShell({
               </div>
 
               <ul className="py-2">
-                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           active={route === 'dashboard'}    onPrefetch={() => prefetchRoute('dashboard')}    onClick={() => go('dashboard')}    tc={tc} />
-                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         active={route === 'wallet'}       onPrefetch={() => prefetchRoute('wallet')}       onClick={() => go('wallet')}       tc={tc} />
-                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     active={route === 'send'}         onPrefetch={() => prefetchRoute('send')}         onClick={() => go('send')}         tc={tc} />
-                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => go('receive')}      tc={tc} />
-                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
+                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           description={tt('nav.home.desc',         'Your dashboard & balances')}      active={route === 'dashboard'}    onPrefetch={() => prefetchRoute('dashboard')}    onClick={() => go('dashboard')}    tc={tc} />
+                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         description={tt('nav.wallet.desc',       'Balances across your currencies')} active={route === 'wallet'}       onPrefetch={() => prefetchRoute('wallet')}       onClick={() => go('wallet')}       tc={tc} />
+                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     description={tt('nav.send.desc',         'Pay anyone by bank or crypto')}    active={route === 'send'}         onPrefetch={() => prefetchRoute('send')}         onClick={() => go('send')}         tc={tc} />
+                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  description={tt('nav.receive.desc',      'Get paid into your accounts')}     active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => go('receive')}      tc={tc} />
+                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
                 {onOpenPayoutAccounts && (
-                  <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
+                  <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} description={tt('nav.payout_accounts.desc', 'Manage withdrawal destinations')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
                 )}
-                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
-                <DrawerItem icon={Globe2}      label={tt('nav.pricing',      'Plans & pricing')}active={route === 'pricing'}      onPrefetch={() => prefetchRoute('pricing')}      onClick={() => go('pricing')}      tc={tc} highlight={!subscription?.is_paid} />
+                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
+                <DrawerItem icon={Globe2}      label={tt('nav.pricing',      'Plans & pricing')}description={tt('nav.pricing.desc',      'Your plan & upgrade options')}     active={route === 'pricing'}      onPrefetch={() => prefetchRoute('pricing')}      onClick={() => go('pricing')}      tc={tc} highlight={!subscription?.is_paid} />
                 {isBusinessAccount && (
-                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   active={route === 'team'}         onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
+                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
                 )}
                 <div className={`my-2 border-t ${tc.borderLight}`} />
-                <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} active={route === 'kyc'}          onPrefetch={() => prefetchRoute('kyc')}          onClick={() => go('kyc')}          tc={tc} />
-                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
+                <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} description={isBusinessAccount ? tt('nav.kyb.desc', 'Verify your business') : tt('nav.kyc.desc', 'Verify your identity')} active={route === 'kyc'} onPrefetch={() => prefetchRoute('kyc')} onClick={() => go('kyc')} tc={tc} />
+                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       description={tt('nav.settings.desc',     'App, security & preferences')}     active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
                 {onLock && (
-                  <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       onClick={onLock}                   tc={tc} />
+                  <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       description={tt('nav.lockApp.desc',      'Lock now, return with biometrics')} onClick={onLock}                   tc={tc} />
                 )}
                 {onSignOut && (
-                  <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       onClick={onSignOut}                tc={tc} danger />
+                  <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       description={tt('nav.signOut.desc',      'Log out of BorderPay')}            onClick={onSignOut}                tc={tc} danger />
                 )}
               </ul>
             </motion.aside>
@@ -477,10 +477,12 @@ function BottomButton({
 }
 
 function DrawerItem({
-  icon: Icon, label, active, onClick, onPrefetch, tc, badge, highlight, danger,
+  icon: Icon, label, description, active, onClick, onPrefetch, tc, badge, highlight, danger,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
+  /** One-line helper text under the label so each menu item explains itself. */
+  description?: string;
   active?: boolean;
   onClick: () => void;
   onPrefetch?: () => void;
@@ -496,14 +498,19 @@ function DrawerItem({
         onPointerDown={onPrefetch}
         onMouseEnter={onPrefetch}
         onClick={onClick}
-        className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${tc.hoverBg} ${active ? (tc.isLight ? 'bg-black/[0.04]' : 'bg-white/[0.04]') : ''}`}
+        className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors ${tc.hoverBg} ${active ? (tc.isLight ? 'bg-black/[0.04]' : 'bg-white/[0.04]') : ''}`}
       >
-        <Icon className={`w-5 h-5 ${danger ? 'text-red-500' : active || highlight ? 'text-[#C7FF00]' : tc.textSecondary}`} />
-        <span className={`flex-1 text-left text-sm font-medium ${danger ? 'text-red-500' : tc.text}`}>{label}</span>
+        <Icon className={`w-5 h-5 flex-shrink-0 ${danger ? 'text-red-500' : active || highlight ? 'text-[#C7FF00]' : tc.textSecondary}`} />
+        <span className="flex-1 min-w-0 text-left">
+          <span className={`block text-sm font-medium leading-tight ${danger ? 'text-red-500' : tc.text}`}>{label}</span>
+          {description && (
+            <span className={`block text-[11px] leading-snug mt-0.5 ${tc.textMuted}`}>{description}</span>
+          )}
+        </span>
         {badge && (
-          <span className={`text-[10px] font-semibold uppercase tracking-wider ${tc.textMuted}`}>{badge}</span>
+          <span className={`flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider ${tc.textMuted}`}>{badge}</span>
         )}
-        {!badge && !danger && <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
+        {!badge && !danger && <ChevronRight className={`w-4 h-4 flex-shrink-0 ${tc.textMuted}`} />}
       </button>
     </li>
   );

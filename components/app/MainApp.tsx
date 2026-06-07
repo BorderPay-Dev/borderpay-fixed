@@ -53,6 +53,7 @@ const PrivacyPolicyScreen = lazyImport(() => import('../legal/PrivacyPolicyScree
 const PreferencesScreen = lazyImport(() => import('../app/PreferencesScreen').then(m => ({ default: m.PreferencesScreen })));
 const CountryEligibilityScreen = lazyImport(() => import('../compliance/CountryEligibilityScreen').then(m => ({ default: m.CountryEligibilityScreen })));
 const ReceiveMoneyScreen = lazyImport(() => import('../receive/ReceiveMoneyScreen').then(m => ({ default: m.ReceiveMoneyScreen })));
+const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
@@ -77,8 +78,8 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'receive-money': (ReceiveMoneyScreen as any).preload,
   exchange: (ExchangeScreen as any).preload,
   converter: (ExchangeScreen as any).preload,
-  deposit: (ReceiveMoneyScreen as any).preload,
-  'add-money': (ReceiveMoneyScreen as any).preload,
+  deposit: (FundingScreen as any).preload,
+  'add-money': (FundingScreen as any).preload,
   'two-factor-setup': (TwoFactorSetup as any).preload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': (BiometricSetup as any).preload,
@@ -539,7 +540,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'deposit':
       case 'add-money':
-        return <ReceiveMoneyScreen onBack={navigateBack} />;
+        return <FundingScreen onBack={navigateBack} />;
 
       case 'two-factor-setup':
         return (

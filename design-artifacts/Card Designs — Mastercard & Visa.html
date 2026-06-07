@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BorderPay — Card Designs (Mastercard & Visa)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     BorderPay card design canvas.
+     Brand DNA lifted from the live app (IMG_2154):
+       bg        #0B0E11  (near-black)
+       surface   #15191F → #0F1216 → #0B0E11 (gradient)
+       accent    #C7FF00  (lime, CTA only)
+       text      #FFFFFF / muted #8A9099
+     Two card faces, each a DISTINCT base colour per network:
+       • Mastercard → "Obsidian Lime" (carbon black + lime sweep)
+       • Visa       → "Midnight"      (deep brand-blue gradient)
+     Card geometry is ISO/IEC 7810 ID-1 ratio (85.6 × 53.98 ≈ 1.586).
+     ───────────────────────────────────────────────────────────── */
+  :root {
+    --bg: #0B0E11;
+    --surface: #15191F;
+    --accent: #C7FF00;
+    --text: #FFFFFF;
+    --muted: #8A9099;
+    --card-w: 420px;
+    --card-r: 24px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(199,255,0,0.06), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 56px 24px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+
+  header.page { margin-bottom: 44px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin-bottom: 12px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .eyebrow::before { content: ""; width: 18px; height: 2px; background: var(--accent); border-radius: 2px; }
+  h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  h1 .hl { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 15px; margin-top: 12px; max-width: 60ch; line-height: 1.5; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 40px; margin-top: 8px; }
+  .cell { display: flex; flex-direction: column; gap: 16px; align-items: flex-start; }
+  .cell .tag {
+    font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600;
+  }
+
+  /* ── shared card shell ─────────────────────────────────────── */
+  .card {
+    position: relative;
+    width: 100%; max-width: var(--card-w);
+    aspect-ratio: 1.586 / 1;
+    border-radius: var(--card-r);
+    padding: 26px 28px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    overflow: hidden;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06);
+    isolation: isolate;
+  }
+  .card::after { /* fine top sheen */
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(160deg, rgba(255,255,255,0.10), transparent 38%);
+    pointer-events: none; z-index: 3;
+  }
+
+  /* Mastercard — Obsidian Lime */
+  .card.mc {
+    background:
+      radial-gradient(140% 120% at 110% -10%, rgba(199,255,0,0.22), transparent 45%),
+      linear-gradient(135deg, #1c2127 0%, #121519 55%, #0a0c0f 100%);
+    border: 1px solid rgba(199,255,0,0.18);
+  }
+  .card.mc .sweep {
+    position: absolute; right: -60px; top: -60px; width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(199,255,0,0.16), transparent 62%);
+    z-index: 0;
+  }
+
+  /* Visa — Midnight */
+  .card.visa {
+    background:
+      radial-gradient(130% 120% at -10% 110%, rgba(199,255,0,0.10), transparent 50%),
+      linear-gradient(135deg, #1c3f73 0%, #122a52 52%, #0a1830 100%);
+    border: 1px solid rgba(120,160,220,0.28);
+  }
+  .card.visa .sweep {
+    position: absolute; left: -50px; bottom: -70px; width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(90,140,220,0.30), transparent 62%);
+    z-index: 0;
+  }
+
+  .card .row { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .brand .dot { width: 9px; height: 9px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 12px rgba(199,255,0,0.8); }
+  .brand .name { font-weight: 700; font-size: 15px; letter-spacing: 0.02em; }
+  .brand .name b { color: var(--accent); }
+  .ptype { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: rgba(255,255,255,0.6); font-weight: 600; }
+
+  /* chip + contactless */
+  .midrow { position: relative; z-index: 2; display: flex; align-items: center; gap: 14px; }
+  .chip {
+    width: 46px; height: 34px; border-radius: 7px;
+    background: linear-gradient(135deg, #e9d9a0, #b9974f 55%, #d8c27e);
+    position: relative; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15);
+  }
+  .chip::before, .chip::after {
+    content: ""; position: absolute; left: 14%; right: 14%;
+    height: 1px; background: rgba(0,0,0,0.35);
+  }
+  .chip::before { top: 38%; } .chip::after { top: 62%; }
+  .wifi { width: 22px; height: 22px; opacity: 0.85; }
+
+  .num {
+    position: relative; z-index: 2;
+    font-family: 'Space Mono', monospace; font-weight: 700;
+    font-size: 22px; letter-spacing: 0.12em; color: #fff;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.4);
+  }
+
+  .foot { position: relative; z-index: 2; display: flex; align-items: flex-end; justify-content: space-between; }
+  .foot .label { font-size: 8.5px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255,255,255,0.55); margin-bottom: 3px; }
+  .foot .val { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; }
+  .holder { max-width: 60%; }
+  .holder .val { text-transform: uppercase; }
+
+  /* network marks */
+  .mark { display: flex; align-items: flex-end; }
+  .mc-mark { position: relative; width: 58px; height: 36px; }
+  .mc-mark .c { position: absolute; top: 0; width: 36px; height: 36px; border-radius: 50%; }
+  .mc-mark .red { left: 0; background: #EB001B; }
+  .mc-mark .yel { right: 0; background: #F79E1B; }
+  .mc-mark .mix { left: 22px; width: 14px; background: #FF5F00; mix-blend-mode: screen; opacity: 0.95; }
+  .visa-mark {
+    font-family: 'Space Grotesk', sans-serif; font-style: italic; font-weight: 700;
+    font-size: 30px; letter-spacing: 0.02em; color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+  }
+  .visa-mark .a { color: var(--accent); }
+
+  /* spec footer */
+  .palette { margin-top: 56px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+  .sw { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .sw i { width: 22px; height: 22px; border-radius: 6px; display: inline-block; border: 1px solid rgba(255,255,255,0.12); }
+  .note { margin-top: 26px; font-size: 12.5px; color: var(--muted); line-height: 1.6; max-width: 80ch; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 20px; }
+  .note b { color: #cfd3d8; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <span class="eyebrow">BorderPay · Card system</span>
+    <h1>Virtual card faces — <span class="hl">Mastercard</span> &amp; <span class="hl">Visa</span></h1>
+    <p class="sub">Two network variants in the BorderPay visual language (near-black surface, lime accent reserved for the brand mark). Each network gets a distinct base colour so users can tell them apart at a glance — Obsidian Lime for Mastercard, Midnight for Visa.</p>
+  </header>
+
+  <div class="grid">
+
+    <!-- ── Mastercard ─────────────────────────────────────────── -->
+    <div class="cell">
+      <span class="tag">Mastercard · Obsidian Lime</span>
+      <div class="card mc">
+        <span class="sweep"></span>
+        <div class="row">
+          <div class="brand"><span class="dot"></span><span class="name">Border<b>Pay</b></span></div>
+          <span class="ptype">Virtual · Debit</span>
+        </div>
+        <div class="midrow">
+          <div class="chip"></div>
+          <svg class="wifi" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round">
+            <path d="M8.5 8.5a5 5 0 0 1 0 7"/><path d="M11.5 5.5a9 9 0 0 1 0 13"/><path d="M14.5 2.5a13 13 0 0 1 0 19"/>
+          </svg>
+        </div>
+        <div class="num">5412&nbsp;&nbsp;7534&nbsp;&nbsp;9921&nbsp;&nbsp;0086</div>
+        <div class="foot">
+          <div class="holder">
+            <div class="label">Card holder</div>
+            <div class="val">A. Adeyemi</div>
+          </div>
+          <div>
+            <div class="label">Expires</div>
+            <div class="val">09/29</div>
+          </div>
+          <div class="mark">
+            <div class="mc-mark"><span class="c red"></span><span class="c yel"></span><span class="c mix"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Visa ───────────────────────────────────────────────── -->
+    <div class="cell">
+      <span class="tag">Visa · Midnight</span>
+      <div class="card visa">
+        <span class="sweep"></span>
+        <div class="row">
+          <div class="brand"><span class="dot"></span><span class="name">Border<b>Pay</b></span></div>
+          <span class="ptype">Virtual · Debit</span>
+        </div>
+        <div class="midrow">
+          <div class="chip"></div>
+          <svg class="wifi" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round">
+            <path d="M8.5 8.5a5 5 0 0 1 0 7"/><path d="M11.5 5.5a9 9 0 0 1 0 13"/><path d="M14.5 2.5a13 13 0 0 1 0 19"/>
+          </svg>
+        </div>
+        <div class="num">4024&nbsp;&nbsp;0071&nbsp;&nbsp;5532&nbsp;&nbsp;6610</div>
+        <div class="foot">
+          <div class="holder">
+            <div class="label">Card holder</div>
+            <div class="val">A. Adeyemi</div>
+          </div>
+          <div>
+            <div class="label">Expires</div>
+            <div class="val">09/29</div>
+          </div>
+          <div class="mark"><span class="visa-mark">VIS<span class="a">A</span></span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="palette">
+    <span class="sw"><i style="background:#0B0E11"></i> #0B0E11 · bg</span>
+    <span class="sw"><i style="background:#15191F"></i> #15191F · surface</span>
+    <span class="sw"><i style="background:#C7FF00"></i> #C7FF00 · accent</span>
+    <span class="sw"><i style="background:linear-gradient(135deg,#1c2127,#0a0c0f)"></i> Mastercard base</span>
+    <span class="sw"><i style="background:linear-gradient(135deg,#1c3f73,#0a1830)"></i> Visa base</span>
+  </div>
+
+  <p class="note">
+    <b>Notes.</b> Geometry is the real ID-1 card ratio (1.586:1) so the faces translate 1:1 to a React component or a print/issuer hand-off. Numbers/names are placeholders (valid IIN prefixes, fictitious digits). Lime is used only for the BorderPay mark to keep the network logos unambiguous. <b>This is a design artifact only</b> — card issuing in the app stays locked until BorderPay has live card access, so these faces are not wired into the product yet.
+  </p>
+</div>
+</body>
+</html>
