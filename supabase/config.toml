@@ -59,3 +59,38 @@ verify_jwt = false
 # parity for P0-b; deploy is a separate gated step.
 [functions.auth-reset-password-confirm]
 verify_jwt = false
+
+# ── Bridge onboarding / money-movement (go-live gated) ──────────────────────
+# These pins MATCH the live deployed reality so a CLI redeploy can't silently
+# flip auth. The three onboarding starters validate the JWT THEMSELVES
+# (supabase.auth.getUser(token)) and run verify_jwt=false in production; without
+# these pins the CLI default (true) would flip them. bridge-transfer runs
+# verify_jwt=true. Pinned explicitly so `supabase functions deploy <fn>` is
+# reproducible with no per-command flags.
+
+# Bridge customer create — onboarding starter; self-validates JWT. Fail-closed
+# on BRIDGE_ONBOARDING_ENABLED.
+[functions.bridge-customer]
+verify_jwt = false
+
+# Bridge KYC link — onboarding starter; self-validates JWT. Fail-closed on
+# BRIDGE_ONBOARDING_ENABLED.
+[functions.bridge-kyc-link]
+verify_jwt = false
+
+# Bridge KYB link — onboarding starter; self-validates JWT. Fail-closed on
+# BRIDGE_ONBOARDING_ENABLED.
+[functions.bridge-kyb-link]
+verify_jwt = false
+
+# Bridge transfer — money movement; authenticated. Fail-closed on
+# BRIDGE_TRANSFERS_ENABLED. Runs verify_jwt=true (platform validates the JWT,
+# the function then re-checks customer + KYC).
+[functions.bridge-transfer]
+verify_jwt = true
+
+# Authorize verification — admin-only gate clearance (NOT yet deployed). Requires
+# a valid JWT at the platform; the function then enforces the admin/service
+# check in-code before charging billable Bridge KYC/KYB.
+[functions.authorize-verification]
+verify_jwt = true
