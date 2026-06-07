@@ -1,79 +1,61 @@
 /**
- * ExchangeRateWidget — small, scannable FX card for the Home dashboard.
+ * ExchangeRateWidget — Wise / Payoneer-style FX converter for the Home dashboard.
  *
- * Pulled from backendAPI.fx.getLiveRates, which now fetches REAL live
- * mid-market rates (ExchangeRate-API open feed). With PARTNER_FX_MARKUP
- * suspended, the customer-facing rate equals the true mid-market price.
+ * A clean calculator: enter an amount in one currency, pick currencies, and see
+ * the converted amount at the live mid-market rate (no FX markup). Wired to
+ * backendAPI.fx.getLiveRates (real mid-market feed; falls back to an indicative
+ * snapshot, clearly labelled, when the feed is unreachable).
  *
- * Shows:
- *   • Currently selected pair (default USD → NGN)
- *   • Live "updated" timestamp from the feed
- *   • Tiny SVG sparkline + % change built from REAL sampled rate history
- *     (persisted locally; fills in as the live feed moves — no fabrication)
- *   • "Convert" primary CTA → routes to /exchange
- *   • Tap a chip to switch pair without leaving the dashboard
- *
- * African currencies (NGN/KES/GHS/UGX/XOF/etc.) show real rates but remain
- * display-only — actual convert/payout for those rails is gated until our
- * African local rails are wired (the Exchange screen surfaces a
- * "Convert launching soon" notice today). If the live feed is unreachable
- * the widget falls back to an indicative snapshot and labels it as such.
+ * Multi-currency only: USD / EUR / GBP accounts + USDT / USDC stablecoins
+ * (stablecoins convert 1:1 with USD). The "Convert" CTA routes to /exchange.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeftRight, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { RefreshCw, ChevronDown, ArrowUpDown, ArrowRight } from 'lucide-react';
 import { backendAPI } from '../../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
-import { PARTNER_FX_MARKUP, markupLabel, withMarkup } from '../../../utils/fx/markup';
 
 interface ExchangeRateWidgetProps {
-  /** Routes the Convert CTA to the in-app Exchange screen. */
   onNavigate: (screen: string) => void;
 }
 
-interface PairRow {
-  pair:    string;        // 'USD_NGN'
-  base:    string;
-  quote:   string;
-  rate:    number;        // customer-facing (= mid; markup suspended)
-  midRate: number;        // live mid-market rate
-  change:  number;        // real % move since the previous sampled rate
-  spark:   number[];      // real sampled rate history
-}
+interface Ccy { code: string; flag: string; sym: string }
 
-// Real rate history, persisted locally so the change % and sparkline reflect
-// ACTUAL sampled movement across loads (no fabricated data). We keep the last
-// few distinct mid-rates per pair; the series fills in as the live feed moves.
-const FX_HIST_KEY = 'borderpay_fx_hist_v1';
-const FX_HIST_MAX = 24;
+const CURRENCIES: Ccy[] = [
+  { code: 'USD',  flag: '🇺🇸', sym: '$' },
+  { code: 'EUR',  flag: '🇪🇺', sym: '€' },
+  { code: 'GBP',  flag: '🇬🇧', sym: '£' },
+  { code: 'USDT', flag: '💵', sym: '₮' },
+  { code: 'USDC', flag: '💵', sym: '$' },
+];
+const STABLE = new Set(['USDT', 'USDC']);
+const META = (code: string): Ccy => CURRENCIES.find(c => c.code === code) || CURRENCIES[0];
 
-function readHist(): Record<string, number[]> {
-  try {
-    const v = JSON.parse(localStorage.getItem(FX_HIST_KEY) || '{}');
-    return v && typeof v === 'object' ? v : {};
-  } catch { return {}; }
+function fmtAmount(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function writeHist(h: Record<string, number[]>): void {
-  try { localStorage.setItem(FX_HIST_KEY, JSON.stringify(h)); } catch { /* quota / private mode */ }
-}
-
-const DEFAULT_PAIR = 'USD_EUR';
 
 export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [pairs, setPairs] = useState<PairRow[]>([]);
-  const [selected, setSelected] = useState<string>(DEFAULT_PAIR);
+  // mid[`USD_EUR`] = how many EUR per 1 USD (mid-market).
+  const [mid, setMid] = useState<Record<string, number>>({});
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-  const [isLive, setIsLive] = useState(true);
+  const [isLive, setIsLive] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const [amount, setAmount] = useState('1000');
+  const [from, setFrom] = useState('USD');
+  const [to, setTo] = useState('EUR');
+  const [openMenu, setOpenMenu] = useState<'from' | 'to' | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
   const prefetchExchange = () => {
-    if (typeof window !== 'undefined') {
-      (window as any).__borderpay_prefetch?.('exchange');
-    }
+    if (typeof window !== 'undefined') (window as any).__borderpay_prefetch?.('exchange');
   };
 
   const load = async () => {
@@ -81,32 +63,7 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
     try {
       const r: any = await backendAPI.fx.getLiveRates();
       if (r?.success && r.data?.rates) {
-        const hist = readHist();
-        const rows: PairRow[] = Object.entries(r.data.rates).map(([pair, midRate]) => {
-          const [base, quote] = pair.split('_');
-          const mid = Number(midRate);
-          const arr = Array.isArray(hist[pair]) ? hist[pair] : [];
-          const prev = arr.length ? arr[arr.length - 1] : null;
-          // Real movement since the last sampled rate (0 on first ever sample).
-          const change = prev != null && prev > 0 ? ((mid - prev) / prev) * 100 : 0;
-          // Append only when the rate actually moved, so the series is real
-          // and doesn't spam identical points across same-day refreshes.
-          const nextArr = prev == null || mid !== prev ? [...arr, mid].slice(-FX_HIST_MAX) : arr;
-          hist[pair] = nextArr;
-          return {
-            pair, base, quote,
-            midRate: mid,
-            rate:    withMarkup(mid),
-            change,
-            spark:   nextArr.map((v) => withMarkup(v)),
-          };
-        });
-        writeHist(hist);
-        // Stable order: USD first, then alphabetical
-        rows.sort((a, b) =>
-          (a.base === 'USD' ? 0 : 1) - (b.base === 'USD' ? 0 : 1) ||
-          a.pair.localeCompare(b.pair));
-        setPairs(rows);
+        setMid(r.data.rates as Record<string, number>);
         setIsLive(r.data.source === 'live');
         setUpdatedAt(r.data.generated_at || new Date().toISOString());
       }
@@ -116,16 +73,40 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
   };
   useEffect(() => { load(); }, []);
 
-  const current = useMemo(
-    () => pairs.find(p => p.pair === selected) || pairs[0],
-    [pairs, selected],
-  );
+  // Close the currency menu on outside click.
+  useEffect(() => {
+    if (!openMenu) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpenMenu(null);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [openMenu]);
+
+  // from → USD multiplier and USD → to multiplier, derived from the USD-based feed.
+  const convert = (value: number, f: string, tg: string): number | null => {
+    if (f === tg) return value;
+    const fToUsd = (f === 'USD' || STABLE.has(f)) ? 1 : (mid[`USD_${f}`] ? 1 / mid[`USD_${f}`] : null);
+    const usdToT = (tg === 'USD' || STABLE.has(tg)) ? 1 : (mid[`USD_${tg}`] ?? null);
+    if (fToUsd == null || usdToT == null) return null;
+    return value * fToUsd * usdToT;
+  };
+
+  const numAmount = useMemo(() => {
+    const n = parseFloat(amount.replace(/,/g, ''));
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }, [amount]);
+
+  const unitRate = useMemo(() => convert(1, from, to), [mid, from, to]);
+  const converted = useMemo(() => convert(numAmount, from, to), [mid, from, to, numAmount]);
+
+  const swap = () => { setFrom(to); setTo(from); };
 
   return (
-    <section className="px-4 sm:px-5 mt-7">
+    <section className="px-4 sm:px-5 mt-7" ref={rootRef}>
       <div className="flex items-center justify-between mb-3">
         <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>
-          {tt('dashboard.exchangeRates', 'Exchange rates')}
+          {tt('dashboard.convert', 'Convert')}
         </h3>
         <button
           type="button"
@@ -140,100 +121,140 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}
+        className={`relative rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}
       >
-        {/* Selected-pair hero */}
-        {current && (
-          <div className="px-4 pt-4 pb-3">
-            <div className="flex items-baseline gap-2">
-              <p className={`text-[11px] font-semibold uppercase tracking-wider ${tc.textMuted}`}>
-                1 {current.base}
-              </p>
-              <p className={`text-[10px] ${tc.textMuted}`}>≈</p>
-              <p className={`text-[22px] font-semibold ${tc.text} tabular-nums font-mono leading-none`}>
-                {current.rate.toFixed(current.rate >= 100 ? 2 : 4)}
-              </p>
-              <p className={`text-[12px] font-semibold ${tc.textSecondary}`}>{current.quote}</p>
-              <span className={`ml-auto inline-flex items-center gap-0.5 text-[11px] font-semibold ${current.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {current.change >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {current.change >= 0 ? '+' : ''}{current.change.toFixed(2)}%
-              </span>
-            </div>
-            <p className={`text-[10px] ${tc.textMuted} mt-1`}>
-              {PARTNER_FX_MARKUP > 0
-                ? `Includes ${markupLabel()} markup`
-                : isLive
-                  ? 'Live mid-market rate · no FX markup'
-                  : 'Indicative rate · live feed unavailable'}
-              {updatedAt && ' · updated ' + new Date(updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-            </p>
+        {/* You convert */}
+        <ConvertRow
+          label={tt('fx.youConvert', 'You convert')}
+          value={amount}
+          editable
+          onChange={(v) => setAmount(v.replace(/[^0-9.]/g, ''))}
+          ccy={from}
+          menuOpen={openMenu === 'from'}
+          onToggleMenu={() => setOpenMenu(openMenu === 'from' ? null : 'from')}
+          onPick={(c) => { setFrom(c); setOpenMenu(null); }}
+          disabledCode={to}
+          tc={tc}
+        />
 
-            {/* Live line graphic */}
-            <Sparkline data={current.spark} positive={current.change >= 0} />
-          </div>
-        )}
-
-        {/* Pair selector strip */}
-        <div className={`px-4 pt-3 pb-3 border-t ${tc.borderLight} overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
-          <div className="flex gap-1.5 min-w-min">
-            {pairs.map((p) => {
-              const active = p.pair === selected;
-              return (
-                <button
-                  key={p.pair}
-                  onClick={() => setSelected(p.pair)}
-                  className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-mono font-bold whitespace-nowrap transition-colors ${
-                    active
-                      ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
-                      : `${tc.card} ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`
-                  }`}
-                >
-                  {p.base}/{p.quote}
-                </button>
-              );
-            })}
-          </div>
+        {/* Rate divider + swap */}
+        <div className={`relative flex items-center px-4 py-2 border-y ${tc.borderLight}`}>
+          <button
+            type="button"
+            onClick={swap}
+            aria-label="Swap currencies"
+            className="absolute -top-4 left-4 w-8 h-8 rounded-full bg-[#C7FF00] text-black flex items-center justify-center shadow-lg hover:brightness-95 active:scale-95 transition"
+          >
+            <ArrowUpDown className="w-4 h-4" />
+          </button>
+          <p className={`ml-12 text-[11px] ${tc.textMuted}`}>
+            {unitRate != null
+              ? <>1 {from} = <span className={`font-semibold ${tc.text}`}>{fmtAmount(unitRate)} {to}</span></>
+              : tt('fx.noRate', 'Rate unavailable')}
+          </p>
         </div>
 
-        {/* Convert CTA */}
+        {/* Recipient gets */}
+        <ConvertRow
+          label={tt('fx.youGet', 'You get')}
+          value={converted != null ? fmtAmount(converted) : '—'}
+          ccy={to}
+          menuOpen={openMenu === 'to'}
+          onToggleMenu={() => setOpenMenu(openMenu === 'to' ? null : 'to')}
+          onPick={(c) => { setTo(c); setOpenMenu(null); }}
+          disabledCode={from}
+          tc={tc}
+          emphasis
+        />
+
+        {/* Rate provenance */}
+        <p className={`px-4 pb-3 -mt-1 text-[10px] ${tc.textMuted}`}>
+          {isLive ? tt('fx.live', 'Live mid-market rate · no FX markup') : tt('fx.indicative', 'Indicative rate · live feed unavailable')}
+          {updatedAt && ' · ' + new Date(updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+        </p>
+
+        {/* CTA */}
         <button
           onPointerDown={prefetchExchange}
           onMouseEnter={prefetchExchange}
           onClick={() => onNavigate('exchange')}
-          className={`w-full px-4 py-3 border-t ${tc.borderLight} flex items-center justify-center gap-2 bg-[#C7FF00] text-black text-[12px] font-bold hover:brightness-95 transition`}
+          className="w-full px-4 py-3 border-t border-transparent flex items-center justify-center gap-2 bg-[#C7FF00] text-black text-[13px] font-bold hover:brightness-95 transition"
         >
-          <ArrowLeftRight className="w-3.5 h-3.5" />
-          {tt('dashboard.convertCurrencies', 'Convert currencies')}
+          {tt('dashboard.convertCurrencies', 'Convert')}
+          <ArrowRight className="w-4 h-4" />
         </button>
       </motion.div>
     </section>
   );
 }
 
-// ── Sparkline ────────────────────────────────────────────────────────────
-function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
-  if (!data.length) return null;
-  const width = 320, height = 36;
-  // With a single real sample we can't draw a trend yet — render a flat
-  // baseline rather than fabricating motion. The line fills in as the live
-  // feed moves and we collect more samples.
-  const series = data.length === 1 ? [data[0], data[0]] : data;
-  const min = Math.min(...series), max = Math.max(...series);
-  const range = max - min || 1;
-  const step = width / (series.length - 1);
-  const points = series.map((v, i) => `${(i * step).toFixed(2)},${(height - ((v - min) / range) * (height - 4) - 2).toFixed(2)}`).join(' ');
-  const stroke = positive ? '#34D399' : '#F87171';
+// ── Convert row (amount + currency selector) ──────────────────────────────
+function ConvertRow({
+  label, value, editable, onChange, ccy, menuOpen, onToggleMenu, onPick, disabledCode, tc, emphasis,
+}: {
+  label: string;
+  value: string;
+  editable?: boolean;
+  onChange?: (v: string) => void;
+  ccy: string;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onPick: (code: string) => void;
+  disabledCode: string;
+  tc: ReturnType<typeof useThemeClasses>;
+  emphasis?: boolean;
+}) {
+  const m = META(ccy);
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="mt-3 w-full h-9">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={stroke}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div className="relative px-4 py-3.5">
+      <p className={`text-[11px] font-medium ${tc.textMuted} mb-1.5`}>{label}</p>
+      <div className="flex items-center gap-3">
+        {editable ? (
+          <input
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => onChange?.(e.target.value)}
+            className={`flex-1 min-w-0 bg-transparent outline-none tabular-nums ${emphasis ? 'text-[26px]' : 'text-[26px]'} font-semibold ${tc.text}`}
+            placeholder="0.00"
+          />
+        ) : (
+          <p className={`flex-1 min-w-0 tabular-nums text-[26px] font-semibold ${emphasis ? 'text-[#C7FF00]' : tc.text} truncate`}>
+            {value}
+          </p>
+        )}
+
+        {/* Currency selector */}
+        <button
+          type="button"
+          onClick={onToggleMenu}
+          className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border ${tc.cardBorder} ${tc.bgAlt} ${tc.hoverBg} transition`}
+        >
+          <span className="text-base leading-none">{m.flag}</span>
+          <span className={`text-sm font-bold ${tc.text}`}>{m.code}</span>
+          <ChevronDown className={`w-3.5 h-3.5 ${tc.textMuted} transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
+      {menuOpen && (
+        <div className={`absolute right-4 top-[68px] z-20 w-40 rounded-xl border ${tc.cardBorder} ${tc.card} shadow-2xl overflow-hidden`}>
+          {CURRENCIES.map((c) => (
+            <button
+              key={c.code}
+              type="button"
+              disabled={c.code === disabledCode}
+              onClick={() => onPick(c.code)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition ${
+                c.code === ccy ? 'bg-[#C7FF00]/10' : tc.hoverBg
+              } ${c.code === disabledCode ? 'opacity-30 cursor-not-allowed' : ''}`}
+            >
+              <span className="text-base leading-none">{c.flag}</span>
+              <span className={`text-sm font-semibold ${tc.text}`}>{c.code}</span>
+              {c.code === ccy && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#C7FF00]" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
