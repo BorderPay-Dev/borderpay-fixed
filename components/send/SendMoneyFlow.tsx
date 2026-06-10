@@ -163,6 +163,23 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // External stablecoin withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'tron', token: 'USDT', address: '' });
+
+  // Withdraw-to-saved-wallet handoff: ExternalWalletsScreen stores the chosen
+  // destination, then routes here. Prefill the stablecoin flow and jump in.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('borderpay_prefill_withdraw');
+      if (!raw) return;
+      localStorage.removeItem('borderpay_prefill_withdraw');
+      const p = JSON.parse(raw);
+      if (p?.address && p?.chain) {
+        setMethod('stablecoin');
+        setCrypto({ network: p.chain as any, token: (String(p.asset || 'USDC').toUpperCase()) as any, address: String(p.address) });
+        setStep('details');
+      }
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Client-controlled idempotency key for the bridge-transfer call.
   // Generated ONCE per Send-screen mount so that retries / Confirm
   // double-taps reuse the same key. Regenerate with newIdempotencyKey()

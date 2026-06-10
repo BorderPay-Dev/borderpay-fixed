@@ -1447,6 +1447,19 @@ export const payoutsAPI = {
       'flutterwave-resolve-account', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) }),
 };
 
+/** Saved external stablecoin payout addresses (withdraw to your own wallet). */
+export interface ExternalWallet {
+  id: string; label: string; chain: string; asset: string; address: string; created_at?: string;
+}
+export const externalWalletsAPI = {
+  list: async () =>
+    apiCall<{ wallets: ExternalWallet[] }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'list' }) }),
+  add: async (w: { label: string; chain: string; asset: string; address: string }) =>
+    apiCall<{ wallet: ExternalWallet }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'add', ...w }) }),
+  remove: async (id: string) =>
+    apiCall<{ removed: boolean }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'remove', id }) }),
+};
+
 export const backendAPI = {
   auth: authSecurityAPI,
   user: userAPI,
@@ -1469,6 +1482,7 @@ export const backendAPI = {
   bridge: bridgeAPI,
   subscription: subscriptionAPI,
   payouts:      payoutsAPI,
+  externalWallets: externalWalletsAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,
 };

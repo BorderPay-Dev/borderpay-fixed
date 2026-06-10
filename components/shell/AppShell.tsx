@@ -72,6 +72,9 @@ export interface AppShellProps {
    *  passes this when EXTERNAL_ACCOUNTS_LIVE is true, so the entry is fully
    *  gated without plumbing a new AppRoute. */
   onOpenPayoutAccounts?: () => void;
+  /** When provided, a "Withdrawal wallets" drawer item is shown (saved external
+   *  stablecoin addresses you can withdraw to directly). */
+  onOpenWithdrawalWallets?: () => void;
   children:           React.ReactNode;
 }
 
@@ -103,6 +106,7 @@ export function AppShell({
   route, onRoute, userName, userInitials, avatarUrl,
   unreadCount = 0, subscription, isBusinessAccount, onSignOut, onLock,
   onOpenPayoutAccounts,
+  onOpenWithdrawalWallets,
   children,
 }: AppShellProps) {
   const { t } = useThemeLanguage();
@@ -403,6 +407,9 @@ export function AppShell({
                 <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
                 {onOpenPayoutAccounts && (
                   <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} description={tt('nav.payout_accounts.desc', 'Manage withdrawal destinations')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
+                )}
+                {onOpenWithdrawalWallets && (
+                  <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onClick={() => { setDrawerOpen(false); onOpenWithdrawalWallets(); }} tc={tc} />
                 )}
                 <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
                 {isBusinessAccount && (

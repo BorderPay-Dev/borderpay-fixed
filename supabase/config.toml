@@ -109,3 +109,8 @@ verify_jwt = true
 
 [functions.flutterwave-resolve-account]
 verify_jwt = true
+
+# Saved external stablecoin payout addresses (user-authenticated; server-side
+# address validation; no money movement).
+[functions.external-wallet]
+verify_jwt = true

@@ -30,9 +30,22 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [accountType, setAccountType] = useState<AccountType>('individual');
-  const [status, setStatus]           = useState<CardStatus>('not_started');
-  const [loading, setLoading]         = useState(true);
+  // Seed synchronously from the cached profile so the card paints its real
+  // status instantly (no loading shimmer on the dashboard); the fetch below
+  // refreshes silently.
+  const cachedProfile = (() => {
+    try { return JSON.parse(localStorage.getItem('borderpay_user') || 'null'); } catch { return null; }
+  })();
+  const cachedAcct: AccountType = cachedProfile?.account_type === 'business' ? 'business' : 'individual';
+  const cachedStatus: CardStatus = (() => {
+    if (!cachedProfile) return 'not_started';
+    const d = deriveKycStatus(cachedAcct === 'business' ? { ...cachedProfile, account_type: 'business' } : cachedProfile);
+    return (d === 'verified' ? 'approved' : d) as CardStatus;
+  })();
+
+  const [accountType, setAccountType] = useState<AccountType>(cachedAcct);
+  const [status, setStatus]           = useState<CardStatus>(cachedStatus);
+  const [loading, setLoading]         = useState(!cachedProfile);
 
   useEffect(() => {
     if (!BRIDGE_ONBOARDING_LIVE) {

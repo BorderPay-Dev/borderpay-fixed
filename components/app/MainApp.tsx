@@ -57,6 +57,7 @@ const CountryEligibilityScreen = lazyImport(() => import('../compliance/CountryE
 const ReceiveMoneyScreen = lazyImport(() => import('../receive/ReceiveMoneyScreen').then(m => ({ default: m.ReceiveMoneyScreen })));
 const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
+const ExternalWalletsScreen = lazyImport(() => import('../wallets/ExternalWalletsScreen').then(m => ({ default: m.ExternalWalletsScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
@@ -109,6 +110,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   team:          (TeamScreen    as any).preload,
   notifications: (NotificationsScreen as any).preload,
   'external-accounts':   (ExternalAccountsScreen as any).preload,
+  'external-wallets':    (ExternalWalletsScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
 };
 
@@ -210,6 +212,7 @@ export type AppScreen =
   | 'team'
   | 'notifications'
   | 'external-accounts'
+  | 'external-wallets'
   | 'add-external-account';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
@@ -561,6 +564,14 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           />
         );
 
+      case 'external-wallets':
+        return (
+          <ExternalWalletsScreen
+            onBack={navigateBack}
+            onNavigate={navigateTo as (s: string) => void}
+          />
+        );
+
       case 'add-external-account':
         if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
         return (
@@ -802,6 +813,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onSignOut={onLogout}
                 onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
+                onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
               >
                 {renderScreen()}
               </AppShell>
