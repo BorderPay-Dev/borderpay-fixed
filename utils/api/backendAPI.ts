@@ -1426,12 +1426,15 @@ export const subscriptionAPI = {
 
   /**
    * Start the one-time activation payment via the external gateway.
-   * Returns a hosted checkout URL the app redirects to. Plan is inferred from
-   * the user's account_type server-side.
+   * Records a pending payment and returns the params for the INLINE (embedded)
+   * checkout — the app opens it in-page (no redirect away). Plan is inferred
+   * from the user's account_type server-side.
    */
   startActivationCheckout: async () =>
-    apiCall<{ checkout_url: string; tx_ref: string }>(
-      'flutterwave-checkout', { method: 'POST', body: JSON.stringify({}) }),
+    apiCall<{
+      tx_ref: string; amount: number; currency: string; public_key: string;
+      email: string; name: string; plan_key: string; redirect_url: string;
+    }>('flutterwave-checkout', { method: 'POST', body: JSON.stringify({}) }),
 };
 
 /** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */

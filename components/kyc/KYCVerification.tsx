@@ -1,22 +1,24 @@
 /**
- * BorderPay Africa — Identity & KYC (read-only status)
+ * BorderPay Africa — Identity & KYC
  *
- * Verification is initiated by a secure link we email the user after payment —
- * never started in-app. This screen therefore only READS and DISPLAYS the
- * current Bridge KYC/KYB status:
+ * KYC/KYB is FREE and automatic (Bridge webhook drives status). This screen
+ * shows the current status AND lets an un-started user begin verification in
+ * one tap (secure hosted flow):
  *
- *   not started · pending · under review · verified · verification failed
+ *   not started (+ Verify CTA) · pending · under review · verified · failed
  *
- * Status is seeded synchronously from the cached profile (so the screen opens
- * instantly, no loading spinner) and refreshed in the background. No start
- * button, no hosted link — Bridge remains the source of truth and developer/
- * internal rejection reasons are never surfaced.
+ * Status is seeded synchronously from the cached profile (instant open, no
+ * loading spinner) and refreshed in the background. Bridge remains the source
+ * of truth; developer/internal rejection reasons are never surfaced.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { supabase } from '../../utils/supabase/client';
+import { backendAPI } from '../../utils/api/backendAPI';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -58,7 +60,7 @@ function seedFromCache(): { accountType: AccountType; status: KycView } {
   }
 }
 
-export function KYCVerification({ userId, userEmail, onBack }: KYCVerificationProps) {
+export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
@@ -101,13 +103,34 @@ export function KYCVerification({ userId, userEmail, onBack }: KYCVerificationPr
 
   const isBusiness = accountType === 'business';
 
+  // KYC/KYB is FREE now — the user can start verification right here. Opens the
+  // secure hosted verification flow; Bridge returns them to /?screen=kyc.
+  const [verifying, setVerifying] = useState(false);
+  const startVerification = async () => {
+    setVerifying(true);
+    try {
+      const redirect_url = `${window.location.origin}/?screen=kyc`;
+      const r: any = isBusiness
+        ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
+        : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
+      if (r?.success && r.data?.link_url) {
+        window.location.href = r.data.link_url;   // secure hosted verification
+        return;
+      }
+      if (r?.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); }
+      else toast.error(friendlyError(r?.error, 'Could not start verification. Please try again.'));
+    } catch (e) {
+      toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
+    } finally { setVerifying(false); }
+  };
+
   const VIEW: Record<KycView, { Icon: typeof Clock; tone: string; bg: string; title: string; body: string }> = {
     not_started: {
       Icon: Mail, tone: 'text-amber-400', bg: 'bg-amber-500/15',
       title: tt('kyc.status.notStarted.title', 'Verification not started'),
       body: isBusiness
-        ? tt('kyc.status.notStarted.bizBody', 'After activation we email you a secure link to verify your business. Check your inbox to begin.')
-        : tt('kyc.status.notStarted.body', 'After activation we email you a secure link to verify your identity. Check your inbox to begin.'),
+        ? tt('kyc.status.notStarted.bizBody', 'Verify your business to unlock USD, EUR & GBP accounts, cards and your wallet. It only takes a few minutes.')
+        : tt('kyc.status.notStarted.body', 'Verify your identity to unlock USD, EUR & GBP accounts, cards and your wallet. It only takes a few minutes.'),
     },
     pending: {
       Icon: Clock, tone: 'text-amber-400', bg: 'bg-amber-500/15',
@@ -174,13 +197,23 @@ export function KYCVerification({ userId, userEmail, onBack }: KYCVerificationPr
             </div>
           </div>
 
-          {/* Email reminder for the link (read-only flows) */}
-          {(status === 'not_started' || status === 'pending') && (
+          {/* Free in-app start — KYC/KYB is no longer email-gated. */}
+          {status === 'not_started' && (
+            <button
+              onClick={startVerification}
+              disabled={verifying}
+              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+            >
+              {verifying
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <>{isBusiness ? 'Verify your business' : 'Verify your identity'} <ArrowRight className="w-4 h-4" /></>}
+            </button>
+          )}
+          {(status === 'pending' || status === 'under_review') && (
             <div className={`mt-5 flex items-start gap-2.5 rounded-2xl border ${tc.borderLight} ${tc.bgAlt} px-4 py-3`}>
-              <Mail className={`w-4 h-4 ${tc.textMuted} mt-0.5 flex-shrink-0`} />
+              <Clock className={`w-4 h-4 ${tc.textMuted} mt-0.5 flex-shrink-0`} />
               <p className={`text-xs ${tc.textMuted} leading-snug`}>
-                {tt('kyc.emailNote', 'Your secure verification link is sent to your email')}
-                {userEmail ? <> — <span className={tc.textSecondary}>{userEmail}</span></> : null}.
+                {tt('kyc.pendingNote', 'We’ll update this automatically once your verification is processed.')}
               </p>
             </div>
           )}

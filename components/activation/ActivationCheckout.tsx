@@ -1,10 +1,9 @@
 /**
- * ActivationCheckout — starts the one-time activation payment and redirects the
- * user to the secure hosted checkout. Shown (instead of ActivationComingSoon)
- * once ACTIVATION_GATEWAY_LIVE is true.
- *
- * On mount it requests a checkout URL and redirects. If that fails it shows a
- * partner-neutral retry state (no provider name ever surfaces).
+ * ActivationCheckout — opens the one-time activation payment INLINE (embedded),
+ * so the user never leaves the app. Uses the Flutterwave inline widget
+ * (checkout.flutterwave.com/v3.js) with the publishable key + the tx_ref our
+ * server recorded; all enabled methods show (card, bank transfer, mobile money, …). The signature-verified webhook is what actually activates — the
+ * callback here is just UX (confirm + refresh).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -14,6 +13,25 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
+declare global {
+  interface Window { FlutterwaveCheckout?: (opts: any) => { close?: () => void }; }
+}
+
+const V3 = 'https://checkout.flutterwave.com/v3.js';
+
+function loadV3(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (window.FlutterwaveCheckout) return resolve(true);
+    const existing = document.querySelector(`script[src="${V3}"]`);
+    if (existing) { existing.addEventListener('load', () => resolve(!!window.FlutterwaveCheckout)); return; }
+    const s = document.createElement('script');
+    s.src = V3; s.async = true;
+    s.onload = () => resolve(!!window.FlutterwaveCheckout);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
+
 export interface ActivationCheckoutProps {
   open: boolean;
   onClose: () => void;
@@ -22,23 +40,51 @@ export interface ActivationCheckoutProps {
 export function ActivationCheckout({ open, onClose }: ActivationCheckoutProps) {
   const tc = useThemeClasses();
   const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(true);
+  const [phase, setPhase] = useState<'starting' | 'paying' | 'confirming'>('starting');
 
   const start = async () => {
     setError(null);
-    setStarting(true);
+    setPhase('starting');
     try {
       const r: any = await backendAPI.subscription.startActivationCheckout();
-      const url = r?.success && r?.data?.checkout_url;
-      if (url) {
-        window.location.href = url;          // redirect to hosted checkout
+      if (!r?.success || !r.data?.public_key) {
+        setError(friendlyError(r?.error, 'Could not start activation. Please try again.'));
         return;
       }
-      setError(friendlyError(r?.error, 'Could not start activation. Please try again.'));
-      setStarting(false);
+      const ok = await loadV3();
+      if (!ok || !window.FlutterwaveCheckout) {
+        setError('Could not load secure checkout. Check your connection and try again.');
+        return;
+      }
+      const d = r.data;
+      setPhase('paying');
+      window.FlutterwaveCheckout({
+        public_key:   d.public_key,
+        tx_ref:       d.tx_ref,
+        amount:       d.amount,
+        currency:     d.currency,
+        // Omit payment_options → every method enabled on the account shows
+        // (card, bank transfer, USSD, mobile money…).
+        redirect_url: d.redirect_url,
+        customer:     { email: d.email, name: d.name || undefined },
+        customizations: {
+          title: 'BorderPay Activation',
+          description: 'Activate your BorderPay Global Wallet',
+        },
+        callback: () => {
+          // Payment captured. The webhook activates server-side; show a
+          // confirming state (the widget closes itself, then onclose fires).
+          setPhase('confirming');
+        },
+        onclose: () => {
+          // Modal dismissed (paid or cancelled). Close our sheet + nudge a
+          // refresh so an activated plan reflects.
+          onClose();
+          try { window.location.assign(`${window.location.pathname}?activation=return`); } catch { /* noop */ }
+        },
+      });
     } catch (e) {
       setError(friendlyError(e, 'Could not start activation. Please try again.'));
-      setStarting(false);
     }
   };
 
@@ -47,6 +93,7 @@ export function ActivationCheckout({ open, onClose }: ActivationCheckoutProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // While the Flutterwave modal is open we keep our own sheet minimal/behind it.
   return (
     <AnimatePresence>
       {open && (
@@ -54,13 +101,13 @@ export function ActivationCheckout({ open, onClose }: ActivationCheckoutProps) {
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-sm"
+            className="fixed inset-0 z-[9990] bg-black/70 backdrop-blur-sm"
           />
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.98 }}
-            className="fixed inset-x-0 bottom-0 z-[9999] sm:inset-0 sm:m-auto sm:h-fit sm:max-w-sm"
+            className="fixed inset-x-0 bottom-0 z-[9991] sm:inset-0 sm:m-auto sm:h-fit sm:max-w-sm"
           >
             <div className={`mx-auto w-full max-w-md ${tc.card} border ${tc.cardBorder} rounded-t-3xl sm:rounded-3xl overflow-hidden`}
                  style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
@@ -77,21 +124,19 @@ export function ActivationCheckout({ open, onClose }: ActivationCheckoutProps) {
                   <>
                     <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Couldn’t start activation</h2>
                     <p className={`text-sm ${tc.textMuted} max-w-xs mx-auto`}>{error}</p>
-                    <button
-                      onClick={start}
-                      className="mt-6 w-full py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
-                    >
+                    <button onClick={start} className="mt-6 w-full py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition">
                       Try again
                     </button>
                   </>
                 ) : (
                   <>
-                    <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Taking you to secure checkout…</h2>
+                    <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>
+                      {phase === 'confirming' ? 'Confirming your activation…' : 'Opening secure checkout…'}
+                    </h2>
                     <p className={`text-sm ${tc.textMuted} max-w-xs mx-auto mb-5`}>
-                      Activate your BorderPay Global Wallet to unlock international transfers,
-                      payouts, and multi-currency balances.
+                      Pay by card, bank transfer, mobile money and more — without leaving the app.
                     </p>
-                    {starting && <Loader2 className={`w-6 h-6 ${tc.textSecondary} animate-spin mx-auto`} />}
+                    <Loader2 className={`w-6 h-6 ${tc.textSecondary} animate-spin mx-auto`} />
                   </>
                 )}
               </div>

@@ -51,6 +51,7 @@ import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAcco
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { Skeleton } from '../common/Skeleton';
+import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
 
 // Pull cached profile once at module-eval — every initial-state hook below
@@ -750,6 +751,15 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
             } catch { /* non-fatal */ }
           })();
         }}
+      />
+
+      {/* KYC reminder — nudges unverified users to verify (free); opens the
+          Identity & KYC screen. Once-per-session; disappears when verified. */}
+      <KycReminderPopup
+        open={!isVerified && kycStatus !== 'rejected'}
+        isBusiness={false}
+        onVerify={() => handleNavigate('kyc')}
+        onClose={() => { /* dismissed for this session inside the popup */ }}
       />
     </div>
   );

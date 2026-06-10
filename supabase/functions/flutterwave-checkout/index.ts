@@ -8,7 +8,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { createPayment, flutterwaveConfigured } from "../_shared/providers/flutterwave.ts";
+import { flutterwaveConfigured } from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -70,20 +70,26 @@ Deno.serve(async (req) => {
   });
   if (insErr) return json({ success: false, error: "Could not start activation. Please try again." }, 500);
 
-  const pay = await createPayment({
-    tx_ref:       txRef,
-    amount:       amountMinor / 100,
-    currency:     "USD",
-    redirect_url: `${APP_URL}/?activation=return`,
-    customer:     { email, name: profile?.full_name || undefined },
-    title:        "BorderPay Account Activation",
-    meta:         { user_id: user.id, plan_key: planKey },
-  });
-
-  if (!pay.ok) {
-    // Never leak the provider's raw error to the client.
-    return json({ success: false, code: "checkout_failed", error: "Could not start activation. Please try again." }, 502);
+  // Inline (embedded) checkout: the app opens FlutterwaveCheckout in-page using
+  // the PUBLIC key (publishable, safe on the client). We just hand back the
+  // tx_ref we recorded + the params the inline widget needs. The webhook (which
+  // verifies signature + amount server-side) is what actually activates.
+  const publicKey = (Deno.env.get("FLUTTERWAVE_PUBLIC_KEY") || "").trim();
+  if (!publicKey) {
+    return json({ success: false, code: "gateway_unavailable", error: "Activation is temporarily unavailable. Please try again later." }, 503);
   }
 
-  return json({ success: true, data: { checkout_url: pay.link, tx_ref: txRef } });
+  return json({
+    success: true,
+    data: {
+      tx_ref:       txRef,
+      amount:       amountMinor / 100,
+      currency:     "USD",
+      public_key:   publicKey,
+      email,
+      name:         profile?.full_name || "",
+      plan_key:     planKey,
+      redirect_url: `${APP_URL}/?activation=return`,
+    },
+  });
 });

@@ -54,14 +54,16 @@ def main() -> int:
 
     checks: list[tuple[str, bool, str]] = []
 
-    # Read-only KYC model: verification is initiated via the secure link we email
-    # the user (Bridge hosted flow), NOT in-app. The in-app screen only READS and
-    # displays bridge_kyc_status — it must not call the in-app start helpers.
-    checks.append(("K1 KYCVerification is read-only status (no in-app start)",
+    # Free in-app KYC: the screen READS status AND lets the user start
+    # verification via the CANONICAL Bridge hosted-link helpers (no legacy
+    # kyc-submit). It must show status (bridge_kyc_status) and start through
+    # bridge.kyc.startIndividual / bridge.kyb.startBusiness.
+    checks.append(("K1 KYCVerification shows status + starts via canonical Bridge path",
                    ("bridge_kyc_status" in kycv
-                    and "bridge.kyc.startIndividual" not in kycv
-                    and "bridge.kyb.startBusiness" not in kycv),
-                   "KYCVerification must read status only — verification is initiated via the emailed link, not in-app"))
+                    and "bridge.kyc.startIndividual" in kycv
+                    and "bridge.kyb.startBusiness" in kycv
+                    and "kyc-submit" not in kycv),
+                   "KYCVerification must read status AND start verification via bridge.kyc.startIndividual / kyb.startBusiness (canonical), never kyc-submit"))
 
     checks.append(("K2 SignUpFlow onboarding uses the Bridge path",
                    ("bridge-customer" in signup and "bridge-kyc-link" in signup and "bridge-kyb-link" in signup),
