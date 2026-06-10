@@ -74,7 +74,8 @@ Deno.serve(async (req) => {
   // the PUBLIC key (publishable, safe on the client). We just hand back the
   // tx_ref we recorded + the params the inline widget needs. The webhook (which
   // verifies signature + amount server-side) is what actually activates.
-  const publicKey = (Deno.env.get("FLUTTERWAVE_PUBLIC_KEY") || "").trim();
+  // Publishable key — accept either name (operator saved it as FLUTTERWAVE_API_KEY).
+  const publicKey = (Deno.env.get("FLUTTERWAVE_PUBLIC_KEY") || Deno.env.get("FLUTTERWAVE_API_KEY") || "").trim();
   if (!publicKey) {
     return json({ success: false, code: "gateway_unavailable", error: "Activation is temporarily unavailable. Please try again later." }, 503);
   }
