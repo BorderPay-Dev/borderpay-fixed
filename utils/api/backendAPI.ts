@@ -678,15 +678,11 @@ export const localPaymentsAPI = {
     });
   },
 
-  // QUARANTINED — `transfer` and `borderPayTransfer` route to future-state
+  // QUARANTINED — `transfer` routes to future-state
   // (future local currency / mobile-wallet / local bank rails).
   // `verifyTransfer` and `getTransfers` are read-only and kept
   // operational for history display.
   async transfer(_data: any) {
-    return RAILS_FUTURE_STATE;
-  },
-
-  async borderPayTransfer(_data: any) {
     return RAILS_FUTURE_STATE;
   },
 
@@ -1427,6 +1423,28 @@ export const subscriptionAPI = {
       amount_usd_cents: number;
       new_balance_minor: number;
     }>('subscription-upgrade', { method: 'POST', body: JSON.stringify(input) }),
+
+  /**
+   * Start the one-time activation payment via the external gateway.
+   * Returns a hosted checkout URL the app redirects to. Plan is inferred from
+   * the user's account_type server-side.
+   */
+  startActivationCheckout: async () =>
+    apiCall<{ checkout_url: string; tx_ref: string }>(
+      'flutterwave-checkout', { method: 'POST', body: JSON.stringify({}) }),
+};
+
+/** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */
+export const payoutsAPI = {
+  /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
+  listBanks: async (country: string) =>
+    apiCall<{ banks: Array<{ code: string; name: string }> }>(
+      'flutterwave-banks', { method: 'POST', body: JSON.stringify({ country }) }),
+
+  /** Verify a bank account number → account holder name before payout. */
+  resolveAccount: async (account_number: string, bank_code: string) =>
+    apiCall<{ account_name: string }>(
+      'flutterwave-resolve-account', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) }),
 };
 
 export const backendAPI = {
@@ -1450,6 +1468,7 @@ export const backendAPI = {
   business: businessAPI,
   bridge: bridgeAPI,
   subscription: subscriptionAPI,
+  payouts:      payoutsAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,
 };

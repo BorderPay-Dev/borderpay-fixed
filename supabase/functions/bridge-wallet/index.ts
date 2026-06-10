@@ -16,6 +16,7 @@ import {
   logControlledBridgeTraffic,
   isBridgeCustodialWalletSupported,
 } from "../_shared/providers/bridge-country-policy.ts";
+import { requireActivatedPlan } from "../_shared/plan-gate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -56,6 +57,13 @@ Deno.serve(async (req) => {
     .eq("id", user.id)
     .maybeSingle();
   const isBusiness = profile?.account_type === "business";
+
+  // Paid gate: provisioning a wallet requires an activated (paid) plan. In the
+  // Wise funnel KYC can be free, but money/account features stay paid-gated, so
+  // an unpaid user gets `plan_required` → the app shows the activation popup.
+  const __planGate = await requireActivatedPlan(supa, user.id, isBusiness);
+  if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
+
   let productCountry = profile?.country ?? null;
   let verificationStatus = profile?.bridge_kyc_status ?? null;
 

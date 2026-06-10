@@ -50,6 +50,8 @@ import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
+import { Skeleton } from '../common/Skeleton';
+import { txDirection } from '../../utils/transactions/direction';
 
 // Pull cached profile once at module-eval — every initial-state hook below
 // reads from this synchronously so the dashboard never flickers.
@@ -58,6 +60,18 @@ function readCachedProfile(): any {
     const raw = localStorage.getItem('borderpay_user');
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
+}
+
+// Lightweight JSON cache so balance + recent activity paint instantly on every
+// open (native-app feel), then refresh in the background. Keys are versioned.
+const DASH_WALLETS_KEY = 'borderpay_dash_wallets_v1';
+const DASH_RECENT_KEY  = 'borderpay_dash_recent_tx_v1';
+function readJSON<T>(key: string, fallback: T): T {
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : fallback; }
+  catch { return fallback; }
+}
+function writeJSON(key: string, value: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota/private mode */ }
 }
 
 function initialsFromName(name?: string, email?: string): string {
@@ -117,9 +131,23 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // Legacy provider status state removed — AffiliateBanner now gates on Bridge KYC only.
   const [userEmail, setUserEmail]         = useState<string>(cachedProfile?.email || '');
   const [hasPIN, setHasPIN]               = useState<boolean>(!!cachedSecurity.hasPIN);
-  const [wallets, setWallets]             = useState<Array<{ currency: string; balance: number; symbol: string; color: string }>>([]);
-  const [totalBalance, setTotalBalance]   = useState(0);
-  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  // Seed wallets / balance / recent activity from cache so the dashboard never
+  // first-paints $0.00 or an empty activity list, then refreshes silently.
+  const cachedWallets = useMemo(
+    () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(DASH_WALLETS_KEY, []),
+    [],
+  );
+  const cachedRecent = useMemo(() => readJSON<any[]>(DASH_RECENT_KEY, []), []);
+  const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) => {
+    const usdLike = new Set(['USD', 'USDT', 'USDC', 'PYUSD', 'USDB']);
+    return ws.reduce((s, w) => s + (usdLike.has(w.currency) ? w.balance : 0), 0);
+  };
+  const [wallets, setWallets]             = useState(cachedWallets);
+  const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
+  const [recentTransactions, setRecentTransactions] = useState<any[]>(cachedRecent);
+  // True once a network refresh of recent activity has completed at least once;
+  // gates the skeleton so we only show it on a genuinely cold (uncached) load.
+  const [txLoaded, setTxLoaded]           = useState<boolean>(cachedRecent.length > 0);
   // We hydrated synchronously — start with `loading: false` so banners that
   // were gated on `!loading` render immediately.
   const [loading, setLoading]             = useState(false);
@@ -203,17 +231,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           color:    CURRENCY_CONFIG[w.currency]?.color  || '#666',
         }));
         setWallets(formatted);
-
-        const usdLike = new Set(['USD', 'USDT', 'USDC', 'PYUSD', 'USDB']);
-        const total = formatted.reduce(
-          (sum: number, w: any) => sum + (usdLike.has(w.currency) ? w.balance : 0),
-          0
-        );
-        setTotalBalance(total);
-      } else {
-        setWallets([]);
-        setTotalBalance(0);
+        setTotalBalance(usdLikeTotal(formatted));
+        writeJSON(DASH_WALLETS_KEY, formatted);
       }
+      // On failure we keep the cached wallets/balance already on screen rather
+      // than flashing $0.00.
 
       // ── Security status (merge backend + client-side) ─────────────────────
       // Client-side localStorage is the source of truth for PIN/2FA
@@ -232,10 +254,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // ── Recent transactions ───────────────────────────────────────────────
       if (txRes.status === 'fulfilled' && txRes.value?.success) {
         const txns = txRes.value.data?.transactions || [];
-        setRecentTransactions(Array.isArray(txns) ? txns.slice(0, 5) : []);
-      } else {
-        setRecentTransactions([]);
+        const recent = Array.isArray(txns) ? txns.slice(0, 5) : [];
+        setRecentTransactions(recent);
+        writeJSON(DASH_RECENT_KEY, recent);
       }
+      // On failure keep cached recent activity rather than blanking it.
+      setTxLoaded(true);
 
     } catch (error) {
       // silent — synchronous cache already populated the UI
@@ -627,7 +651,21 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </button>
         </div>
 
-        {recentTransactions.length === 0 ? (
+        {recentTransactions.length === 0 && !txLoaded ? (
+          // Cold load with nothing cached → shape, not spinner.
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={`px-4 py-3.5 flex items-center gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}>
+                <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3.5 w-2/5" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+                <Skeleton className="h-3.5 w-14" />
+              </div>
+            ))}
+          </div>
+        ) : recentTransactions.length === 0 ? (
           <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-5 py-8 text-center`}>
             <Send className={`w-6 h-6 ${tc.textMuted} mx-auto mb-2`} />
             <p className={`text-sm ${tc.text} font-medium`}>{tt('dashboard.noTxYet', 'No activity yet')}</p>
@@ -636,7 +674,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         ) : (
           <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
             {recentTransactions.map((txn, i) => {
-              const isCredit = txn.type === 'deposit' || txn.type === 'credit';
+              const isCredit = txDirection(txn) === 'credit';
               const sym = CURRENCY_CONFIG[txn.currency]?.symbol || txn.currency || '$';
               const amt = parseFloat(txn.amount || 0).toFixed(2);
               return (

@@ -5,8 +5,9 @@
  */
 
 import React, { useState } from 'react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { motion } from 'motion/react';
-import { Lock, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
+import { Lock, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { PINManager } from '../../utils/security/SecurityManager';
 import {
@@ -86,14 +87,10 @@ export function PINSetup({ userId, onBack, onComplete }: PINSetupProps) {
   return (
     <div className="min-h-screen bg-[#0B0E11] text-white pb-safe">
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className="sticky top-0 z-10 bg-[#0B0E11]/95 backdrop-blur-lg border-b border-white/5">
         <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={onBack}
-            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
-          >
-            <ArrowLeft size={20} />
-          </button>
+          <div className="w-10" />
           <h1 className="bp-text-h3 font-bold">Setup Transaction PIN</h1>
           <div className="w-10" /> {/* Spacer */}
         </div>

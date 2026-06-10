@@ -10,7 +10,7 @@ import { ArrowLeft, Filter, Download, Search, ArrowUpRight, ArrowDownLeft, Calen
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { txDirection } from '../../utils/transactions/direction';
-import { LoadingSpinner } from '../common/LoadingSpinner';
+import { SkeletonRows } from '../common/Skeleton';
 import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -35,8 +35,15 @@ interface Transaction {
   metadata?: any;
 }
 
+const TX_CACHE_KEY = 'borderpay_tx_history_v1';
+function readTxCache(): Transaction[] {
+  try { const raw = localStorage.getItem(TX_CACHE_KEY); return raw ? JSON.parse(raw) : []; }
+  catch { return []; }
+}
+
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  // Seed from cache so the history paints instantly on open, then refreshes.
+  const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache());
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
@@ -66,8 +73,11 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
       const result = await backendAPI.transactions.getTransactions(100, 0);
       if (result.success && result.data) {
         const txns = (result.data as any).transactions || result.data;
-        setTransactions(Array.isArray(txns) ? txns : []);
-      } else {
+        const list = Array.isArray(txns) ? txns : [];
+        setTransactions(list);
+        try { localStorage.setItem(TX_CACHE_KEY, JSON.stringify(list)); } catch { /* noop */ }
+      } else if (transactions.length === 0) {
+        // Only surface an error if we have nothing cached to show.
         setLoadError(true);
       }
     } catch (error) {
@@ -239,6 +249,8 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
             onRetry={loadTransactions}
             compact
           />
+        ) : loading && transactions.length === 0 ? (
+          <SkeletonRows count={6} />
         ) : filteredTransactions.length === 0 ? (
           <div className="text-center py-12">
             <Calendar size={48} className={`${tc.textMuted} mx-auto mb-4`} />

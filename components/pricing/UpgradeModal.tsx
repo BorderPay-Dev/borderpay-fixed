@@ -23,11 +23,14 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Sparkles, Loader2, CheckCircle2, AlertCircle, Wallet, ArrowRight } from 'lucide-react';
+import { X, Sparkles, Loader2, CheckCircle2, AlertCircle, Wallet, ArrowRight, Lock, Shield } from 'lucide-react';
 import { supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { getPlan, formatPlanPrice, type PlanKey } from '../../utils/subscriptions/plans';
+import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '../ui/input-otp';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 export interface UpgradeModalProps {
@@ -61,6 +64,9 @@ export function UpgradeModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [success, setSuccess]       = useState<{ period_end: string } | null>(null);
+  // Passcode / biometric gate before any money moves.
+  const [gate, setGate]             = useState(false);
+  const [pin, setPin]               = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -79,7 +85,7 @@ export function UpgradeModal({
         : await q.eq('user_id', userId);
       if (!alive) return;
       if (e) {
-        setError(e.message);
+        setError(friendlyError(e, tt('upgrade.err.generic', 'Upgrade failed. Please try again.')));
         setLoading(false);
         return;
       }
@@ -100,7 +106,46 @@ export function UpgradeModal({
   const hasEnough = selectedBalance >= priceCents;
   const remainingAfter = selectedBalance - priceCents;
 
-  const confirm = async () => {
+  // Step 1: user taps Pay → require passcode or biometric (if set up) before
+  // any debit. If the user has neither, proceed (nothing to verify against).
+  const startConfirm = () => {
+    if (!selectedVa || !hasEnough) return;
+    setError(null);
+    if (PINManager.hasPIN(userId) || BiometricManager.isEnrolled(userId)) {
+      setPin('');
+      setGate(true);
+    } else {
+      void runUpgrade();
+    }
+  };
+
+  const handlePin = async (value: string) => {
+    setPin(value);
+    if (value.length !== 6) return;
+    const ok = await PINManager.verifyPIN(userId, value);
+    if (!ok) {
+      setError(tt('upgrade.err.pin', 'Incorrect PIN. Please try again.'));
+      setPin('');
+      return;
+    }
+    setGate(false);
+    setPin('');
+    void runUpgrade();
+  };
+
+  const handleBiometric = async () => {
+    const res = await BiometricManager.verify(userId);
+    if (res.success) {
+      setGate(false);
+      void runUpgrade();
+    } else {
+      setError(friendlyError(res.error, 'Biometric verification failed'));
+    }
+  };
+
+  // Step 2: the actual debit. Only reached after passcode/biometric (or when
+  // the user has neither set up).
+  const runUpgrade = async () => {
     if (!selectedVa) return;
     setSubmitting(true);
     setError(null);
@@ -114,14 +159,14 @@ export function UpgradeModal({
         if (code === 'insufficient_funds') setError(tt('upgrade.err.funds', 'Not enough balance in the selected USD account.'));
         else if (code === 'plan_account_type_mismatch') setError(tt('upgrade.err.mismatch', 'This plan is for the other account type.'));
         else if (code === 'no_active_subscription') setError(tt('upgrade.err.no_sub', 'Subscription not found. Please contact support.'));
-        else setError(r.error || tt('upgrade.err.generic', 'Upgrade failed. Please try again.'));
+        else setError(friendlyError(r.error, tt('upgrade.err.generic', 'Upgrade failed. Please try again.')));
         setSubmitting(false);
         return;
       }
       setSuccess({ period_end: r.data!.period_end });
       onUpgraded?.({ plan_key: r.data!.plan_key, period_end: r.data!.period_end });
     } catch (e) {
-      setError((e as Error).message);
+      setError(friendlyError(e, tt('upgrade.err.generic', 'Upgrade failed. Please try again.')));
     } finally {
       setSubmitting(false);
     }
@@ -266,27 +311,76 @@ export function UpgradeModal({
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  disabled={!selectedVa || !hasEnough || submitting || loading}
-                  onClick={confirm}
-                  className={`mt-5 w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-full text-sm font-semibold transition
-                    ${(!selectedVa || !hasEnough || submitting || loading)
-                      ? `${tc.bgAlt} ${tc.textMuted} cursor-not-allowed`
-                      : 'bg-[#C7FF00] text-black hover:opacity-90'}`}
-                >
-                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {!submitting && (
-                    <>
+                {gate ? (
+                  /* Passcode / biometric confirmation before the debit. */
+                  <div className="mt-5">
+                    <div className="text-center mb-4">
+                      <div className="w-14 h-14 rounded-full bg-[#C7FF00]/10 flex items-center justify-center mx-auto mb-3">
+                        <Lock className="w-7 h-7 text-[#C7FF00]" />
+                      </div>
+                      <p className={`text-sm font-semibold ${tc.text}`}>
+                        {tt('upgrade.confirm.pin', 'Enter your PIN to confirm')}
+                      </p>
+                      <p className={`text-xs ${tc.textMuted} mt-1`}>
+                        {tt('upgrade.confirm.sub', `Paying $${priceUsd.toFixed(2)} from your USD account`)}
+                      </p>
+                    </div>
+                    <div className="flex justify-center mb-4">
+                      <InputOTP maxLength={6} value={pin} onChange={handlePin} inputMode="numeric" pattern="[0-9]*" disabled={submitting}>
+                        <InputOTPGroup>
+                          <InputOTPSlot index={0} />
+                          <InputOTPSlot index={1} />
+                          <InputOTPSlot index={2} />
+                          <InputOTPSlot index={3} />
+                          <InputOTPSlot index={4} />
+                          <InputOTPSlot index={5} />
+                        </InputOTPGroup>
+                      </InputOTP>
+                    </div>
+                    {BiometricManager.isEnrolled(userId) && (
+                      <>
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className={`flex-1 h-px ${tc.borderLight}`} />
+                          <span className={`text-[10px] uppercase tracking-widest ${tc.textMuted}`}>or</span>
+                          <div className={`flex-1 h-px ${tc.borderLight}`} />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleBiometric}
+                          disabled={submitting}
+                          className={`w-full flex items-center justify-center gap-3 py-3 rounded-2xl ${tc.bgAlt} border ${tc.border} ${tc.text} hover:opacity-90 transition`}
+                        >
+                          <Shield className="w-5 h-5 text-[#C7FF00]" />
+                          <span className="text-sm font-semibold">{tt('upgrade.useBiometric', 'Use Biometric')}</span>
+                        </button>
+                      </>
+                    )}
+                    {submitting && (
+                      <div className="flex justify-center mt-4">
+                        <Loader2 className={`w-5 h-5 ${tc.textSecondary} animate-spin`} />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!selectedVa || !hasEnough || submitting || loading}
+                      onClick={startConfirm}
+                      className={`mt-5 w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-full text-sm font-semibold transition
+                        ${(!selectedVa || !hasEnough || submitting || loading)
+                          ? `${tc.bgAlt} ${tc.textMuted} cursor-not-allowed`
+                          : 'bg-[#C7FF00] text-black hover:opacity-90'}`}
+                    >
                       <span>{tt('upgrade.confirm', 'Pay')} ${priceUsd.toFixed(2)}</span>
                       <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
+                    </button>
 
-                <p className={`mt-3 text-center text-[10px] ${tc.textMuted}`}>
-                  {tt('upgrade.notice', '30-day period. Renew manually from your account page. No auto-charge.')}
-                </p>
+                    <p className={`mt-3 text-center text-[10px] ${tc.textMuted}`}>
+                      {tt('upgrade.notice', '30-day period. Renew manually from your account page. No auto-charge.')}
+                    </p>
+                  </>
+                )}
               </>
             )}
           </motion.div>

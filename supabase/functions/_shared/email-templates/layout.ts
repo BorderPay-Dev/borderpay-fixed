@@ -6,14 +6,14 @@
  */
 
 export const BORDERPAY_BRAND = {
-  bg:        "#0B0E11",
-  card:      "#13171C",
-  border:    "rgba(255,255,255,0.06)",
+  bg:        "#000000",   // pure black — same on every client
+  card:      "#000000",   // flat black (no card/bg mismatch under dark-mode inversion)
+  border:    "#1F2937",   // solid hex (Outlook ignores rgba) — subtle hairline
   accent:    "#C7FF00",
   accent2:   "#9ECC00",
   text:      "#FFFFFF",
-  textMuted: "#9CA3AF",
-  textFaint: "#6B7280",
+  textMuted: "#C2C7CF",   // lighter than before so it stays readable on pure black
+  textFaint: "#8A9099",
   danger:    "#FF5A5A",
   success:   "#C7FF00",
   warning:   "#E8A923",
@@ -53,42 +53,59 @@ export function htmlLayout(p: LayoutProps): string {
     : "";
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="margin:0;padding:0;background-color:${b.bg};">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="x-apple-disable-message-reformatting" />
+<!-- Force ONE consistent (dark) palette on every client — Gmail / Outlook /
+     Zoho / Apple Mail — so none of them re-theme or auto-invert the email. -->
+<meta name="color-scheme" content="dark" />
+<meta name="supported-color-schemes" content="dark" />
 <title>${escapeHtml(p.heading)}</title>
+<style>
+  :root { color-scheme: dark; supported-color-schemes: dark; }
+  body, table, td { margin:0; padding:0; }
+  a { color:${b.accent}; }
+  /* Keep our palette under forced dark-mode color remapping (Gmail/Outlook.com). */
+  u + .body, [data-ozark] { background:${b.bg} !important; }
+  @media (prefers-color-scheme: light) {
+    body, .bp-bg { background-color:${b.bg} !important; }
+    .bp-text { color:${b.text} !important; }
+  }
+</style>
 </head>
-<body style="margin:0;padding:0;background-color:${b.bg};font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${b.text};">
+<body class="body" style="margin:0;padding:0;background-color:${b.bg};font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${b.text};">
 ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:${b.bg};">${escapeHtml(p.preview)}</div>` : ""}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${b.bg};">
+<!-- Full-bleed black wrapper. bgcolor attr is what Outlook (Word engine) reads. -->
+<table role="presentation" class="bp-bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.bg}" style="background-color:${b.bg};">
   <tr>
-    <td align="center" style="padding:32px 16px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background-color:${b.card};border-radius:18px;border:1px solid ${b.border};overflow:hidden;">
-        <tr><td style="height:3px;background:${accentBar};"></td></tr>
+    <td align="center" bgcolor="${b.bg}" style="background-color:${b.bg};padding:36px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.bg}" style="max-width:540px;background-color:${b.bg};border-radius:18px;border:1px solid ${b.border};overflow:hidden;">
+        <tr><td style="height:4px;background:${accentBar};line-height:4px;font-size:4px;">&nbsp;</td></tr>
         <tr>
-          <td align="center" style="padding:32px 28px 16px;">
-            <img src="${b.logoUrl}" alt="BorderPay Africa" width="44" height="60" style="display:block;border:0;outline:none;" />
-            <p style="margin:12px 0 0;font-size:14px;font-weight:800;color:${b.text};letter-spacing:0.6px;text-transform:uppercase;">BorderPay Africa</p>
+          <td align="center" bgcolor="${b.bg}" style="background-color:${b.bg};padding:40px 28px 20px;">
+            <!-- Hero logo (keeps the 44:60 aspect ratio). -->
+            <img src="${b.logoUrl}" alt="BorderPay Africa" width="104" height="142" style="display:block;border:0;outline:none;text-decoration:none;width:104px;height:142px;max-width:104px;" />
+            <p class="bp-text" style="margin:18px 0 0;font-size:13px;font-weight:800;color:${b.text};letter-spacing:1.2px;text-transform:uppercase;">BorderPay Africa</p>
           </td>
         </tr>
         <tr>
-          <td style="padding:8px 28px 24px;">
-            <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:${b.text};text-align:center;line-height:1.3;">${escapeHtml(p.heading)}</h1>
-            ${p.introText ? `<p style="margin:0 0 20px;font-size:14px;color:${b.textMuted};text-align:center;line-height:1.65;">${escapeHtml(p.introText)}</p>` : ""}
-            <div style="font-size:14px;color:${b.textMuted};line-height:1.65;">${p.body}</div>
+          <td bgcolor="${b.bg}" style="background-color:${b.bg};padding:8px 32px 28px;">
+            <h1 class="bp-text" style="margin:0 0 14px;font-size:23px;font-weight:700;color:${b.text};text-align:center;line-height:1.3;">${escapeHtml(p.heading)}</h1>
+            ${p.introText ? `<p style="margin:0 0 20px;font-size:15px;color:${b.textMuted};text-align:center;line-height:1.65;">${escapeHtml(p.introText)}</p>` : ""}
+            <div style="font-size:15px;color:${b.textMuted};line-height:1.65;">${p.body}</div>
             ${cta}
             ${p.footerNote ? `<p style="margin:18px 0 0;font-size:12px;color:${b.textFaint};text-align:center;line-height:1.5;">${p.footerNote}</p>` : ""}
           </td>
         </tr>
-        <tr><td style="padding:0 28px;"><div style="height:1px;background-color:${b.border};"></div></td></tr>
+        <tr><td style="padding:0 32px;"><div style="height:1px;background-color:${b.border};line-height:1px;font-size:1px;">&nbsp;</div></td></tr>
         <tr>
-          <td style="padding:18px 28px 28px;">
-            <p style="margin:0;font-size:11px;color:${b.textFaint};text-align:center;line-height:1.5;">
+          <td bgcolor="${b.bg}" style="background-color:${b.bg};padding:20px 32px 32px;">
+            <p style="margin:0;font-size:12px;color:${b.textFaint};text-align:center;line-height:1.5;">
               Need help? Email <a href="mailto:${b.supportEmail}" style="color:${b.accent};text-decoration:none;">${b.supportEmail}</a>
             </p>
-            <p style="margin:8px 0 0;font-size:11px;color:${b.textFaint};text-align:center;">
+            <p style="margin:8px 0 0;font-size:12px;color:${b.textFaint};text-align:center;">
               &copy; ${new Date().getFullYear()} BorderPay Africa. All rights reserved.
             </p>
           </td>

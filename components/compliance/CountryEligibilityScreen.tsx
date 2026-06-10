@@ -8,6 +8,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Globe, Info, ShieldOff, Ban } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import {
   COMING_SOON_COUNTRIES,
   SANCTIONED_COUNTRY_ENTRIES,
@@ -67,7 +68,8 @@ export function CountryEligibilityScreen({ onBack }: CountryEligibilityScreenPro
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-5 pb-10">
+      <FloatingBackButton onBack={onBack} />
+      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-10">
         <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
           {tt('eligibility.title', 'Country eligibility')}
         </p>

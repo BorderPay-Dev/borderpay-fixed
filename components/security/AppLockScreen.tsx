@@ -1,4 +1,5 @@
 import { BorderPayLogo } from '../cards/BorderPayLogo';
+import { friendlyError } from '../../utils/errors/friendlyError';
 /**
  * BorderPay Africa - App Lock Screen
  * Shown when app resumes or on initial load when PIN/biometric is enabled.
@@ -111,10 +112,10 @@ export function AppLockScreen({ userId, onUnlock, onLogout }: AppLockScreenProps
       if (result.success) {
         onUnlock();
       } else {
-        setError(result.error || 'Biometric verification failed');
+        setError(friendlyError(result.error, 'Biometric verification failed'));
       }
     } catch (err: any) {
-      setError(err.message || 'Biometric failed');
+      setError(friendlyError(err, 'Biometric failed'));
     } finally {
       setVerifying(false);
     }

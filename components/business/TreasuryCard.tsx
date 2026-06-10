@@ -47,9 +47,16 @@ function buildSeries(txs: any[], currentTotal: number, days: number, points: num
   return { values, times };
 }
 
+const TREASURY_TX_KEY = 'borderpay_treasury_tx_v1';
+function readTreasuryTx(): any[] {
+  try { const raw = localStorage.getItem(TREASURY_TX_KEY); return raw ? JSON.parse(raw) : []; }
+  catch { return []; }
+}
+
 export function TreasuryCard({ totalUsd, wallets }: { totalUsd: number; wallets: WalletRow[] }) {
   const tc = useThemeClasses();
-  const [txs, setTxs] = useState<any[]>([]);
+  // Seed the series from cache so the curve is stable/instant on revisit.
+  const [txs, setTxs] = useState<any[]>(() => readTreasuryTx());
   const [period, setPeriod] = useState<Period>('1M');
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -59,8 +66,12 @@ export function TreasuryCard({ totalUsd, wallets }: { totalUsd: number; wallets:
     (async () => {
       try {
         const r: any = await backendAPI.transactions.getTransactions(250);
-        if (alive) setTxs(r?.data?.transactions || []);
-      } catch { /* flat fallback */ }
+        const list = r?.data?.transactions || [];
+        if (alive) {
+          setTxs(list);
+          try { localStorage.setItem(TREASURY_TX_KEY, JSON.stringify(list)); } catch { /* noop */ }
+        }
+      } catch { /* keep cached/flat fallback */ }
     })();
     return () => { alive = false; };
   }, []);

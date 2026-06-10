@@ -5,8 +5,8 @@
  */
 
 import React, { useState } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import {
-  ChevronLeft,
   Palette,
   Eye,
   Fingerprint,
@@ -15,6 +15,7 @@ import {
   Vibrate,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { usePreferences, hapticFeedback, soundFeedback } from '../../utils/hooks/usePreferences';
 import { BiometricManager } from '../../utils/security/SecurityManager';
@@ -54,7 +55,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
           hapticFeedback();
           toast.success('Biometric lock disabled');
         } else {
-          toast.error(r.error || 'Could not disable biometric. Please try again.');
+          toast.error(friendlyError(r.error, 'Could not disable biometric. Please try again.'));
         }
       } else {
         // Enable — enroll WebAuthn
@@ -71,11 +72,11 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
           hapticFeedback();
           toast.success('Biometric lock enabled');
         } else {
-          toast.error(result.error || 'Biometric enrollment failed');
+          toast.error(friendlyError(result.error, 'Biometric enrollment failed'));
         }
       }
     } catch (err: any) {
-      toast.error(err.message || 'Biometric setup failed');
+      toast.error(friendlyError(err, 'Biometric setup failed'));
     } finally {
       setBiometricLoading(false);
     }
@@ -121,18 +122,8 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
       {/* Standalone screen (not AppShell-wrapped): the back button must clear
           the iOS status bar itself, so the top wrapper uses pt-safe-header
           (status-bar inset + 1rem) instead of a plain pt-5. */}
-      <div className="max-w-2xl mx-auto px-5 pt-safe-header">
-        <div className="mb-4">
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back"
-            className={`-ml-2 p-2 rounded-full ${tc.hoverBg} transition-colors`}
-          >
-            <ChevronLeft className={`w-5 h-5 ${tc.text}`} />
-          </button>
-        </div>
-      </div>
+      <FloatingBackButton onBack={onBack} />
+      <div className="max-w-2xl mx-auto px-5 pt-floating-back" />
 
       <div className="max-w-2xl mx-auto p-4 space-y-6">
         {/* Appearance */}

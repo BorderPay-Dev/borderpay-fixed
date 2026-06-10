@@ -4,8 +4,10 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import {
-  ArrowLeft, Search, X, Shield, UserCheck, AlertCircle,
+  Search, X, Shield, UserCheck, AlertCircle,
   Clock, CheckCircle, XCircle, RefreshCw, Loader2,
   ChevronDown, ChevronUp, FileText, Globe, Phone, Mail,
   Filter, Users, BadgeCheck
@@ -114,7 +116,7 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
         setJobs(result.data.jobs || []);
         setStats(result.data.stats || { total: 0, verified: 0, pending: 0, failed: 0 });
       } else {
-        setError(result.error || 'Failed to load KYC jobs');
+        setError(friendlyError(result.error, 'Failed to load KYC jobs'));
       }
     } catch {
       setError('Network error. Please try again.');
@@ -154,14 +156,10 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
   return (
     <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className="sticky top-0 z-30 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/[0.06]">
         <div className="flex items-center justify-between px-4 py-3 pt-safe">
-          <button
-            onClick={onBack}
-            className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90"
-          >
-            <ArrowLeft size={16} />
-          </button>
+          <div className="w-10" />
 
           <div className="flex items-center gap-2">
             <Shield size={14} className="text-[#C7FF00]" />

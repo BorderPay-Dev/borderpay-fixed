@@ -21,6 +21,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
 import {
   ArrowLeft, UserPlus, Trash2, Sparkles, Loader2, Mail, ShieldCheck,
@@ -133,10 +134,10 @@ function BusinessTeamPanel({
         setRoster(r.data);
         writeRosterCache(r.data);
       } else if (!roster) {
-        setError(r.error || 'Could not load team');
+        setError(friendlyError(r.error, 'Could not load team'));
       }
     } catch (e: any) {
-      if (!roster) setError(e?.message || 'Could not load team');
+      if (!roster) setError(friendlyError(e, 'Could not load team'));
     } finally {
       setLoading(false);
     }
@@ -166,10 +167,10 @@ function BusinessTeamPanel({
         // 402 plan_required is auto-intercepted globally → UpgradeModal opens.
         // Surface other errors inline.
         const code = (r as any)?.code;
-        if (code !== 'plan_required') setError(r.error || 'Could not send invite');
+        if (code !== 'plan_required') setError(friendlyError(r.error, 'Could not send invite'));
       }
     } catch (e: any) {
-      setError(e?.message || 'Could not send invite');
+      setError(friendlyError(e, 'Could not send invite'));
     } finally {
       setInviting(false);
     }
@@ -183,10 +184,10 @@ function BusinessTeamPanel({
       if (r.success) {
         await load();
       } else {
-        setError(r.error || 'Could not remove member');
+        setError(friendlyError(r.error, 'Could not remove member'));
       }
     } catch (e: any) {
-      setError(e?.message || 'Could not remove member');
+      setError(friendlyError(e, 'Could not remove member'));
     } finally {
       setBusyId(null);
     }

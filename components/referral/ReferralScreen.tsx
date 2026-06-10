@@ -5,7 +5,8 @@
 
 import React from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Gift, Users, DollarSign, Zap, ChevronRight, Share2, Copy, CheckCircle } from 'lucide-react';
+import { Gift, Users, DollarSign, Zap, ChevronRight, Share2, Copy, CheckCircle } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 
 interface ReferralScreenProps {
   onBack: () => void;
@@ -41,16 +42,10 @@ export function ReferralScreen({ onBack }: ReferralScreenProps) {
 
   return (
     <div className="min-h-screen bg-[#0B0E11] pb-safe">
-      {/* Header */}
-      <div className="sticky top-0 bg-[#0B0E11]/90 backdrop-blur-md border-b border-white/5 z-40 pt-safe">
-        <div className="flex items-center gap-3 px-5 py-4">
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={onBack}
-            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center"
-          >
-            <ArrowLeft size={20} className="text-white" />
-          </motion.button>
+      {/* Header — back is the floating chip. */}
+      <FloatingBackButton onBack={onBack} />
+      <div className="sticky top-0 bg-[#0B0E11]/90 backdrop-blur-md border-b border-white/5 z-40 pt-safe-header">
+        <div className="flex items-center justify-center px-5 py-4">
           <h1 className="text-lg font-bold text-white">Refer & Earn</h1>
         </div>
       </div>

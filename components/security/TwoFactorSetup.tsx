@@ -6,8 +6,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { motion } from 'motion/react';
-import { Shield, Copy, CheckCircle, ArrowLeft, Smartphone, Lock } from 'lucide-react';
+import { Shield, Copy, CheckCircle, Smartphone, Lock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { TOTPManager } from '../../utils/security/SecurityManager';
@@ -51,7 +52,7 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
       setSecret(setupData.secret);
       setQrCodeUri(setupData.qrCodeUri);
     } catch (err: any) {
-      toast.error(err?.message || 'Could not start 2FA setup');
+      toast.error(friendlyError(err, 'Could not start 2FA setup'));
     }
   };
 
@@ -91,14 +92,10 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
   return (
     <div className="min-h-screen bg-[#0B0E11] text-white pb-safe">
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className="sticky top-0 z-10 bg-[#0B0E11]/95 backdrop-blur-lg border-b border-white/5">
         <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={onBack}
-            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
-          >
-            <ArrowLeft size={20} />
-          </button>
+          <div className="w-10" />
           <h1 className="bp-text-h3 font-bold">2FA Setup</h1>
           <div className="w-10" /> {/* Spacer */}
         </div>

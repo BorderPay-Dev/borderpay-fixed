@@ -10,12 +10,15 @@
  */
 
 import React, { useState } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Copy, CheckCircle, Shield, Zap } from 'lucide-react';
+import { Copy, CheckCircle, Shield, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { useVerification } from '../../utils/verification/useVerification';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -52,6 +55,8 @@ const COINS: CoinConfig[] = [
 export function StablecoinDepositScreen({ onBack, onConfirm }: StablecoinDepositScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const userId = (authAPI.getStoredUser()?.id as string) || '';
+  const verification = useVerification(userId);
 
   const [selectedCoin, setSelectedCoin] = useState<StablecoinType | null>(null);
   const [generatedAddress, setGeneratedAddress] = useState('');
@@ -64,16 +69,13 @@ export function StablecoinDepositScreen({ onBack, onConfirm }: StablecoinDeposit
     setLoading(true);
 
     try {
-      const user = authAPI.getStoredUser();
-      const userId = user?.id || '';
-
       const result = await backendAPI.address.generateAddress(userId, coin, 'SOLANA');
 
       if (result.success && result.data?.address) {
         setGeneratedAddress(result.data.address);
         setStep('address');
       } else {
-        toast.error(result.error || t('addMoney.failedGenAddress'));
+        toast.error(friendlyError(result.error, t('addMoney.failedGenAddress')));
       }
     } catch (error) {
       toast.error(t('addMoney.failedGenAddress'));
@@ -103,19 +105,33 @@ export function StablecoinDepositScreen({ onBack, onConfirm }: StablecoinDeposit
 
   const activeCoin = COINS.find(c => c.code === selectedCoin);
 
+  // Lock door: stablecoin addresses are only available once verified/activated.
+  if (!verification.isVerified) {
+    return (
+      <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
+        <FloatingBackButton onBack={onBack} />
+        <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-8 text-center`}>
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-7 h-7 text-amber-400" />
+            </div>
+            <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Verification required</h2>
+            <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto leading-relaxed`}>
+              Verify your identity to activate your stablecoin wallet and get a deposit address.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
-      {/* Header */}
+      <FloatingBackButton onBack={handleBack} />
+      {/* Title-only header; back is the floating chip. */}
       <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
-        <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={handleBack}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center ${tc.hoverBg} transition-colors`}
-          >
-            <ArrowLeft size={20} />
-          </button>
+        <div className="flex items-center justify-center px-6 py-4 pt-safe-header">
           <h1 className="bp-text-h3 font-bold">{t('stablecoin.title')}</h1>
-          <div className="w-10" />
         </div>
       </div>
 

@@ -3,7 +3,8 @@
  */
 
 import React from 'react';
-import { ArrowLeft, Mail, FileText, Shield, ChevronRight, ExternalLink } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
+import { Mail, FileText, Shield, ChevronRight, ExternalLink } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface HelpCenterScreenProps {
@@ -45,14 +46,10 @@ export function HelpCenterScreen({ onBack, onNavigate }: HelpCenterScreenProps) 
   return (
     <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
         <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={onBack}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center`}
-          >
-            <ArrowLeft size={20} className={tc.text} />
-          </button>
+          <div className="w-10" />
           <h1 className={`text-lg font-bold ${tc.text}`}>Help Center</h1>
           <div className="w-10" />
         </div>

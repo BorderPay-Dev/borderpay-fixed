@@ -572,7 +572,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                       toast.error(r?.error || 'Failed to resend. Please try again.');
                     }
                   } catch (e: any) {
-                    toast.error(e?.message || 'Failed to resend. Please try again.');
+                    toast.error(friendlyError(e, 'Failed to resend. Please try again.'));
                   }
                 }}
                 isLoading={isLoading}

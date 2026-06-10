@@ -8,8 +8,10 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { friendlyError } from '../../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
 import { Wallet, Plus, Copy, Loader2, Lock } from 'lucide-react';
+import { Skeleton } from '../../common/Skeleton';
 import { supabase } from '../../../utils/supabase/client';
 import { backendAPI } from '../../../utils/api/backendAPI';
 import { authAPI } from '../../../utils/supabase/client';
@@ -39,8 +41,13 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [rows, setRows]       = useState<WalletRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const walletCacheKey = `borderpay_wallets_${isBusiness ? 'biz' : 'ind'}_v1`;
+  const cachedRows = React.useMemo<WalletRow[]>(() => {
+    try { const raw = localStorage.getItem(walletCacheKey); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
+  }, [walletCacheKey]);
+  const [rows, setRows]       = useState<WalletRow[]>(cachedRows);
+  const [loading, setLoading] = useState(cachedRows.length === 0);
   const [creating, setCreating] = useState(false);
   const [derivedApproved, setDerivedApproved] = useState(false);
   const [country, setCountry] = useState<string | null>(() => authAPI.getStoredUser()?.country ?? null);
@@ -53,7 +60,9 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     const { data } = isBusiness
       ? await q.eq('business_user_id', userId)
       : await q.eq('user_id', userId);
-    setRows((data as WalletRow[]) ?? []);
+    const next = (data as WalletRow[]) ?? [];
+    setRows(next);
+    try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
     setLoading(false);
   };
 
@@ -97,7 +106,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     const r = await backendAPI.bridge.wallet.create({ symbol: DEFAULT_STABLECOIN.symbol, chain: DEFAULT_STABLECOIN.chain });
     setCreating(false);
     if (!r.success) {
-      showToast.error(r.error || tt('dash.wallet.create.failed', 'Could not create wallet.'));
+      showToast.error(friendlyError(r.error, tt('dash.wallet.create.failed', 'Could not create wallet.')));
       return;
     }
     showToast.success(tt('dash.wallet.create.success', `${DEFAULT_STABLECOIN.label} wallet created`));
@@ -150,9 +159,8 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-4">
-          <Loader2 className={`w-4 h-4 ${tc.textSecondary} animate-spin`} />
-          <span className={tc.textMuted}>{tt('common.loading', 'Loading…')}</span>
+        <div className="space-y-2 mb-3">
+          <Skeleton className="h-16 w-full rounded-2xl" />
         </div>
       ) : (
         <>

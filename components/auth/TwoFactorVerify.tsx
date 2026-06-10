@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
 import { Shield, ArrowLeft, Loader2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
@@ -71,7 +72,7 @@ export function TwoFactorVerify({ onVerifySuccess, onBack, userEmail, userId }: 
         setToken('');
       }
     } catch (err: any) {
-      setError(err.message || 'Verification failed. Please try again.');
+      setError(friendlyError(err, 'Verification failed. Please try again.'));
       setToken('');
     } finally {
       setVerifying(false);

@@ -5,9 +5,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ArrowLeft, CheckCircle, Copy, ExternalLink, Clock,
+  CheckCircle, Copy, ExternalLink, Clock,
   Shield, Zap, ArrowDownLeft, ArrowUpRight, RefreshCw,
   ChevronRight, AlertTriangle
 } from 'lucide-react';
@@ -99,14 +100,10 @@ export function StablecoinConfirmScreen({
   return (
     <div className="min-h-full bg-[#0B0E11] text-white flex flex-col pb-safe">
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className="sticky top-0 z-10 bg-[#0B0E11]/95 backdrop-blur-xl border-b border-white/5">
         <div className="flex items-center justify-between px-5 py-3 pt-safe">
-          <button
-            onClick={onBack}
-            className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center active:scale-95 transition-transform"
-          >
-            <ArrowLeft size={18} />
-          </button>
+          <div className="w-10" />
           <span className="text-xs font-bold tracking-widest uppercase text-gray-400">
             {txConfig.label} Confirmation
           </span>

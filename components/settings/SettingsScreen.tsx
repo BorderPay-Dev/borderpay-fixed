@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { 
   ArrowLeft, 
   User, 
@@ -20,7 +21,6 @@ import {
   MapPin,
   Fingerprint,
   Mail,
-  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
@@ -72,8 +72,9 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       title: t('settings.account'),
       items: [
         { icon: User, label: isBusinessAccount ? 'Business information' : t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
-        // Plans & pricing — wallet-debit upgrade flow entry point.
-        { icon: Sparkles, label: 'Plans & pricing', screen: 'pricing', color: 'text-[#C7FF00]' },
+        // Plans & pricing removed: there are no plans/prices in-app (Wise model).
+        // Activation ("Upgrade to Global Wallet") is surfaced on the dashboard
+        // and the Send/Receive popup, and disappears once the user is activated.
         // Payment Methods option removed per product decision.
         // KYC documents and Proof of Address are deliberately not surfaced
         // from Settings: identity verification is owned end-to-end by the
@@ -141,7 +142,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         toast.success(t('settings.accountSuspended'));
         setTimeout(() => onLogout(), 2000);
       } else {
-        toast.error(result.error || t('settings.suspendFailed'));
+        toast.error(friendlyError(result.error, t('settings.suspendFailed')));
       }
     } catch (error) {
       toast.error(t('settings.suspendFailed'));
@@ -165,7 +166,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         toast.success(t('settings.2faDisabled'));
         setHas2FA(false);
       } else {
-        toast.error(r.error || t('settings.2faDisableFailed'));
+        toast.error(friendlyError(r.error, t('settings.2faDisableFailed')));
       }
     } catch (error) {
       toast.error(t('settings.2faDisableFailed'));
@@ -203,24 +204,6 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
           {t('settings.title')}
         </p>
-
-        {/* Plans & billing entry — pulled out of the list as a Revolut-style
-            tile so it's the first thing the user sees on Settings. */}
-        <button
-          onClick={() => onNavigate('pricing')}
-          className={`w-full mb-6 rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
-        >
-          <div className="w-10 h-10 rounded-full bg-[#C7FF00] flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-4 h-4 text-black" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className={`text-sm font-semibold ${tc.text}`}>Plans & billing</p>
-            <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
-              View tiers, upgrade from your USD balance, see invoices
-            </p>
-          </div>
-          <ChevronRight size={18} className={tc.textMuted} />
-        </button>
 
         {/* Sections */}
         <div className="space-y-7">

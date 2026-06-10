@@ -79,7 +79,11 @@ const sizeConfig = {
 };
 
 export function AccountStatusBadge({ status, size = 'md' }: AccountStatusBadgeProps) {
-  // In sandbox mode, always show "Beta Access" badge regardless of actual status
+  // Wise-style: there is no visible "tier" before activation. The un-activated
+  // ("starter") state shows NO badge — the activation card + setup checklist
+  // are the only prompts, and they disappear once the user is set up.
+  if (status === 'starter') return null;
+
   const config = statusConfig[status];
   const sizeStyles = sizeConfig[size];
   const Icon = config.icon;

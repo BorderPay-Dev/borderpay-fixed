@@ -9,10 +9,13 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Plus, Banknote, Loader2, Trash2 } from 'lucide-react';
+import { friendlyError } from '../../utils/errors/friendlyError';
+import { Plus, Banknote, Loader2, Trash2, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { FloatingBackButton } from '../common/FloatingBackButton';
+import { useVerification } from '../../utils/verification/useVerification';
+import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface ExternalAccountRow {
@@ -42,6 +45,8 @@ function readCache(): ExternalAccountRow[] {
 
 export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
   const tc = useThemeClasses();
+  const userId = (authAPI.getStoredUser()?.id as string) || '';
+  const verification = useVerification(userId);
   const cached = readCache();
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   // Only show skeletons when we have nothing cached to render instantly.
@@ -59,10 +64,10 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         setRows(next);
         try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
       } else if (rows.length === 0) {
-        setError(r?.error || 'Could not load payout accounts');
+        setError(friendlyError(r?.error, 'Could not load payout accounts'));
       }
     } catch (e: any) {
-      if (rows.length === 0) setError(e?.message || 'Could not load payout accounts');
+      if (rows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
     } finally {
       setLoading(false);
     }
@@ -82,10 +87,10 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
           return next;
         });
       } else {
-        toast.error(r?.error || 'Could not remove the payout account.');
+        toast.error(friendlyError(r?.error, 'Could not remove the payout account.'));
       }
     } catch (e: any) {
-      toast.error(e?.message || 'Could not remove the payout account.');
+      toast.error(friendlyError(e, 'Could not remove the payout account.'));
     } finally {
       setRemoving(null);
     }
@@ -93,6 +98,30 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
 
   const railLabel = (row: ExternalAccountRow) =>
     row.account_type === 'us' ? 'ACH · Wire' : 'SEPA';
+
+  // Lock door: payout destinations are only available once the user is
+  // verified/activated (same gate as Receive / Send / Add money).
+  if (!verification.isVerified) {
+    return (
+      <div className={`min-h-screen ${tc.bg}`}>
+        <FloatingBackButton onBack={onBack} />
+        <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
+            Payout accounts
+          </p>
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-8 text-center`}>
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-7 h-7 text-amber-400" />
+            </div>
+            <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Verification required</h2>
+            <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto leading-relaxed`}>
+              Verify your identity to add a payout destination and withdraw funds.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>

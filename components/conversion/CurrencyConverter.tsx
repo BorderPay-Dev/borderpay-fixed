@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { ArrowDownUp, Info, TrendingUp, Zap, Loader2 } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -281,13 +282,10 @@ export function CurrencyConverter({ userId, onConvert, standalone, onBack }: Cur
   if (standalone) {
     return (
       <div className={`min-h-screen ${tc.bg} ${tc.text}`}>
-        <div className={`sticky top-0 z-20 pt-safe ${tc.bg} border-b ${tc.border}`}>
-          <div className="flex items-center justify-between p-4">
-            <button onClick={onBack} className={`p-2 ${tc.hoverBg} rounded-lg transition-colors`}>
-              <span className="text-lg">←</span>
-            </button>
+        {onBack && <FloatingBackButton onBack={onBack} />}
+        <div className={`sticky top-0 z-20 pt-safe-header ${tc.bg} border-b ${tc.border}`}>
+          <div className="flex items-center justify-center p-4">
             <h1 className="text-base font-bold">{t('converter.title') || 'Currency Converter'}</h1>
-            <div className="w-9" />
           </div>
         </div>
         <div className="p-4">

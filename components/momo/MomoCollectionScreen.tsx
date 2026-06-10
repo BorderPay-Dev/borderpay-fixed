@@ -16,8 +16,9 @@
  */
 
 import React from 'react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { motion } from 'motion/react';
-import { ArrowLeft, Smartphone, Bell } from 'lucide-react';
+import { Smartphone, Bell } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface Props {
@@ -32,15 +33,10 @@ export function MomoCollectionScreen({ onBack }: Props) {
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
+      <FloatingBackButton onBack={onBack} />
       <div className={`sticky top-0 z-10 ${tc.headerBg} border-b ${tc.border}`}>
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
-          <button
-            onClick={onBack}
-            aria-label={tt('common.back', 'Back')}
-            className={`p-2 -ml-2 rounded-full ${tc.hoverBg} transition`}
-          >
-            <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
-          </button>
+          <div className="w-10" />
           <h1 className={`text-lg font-semibold ${tc.text}`}>
             {tt('momo.title', 'Mobile Money')}
           </h1>

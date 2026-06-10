@@ -17,11 +17,13 @@ import { useVerification } from '../../utils/verification/useVerification';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
+import { toast } from 'sonner';
 import { ErrorBoundary } from '../common/ErrorBoundary';
-import { UpgradeModal } from '../pricing/UpgradeModal';
+import { ActivationCheckout } from '../activation/ActivationCheckout';
+import { ActivationComingSoon } from '../activation/ActivationComingSoon';
 import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
-import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
+import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE, ACTIVATION_GATEWAY_LIVE } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
@@ -495,6 +497,27 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     setRefreshKey(prev => prev + 1);
   };
 
+  // Returned from the hosted activation checkout (?activation=return). The
+  // webhook activates server-side; we just confirm + refresh so the dashboard
+  // reflects it, then strip the params so a reload doesn't re-trigger.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('activation') !== 'return') return;
+      const status = (params.get('status') || '').toLowerCase();
+      if (status === 'cancelled' || status === 'failed') {
+        toast.message('Activation was not completed. You can try again anytime.');
+      } else {
+        toast.success('Payment received — confirming your activation…');
+        handleRefresh();
+      }
+      const url = new URL(window.location.href);
+      ['activation', 'status', 'tx_ref', 'transaction_id'].forEach(k => url.searchParams.delete(k));
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const renderScreen = () => {
     switch (currentScreen) {
       case 'cards':
@@ -789,21 +812,29 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         </ErrorBoundary>
       </div>
 
-      {/* ── Wallet-debit upgrade paywall ───────────────────────────────── */}
+      {/* ── Activation / upgrade paywall ───────────────────────────────── */}
       {/* Opened by any 402 plan_required response (via DOM event) or by an
-          explicit window.__borderpay_open_upgrade(planKey) call from a CTA. */}
+          explicit window.__borderpay_open_upgrade(planKey) call from a CTA.
+
+          Gate-1 activation payment needs the external gateway (Flutterwave /
+          Stripe), pending approval. Until ACTIVATION_GATEWAY_LIVE flips true,
+          every activation/upgrade entry shows the "opening soon" sheet instead
+          of the VA-debit modal (which can't serve a brand-new user). */}
       {upgradeTarget && (
-        <UpgradeModal
-          open
-          planKey={upgradeTarget}
-          userId={userId}
-          isBusinessAccount={accountType === 'business'}
-          onClose={() => setUpgradeTarget(null)}
-          onUpgraded={() => {
-            setUpgradeTarget(null);
-            handleRefresh();          // re-fetches subscription via refreshKey dep
-          }}
-        />
+        ACTIVATION_GATEWAY_LIVE ? (
+          // First activation must use the external gateway (a new user has no
+          // funded VA to debit). Redirects to hosted checkout.
+          <ActivationCheckout
+            open
+            onClose={() => setUpgradeTarget(null)}
+          />
+        ) : (
+          <ActivationComingSoon
+            open
+            isBusiness={accountType === 'business'}
+            onClose={() => setUpgradeTarget(null)}
+          />
+        )
       )}
 
       {/* New Device / IP Security Alert */}

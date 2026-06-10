@@ -94,3 +94,18 @@ verify_jwt = true
 # check in-code before charging billable Bridge KYC/KYB.
 [functions.authorize-verification]
 verify_jwt = true
+
+# Flutterwave activation (Phase A). Checkout is user-authenticated; the webhook
+# is public but signature-verified (verif-hash) in-code, so verify_jwt=false.
+[functions.flutterwave-checkout]
+verify_jwt = true
+
+[functions.flutterwave-webhook]
+verify_jwt = false
+
+# Flutterwave payout foundation (Phase B) — read-only lookups, user-authenticated.
+[functions.flutterwave-banks]
+verify_jwt = true
+
+[functions.flutterwave-resolve-account]
+verify_jwt = true

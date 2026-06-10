@@ -28,6 +28,7 @@ import { useVerification } from '../../utils/verification/useVerification';
 import { authAPI } from '../../utils/supabase/client';
 import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
 import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -50,7 +51,8 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   if (!verification.isVerified) {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
-        <div className="max-w-2xl mx-auto px-5 pt-safe-header pb-10">
+        <FloatingBackButton onBack={onBack} />
+        <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
             {tt('receive.title', 'Receive funds')}
           </p>
@@ -77,7 +79,8 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-safe-header pb-10">
+      <FloatingBackButton onBack={onBack} />
+      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-10">
         <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
           {tt('receive.title', 'Receive funds')}
         </p>

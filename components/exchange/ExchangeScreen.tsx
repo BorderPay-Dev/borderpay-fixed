@@ -16,6 +16,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeftRight, RefreshCw, Sparkles } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
 
@@ -70,7 +71,8 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-5 pb-10">
+      <FloatingBackButton onBack={onBack} />
+      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-10">
         <div className="flex items-center justify-between mb-4">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
             {tt('exchange.title', 'Exchange')}

@@ -4,7 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
+import { Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -101,14 +102,10 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
   return (
     <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className={`${tc.bgAlt} px-4 py-4 pt-safe border-b ${tc.border} sticky top-0 z-10`}>
         <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className={`p-2 ${tc.hoverBg} rounded-xl transition-colors`}
-          >
-            <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
-          </button>
+          <div className="w-10" />
           <div>
             <h1 className={`${tc.text} bp-text-h3 font-bold`}>{t('changePassword.title')}</h1>
             <p className={`${tc.textSecondary} bp-text-small`}>{t('changePassword.subtitle')}</p>

@@ -24,7 +24,14 @@ import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { TreasuryCard } from './TreasuryCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import type { PlanKey } from '../../utils/subscriptions/plans';
+
+const BIZ_WALLETS_KEY = 'borderpay_biz_wallets_v1';
+function readBizWallets(): WalletRow[] {
+  try { const raw = localStorage.getItem(BIZ_WALLETS_KEY); return raw ? JSON.parse(raw) : []; }
+  catch { return []; }
+}
 
 interface BusinessDashboardProps {
   userId:    string;
@@ -64,8 +71,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [profileLoading, setProfileLoading]         = useState(true);
   const [profileError, setProfileError]             = useState<string | null>(null);
 
-  const [wallets, setWallets]             = useState<WalletRow[]>([]);
-  const [walletsLoading, setWalletsLoading] = useState(true);
+  // Seed wallets from cache so the balance + treasury paint instantly.
+  const cachedBizWallets = useMemo(() => readBizWallets(), []);
+  const [wallets, setWallets]             = useState<WalletRow[]>(cachedBizWallets);
+  const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
 
   const usdLikeTotal = useMemo(
@@ -96,10 +105,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         // No business profile yet — surface a friendly note.
         setProfileError('Your business profile is being set up. Add company details from Profile.');
       } else {
-        setProfileError(r.error || 'Could not load business profile');
+        setProfileError(friendlyError(r.error, 'Could not load business profile'));
       }
     } catch (e: any) {
-      setProfileError(e?.message || 'Could not load business profile');
+      setProfileError(friendlyError(e, 'Could not load business profile'));
     } finally {
       setProfileLoading(false);
     }
@@ -112,17 +121,18 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       const r: any = await backendAPI.wallets.getWallets();
       if (r?.success) {
         const raw = r.data?.wallets || r.data?.data?.wallets || [];
-        setWallets(raw.map((w: any) => ({
+        const formatted = raw.map((w: any) => ({
           currency: w.currency,
           balance:  parseFloat(w.balance) || 0,
-        })));
-      } else {
-        setWallets([]);
-        setWalletsError(r?.error || 'Could not load wallets');
+        }));
+        setWallets(formatted);
+        try { localStorage.setItem(BIZ_WALLETS_KEY, JSON.stringify(formatted)); } catch { /* noop */ }
+      } else if (wallets.length === 0) {
+        // Only error when we have nothing cached to show.
+        setWalletsError(friendlyError(r?.error, 'Could not load wallets'));
       }
     } catch (e: any) {
-      setWallets([]);
-      setWalletsError(e?.message || 'Could not load wallets');
+      if (wallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
     } finally {
       setWalletsLoading(false);
     }

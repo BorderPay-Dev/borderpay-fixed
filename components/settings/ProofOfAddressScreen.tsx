@@ -4,7 +4,9 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { ArrowLeft, Upload, FileText, CheckCircle2, Clock, X, Loader2 } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
+import { friendlyError } from '../../utils/errors/friendlyError';
+import { Upload, FileText, CheckCircle2, Clock, X, Loader2 } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { toast } from 'sonner';
 import { authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/client';
@@ -83,7 +85,7 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
       toast.success('Document uploaded successfully! Under review.');
     } catch (error: any) {
       console.error('POA upload error:', error);
-      toast.error(error.message || 'Upload failed. Please try again.');
+      toast.error(friendlyError(error, 'Upload failed. Please try again.'));
     } finally {
       setUploading(false);
     }
@@ -92,14 +94,10 @@ export function ProofOfAddressScreen({ onBack }: ProofOfAddressScreenProps) {
   return (
     <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
         <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <button
-            onClick={onBack}
-            className={`w-10 h-10 rounded-full ${tc.card} flex items-center justify-center`}
-          >
-            <ArrowLeft size={20} className={tc.text} />
-          </button>
+          <div className="w-10" />
           <h1 className={`text-lg font-bold ${tc.text}`}>Proof of Address</h1>
           <div className="w-10" />
         </div>

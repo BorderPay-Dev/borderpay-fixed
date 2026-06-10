@@ -1,6 +1,14 @@
 /**
  * BorderPay — Friendly Error Messages
  * Converts raw technical errors into user-friendly messages.
+ *
+ * Two jobs:
+ *  1. Map known technical errors → calm, actionable copy.
+ *  2. NEVER leak internals to users. Anything that names an infrastructure
+ *     partner (Bridge, Flutterwave, Stripe, …) or reads like raw
+ *     backend jargon (customer_id, endorsement, kyc_link, enum, RPC names,
+ *     HTTP codes, stack traces) is replaced by the fallback. BorderPay is
+ *     white-label: the user must only ever see BorderPay, never a provider.
  */
 
 const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
@@ -17,12 +25,24 @@ const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /invalid.*password|wrong.*password|incorrect.*password/i, message: 'Incorrect password. Please try again.' },
   { pattern: /password.*short|password.*least/i, message: 'Password is too short. Use at least 12 characters.' },
   { pattern: /insufficient.*funds|insufficient.*balance/i, message: 'Insufficient balance for this transaction.' },
-  { pattern: /kyc.*required|verification.*required|not.*verified/i, message: 'Identity verification required. Complete KYC to continue.' },
+  { pattern: /kyc.*required|verification.*required|not.*verified|not_verified/i, message: 'Identity verification required. Verify your ID to continue.' },
+  // Provisioning/onboarding gaps — phrased for the user, partner-free.
+  { pattern: /no .*customer|customer .*(not|n't) (found|exist|provision)|customer_id|not_started|onboarding/i, message: 'Finish verifying your identity to use this feature.' },
+  { pattern: /endorsement|not .*available .*region|unsupported.*region|nexus/i, message: 'This service isn\'t available for your region yet.' },
+  { pattern: /virtual account|wallet .*(not|n't)|not provisioned|no account/i, message: 'This account isn\'t ready yet. Please try again shortly.' },
 ];
 
 /**
+ * Words that must NEVER appear in user-facing copy. If a raw error mentions any
+ * of these, we drop the raw text entirely and return the safe fallback — the
+ * message is partner/infrastructure detail, not something a user should read.
+ */
+const FORBIDDEN = /\b(bridge|flutterwave|stripe|youverify|persona|plaid|resend|supabase|postgres|postgrest|deno|webhook|edge function|rpc|enum|kyc_link|kyb|bvn|sql|constraint|null value|undefined|stack|traceback|payload|deployment_id)\b/i;
+
+/**
  * Convert a raw error into a user-friendly message.
- * If the error is already friendly (doesn't match technical patterns), returns it as-is.
+ * Order: known mappings → forbidden-internals scrub → technical-shape scrub →
+ * otherwise assume the string is already user-safe copy.
  */
 export function friendlyError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
   const raw = typeof error === 'string'
@@ -33,15 +53,22 @@ export function friendlyError(error: unknown, fallback = 'Something went wrong. 
 
   if (!raw) return fallback;
 
+  // 1. Known, mappable technical errors → friendly copy.
   for (const { pattern, message } of ERROR_MAP) {
     if (pattern.test(raw)) return message;
   }
 
-  // If the message looks technical (contains HTTP codes, stack traces, etc.), use fallback
-  if (/^\d{3}\b|at\s+\w+\s*\(|Error:|Exception/i.test(raw)) {
+  // 2. Mentions a partner or raw backend jargon → never leak it.
+  if (FORBIDDEN.test(raw)) return fallback;
+
+  // 3. Looks technical (HTTP codes, stack traces, IDs, code-y punctuation) → fallback.
+  if (/^\d{3}\b|at\s+\w+\s*\(|Error:|Exception|[{}<>]|https?:\/\/|[a-f0-9]{8}-[a-f0-9]{4}|_[a-z]+_|::/i.test(raw)) {
     return fallback;
   }
 
-  // Otherwise the error is probably already user-friendly
+  // 4. Overly long blobs are almost never real user copy.
+  if (raw.length > 160) return fallback;
+
+  // 5. Otherwise the error is probably already user-friendly.
   return raw;
 }

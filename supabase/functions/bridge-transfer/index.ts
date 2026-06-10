@@ -65,6 +65,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
+import { requireActivatedPlan } from "../_shared/plan-gate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -130,7 +131,7 @@ Deno.serve(async (req) => {
 
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("country, bridge_customer_id, bridge_kyc_status, payment_provider, maintenance_overdue")
+    .select("account_type, country, bridge_customer_id, bridge_kyc_status, payment_provider, maintenance_overdue")
     .eq("id", user.id)
     .maybeSingle();
   if (isBridgeBlocked(profile?.country)) {
@@ -151,6 +152,15 @@ Deno.serve(async (req) => {
   }
   if (profile.bridge_kyc_status !== "approved") {
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
+  }
+
+  // Paid gate: outbound transfers require an activated (paid) plan. In the Wise
+  // funnel KYC can be free, so this is what keeps money movement paid-gated —
+  // an unpaid user gets `plan_required` → the app shows the activation popup.
+  {
+    const isBusiness = profile?.account_type === "business";
+    const __planGate = await requireActivatedPlan(supa, user.id, isBusiness);
+    if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
 
   // Canonicalise: include user.id so two users can't collide on the same key.

@@ -63,8 +63,15 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
   // wallets is the right source-of-truth post-Bridge. The legacy `wallets`
   // table is no longer consulted here — that was the source of the fake
   // hardcoded USD account in the old WalletScreen.
-  const [totalUsd, setTotalUsd]   = useState<number>(0);
-  const [loading, setLoading]     = useState<boolean>(true);
+  // Seed the total from cache so the hero shows the last-known balance
+  // instantly instead of "$ —.—" on every open.
+  const WALLET_TOTAL_KEY = `borderpay_wallet_total_${userId}`;
+  const cachedTotal = (() => {
+    try { const raw = localStorage.getItem(WALLET_TOTAL_KEY); return raw ? Number(raw) : null; }
+    catch { return null; }
+  })();
+  const [totalUsd, setTotalUsd]   = useState<number>(cachedTotal ?? 0);
+  const [loading, setLoading]     = useState<boolean>(cachedTotal == null);
 
   useEffect(() => {
     let alive = true;
@@ -81,7 +88,9 @@ export function WalletScreen({ userId, onBack, onNavigate }: WalletScreenProps) 
           const usdMinor = data
             .filter((r: any) => r.currency === 'USD')
             .reduce((s: number, r: any) => s + Number(r.available_balance_minor || 0), 0);
-          setTotalUsd(usdMinor / 100);
+          const total = usdMinor / 100;
+          setTotalUsd(total);
+          try { localStorage.setItem(WALLET_TOTAL_KEY, String(total)); } catch { /* noop */ }
         }
       } catch { /* non-fatal */ }
       finally { if (alive) setLoading(false); }

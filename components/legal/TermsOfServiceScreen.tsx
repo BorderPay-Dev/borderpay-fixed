@@ -6,7 +6,8 @@
 
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Shield, Globe, Lock, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { Shield, Globe, Lock, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 
 interface TermsOfServiceScreenProps {
   onBack: () => void;
@@ -62,14 +63,14 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
       icon: Globe,
       content: (
         <>
-          <h3 className="text-white font-bold text-sm mb-3">1.1 Pan-African Service</h3>
+          <h3 className="text-white font-bold text-sm mb-3">1.1 Global Service</h3>
           <p className="text-white/70 text-sm leading-relaxed mb-4">
-            BorderPay Africa is a Pan-African digital banking platform serving African citizens and residents only. Our Services are available to individuals and businesses from all African countries, except those on international sanctions lists or restricted by our compliance policies.
+            BorderPay Africa is a global digital banking platform serving individuals and businesses worldwide, except in restricted jurisdictions. Eligibility is determined by our licensed partners' coverage and applicable compliance policies.
           </p>
           
-          <h3 className="text-white font-bold text-sm mb-3">1.2 Eligible African Countries</h3>
+          <h3 className="text-white font-bold text-sm mb-3">1.2 Eligible Countries</h3>
           <p className="text-white/70 text-sm leading-relaxed mb-4">
-            We onboard users from all 54 African countries, including but not limited to: Nigeria, Kenya, Tanzania, Ghana, South Africa, Egypt, Morocco, Ethiopia, Uganda, Rwanda, Senegal, Côte d'Ivoire, Cameroon, and many more.
+            We onboard eligible individuals and businesses worldwide, except in restricted jurisdictions. Availability of specific accounts, cards, and payout rails depends on your country and our licensed partners' coverage, shown in the app.
           </p>
 
           <h3 className="text-white font-bold text-sm mb-3">1.3 Restricted Countries</h3>
@@ -79,7 +80,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
 
           <h3 className="text-white font-bold text-sm mb-3">1.4 Age and Capacity</h3>
           <p className="text-white/70 text-sm leading-relaxed mb-4">
-            You must be at least 18 years old (or the age of majority in your African jurisdiction) to use the Services.
+            You must be at least 18 years old (or the age of majority in your jurisdiction) to use the Services.
           </p>
 
           <h3 className="text-white font-bold text-sm mb-3">1.5 Account Registration</h3>
@@ -91,7 +92,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
               'Keep your account credentials confidential and secure',
               'Notify us immediately of any unauthorized access or use',
               'Be fully responsible for all activity under your account',
-              'Provide only African government-issued identification documents',
+              'Provide valid government-issued identification documents',
             ].map((item, index) => (
               <li key={index} className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-[#C7FF00] flex-shrink-0 mt-0.5" />
@@ -108,15 +109,15 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
       icon: Shield,
       content: (
         <>
-          <h3 className="text-white font-bold text-sm mb-3">2.1 African Identity Documents Only</h3>
+          <h3 className="text-white font-bold text-sm mb-3">2.1 Accepted Identity Documents</h3>
           <p className="text-white/70 text-sm leading-relaxed mb-3">
-            BorderPay Africa accepts African government-issued identity documents only. Accepted documents include:
+            BorderPay Africa accepts valid government-issued identity documents. Accepted documents include:
           </p>
           <ul className="space-y-2 mb-4">
             {[
-              'African Passport: Valid passport issued by any African country',
+              'Passport: Valid government-issued passport',
               'National ID Card: Government-issued national identity card',
-              'Driver\'s License: Valid driver\'s license from select African countries',
+              'Driver\'s License: Valid government-issued driver\'s license',
             ].map((item, index) => (
               <li key={index} className="flex items-start gap-2">
                 <div className="w-1.5 h-1.5 bg-[#C7FF00] rounded-full flex-shrink-0 mt-2" />
@@ -124,9 +125,9 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
               </li>
             ))}
           </ul>
-          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-3 mb-4">
-            <p className="text-red-400 text-xs font-semibold">
-              Important: We do NOT accept identity documents from non-African countries.
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-3 mb-4">
+            <p className="text-white/70 text-xs font-semibold">
+              Documents must be valid, unexpired, and clearly legible.
             </p>
           </div>
 
@@ -137,9 +138,9 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
           <ul className="space-y-2">
             {[
               'Typically completes within 5-15 minutes',
-              'Requires a clear photo of your African ID document',
+              'Requires a clear photo of your ID document',
               'May require a selfie for biometric verification',
-              'Fully compliant with African Union AML regulations',
+              'Fully compliant with applicable AML regulations',
             ].map((item, index) => (
               <li key={index} className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-[#C7FF00] flex-shrink-0 mt-0.5" />
@@ -157,7 +158,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
       content: (
         <>
           <p className="text-white/70 text-sm leading-relaxed mb-4">
-            BorderPay Africa provides a mobile application and digital banking platform for Pan-African cross-border payments, remittances, country-dependent wallet and account access, and related fintech services. Card access remains locked until enabled by BorderPay.
+            BorderPay Africa provides a mobile application and digital banking platform for global cross-border payments, remittances, multi-currency wallet and account access, and related fintech services. Card access remains locked until enabled by BorderPay.
           </p>
           
           <h3 className="text-white font-bold text-sm mb-3">Core Services:</h3>
@@ -205,7 +206,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
 
           <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
             <p className="text-white/90 text-sm leading-relaxed">
-              <strong className="text-white">Fee Structure:</strong> All fees are charged in USD and displayed transparently before transaction confirmation. Fees are non-refundable except as required by applicable Nigerian consumer protection laws.
+              <strong className="text-white">Fee Structure:</strong> All fees are charged in USD and displayed transparently before transaction confirmation. Fees are non-refundable except as required by applicable consumer protection laws.
             </p>
           </div>
         </>
@@ -225,7 +226,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
               'Maintain the security of your account credentials',
               'Comply with all KYC/AML requirements',
               'Report any suspicious activity immediately',
-              'Use only African government-issued identity documents',
+              'Use valid government-issued identity documents',
             ].map((item, index) => (
               <li key={index} className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-[#C7FF00] flex-shrink-0 mt-0.5" />
@@ -240,7 +241,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
             <ul className="space-y-2">
               {[
                 'Fraud, money laundering, or terrorist financing',
-                'Use of non-African identity documents',
+                'Providing false or fraudulent identity documents',
                 'Unauthorized access to accounts or systems',
                 'Transactions involving illegal goods or services',
                 'Violating sanctions lists (OFAC, UN, EU, AU)',
@@ -263,12 +264,12 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
       content: (
         <>
           <p className="text-white/70 text-sm leading-relaxed mb-4">
-            We collect, process, and store personal data in accordance with our Privacy Policy and applicable African data protection laws, including Nigeria Data Protection Regulation (NDPR) and the African Union Convention on Cyber Security and Personal Data Protection.
+            We collect, process, and store personal data in accordance with our Privacy Policy and applicable data protection laws.
           </p>
 
           <h3 className="text-white font-bold text-sm mb-3">7.4 Your Data Rights</h3>
           <p className="text-white/70 text-sm leading-relaxed mb-3">
-            Under NDPR and applicable African data protection laws, you have the right to:
+            Under applicable data protection laws, you have the right to:
           </p>
           <ul className="space-y-2">
             {[
@@ -295,7 +296,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
       content: (
         <>
           <p className="text-white/70 text-sm leading-relaxed mb-4">
-            These Terms are governed by and construed in accordance with the laws of the Federal Republic of Nigeria. Any disputes shall be subject to the exclusive jurisdiction of the courts of Lagos State, Federal Republic of Nigeria.
+            These Terms are governed by and construed in accordance with the laws of the State of Delaware, United States. BorderPay Africa, Inc. is incorporated as a Delaware C-Corporation and operates under its partners' regulatory frameworks.
           </p>
           
           <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
@@ -305,7 +306,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
                 'Contact Support: support@borderpayafrica.com',
                 'Good Faith Negotiation: 30 days',
                 'Mediation: Through Lagos Multi-Door Courthouse',
-                'Arbitration: Under Nigerian Arbitration and Conciliation Act',
+                'Arbitration: Under the applicable rules of the State of Delaware, USA',
               ].map((item, index) => (
                 <li key={index} className="flex items-start gap-3">
                   <span className="text-[#C7FF00] font-bold text-sm flex-shrink-0">{index + 1}.</span>
@@ -371,32 +372,25 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
 
   return (
     <div className="min-h-full bg-black text-white">
+      <FloatingBackButton onBack={onBack} />
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-6 pt-safe border-b border-white/10">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4 min-h-[44px]"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span className="text-sm font-medium">Back</span>
-        </button>
-
+      <div className="flex-shrink-0 px-6 pt-floating-back pb-6 border-b border-white/10">
         <h1 className="text-2xl font-bold text-white mb-2">
           Terms of Service
         </h1>
         <p className="text-sm text-gray-400">
-          BorderPay Africa - Pan-African Digital Banking
+          BorderPay Africa - Global Digital Banking
         </p>
 
         {/* Trust Badges */}
         <div className="flex flex-wrap gap-2 mt-4">
           <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center gap-2">
             <Shield className="w-4 h-4 text-[#C7FF00]" />
-            <span className="text-xs text-white/70">Protected by Nigerian law</span>
+            <span className="text-xs text-white/70">Protected by applicable law</span>
           </div>
           <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center gap-2">
             <Globe className="w-4 h-4 text-[#C7FF00]" />
-            <span className="text-xs text-white/70">Pan-African</span>
+            <span className="text-xs text-white/70">Global</span>
           </div>
           <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center gap-2">
             <Lock className="w-4 h-4 text-[#C7FF00]" />

@@ -15,6 +15,25 @@ export function bridgeOnboardingEnabled(): boolean {
   return envEnabled("BRIDGE_ONBOARDING_ENABLED");
 }
 
+/**
+ * Whether KYC/KYB must be PRECEDED by the one-time activation payment.
+ *
+ * - true  (default): current "pay → verify" model. verificationGate enforces
+ *                    payment_required before any Bridge KYC/KYB call.
+ * - false: "Wise" funnel — free signup → KYC/KYB (free) → dashboard → pay on
+ *          Send/Receive. KYC is no longer payment-gated; the paid gate moves to
+ *          the money-movement functions (bridge-transfer / bridge-wallet /
+ *          bridge-external-account / bridge-virtual-account).
+ *
+ * Defaults to TRUE so production behavior is UNCHANGED until the operator sets
+ * KYC_REQUIRES_PAYMENT=false in the SAME deploy that confirms every money-
+ * movement function is paid-gated (see requireActivatedPlan). Fail-safe: an
+ * unset/garbage value keeps payment required.
+ */
+export function kycRequiresPayment(): boolean {
+  return (Deno.env.get("KYC_REQUIRES_PAYMENT") || "true").trim().toLowerCase() !== "false";
+}
+
 export function bridgeOnboardingPausedBody() {
   return {
     success: false,
@@ -38,7 +57,6 @@ export function bridgeOnboardingPausedBody() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const PAYMENT_REQUIRED_CODE       = "payment_required";
-export const PENDING_MANUAL_REVIEW_CODE  = "pending_manual_review";
 
 /** Activated plan keys (one-time activation fee paid; see plans.ts). Free
  *  tiers (individual_starter / business_starter) are intentionally excluded —
@@ -52,12 +70,8 @@ export function isPaidPlanKey(planKey: string | null | undefined): boolean {
   return PAID_PLAN_KEYS.has(String(planKey ?? ""));
 }
 
-/** Canonical verification review state (mirrors user_profiles.verification_review_status). */
-export const VERIFICATION_AUTHORIZED = "authorized";
-
 export type VerificationGateInput = {
-  isPaidPlan:   boolean;
-  reviewStatus: string | null | undefined; // 'pending_manual_review' | 'authorized' | 'rejected'
+  isPaidPlan: boolean;
 };
 
 export type VerificationGateResult =
@@ -66,13 +80,22 @@ export type VerificationGateResult =
 
 /**
  * Pure gate used by bridge-customer / bridge-kyc-link / bridge-kyb-link before
- * any Bridge call. Order matters: env pause → payment → manual review.
+ * any Bridge call. Order: env pause → (optional) payment.
+ *
+ * NOTE: KYC/KYB is now AUTOMATIC — Bridge runs verification and we react to its
+ * webhook. There is NO admin manual-review step; that gate (and the
+ * authorize-verification admin path) has been removed. The only gates left are
+ * the env launch-pause and the payment flag (off in the Wise funnel, where the
+ * paid gate lives on money-movement instead).
  */
 export function verificationGate(input: VerificationGateInput): VerificationGateResult {
   if (!bridgeOnboardingEnabled()) {
     return { allowed: false, code: BRIDGE_ONBOARDING_PAUSED_CODE, status: 503, body: bridgeOnboardingPausedBody() };
   }
-  if (!input.isPaidPlan) {
+  // Payment-before-KYC is enforced only in the "pay → verify" model. In the
+  // Wise funnel (KYC_REQUIRES_PAYMENT=false) KYC/KYB is free and the paid gate
+  // lives on the money-movement functions instead.
+  if (kycRequiresPayment() && !input.isPaidPlan) {
     return {
       allowed: false,
       code: PAYMENT_REQUIRED_CODE,
@@ -84,25 +107,13 @@ export function verificationGate(input: VerificationGateInput): VerificationGate
       },
     };
   }
-  if (String(input.reviewStatus ?? "").trim().toLowerCase() !== VERIFICATION_AUTHORIZED) {
-    return {
-      allowed: false,
-      code: PENDING_MANUAL_REVIEW_CODE,
-      status: 403,
-      body: {
-        success: false,
-        code: PENDING_MANUAL_REVIEW_CODE,
-        error: "Your account is pending manual review. We'll email you when document upload is enabled.",
-      },
-    };
-  }
   return { allowed: true };
 }
 
 /**
- * Reads the two dynamic gate inputs from the DB, fail-closed (any read error →
- * not paid / not authorized). `supa` is a service-role client. Used by the
- * Bridge entry points right after they authenticate the user.
+ * Reads the dynamic gate input from the DB, fail-closed (any read error →
+ * not paid). `supa` is a service-role client. Used by the Bridge entry points
+ * right after they authenticate the user.
  */
 export async function loadVerificationContext(
   supa: { from: (t: string) => any },
@@ -120,15 +131,5 @@ export async function loadVerificationContext(
       String(sub?.status ?? "").trim().toLowerCase() === "active";
   } catch { /* fail closed → treated as free */ }
 
-  let reviewStatus: string | null = null;
-  try {
-    const { data: prof } = await supa
-      .from("user_profiles")
-      .select("verification_review_status")
-      .eq("id", userId)
-      .maybeSingle();
-    reviewStatus = prof?.verification_review_status ?? null;
-  } catch { /* fail closed → treated as not authorized */ }
-
-  return { isPaidPlan, reviewStatus };
+  return { isPaidPlan };
 }

@@ -535,6 +535,11 @@
   .pt-safe-header {
     padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
   }
+  /* Clears the FloatingBackButton chip (safe-area + 10px offset + 44px chip + gap)
+     so the first content row never sits under the floating back button. */
+  .pt-floating-back {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 64px);
+  }
   .pl-safe {
     padding-left: env(safe-area-inset-left, 0px);
   }

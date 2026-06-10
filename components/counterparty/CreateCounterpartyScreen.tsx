@@ -9,10 +9,11 @@
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ArrowLeft, ArrowRight, User, Building2, MapPin, Landmark,
+  ArrowRight, User, Building2, MapPin, Landmark,
   CheckCircle, Loader2, AlertCircle, ShieldCheck, ChevronDown,
   Phone, Mail, FileText, Globe, Hash, CreditCard, Users,
 } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { toast } from 'sonner';
 import { usPaymentsAPI as counterpartyAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -743,19 +744,16 @@ export function CreateCounterpartyScreen({
   // ─── Main render ─────────────────────────────────────────────────
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      {/* ── Header ── */}
-      <div className={`sticky top-0 z-30 ${tc.isLight ? 'bg-white/80' : 'bg-[#0B0E11]/80'} backdrop-blur-md border-b ${tc.borderLight} pt-safe`}>
-        <div className="flex items-center justify-between px-5 py-3">
-          <button onClick={goBack} className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors">
-            <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
-          </button>
+      <FloatingBackButton onBack={goBack} />
+      {/* ── Header (title + step; back is the floating chip) ── */}
+      <div className={`sticky top-0 z-30 ${tc.isLight ? 'bg-white/80' : 'bg-[#0B0E11]/80'} backdrop-blur-md border-b ${tc.borderLight} pt-safe-header`}>
+        <div className="flex items-center justify-center px-5 py-3">
           <div className="text-center">
             <h1 className={`text-sm font-black ${tc.text}`}>{t('cp.title')}</h1>
             <p className={`text-[10px] ${tc.textSecondary}`}>
               {stepLabels[step]} ({stepIndex + 1}/{STEPS.length})
             </p>
           </div>
-          <div className="w-9" />
         </div>
 
         {/* Progress bar */}

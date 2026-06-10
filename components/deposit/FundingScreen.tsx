@@ -23,7 +23,8 @@
  */
 
 import React from 'react';
-import { ArrowLeft, Shield, Building2, Coins, Info } from 'lucide-react';
+import { Shield, Building2, Coins, Info } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { useVerification } from '../../utils/verification/useVerification';
 import { authAPI } from '../../utils/supabase/client';
@@ -52,19 +53,11 @@ export function FundingScreen({ onBack }: FundingScreenProps) {
 
   return (
     <div className={`min-h-[100dvh] ${tc.bg} ${tc.text}`}>
-      {/* Self-contained sticky header with a real Back control. */}
+      <FloatingBackButton onBack={onBack} />
+      {/* Title-only sticky header; back is the floating chip. */}
       <div className={`sticky top-0 z-20 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
-        <div className="max-w-2xl mx-auto flex items-center justify-between px-4 sm:px-5 py-3 pt-safe-header">
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label={tt('common.back', 'Back')}
-            className={`w-10 h-10 rounded-full ${tc.card} border ${tc.borderLight} flex items-center justify-center ${tc.hoverBg} transition-colors`}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+        <div className="max-w-2xl mx-auto flex items-center justify-center px-4 sm:px-5 py-3 pt-safe-header">
           <h1 className="text-base font-semibold">{tt('funding.title', 'Add money')}</h1>
-          <div className="w-10" />
         </div>
       </div>
 

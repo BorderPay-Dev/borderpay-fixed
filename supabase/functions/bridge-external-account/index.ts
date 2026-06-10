@@ -28,6 +28,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
+import { requireActivatedPlan } from "../_shared/plan-gate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -133,6 +134,14 @@ Deno.serve(async (req) => {
   }
 
   // ── create ──────────────────────────────────────────────────────────
+  // Paid gate: adding a payout destination is a money feature — requires an
+  // activated (paid) plan. (list/delete stay open so users can always view /
+  // remove existing destinations.)
+  {
+    const isBusiness = profile?.account_type === "business";
+    const __planGate = await requireActivatedPlan(supa, user.id, isBusiness);
+    if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
+  }
   const acct = body.account;
   if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban")) {
     return json({ success: false, error: "account.account_type must be 'us' or 'iban'" }, 400);

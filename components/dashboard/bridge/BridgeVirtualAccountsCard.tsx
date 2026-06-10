@@ -10,8 +10,10 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { friendlyError } from '../../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
 import { Building2, Copy, Plus, Loader2, Lock } from 'lucide-react';
+import { Skeleton } from '../../common/Skeleton';
 import { supabase } from '../../../utils/supabase/client';
 import { backendAPI } from '../../../utils/api/backendAPI';
 import { authAPI } from '../../../utils/supabase/client';
@@ -45,8 +47,13 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [rows, setRows]       = useState<VARow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const vaCacheKey = `borderpay_va_${isBusiness ? 'biz' : 'ind'}_v1`;
+  const cachedRows = useMemo<VARow[]>(() => {
+    try { const raw = localStorage.getItem(vaCacheKey); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
+  }, [vaCacheKey]);
+  const [rows, setRows]       = useState<VARow[]>(cachedRows);
+  const [loading, setLoading] = useState(cachedRows.length === 0);
   const [creating, setCreating] = useState<Currency | null>(null);
   const [derivedApproved, setDerivedApproved] = useState(false);
   const [country, setCountry] = useState<string | null>(() => authAPI.getStoredUser()?.country ?? null);
@@ -62,7 +69,9 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     const { data } = isBusiness
       ? await q.eq('business_user_id', userId)
       : await q.eq('user_id', userId);
-    setRows((data as VARow[]) ?? []);
+    const next = (data as VARow[]) ?? [];
+    setRows(next);
+    try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
     setLoading(false);
   };
 
@@ -109,7 +118,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     const r = await backendAPI.bridge.virtualAccount.create({ currency });
     setCreating(null);
     if (!r.success) {
-      showToast.error(r.error || tt('dash.va.create.failed', 'Could not create the virtual account.'));
+      showToast.error(friendlyError(r.error, tt('dash.va.create.failed', 'Could not create the virtual account.')));
       return;
     }
     showToast.success(tt('dash.va.create.success', `${currency} account created`));
@@ -152,9 +161,9 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-4">
-          <Loader2 className={`w-4 h-4 ${tc.textSecondary} animate-spin`} />
-          <span className={tc.textMuted}>{tt('common.loading', 'Loading…')}</span>
+        <div className="space-y-2 mb-3">
+          <Skeleton className="h-16 w-full rounded-2xl" />
+          <Skeleton className="h-16 w-full rounded-2xl" />
         </div>
       ) : (
         <>

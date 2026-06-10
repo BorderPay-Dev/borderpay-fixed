@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronDown, CheckCircle, Loader2, Plus, Building2, User, Briefcase, Zap, Shield,
@@ -176,7 +177,7 @@ export function USPaymentDetails(props: USPaymentDetailsProps) {
         if ((res as any).restricted) {
           toast.error(t('send.usRestrictedCountry'));
         } else {
-          toast.error(res.error || t('send.usCounterpartyFailed'));
+          toast.error(friendlyError(res.error, t('send.usCounterpartyFailed')));
         }
       }
     } catch (e: any) {

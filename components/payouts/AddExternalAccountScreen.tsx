@@ -17,6 +17,7 @@
  */
 
 import React, { useState } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { Banknote, Loader2, Building2, User as UserIcon } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { toast } from 'sonner';
@@ -115,7 +116,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         toast.error((res as any)?.error || 'Could not add the payout account.');
       }
     } catch (e: any) {
-      toast.error(e?.message || 'Could not add the payout account.');
+      toast.error(friendlyError(e, 'Could not add the payout account.'));
     } finally {
       setSubmitting(false);
     }

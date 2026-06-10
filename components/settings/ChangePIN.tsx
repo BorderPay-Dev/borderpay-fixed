@@ -4,7 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
+import { Lock, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import { PINManager } from '../../utils/security/SecurityManager';
@@ -82,14 +83,10 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
   return (
     <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className={`${tc.bgAlt} px-6 py-4 pt-safe border-b ${tc.border} sticky top-0 z-10`}>
         <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className={`p-2 ${tc.hoverBg} rounded-xl transition-colors`}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+          <div className="w-10" />
           <div>
             <h1 className={`${tc.text} bp-text-h3 font-bold`}>{t('changePin.title')}</h1>
             <p className={`${tc.textSecondary} bp-text-small`}>{t('changePin.subtitle')}</p>

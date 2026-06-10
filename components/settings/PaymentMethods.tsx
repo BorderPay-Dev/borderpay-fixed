@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CreditCard, Plus, Check, Building2, Smartphone, Wallet } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
+import { CreditCard, Plus, Check, Building2, Smartphone, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -87,14 +88,10 @@ export function PaymentMethods({ onBack }: PaymentMethodsProps) {
   return (
     <div className={`min-h-screen ${tc.bg} pb-safe`}>
       {/* Header */}
+      <FloatingBackButton onBack={onBack} />
       <div className={`${tc.bgAlt} px-6 py-4 pt-safe border-b ${tc.border} sticky top-0 z-10`}>
         <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className={`p-2 ${tc.hoverBg} rounded-xl transition-colors`}
-          >
-            <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
-          </button>
+          <div className="w-10" />
           <div>
             <h1 className={`${tc.text} bp-text-h3 font-bold`}>{t('paymentMethods.title')}</h1>
             <p className={`${tc.textSecondary} bp-text-small`}>{t('paymentMethods.subtitle')}</p>

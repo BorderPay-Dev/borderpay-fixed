@@ -9,6 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Bell, CheckCheck, Trash2, AlertCircle, Loader2, ChevronLeft,
@@ -121,9 +122,9 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       setRows(data);
       writeCachedNotifications(data);
       onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
-      if (!r?.success && r?.error) setError(r.error);
+      if (!r?.success && r?.error) setError(friendlyError(r.error));
     } catch (e: any) {
-      setError(e?.message || 'Could not load notifications');
+      setError(friendlyError(e, 'Could not load notifications'));
     } finally {
       setLoading(false);
     }

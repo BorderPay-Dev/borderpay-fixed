@@ -1,10 +1,11 @@
 /**
  * BorderPay Africa - Privacy Policy Screen
- * NDPR compliant, mobile-optimized
+ * Global data-protection aligned, mobile-optimized
  */
 
 import React from 'react';
-import { ArrowLeft, Shield, Lock, Eye, Database, UserCheck, AlertTriangle } from 'lucide-react';
+import { Shield, Lock, Eye, Database, UserCheck, AlertTriangle } from 'lucide-react';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 
 interface PrivacyPolicyScreenProps {
   onBack: () => void;
@@ -13,16 +14,9 @@ interface PrivacyPolicyScreenProps {
 export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
   return (
     <div className="min-h-full bg-black text-white">
+      <FloatingBackButton onBack={onBack} />
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-6 pt-safe border-b border-white/10">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4 min-h-[44px]"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span className="text-sm font-medium">Back</span>
-        </button>
-
+      <div className="flex-shrink-0 px-6 pt-floating-back pb-6 border-b border-white/10">
         <h1 className="text-2xl font-bold text-white mb-2">
           Privacy Policy
         </h1>
@@ -34,7 +28,7 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
         <div className="flex flex-wrap gap-2 mt-4">
           <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center gap-2">
             <Shield className="w-4 h-4 text-[#C7FF00]" />
-            <span className="text-xs text-white/70">NDPR Compliant</span>
+            <span className="text-xs text-white/70">Privacy Protected</span>
           </div>
           <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center gap-2">
             <Lock className="w-4 h-4 text-[#C7FF00]" />
@@ -57,7 +51,7 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
             <ul className="space-y-3">
               {[
                 'Personal Information: Name, email, phone number, date of birth',
-                'Identity Documents: African government-issued ID only',
+                'Identity Documents: government-issued ID',
                 'Financial Information: Transaction history, wallet balances',
                 'Device Information: IP address, device type, operating system',
                 'Biometric Data: Selfies for identity verification',
@@ -119,16 +113,16 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
             </div>
           </section>
 
-          {/* Your Rights (NDPR) */}
+          {/* Your Rights */}
           <section className="bg-gradient-to-br from-[#C7FF00]/10 to-transparent border border-[#C7FF00]/30 rounded-2xl p-5">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 bg-[#C7FF00] rounded-xl flex items-center justify-center">
                 <Shield className="w-5 h-5 text-black" />
               </div>
-              <h2 className="text-white font-bold text-base">Your Data Rights (NDPR)</h2>
+              <h2 className="text-white font-bold text-base">Your Data Rights</h2>
             </div>
             <p className="text-white/70 text-sm mb-4 leading-relaxed">
-              Under Nigeria's Data Protection Regulation (NDPR) and African Union data protection laws, you have the right to:
+              Under applicable data protection laws, you have the right to:
             </p>
             <ul className="space-y-2">
               {[
@@ -186,7 +180,7 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
               <h2 className="text-white font-bold text-base">Data Retention</h2>
             </div>
             <p className="text-white/70 text-sm leading-relaxed">
-              We retain your data for as long as necessary to provide Services and comply with legal obligations. Under Nigerian banking regulations, we must retain financial records for 6-10 years after account closure for audit and compliance purposes.
+              We retain your data for as long as necessary to provide Services and comply with legal obligations. Under applicable financial regulations, we retain financial records for the legally required period after account closure for audit and compliance purposes.
             </p>
           </section>
 
