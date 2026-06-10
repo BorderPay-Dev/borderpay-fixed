@@ -409,6 +409,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           ? (r.data.subscription.plan_key as PlanKey)
           : getDefaultPlanFor(accountType).key;
         setCurrentPlanKey(planKey);
+        // Cache for synchronous activation checks in standalone screens.
+        try { localStorage.setItem('borderpay_plan_key', planKey); } catch { /* noop */ }
       } catch {
         setCurrentPlanKey(getDefaultPlanFor(accountType).key);
       }

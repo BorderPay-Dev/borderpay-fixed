@@ -131,7 +131,30 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   ];
 
   const handleSuspendAccount = async () => {
-    if (!confirm(t('settings.confirmSuspend'))) {
+    // Balance gate: a user can only self-suspend an EMPTY account. Any positive
+    // balance (even $0.10) blocks self-suspension — they must withdraw first.
+    // (Only BorderPay can suspend/ban an account that still holds funds.)
+    setSuspending(true);
+    let hasFunds = true; // fail-closed: if we can't confirm $0, don't suspend
+    try {
+      const r: any = await backendAPI.wallets.getWallets();
+      const wallets: any[] = r?.data?.wallets ?? (Array.isArray(r?.data) ? r.data : []);
+      hasFunds = wallets.some((w) => Number(w.balance || 0) >= 0.01);
+    } catch {
+      hasFunds = true;
+    }
+    if (hasFunds) {
+      setSuspending(false);
+      toast.error('Your balance must be $0 to suspend. Withdraw all your funds first, then try again.');
+      return;
+    }
+    setSuspending(false);
+
+    if (!confirm(
+      'Suspend your account?\n\n' +
+      'Your balance is $0. Suspending pauses access to your account and features. ' +
+      'To reactivate, you’ll need to contact support. Do you want to continue?'
+    )) {
       return;
     }
 

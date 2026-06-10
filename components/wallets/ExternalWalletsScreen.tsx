@@ -8,13 +8,14 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2 } from 'lucide-react';
+import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI, type ExternalWallet } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { SkeletonRows } from '../common/Skeleton';
 import { useVerification } from '../../utils/verification/useVerification';
+import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -132,6 +133,35 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
             <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto leading-relaxed`}>
               Verify your identity to save withdrawal wallets and move funds.
             </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Activation lock — withdrawal wallets unlock only after the one-time
+  // activation is paid (verified users still see this until they activate).
+  if (!isAccountActivated()) {
+    const isBiz = authAPI.getStoredUser()?.account_type === 'business';
+    return (
+      <div className={`min-h-screen ${tc.bg}`}>
+        <FloatingBackButton onBack={onBack} />
+        <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>Withdrawal wallets</p>
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-8 text-center`}>
+            <div className="w-14 h-14 rounded-2xl bg-[#C7FF00]/15 flex items-center justify-center mx-auto mb-4">
+              <Sparkles className="w-7 h-7 text-[#C7FF00]" />
+            </div>
+            <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Activate to unlock withdrawals</h2>
+            <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto leading-relaxed mb-6`}>
+              Activate your BorderPay Global Wallet to save withdrawal addresses and move funds out.
+            </p>
+            <button
+              onClick={() => (window as any).__borderpay_open_upgrade?.(isBiz ? 'business_activated' : 'individual_activated')}
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold hover:brightness-95 transition"
+            >
+              Activate <ArrowUpRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>

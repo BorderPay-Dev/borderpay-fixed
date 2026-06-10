@@ -32,3 +32,18 @@ export function canMoveMoney(planKey: string | null | undefined): boolean {
 export function canStartVerification(planKey: string | null | undefined): boolean {
   return isPaidPlanKey(planKey);
 }
+
+/**
+ * Synchronous "is this account activated?" for standalone screens, read from the
+ * plan_key MainApp caches on each subscription fetch. Defaults to false (locked)
+ * when unknown — fail-closed.
+ */
+export function isAccountActivated(): boolean {
+  try { return isActivatedPlanKey(localStorage.getItem('borderpay_plan_key')); }
+  catch { return false; }
+}
+
+/** Cached plan key (or null). */
+export function cachedPlanKey(): string | null {
+  try { return localStorage.getItem('borderpay_plan_key'); } catch { return null; }
+}

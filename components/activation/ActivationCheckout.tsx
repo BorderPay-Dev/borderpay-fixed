@@ -68,8 +68,10 @@ export function ActivationCheckout({ open, onClose }: ActivationCheckoutProps) {
         redirect_url: d.redirect_url,
         customer:     { email: d.email, name: d.name || undefined },
         customizations: {
-          title: 'BorderPay Activation',
+          // Our branding inside the widget — users see BorderPay, not the partner.
+          title: 'BorderPay',
           description: 'Activate your BorderPay Global Wallet',
+          logo: `${window.location.origin}/logo.png`,
         },
         callback: () => {
           // Payment captured. The webhook activates server-side; show a
