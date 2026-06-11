@@ -22,9 +22,14 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const FEE_MINOR: Record<string, number> = {
-  individual_activated: 999,
-  business_activated:   2999,
+// Charge CURRENCY + per-plan AMOUNT are env-configurable. Default USD, but set
+// FLW_ACTIVATION_CURRENCY=NGN (and the NGN amounts) so CARD + bank transfer +
+// USSD + mobile money show — USD on a Nigerian account often only offers Apple
+// Pay. Amounts are MAJOR units of the chosen currency (e.g. 16000 = ₦16,000).
+const CURRENCY = (Deno.env.get("FLW_ACTIVATION_CURRENCY") || "USD").trim().toUpperCase();
+const FEE_MAJOR: Record<string, number> = {
+  individual_activated: Number(Deno.env.get("FLW_FEE_INDIVIDUAL") || "9.99"),
+  business_activated:   Number(Deno.env.get("FLW_FEE_BUSINESS")   || "29.99"),
 };
 
 const APP_URL = (Deno.env.get("FLW_REDIRECT_URL") || "https://app.borderpayafrica.com").trim();
@@ -51,7 +56,8 @@ Deno.serve(async (req) => {
 
   const isBusiness = profile?.account_type === "business";
   const planKey    = isBusiness ? "business_activated" : "individual_activated";
-  const amountMinor = FEE_MINOR[planKey];
+  const amountMajor = FEE_MAJOR[planKey];
+  const amountMinor = Math.round(amountMajor * 100);   // minor units of CURRENCY
   const email = profile?.email || user.email;
   if (!email) return json({ success: false, error: "No email on file" }, 400);
 
@@ -63,15 +69,15 @@ Deno.serve(async (req) => {
     plan_key:     planKey,
     tx_ref:       txRef,
     amount_minor: amountMinor,
-    currency:     "USD",
+    currency:     CURRENCY,
     status:       "pending",
   });
   if (insErr) return json({ success: false, error: "Could not start activation. Please try again." }, 500);
 
   const pay = await createPayment({
     tx_ref:       txRef,
-    amount:       amountMinor / 100,
-    currency:     "USD",
+    amount:       amountMajor,
+    currency:     CURRENCY,
     redirect_url: `${APP_URL}/?activation=return`,
     customer:     { email, name: profile?.full_name || undefined },
     title:        "BorderPay",
