@@ -34,6 +34,12 @@ const FEE_MAJOR: Record<string, number> = {
 
 const APP_URL = (Deno.env.get("FLW_REDIRECT_URL") || "https://app.borderpayafrica.com").trim();
 
+// Methods to show on the hosted page. Default explicitly requests CARD —
+// without payment_options the provider picks its own defaults (which surfaced
+// only one wallet method on this account). Comma-separated, env-overridable
+// (e.g. "card,banktransfer,ussd,mobilemoney").
+const PAYMENT_OPTIONS = (Deno.env.get("FLW_PAYMENT_OPTIONS") || "card").trim();
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -78,6 +84,7 @@ Deno.serve(async (req) => {
     tx_ref:       txRef,
     amount:       amountMajor,
     currency:     CURRENCY,
+    payment_options: PAYMENT_OPTIONS,
     redirect_url: `${APP_URL}/?activation=return`,
     customer:     { email, name: profile?.full_name || undefined },
     title:        "BorderPay",

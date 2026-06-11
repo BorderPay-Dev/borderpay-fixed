@@ -44,6 +44,8 @@ export interface CreatePaymentInput {
   customer:     { email: string; name?: string };
   meta?:        Record<string, unknown>;
   title?:       string;
+  /** Comma-separated methods to show (e.g. "card"). Omitted → provider default. */
+  payment_options?: string;
 }
 
 /** Create a Standard hosted-checkout payment. Returns the hosted payment link. */
@@ -59,6 +61,7 @@ export async function createPayment(p: CreatePaymentInput): Promise<{ ok: true; 
         redirect_url: p.redirect_url,
         customer:     p.customer,
         meta:         p.meta ?? {},
+        ...(p.payment_options ? { payment_options: p.payment_options } : {}),
         customizations: { title: p.title || "BorderPay Africa", description: "Account activation" },
       }),
     });
