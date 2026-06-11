@@ -288,6 +288,21 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     };
     if (canonicalKyc) update.kyc_status = canonicalKyc;
 
+    // Persist the customer's contact details Bridge sends on the customer event
+    // (phone + residential address) so Profile → Personal information is filled,
+    // not empty. Only overwrite when Bridge actually provides a value.
+    const addr: any = d?.residential_address ?? d?.address ?? {};
+    const phone = d?.phone ?? d?.phone_number;
+    if (phone) update.phone = String(phone);
+    const street = addr?.street_line_1 ?? addr?.street_line1 ?? addr?.line1 ?? addr?.street ?? "";
+    const street2 = addr?.street_line_2 ?? addr?.street_line2 ?? "";
+    if (street) update.address = street2 ? `${street}, ${street2}` : String(street);
+    if (addr?.city) update.city = String(addr.city);
+    const postal = addr?.postal_code ?? addr?.postcode ?? addr?.zip;
+    if (postal) update.postal_code = String(postal);
+    const country = addr?.country ?? d?.country;
+    if (country) update.country = String(country);
+
     await supabase.from("user_profiles")
       .update(update)
       .eq("bridge_customer_id", String(customer));
