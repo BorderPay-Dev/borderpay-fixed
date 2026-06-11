@@ -1,14 +1,14 @@
 // flutterwave-checkout — start an activation-fee payment (Phase A).
 //
-// POST {} (plan inferred from the user's account_type). Returns a hosted
-// checkout URL. Records a 'pending' activation_payments row keyed on tx_ref;
-// the flutterwave-webhook settles it after signature + amount verification.
+// POST {} (plan inferred from account_type). Records a 'pending'
+// activation_payments row and returns the HOSTED checkout URL. Hosted shows
+// every payment method enabled on the account (card, bank transfer, USSD, mobile money, …) — inline with USDonly surfaced a couple of methods.
 //
-// verify_jwt = true (config.toml). Requires FLUTTERWAVE_SECRET_KEY.
+// verify_jwt = true. Requires FLUTTERWAVE_SECRET_KEY.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveConfigured } from "../_shared/providers/flutterwave.ts";
+import { createPayment, flutterwaveConfigured } from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -22,7 +22,6 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// Activation fee (cents) per activated plan. Mirrors utils/subscriptions/plans.ts.
 const FEE_MINOR: Record<string, number> = {
   individual_activated: 999,
   business_activated:   2999,
@@ -58,7 +57,6 @@ Deno.serve(async (req) => {
 
   const txRef = `bpactv:${user.id}:${crypto.randomUUID()}`;
 
-  // Record the pending payment FIRST (the webhook keys off this row).
   const { error: insErr } = await supa.from("activation_payments").insert({
     user_id:      user.id,
     is_business:  isBusiness,
@@ -70,27 +68,18 @@ Deno.serve(async (req) => {
   });
   if (insErr) return json({ success: false, error: "Could not start activation. Please try again." }, 500);
 
-  // Inline (embedded) checkout: the app opens FlutterwaveCheckout in-page using
-  // the PUBLIC key (publishable, safe on the client). We just hand back the
-  // tx_ref we recorded + the params the inline widget needs. The webhook (which
-  // verifies signature + amount server-side) is what actually activates.
-  // Publishable key — accept either name (operator saved it as FLUTTERWAVE_API_KEY).
-  const publicKey = (Deno.env.get("FLUTTERWAVE_PUBLIC_KEY") || Deno.env.get("FLUTTERWAVE_API_KEY") || "").trim();
-  if (!publicKey) {
-    return json({ success: false, code: "gateway_unavailable", error: "Activation is temporarily unavailable. Please try again later." }, 503);
+  const pay = await createPayment({
+    tx_ref:       txRef,
+    amount:       amountMinor / 100,
+    currency:     "USD",
+    redirect_url: `${APP_URL}/?activation=return`,
+    customer:     { email, name: profile?.full_name || undefined },
+    title:        "BorderPay",
+    meta:         { user_id: user.id, plan_key: planKey },
+  });
+  if (!pay.ok) {
+    return json({ success: false, code: "checkout_failed", error: "Could not start activation. Please try again." }, 502);
   }
 
-  return json({
-    success: true,
-    data: {
-      tx_ref:       txRef,
-      amount:       amountMinor / 100,
-      currency:     "USD",
-      public_key:   publicKey,
-      email,
-      name:         profile?.full_name || "",
-      plan_key:     planKey,
-      redirect_url: `${APP_URL}/?activation=return`,
-    },
-  });
+  return json({ success: true, data: { checkout_url: pay.link, tx_ref: txRef } });
 });

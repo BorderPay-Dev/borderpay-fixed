@@ -1431,10 +1431,8 @@ export const subscriptionAPI = {
    * from the user's account_type server-side.
    */
   startActivationCheckout: async () =>
-    apiCall<{
-      tx_ref: string; amount: number; currency: string; public_key: string;
-      email: string; name: string; plan_key: string; redirect_url: string;
-    }>('flutterwave-checkout', { method: 'POST', body: JSON.stringify({}) }),
+    apiCall<{ checkout_url: string; tx_ref: string }>(
+      'flutterwave-checkout', { method: 'POST', body: JSON.stringify({}) }),
 };
 
 /** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */

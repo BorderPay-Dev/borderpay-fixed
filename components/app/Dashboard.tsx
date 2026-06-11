@@ -36,7 +36,7 @@ import {
 import { authAPI, storeUserProfile } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { deriveKycStatus, isKycVerified } from '../../utils/config/environment';
-import { SecurityStatus } from '../../utils/security/SecurityManager';
+import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -112,6 +112,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   }, [userId]);
   const cachedKycStatus = deriveKycStatus(cachedProfile);
   const isCachedVerified = cachedKycStatus === 'verified';
+  // Canonical 2FA signal (LoginScreen uses TOTPManager) so the dashboard agrees.
+  const cached2FA = useMemo(() => {
+    try { return !!cachedSecurity.has2FA || TOTPManager.isEnabled(userId); } catch { return !!cachedSecurity.has2FA; }
+  }, [cachedSecurity, userId]);
 
   const [isVerified, setIsVerified]       = useState<boolean>(!!isCachedVerified);
   const [kycStatus, setKycStatus]         = useState(cachedKycStatus);
@@ -123,12 +127,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // Derive an initial account status from the cached profile so we never
   // first-paint "starter" on a verified user.
   const [accountStatus, setAccountStatus] = useState<AccountStatus>(() => {
-    if (cachedSecurity.hasPIN && cachedSecurity.has2FA && isCachedVerified) return 'active';
+    if (cachedSecurity.hasPIN && cached2FA && isCachedVerified) return 'active';
     if (isCachedVerified) return 'verified';
     if (cachedKycStatus === 'rejected') return 'rejected';
     return 'starter';
   });
-  const [has2FA, setHas2FA]               = useState<boolean>(!!cachedSecurity.has2FA);
+  const [has2FA, setHas2FA]               = useState<boolean>(cached2FA);
   // Legacy provider status state removed — AffiliateBanner now gates on Bridge KYC only.
   const [userEmail, setUserEmail]         = useState<string>(cachedProfile?.email || '');
   const [hasPIN, setHasPIN]               = useState<boolean>(!!cachedSecurity.hasPIN);
@@ -201,7 +205,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       const [profileRes, walletsRes, securityRes, txRes] = await Promise.allSettled([
         backendAPI.user.getProfile(),
         backendAPI.wallets.getWallets(),
-        backendAPI.auth.getSecurityStatus(''),
+        backendAPI.auth.getSecurityStatus(userId),
         backendAPI.transactions.getTransactions(5, 0),
       ]);
 
@@ -241,15 +245,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // ── Security status (merge backend + client-side) ─────────────────────
       // Client-side localStorage is the source of truth for PIN/2FA
       const clientSecurity = SecurityStatus.get(userId);
+      // TOTPManager is the canonical client signal for 2FA (LoginScreen uses it);
+      // SecurityStatus alone misses it, which made the "set up 2FA" banner reappear.
+      const totpOn = TOTPManager.isEnabled(userId);
       if (securityRes.status === 'fulfilled' && securityRes.value?.success) {
-        const sec = securityRes.value.data;
-        // Use OR: if either backend or client says it's set, it's set
+        const sec = securityRes.value.data as any;
+        // Use OR across every source: if ANY says it's set, it's set.
         setHasPIN(sec?.pin_set || clientSecurity.hasPIN);
-        setHas2FA(sec?.two_factor_enabled || clientSecurity.has2FA);
+        setHas2FA(sec?.two_factor_enabled || clientSecurity.has2FA || totpOn);
       } else {
-        // Backend failed — rely on client-side only
         setHasPIN(clientSecurity.hasPIN);
-        setHas2FA(clientSecurity.has2FA);
+        setHas2FA(clientSecurity.has2FA || totpOn);
       }
 
       // ── Recent transactions ───────────────────────────────────────────────
