@@ -28,7 +28,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
-import { requireActivatedPlan } from "../_shared/plan-gate.ts";
+import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
   if (profile.bridge_kyc_status !== "approved") return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
   {
     const isBusiness = profile?.account_type === "business";
-    const gate = await requireActivatedPlan(supa, user.id, isBusiness);
+    const gate = await requireMinimumWalletBalance(supa, user.id);
     if (!gate.allowed) return json(gate.body, gate.status);
   }
 

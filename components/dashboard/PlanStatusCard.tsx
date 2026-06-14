@@ -63,7 +63,7 @@ export function PlanStatusCard({
 
         <div className="flex-1 min-w-0">
           <h3 className={`text-sm font-semibold ${tc.text}`}>
-            {isBusiness ? 'Activate your business account' : 'Activate your account'}
+            {isBusiness ? 'Fund your business wallet' : 'Fund your wallet'}
           </h3>
           <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
             Verify your ID to unlock USD, EUR &amp; GBP accounts, cards and your wallet.

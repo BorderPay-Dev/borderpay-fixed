@@ -38,6 +38,35 @@ export const chainLabel = (c?: string | null): string => {
   return m[k] ?? (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
 };
 
+// Brand-coloured chain chip (poster-style network badge).
+const CHAIN_BRAND: Record<string, { bg: string; fg: string; glyph: string }> = {
+  base:     { bg: '#0052FF', fg: '#FFFFFF', glyph: 'B' },
+  ethereum: { bg: '#627EEA', fg: '#FFFFFF', glyph: 'Ξ' },
+  eth:      { bg: '#627EEA', fg: '#FFFFFF', glyph: 'Ξ' },
+  polygon:  { bg: '#8247E5', fg: '#FFFFFF', glyph: '◆' },
+  solana:   { bg: '#14F195', fg: '#000000', glyph: 'S' },
+  sol:      { bg: '#14F195', fg: '#000000', glyph: 'S' },
+  tron:     { bg: '#EB0029', fg: '#FFFFFF', glyph: 'T' },
+  arbitrum: { bg: '#28A0F0', fg: '#FFFFFF', glyph: 'A' },
+  optimism: { bg: '#FF0420', fg: '#FFFFFF', glyph: 'O' },
+  bsc:      { bg: '#F0B90B', fg: '#000000', glyph: 'B' },
+  stellar:  { bg: '#000000', fg: '#FFFFFF', glyph: '★' },
+  celo:     { bg: '#FCFF52', fg: '#000000', glyph: 'C' },
+};
+export function ChainChip({ chain, size = 20 }: { chain: string; size?: number }) {
+  const k = String(chain || '').toLowerCase();
+  const b = CHAIN_BRAND[k] ?? { bg: '#3A4150', fg: '#FFFFFF', glyph: '◎' };
+  return (
+    <span
+      style={{ width: size, height: size, background: b.bg, color: b.fg, fontSize: size * 0.55 }}
+      className="inline-flex items-center justify-center rounded-full font-bold flex-shrink-0"
+      aria-label={chainLabel(chain)}
+    >
+      {b.glyph}
+    </span>
+  );
+}
+
 // Fiat currencies render a flag (mobile renders these crisply); stablecoins use
 // the brand-coloured coin glyph.
 const FLAG: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
@@ -134,21 +163,51 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
   wallet: { currency: string; chain: string; address: string } | null;
 }) {
   const tc = useThemeClasses();
+  const [done, setDone] = React.useState(false);
   if (!wallet) return <Sheet open={open} onClose={onClose}><div /></Sheet>;
-  const sym = String(wallet.currency).toUpperCase();
+  const sym  = String(wallet.currency).toUpperCase();
+  const chn  = String(wallet.chain || '').toLowerCase();
+  const addr = String(wallet.address || '');
+  const copyAll = async () => {
+    try { await navigator.clipboard.writeText(addr); setDone(true); setTimeout(() => setDone(false), 1400); showToast.success('Address copied'); }
+    catch { /* noop */ }
+  };
   return (
     <Sheet open={open} onClose={onClose}>
-      <SheetHeader symbol={sym} title={`${sym} wallet`} subtitle={`${assetName(sym)} · ${chainLabel(wallet.chain)}`} onClose={onClose} tc={tc} />
+      <SheetHeader symbol={sym} title={`${sym} · ${assetName(sym)}`} subtitle="Stablecoin deposit address" onClose={onClose} tc={tc} />
+
       <div className="px-5 pb-6">
-        <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-3 flex items-start gap-2 mb-2`}>
-          <ArrowDownLeft className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
-          <p className={`text-xs ${tc.textSecondary}`}>
-            Send only <b>{sym}</b> on <b>{chainLabel(wallet.chain)}</b> to this address. Other assets or networks may be lost.
-          </p>
+        {/* Network row — coloured chain chip, always visible */}
+        <div className={`flex items-center gap-2.5 rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} px-4 py-3 mb-3`}>
+          <ChainChip chain={chn} size={22} />
+          <div className="flex-1 min-w-0">
+            <div className={`text-[10px] uppercase tracking-wider ${tc.textMuted}`}>Network</div>
+            <div className={`text-sm font-semibold ${tc.text}`}>{chainLabel(chn) || 'Unknown'}</div>
+          </div>
         </div>
-        <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} px-4`}>
-          <CopyRow label="Network" value={chainLabel(wallet.chain)} tc={tc} />
-          <CopyRow label={`${sym} deposit address`} value={wallet.address} tc={tc} />
+
+        {/* Address — large, mono, full-bleed, tap-anywhere to copy */}
+        <button onClick={copyAll}
+          className={`w-full text-left rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-4 ${tc.hoverBg} transition mb-3`}>
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-[10px] uppercase tracking-wider ${tc.textMuted}`}>{sym} address</span>
+            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${done ? 'text-[#C7FF00]' : tc.textSecondary}`}>
+              {done ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {done ? 'Copied' : 'Tap to copy'}
+            </span>
+          </div>
+          <div className={`text-[13px] sm:text-sm font-mono leading-snug break-all ${tc.text}`} style={{ wordBreak: 'break-all' }}>
+            {addr || <span className={tc.textMuted}>—</span>}
+          </div>
+        </button>
+
+        {/* Safety note */}
+        <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-3 flex items-start gap-2`}>
+          <ArrowDownLeft className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
+          <p className={`text-xs ${tc.textSecondary} leading-relaxed`}>
+            Send only <b>{sym}</b> on <b>{chainLabel(chn) || 'this network'}</b>. Funds sent on a
+            different network may be lost.
+          </p>
         </div>
       </div>
     </Sheet>

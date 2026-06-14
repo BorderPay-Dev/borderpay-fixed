@@ -89,7 +89,7 @@ export function PricingScreen({
           <p className={`mt-4 text-base sm:text-lg ${tc.textSecondary} max-w-2xl mx-auto`}>
             {tt(
               'pricing.subhead',
-              'Start free. Pay a single one-time activation fee to unlock USD, EUR & GBP wallets — no subscriptions, no monthly bills. Paid from any USD virtual account balance.',
+              'Start free. Keep at least $20 in your BorderPay wallet to unlock USD, EUR & GBP accounts — no subscriptions, no fees deducted. Your funds remain yours.',
             )}
           </p>
           <p className={`mt-2 text-xs ${tc.textMuted}`}>

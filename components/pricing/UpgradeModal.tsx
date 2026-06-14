@@ -222,7 +222,7 @@ export function UpgradeModal({
                 {/* Price row */}
                 <div className={`mt-5 flex items-center justify-between p-4 rounded-2xl ${tc.bgAlt} border ${tc.border}`}>
                   <div>
-                    <div className={`text-xs ${tc.textMuted}`}>{tt('upgrade.price', 'One-time activation fee')}</div>
+                    <div className={`text-xs ${tc.textMuted}`}>{tt('upgrade.price', 'Minimum Wallet Funding Requirement')}</div>
                     <div className={`mt-0.5 text-2xl font-bold ${tc.text}`}>${priceUsd.toFixed(2)}</div>
                   </div>
                   <div className={`text-xs ${tc.textMuted} text-right`}>

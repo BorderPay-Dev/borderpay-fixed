@@ -86,11 +86,13 @@ if upgr:
         failures.append("OT4 subscription-upgrade still references old plan keys")
 
 # OT5 ---------------------------------------------------------------------
+# Funding model: bridge-virtual-account no longer hard-codes a plan→currency
+# matrix. The gate is requireMinimumWalletBalance() from funding-gate.ts.
 if bva:
-    if "individual_activated" not in bva or "business_activated" not in bva:
-        failures.append("OT5 bridge-virtual-account currency matrix missing activated keys")
+    if "requireMinimumWalletBalance(" not in bva:
+        failures.append("OT5 bridge-virtual-account must gate on requireMinimumWalletBalance()")
     if "business_growth" in bva or "individual_premium" in bva:
-        failures.append("OT5 bridge-virtual-account still references old plan keys")
+        failures.append("OT5 bridge-virtual-account still references retired plan keys")
 
 # OT6 ---------------------------------------------------------------------
 if maint:

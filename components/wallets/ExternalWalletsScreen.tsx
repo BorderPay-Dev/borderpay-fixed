@@ -154,7 +154,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
             </div>
             <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Activate to unlock withdrawals</h2>
             <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto leading-relaxed mb-6`}>
-              Activate your BorderPay Global Wallet to save withdrawal addresses and move funds out.
+              Fund your BorderPay wallet ($20 minimum) to save withdrawal addresses and move funds out. Your funds remain yours.
             </p>
             <button
               onClick={() => (window as any).__borderpay_open_upgrade?.(isBiz ? 'business_activated' : 'individual_activated')}

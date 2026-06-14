@@ -47,8 +47,6 @@ import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
-import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
-import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';

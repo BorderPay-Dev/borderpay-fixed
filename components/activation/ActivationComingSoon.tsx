@@ -54,7 +54,7 @@ export function ActivationComingSoon({ open, isBusiness = false, onClose }: Acti
                   Activate your {isBusiness ? 'BorderPay Business Wallet' : 'BorderPay Global Wallet'}
                 </h2>
                 <p className={`text-sm ${tc.textMuted} leading-relaxed max-w-xs mx-auto`}>
-                  Activate your BorderPay Global Wallet to enable international transfers,
+                  Fund your BorderPay wallet ($20 minimum) to unlock international transfers,
                   Global and African payouts, and multi-currency balances.
                 </p>
 

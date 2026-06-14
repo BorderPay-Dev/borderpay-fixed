@@ -18,8 +18,6 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
-import { BridgeVirtualAccountsCard } from '../dashboard/bridge/BridgeVirtualAccountsCard';
-import { BridgeWalletsCard } from '../dashboard/bridge/BridgeWalletsCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { TreasuryCard } from './TreasuryCard';
@@ -305,8 +303,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             Business infrastructure
           </h2>
           <BridgeKycStatusCard userId={userId} onStartVerification={() => onNavigate('kyc')} />
-          <BridgeVirtualAccountsCard userId={userId} isBusiness />
-          <BridgeWalletsCard userId={userId} isBusiness />
           <CardsLockedCard />
         </section>
 

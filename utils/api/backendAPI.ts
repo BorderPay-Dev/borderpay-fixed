@@ -55,14 +55,21 @@ async function apiCall<T = any>(
 
     const data = await response.json();
 
-    // Wallet-debit paywall: when an edge function returns 402 with
-    // `code: 'plan_required'`, surface it as a DOM event so any screen can
-    // pop the UpgradeModal without having to thread the response code through
-    // every caller. MainApp listens for this event and opens the modal.
-    if (response.status === 402 && data?.code === 'plan_required' && typeof window !== 'undefined') {
+    // Funding gate: when an edge function returns 402 funding_required (new
+    // minimum-balance model), surface it as a DOM event so any screen pops the
+    // FundWalletSheet without prop-drilling. plan_required is kept as a legacy
+    // alias for in-flight responses on older deployments.
+    if (response.status === 402 && (data?.code === 'funding_required' || data?.code === 'plan_required') && typeof window !== 'undefined') {
       try {
-        window.dispatchEvent(new CustomEvent('borderpay:plan_required', { detail: data }));
+        window.dispatchEvent(new CustomEvent('borderpay:funding_required', { detail: data }));
+        // legacy alias
+        window.dispatchEvent(new CustomEvent('borderpay:plan_required',    { detail: data }));
       } catch { /* SSR / no CustomEvent — ignore */ }
+    }
+    // VA grant-pending (202): surface a friendly toast-like event so the VA
+    // card / Wallet screen can render "review pending" instead of an error.
+    if (response.status === 202 && data?.code === 'va_grant_pending' && typeof window !== 'undefined') {
+      try { window.dispatchEvent(new CustomEvent('borderpay:va_grant_pending', { detail: data })); } catch { /* noop */ }
     }
 
     if (!response.ok) {

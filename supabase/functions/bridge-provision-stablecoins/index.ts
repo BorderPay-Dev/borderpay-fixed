@@ -33,7 +33,6 @@ const DEFAULTS: ReadonlyArray<{ symbol: string; chain: string }> = [
   { symbol: "USDT", chain: "TRON" },
 ];
 
-const ACTIVATED_PLANS = new Set(["individual_activated", "business_activated"]);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -63,12 +62,6 @@ Deno.serve(async (req) => {
   }
   if (verification !== "approved") return noop("kyc_not_approved");
   if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
-
-  // Activation check — inline + silent (do NOT use the plan-gate, which dispatches
-  // plan_required and would pop the activation modal).
-  const subQ = supa.from("user_subscriptions").select("plan_key, status").in("status", ["active", "trialing"]).maybeSingle();
-  const { data: sub } = isBusiness ? await subQ.eq("business_user_id", user.id) : await subQ.eq("user_id", user.id);
-  if (!sub || !ACTIVATED_PLANS.has(String(sub.plan_key))) return noop("not_activated");
 
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
   const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];

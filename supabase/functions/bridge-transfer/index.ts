@@ -65,7 +65,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
-import { requireActivatedPlan } from "../_shared/plan-gate.ts";
+import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
   // an unpaid user gets `plan_required` → the app shows the activation popup.
   {
     const isBusiness = profile?.account_type === "business";
-    const __planGate = await requireActivatedPlan(supa, user.id, isBusiness);
+    const __planGate = await requireMinimumWalletBalance(supa, user.id);
     if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
 

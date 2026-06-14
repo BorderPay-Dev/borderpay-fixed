@@ -19,11 +19,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../common/ErrorBoundary';
-import { ActivationCheckout } from '../activation/ActivationCheckout';
-import { ActivationComingSoon } from '../activation/ActivationComingSoon';
+import { FundWalletSheet } from '../activation/FundWalletSheet';
 import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
-import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE, ACTIVATION_GATEWAY_LIVE } from '../../utils/featureFlags';
+import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
@@ -294,8 +293,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   //   • Manual upgrade CTAs (window.__borderpay_open_upgrade(planKey))
   //   • Backend 402 `plan_required` responses (apiCall dispatches
   //     `borderpay:plan_required` CustomEvent; we listen below and pop it).
-  const [upgradeTarget, setUpgradeTarget] = useState<PlanKey | null>(null);
-
+  
   // ─── Shell display props (avatar / name / unread bell badge) ───────────
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
@@ -421,26 +419,37 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     return () => { cancelled = true; };
   }, [userId, accountType, refreshKey]);
 
-  // ─── Paywall: open UpgradeModal on 402 plan_required ───────────────────
-  // apiCall dispatches `borderpay:plan_required` from any edge function
-  // that gates a feature behind a paid plan. We map the upgrade_to plan
-  // (which the server picks based on account_type) to our local state.
+  // ─── Funding gate: open FundWalletSheet on 402 funding_required ────────
+  // (plan_required is kept as a legacy alias so older clients in flight don't
+  //  break, but the new model is a minimum wallet balance, not a paid plan.)
+  const [fundCurrentUsd, setFundCurrentUsd] = useState<number | undefined>(undefined);
+  const [fundOpen, setFundOpen] = useState(false);
   useEffect(() => {
-    const onPlanRequired = (e: Event) => {
+    const onFundingRequired = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
-      const target = (detail.upgrade_to as PlanKey | undefined)
-        ?? getActivatedPlanFor(accountType).key;
-      setUpgradeTarget(target);
+      setFundCurrentUsd(typeof detail.current_balance_usd === 'number' ? detail.current_balance_usd : undefined);
+      setFundOpen(true);
     };
-    window.addEventListener('borderpay:plan_required', onPlanRequired as EventListener);
-    return () => window.removeEventListener('borderpay:plan_required', onPlanRequired as EventListener);
-  }, [accountType]);
+    window.addEventListener('borderpay:funding_required', onFundingRequired as EventListener);
+    // legacy event name (any in-flight UI still using it)
+    window.addEventListener('borderpay:plan_required',    onFundingRequired as EventListener);
+    return () => {
+      window.removeEventListener('borderpay:funding_required', onFundingRequired as EventListener);
+      window.removeEventListener('borderpay:plan_required',    onFundingRequired as EventListener);
+    };
+  }, []);
 
-  // Public helper any screen can call to open the upgrade modal manually.
-  // Used by Dashboard / Pricing CTAs without prop-drilling.
+  // Public helper any screen can call to open the Fund Wallet sheet manually.
+  // `__borderpay_open_upgrade` kept as a legacy alias so older CTAs still work
+  // — both now route to the same FundWalletSheet (no more activation modal).
   useEffect(() => {
-    (window as any).__borderpay_open_upgrade = (planKey: PlanKey) => setUpgradeTarget(planKey);
-    return () => { delete (window as any).__borderpay_open_upgrade; };
+    const opener = () => { setFundCurrentUsd(undefined); setFundOpen(true); };
+    (window as any).__borderpay_open_upgrade = opener;
+    (window as any).__borderpay_open_fund_wallet = opener;
+    return () => {
+      delete (window as any).__borderpay_open_upgrade;
+      delete (window as any).__borderpay_open_fund_wallet;
+    };
   }, []);
 
   const scrollToTop = useCallback(() => {
@@ -762,7 +771,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             accountType={accountType}
             currentPlanKey={currentPlanKey}
             onBack={navigateBack}
-            onUpgrade={(planKey: PlanKey) => setUpgradeTarget(planKey)}
+            onUpgrade={(planKey: PlanKey) => (window as any).__borderpay_open_fund_wallet?.()}
           />
         );
 
@@ -788,7 +797,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
               onLogout={onLogout}
               onNavigate={navigateTo as (s: string) => void}
               planKey={currentPlanKey}
-              onUpgrade={() => setUpgradeTarget('business_activated')}
+              onUpgrade={() => (window as any).__borderpay_open_fund_wallet?.()}
             />
           );
         }
@@ -799,7 +808,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onNavigate={navigateTo}
             currentScreen={currentScreen}
             planKey={currentPlanKey}
-            onUpgrade={() => setUpgradeTarget('individual_activated')}
+            onUpgrade={() => (window as any).__borderpay_open_fund_wallet?.()}
           />
         );
     }
@@ -840,30 +849,17 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         </ErrorBoundary>
       </div>
 
-      {/* ── Activation / upgrade paywall ───────────────────────────────── */}
-      {/* Opened by any 402 plan_required response (via DOM event) or by an
-          explicit window.__borderpay_open_upgrade(planKey) call from a CTA.
-
-          Gate-1 activation payment needs the external gateway (Flutterwave /
-          Stripe), pending approval. Until ACTIVATION_GATEWAY_LIVE flips true,
-          every activation/upgrade entry shows the "opening soon" sheet instead
-          of the VA-debit modal (which can't serve a brand-new user). */}
-      {upgradeTarget && (
-        ACTIVATION_GATEWAY_LIVE ? (
-          // First activation must use the external gateway (a new user has no
-          // funded VA to debit). Redirects to hosted checkout.
-          <ActivationCheckout
-            open
-            onClose={() => setUpgradeTarget(null)}
-          />
-        ) : (
-          <ActivationComingSoon
-            open
-            isBusiness={accountType === 'business'}
-            onClose={() => setUpgradeTarget(null)}
-          />
-        )
-      )}
+      {/* ── Funding gate (replaces the prior activation paywall) ──────────
+          Opens on any 402 funding_required response or via
+          window.__borderpay_open_fund_wallet(). Funds remain the user's;
+          $20 USD-equivalent minimum balance unlocks money movement + VAs. */}
+      <FundWalletSheet
+        open={fundOpen}
+        onClose={() => setFundOpen(false)}
+        currentUsd={fundCurrentUsd}
+        onOpenWallet={() => navigateTo('wallet-detail')}
+        userId={userId}
+      />
 
       {/* New Device / IP Security Alert */}
       <AnimatePresence>

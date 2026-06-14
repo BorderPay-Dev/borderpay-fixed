@@ -13,6 +13,7 @@ import {
   logControlledBridgeTraffic,
   isBridgeVirtualAccountCurrencyAvailable,
 } from "../_shared/providers/bridge-country-policy.ts";
+import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -87,38 +88,12 @@ Deno.serve(async (req) => {
     return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
 
-  // Activation enforcement: the user must have paid the one-time activation
-  // fee to open ANY virtual account (free starter is view-only). Activated
-  // accounts unlock USD + EUR + GBP. We read the subscription owner row keyed
-  // on whether this is an individual or business account.
-  const subQuery = supa
-    .from("user_subscriptions")
-    .select("plan_key, status")
-    .in("status", ["active", "trialing"])
-    .maybeSingle();
-  const { data: sub } = isBusiness
-    ? await subQuery.eq("business_user_id", user.id)
-    : await subQuery.eq("user_id", user.id);
-
-  // Plan currency matrix (mirrors utils/subscriptions/plans.ts).
-  // Kept in sync manually; if you change one, change the other.
-  const PLAN_CURRENCIES: Record<string, ReadonlySet<string>> = {
-    individual_starter:    new Set([]),                       // view-only
-    individual_activated:  new Set(["USD", "EUR", "GBP"]),
-    business_starter:      new Set([]),                       // view-only
-    business_activated:    new Set(["USD", "EUR", "GBP"]),
-  };
-  const planKey = sub?.plan_key ?? (isBusiness ? "business_starter" : "individual_starter");
-  const allowed = PLAN_CURRENCIES[planKey] ?? new Set([]);
-  if (!allowed.has(currency)) {
-    return json({
-      success: false,
-      code:    "plan_required",
-      error:   `Activate your account to open ${currency} wallets. Your account is not activated yet.`,
-      required_currency: currency,
-      current_plan:      planKey,
-      upgrade_to:        isBusiness ? "business_activated" : "individual_activated",
-    }, 402);  // 402 Payment Required
+  // Funding gate: replace the prior activation-fee model with a minimum
+  // wallet-balance requirement. The user must hold at least $20 USD-equivalent
+  // across their BorderPay wallets — funds are NOT deducted, they stay theirs.
+  {
+    const __fund = await requireMinimumWalletBalance(supa, user.id);
+    if (!__fund.allowed) return json(__fund.body, __fund.status);
   }
 
   // Idempotent: if this VA already exists in the UI mirror, return it.
@@ -235,6 +210,36 @@ Deno.serve(async (req) => {
       },
     });
   } catch (e) {
-    return json({ success: false, error: (e as Error).message }, 502);
+    const msg = (e as Error).message || "";
+    // Bridge returns errors like "endorsement_not_granted" / "capability_not_granted"
+    // when the customer hasn't been approved for SEPA / Faster Payments / etc. yet.
+    // Queue the request for admin review instead of leaking a raw failure.
+    const lower = msg.toLowerCase();
+    const isGrantPending =
+      lower.includes("endorsement") ||
+      lower.includes("not granted") ||
+      lower.includes("not_granted") ||
+      lower.includes("capability") ||
+      lower.includes("not eligible") ||
+      lower.includes("not_eligible");
+    if (isGrantPending) {
+      try {
+        await supa.from("pending_va_requests").upsert({
+          user_id:            user.id,
+          bridge_customer_id: profile.bridge_customer_id,
+          currency,
+          status:             "pending",
+          bridge_error:       msg.slice(0, 500),
+          bridge_error_code:  "endorsement_not_granted",
+        }, { onConflict: "user_id,currency" });
+      } catch { /* best-effort */ }
+      return json({
+        success: false,
+        code:    "va_grant_pending",
+        error:   `${currency} accounts are not enabled for your profile yet. Your request was sent for review — you’ll get an email once it’s approved (usually a few business days).`,
+        currency,
+      }, 202);  // accepted, pending review
+    }
+    return json({ success: false, error: msg }, 502);
   }
 });
