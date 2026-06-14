@@ -171,13 +171,29 @@ export class BridgeProvider implements PaymentProvider {
     const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/wallets` });
     if (!r.ok) throw new Error(`Bridge listWallets failed: ${r.error || r.status}`);
     const rows = (r.data as any)?.data ?? r.data ?? [];
-    return (Array.isArray(rows) ? rows : []).map((w: any) => ({
-      wallet_id: String(w?.id),
-      currency:  String(w?.currency || w?.symbol || "").toUpperCase(),
-      chain:     String(w?.chain || ""),
-      address:   String(w?.address || w?.deposit_address || ""),
-      balance:   w?.balance != null ? String(w.balance) : undefined,
-    }));
+    // Bridge's wallet listing has historically returned slightly different
+    // shapes (currency / symbol / coin / asset_code). Probe all of them and,
+    // as a last resort, infer from the chain so the row never lands with an
+    // empty currency (the DB now forbids that via a CHECK constraint).
+    const inferFromChain = (chain: string): string => {
+      const k = String(chain || "").toLowerCase();
+      if (k === "tron") return "USDT";
+      return "USDC";   // USDC is on every other supported rail
+    };
+    return (Array.isArray(rows) ? rows : []).map((w: any) => {
+      const chain = String(w?.chain || "").toLowerCase();
+      const raw =
+        w?.currency || w?.symbol || w?.coin || w?.asset_code ||
+        w?.asset?.symbol || w?.token || "";
+      const currency = String(raw).toUpperCase() || inferFromChain(chain);
+      return {
+        wallet_id: String(w?.id),
+        currency,
+        chain,
+        address:   String(w?.address || w?.deposit_address || ""),
+        balance:   w?.balance != null ? String(w.balance) : undefined,
+      };
+    });
   }
 
   /** List the customer's USD/EUR/GBP virtual accounts. */

@@ -59,14 +59,20 @@ Deno.serve(async (req) => {
     for (const w of bw) {
       if (!w.wallet_id) continue;
       const { data: existing } = await supa.from("bridge_wallets")
-        .select("id").eq("bridge_wallet_id", w.wallet_id).maybeSingle();
+        .select("id, currency, chain, address").eq("bridge_wallet_id", w.wallet_id).maybeSingle();
+      // Defense in depth: NEVER overwrite a non-empty field with an empty one.
+      // The provider's wallet listing has occasionally been observed to return
+      // entries without a currency value; honoring that would wipe the local
+      // label (and now also trip the bridge_wallets_currency_nonempty CHECK).
+      const keepNonEmpty = (next: string, prev?: string | null) =>
+        (next && String(next).trim().length > 0) ? next : (prev ?? "");
       const row = {
         ...ownerCols,
         bridge_customer_id: customerId,
         bridge_wallet_id:   w.wallet_id,
-        currency:           w.currency,
-        chain:              w.chain,
-        address:            w.address,
+        currency:           keepNonEmpty(w.currency, existing?.currency) || "USDC",
+        chain:              keepNonEmpty(w.chain,    existing?.chain),
+        address:            keepNonEmpty(w.address,  existing?.address),
         status:             "active",
         updated_at:         new Date().toISOString(),
       };

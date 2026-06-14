@@ -217,7 +217,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           <div className="relative grid grid-cols-4 gap-2 mt-5">
             <QuickAction icon={ArrowUpRight}  label="Send"    onClick={() => onNavigate?.('send-money')}    tc={tc} />
             <QuickAction icon={ArrowDownLeft} label="Receive" onClick={() => onNavigate?.('receive-money')} tc={tc} />
-            <QuickAction icon={Plus}          label="Deposit" onClick={() => { document.getElementById('deposit-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} tc={tc} />
+            <QuickAction icon={Plus}          label="Deposit" onClick={() => { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }} tc={tc} />
             <QuickAction icon={RefreshCw}     label="Convert" onClick={() => onNavigate?.('exchange')}      tc={tc} />
           </div>
         </div>
@@ -265,15 +265,19 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
               })}
               {/* Stablecoins */}
               {stables.map((s, i) => {
-                const sym = String(s.currency).toUpperCase();
+                // Defensive: a sync glitch once left rows with empty currency.
+                // Always recover something readable so the row never renders
+                // as just "(Tron)" / "(Base)".
+                const rawSym = String(s.currency || '').toUpperCase();
+                const sym = rawSym || (String(s.chain).toLowerCase() === 'tron' ? 'USDT' : 'USDC');
                 const showDivider = vas.length > 0 || i > 0;
                 return (
-                  <button key={s.id} onClick={() => setSelectedStable(s)}
+                  <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
                     <AssetBadge symbol={sym} size={44} />
                     <div className="flex-1 min-w-0">
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
-                        {assetName(sym)} <span className={`text-xs font-medium ${tc.textMuted}`}>({chainLabel(s.chain)})</span>
+                        {sym} <span className={`text-xs font-medium ${tc.textMuted}`}>· {assetName(sym)} ({chainLabel(s.chain)})</span>
                       </div>
                       <div className={`text-[11px] ${tc.textMuted}`}>{sym} · stablecoin</div>
                     </div>
@@ -293,36 +297,27 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           )}
         </div>
 
-        {/* ── Deposit chooser (open missing accounts) ───────────────────── */}
+        {/* Missing-currency "+ open account" rows now live INLINE at the bottom
+            of the Balances list (one row per currency), so the user has a single
+            unified surface and we don't repeat the promo-card pattern. */}
         {missingVa.length > 0 && (
-          <section id="deposit-section" className="mb-6">
-            <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
-              {tt('wallet.directDeposits', 'Direct Global Deposits')}
-            </h2>
-            <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-4 mb-3`}>
-              <p className={`text-sm font-semibold ${tc.text} mb-0.5`}>Direct Deposit to Stablecoin</p>
-              <p className={`text-[12px] ${tc.textMuted} leading-relaxed`}>
-                Add funds to your BorderPay account via local payment rails and receive stablecoins instantly.
-              </p>
-            </div>
-            <div className="space-y-2">
-              {missingVa.map((c) => (
-                <button key={c} disabled={creating === c} onClick={() => handleCreate(c)}
-                  className={`w-full flex items-center gap-3 p-4 rounded-2xl border ${tc.cardBorder} ${tc.card} ${tc.hoverBg} transition disabled:opacity-60`}>
-                  <AssetBadge symbol={c} size={40} />
-                  <div className="flex-1 text-left">
-                    <div className={`text-[15px] font-semibold ${tc.text}`}>
-                      {c} <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[c]})</span>
-                    </div>
-                    <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
+            {missingVa.map((c, i) => (
+              <button key={c} disabled={creating === c} onClick={() => handleCreate(c)}
+                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}>
+                <AssetBadge symbol={c} size={40} />
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[15px] font-semibold ${tc.text}`}>
+                    Open {c} account <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[c]})</span>
                   </div>
-                  {creating === c
-                    ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                    : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-                </button>
-              ))}
-            </div>
-          </section>
+                  <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
+                </div>
+                {creating === c
+                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
+                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
+              </button>
+            ))}
+          </div>
         )}
 
       </div>

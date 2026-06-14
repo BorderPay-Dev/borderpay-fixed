@@ -38,31 +38,78 @@ export const chainLabel = (c?: string | null): string => {
   return m[k] ?? (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
 };
 
-// Brand-coloured chain chip (poster-style network badge).
-const CHAIN_BRAND: Record<string, { bg: string; fg: string; glyph: string }> = {
-  base:     { bg: '#0052FF', fg: '#FFFFFF', glyph: 'B' },
-  ethereum: { bg: '#627EEA', fg: '#FFFFFF', glyph: 'Ξ' },
-  eth:      { bg: '#627EEA', fg: '#FFFFFF', glyph: 'Ξ' },
-  polygon:  { bg: '#8247E5', fg: '#FFFFFF', glyph: '◆' },
-  solana:   { bg: '#14F195', fg: '#000000', glyph: 'S' },
-  sol:      { bg: '#14F195', fg: '#000000', glyph: 'S' },
-  tron:     { bg: '#EB0029', fg: '#FFFFFF', glyph: 'T' },
-  arbitrum: { bg: '#28A0F0', fg: '#FFFFFF', glyph: 'A' },
-  optimism: { bg: '#FF0420', fg: '#FFFFFF', glyph: 'O' },
-  bsc:      { bg: '#F0B90B', fg: '#000000', glyph: 'B' },
-  stellar:  { bg: '#000000', fg: '#FFFFFF', glyph: '★' },
-  celo:     { bg: '#FCFF52', fg: '#000000', glyph: 'C' },
+// Brand-coloured network badge + real brand SVG marks.
+const CHAIN_BRAND: Record<string, { bg: string; fg: string }> = {
+  base:     { bg: '#0052FF', fg: '#FFFFFF' },
+  ethereum: { bg: '#627EEA', fg: '#FFFFFF' },
+  eth:      { bg: '#627EEA', fg: '#FFFFFF' },
+  polygon:  { bg: '#8247E5', fg: '#FFFFFF' },
+  solana:   { bg: '#0B0B0B', fg: '#14F195' },
+  sol:      { bg: '#0B0B0B', fg: '#14F195' },
+  tron:     { bg: '#EB0029', fg: '#FFFFFF' },
+  arbitrum: { bg: '#28A0F0', fg: '#FFFFFF' },
+  optimism: { bg: '#FF0420', fg: '#FFFFFF' },
+  bsc:      { bg: '#F0B90B', fg: '#000000' },
+  stellar:  { bg: '#000000', fg: '#FFFFFF' },
+  celo:     { bg: '#FCFF52', fg: '#000000' },
 };
+
+// Real brand marks (inline SVG, scaled to the chip). Defaults to a circle dot
+// for unknown chains.
+function ChainMark({ chain, fg }: { chain: string; fg: string }) {
+  const k = String(chain || '').toLowerCase();
+  const common = { fill: fg, width: '60%', height: '60%' };
+  if (k === 'base') {
+    // Base "B" mark — circular with cutout
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm-1.6 14.2H6V7.8h4.6c2.5 0 4.2 1.2 4.2 3.4 0 1.6-1 2.6-2.5 2.9 1.8.3 3 1.3 3 3 0 2.3-1.8 3.5-4.3 3.5h-.6v-.6z" />
+      </svg>
+    );
+  }
+  if (k === 'tron') {
+    // Tron triangle "T"
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M3 4l9 17 9-17-9 4-9-4zm9 5.3l6.4-2.9-3.2 6.2L12 9.3zm-.7 0L5 6.4 8.2 12.6l3.1-3.3zm-2.6 4.4l3.3 6.3V13.7l-3.3 0zm4 6.3l3.3-6.3-3.3 0v6.3z" />
+      </svg>
+    );
+  }
+  if (k === 'ethereum' || k === 'eth' || k === 'arbitrum') {
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M12 2L5 12l7 4 7-4-7-10zm0 14l-7-4 7 10 7-10-7 4z" />
+      </svg>
+    );
+  }
+  if (k === 'polygon') {
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M16 8.5l-2.5-1.4-2.5 1.4v2.8L8.5 12 6 10.6V7.8L8.5 6.4 11 7.8V9l5-2.9V8.5zm-8 7L10.5 17l2.5-1.5v-2.8l2.5-1.3 2.5 1.4v2.8L15.5 18 13 16.6v-1.1L8 18.4v-2.9z" />
+      </svg>
+    );
+  }
+  if (k === 'solana' || k === 'sol') {
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M5.4 17.3a.7.7 0 0 1 .5-.2H21l-2.6 2.6a.7.7 0 0 1-.5.2H2.8L5.4 17.3zm0-9.5a.7.7 0 0 1 .5-.2H21L18.4 4.9a.7.7 0 0 1-.5-.2H2.8L5.4 7.8zm13.2 4.7a.7.7 0 0 0-.5-.2H2.8L5.4 15a.7.7 0 0 0 .5.2h15.2l-2.5-2.7z" />
+      </svg>
+    );
+  }
+  // Fallback dot
+  return <span style={{ width: 6, height: 6, background: fg, borderRadius: '50%' }} />;
+}
+
 export function ChainChip({ chain, size = 20 }: { chain: string; size?: number }) {
   const k = String(chain || '').toLowerCase();
-  const b = CHAIN_BRAND[k] ?? { bg: '#3A4150', fg: '#FFFFFF', glyph: '◎' };
+  const b = CHAIN_BRAND[k] ?? { bg: '#3A4150', fg: '#FFFFFF' };
   return (
     <span
-      style={{ width: size, height: size, background: b.bg, color: b.fg, fontSize: size * 0.55 }}
-      className="inline-flex items-center justify-center rounded-full font-bold flex-shrink-0"
+      style={{ width: size, height: size, background: b.bg }}
+      className="inline-flex items-center justify-center rounded-full flex-shrink-0"
       aria-label={chainLabel(chain)}
     >
-      {b.glyph}
+      <ChainMark chain={chain} fg={b.fg} />
     </span>
   );
 }
@@ -131,8 +178,14 @@ function Sheet({ open, onClose, children }: { open: boolean; onClose: () => void
             initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
             className="fixed inset-x-0 bottom-0 z-[9999] sm:inset-0 sm:m-auto sm:h-fit sm:max-w-md">
-            <div className={`mx-auto w-full max-w-md ${tc.card} border ${tc.cardBorder} rounded-t-3xl sm:rounded-3xl overflow-hidden`}
-              style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+            <div className={`mx-auto w-full max-w-md ${tc.card} border ${tc.cardBorder} rounded-t-3xl sm:rounded-3xl overflow-y-auto overscroll-contain`}
+              style={{
+                // Make the sheet scrollable AND clear of the floating tab bar
+                // (which sits roughly 96px above the safe-area inset). Without
+                // this padding the address / IBAN rows were occluded.
+                maxHeight: 'calc(100dvh - 24px)',
+                paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 110px)',
+              }}>
               {children}
             </div>
           </motion.div>
