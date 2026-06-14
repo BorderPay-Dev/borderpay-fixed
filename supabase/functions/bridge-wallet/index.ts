@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
   // Paid gate: provisioning a wallet requires an activated (paid) plan. In the
   // Wise funnel KYC can be free, but money/account features stay paid-gated, so
   // an unpaid user gets `plan_required` → the app shows the activation popup.
-  const __planGate = await requireMinimumWalletBalance(supa, user.id);
+  const __planGate = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
   if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
 
   let productCountry = profile?.country ?? null;

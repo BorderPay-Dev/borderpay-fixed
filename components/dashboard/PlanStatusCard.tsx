@@ -3,7 +3,7 @@
  *
  * Behaviour (individual + business):
  *   • While the account is NOT activated yet, this shows a single, friendly
- *     "Activate your account" card whose CTA opens the activation flow
+ *     "Fund your wallet" card whose CTA opens the Fund Wallet sheet
  *     (verify ID → unlock multi-currency accounts + wallet).
  *   • Once the account IS activated, the card renders NOTHING and disappears
  *     entirely — exactly like the setup checklist vanishes at 4/4. There is no

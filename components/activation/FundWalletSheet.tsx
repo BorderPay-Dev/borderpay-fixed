@@ -21,9 +21,13 @@ import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { AssetBadge, chainLabel, assetName } from '../dashboard/bridge/WalletVisuals';
 import { showToast } from '../common/StatusToast';
 
-export const FUNDING_MIN_USD = 20;
-export const FUNDING_MESSAGE =
-  'Fund your BorderPay wallet with at least $20 to unlock global virtual accounts. ' +
+/** Per-CEO floors. Individuals $20, businesses $100. Sheet receives the exact
+ *  min via the 402 detail when triggered by a gate; falls back to these per
+ *  account_type when opened manually. */
+export const FUNDING_MIN_USD_INDIVIDUAL = 20;
+export const FUNDING_MIN_USD_BUSINESS   = 100;
+const fundingMessage = (minUsd: number) =>
+  `Fund your BorderPay wallet with at least $${minUsd} to unlock global virtual accounts. ` +
   'Your funds remain yours and can be used for transfers, payments, and treasury operations.';
 
 interface Props {
@@ -31,6 +35,9 @@ interface Props {
   onClose: () => void;
   /** Best-known current balance in USD-equivalent. Optional; sheet fetches own data. */
   currentUsd?: number;
+  /** Minimum required (from the funding_required event). Falls back per account type. */
+  minUsd?: number;
+  accountType?: 'individual' | 'business';
   /** Navigates the host app (e.g. to the Wallet tab). */
   onOpenWallet?: () => void;
   userId?: string;
@@ -38,7 +45,8 @@ interface Props {
 
 interface Stable { id: string; currency: string; chain: string; address: string }
 
-export function FundWalletSheet({ open, onClose, currentUsd, onOpenWallet, userId }: Props) {
+export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType, onOpenWallet, userId }: Props) {
+  const minRequired = minUsd ?? (accountType === 'business' ? FUNDING_MIN_USD_BUSINESS : FUNDING_MIN_USD_INDIVIDUAL);
   const tc = useThemeClasses();
   const [stables, setStables] = useState<Stable[]>(() => {
     try { return JSON.parse(localStorage.getItem('borderpay_wallets_ind_v1') || '[]'); } catch { return []; }
@@ -65,8 +73,8 @@ export function FundWalletSheet({ open, onClose, currentUsd, onOpenWallet, userI
 
   const progress = useMemo(() => {
     const cur = Math.max(0, Number(currentUsd ?? 0));
-    return { cur, pct: Math.min(100, (cur / FUNDING_MIN_USD) * 100) };
-  }, [currentUsd]);
+    return { cur, pct: Math.min(100, (cur / minRequired) * 100) };
+  }, [currentUsd, minRequired]);
 
   const copy = async (s: Stable) => {
     try { await navigator.clipboard.writeText(s.address); setCopiedId(s.id); setTimeout(() => setCopiedId(null), 1400); showToast.success('Address copied'); }
@@ -101,7 +109,7 @@ export function FundWalletSheet({ open, onClose, currentUsd, onOpenWallet, userI
               </div>
 
               <div className="px-5 pb-5">
-                <p className={`text-sm ${tc.textSecondary} leading-relaxed mb-4`}>{FUNDING_MESSAGE}</p>
+                <p className={`text-sm ${tc.textSecondary} leading-relaxed mb-4`}>{fundingMessage(minRequired)}</p>
 
                 {/* Progress card */}
                 <div className={`rounded-2xl border ${tc.cardBorder} ${tc.bgAlt} p-4 mb-4`}>
@@ -112,7 +120,7 @@ export function FundWalletSheet({ open, onClose, currentUsd, onOpenWallet, userI
                         ${progress.cur.toFixed(2)}
                       </div>
                     </div>
-                    <div className={`text-xs ${tc.textMuted}`}>of ${FUNDING_MIN_USD.toFixed(0)} min</div>
+                    <div className={`text-xs ${tc.textMuted}`}>of ${minRequired.toFixed(0)} min</div>
                   </div>
                   <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                     <div className="h-full bg-[#C7FF00] transition-[width]" style={{ width: `${progress.pct}%` }} />

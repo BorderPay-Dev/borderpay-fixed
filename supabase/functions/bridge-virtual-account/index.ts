@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
   // wallet-balance requirement. The user must hold at least $20 USD-equivalent
   // across their BorderPay wallets — funds are NOT deducted, they stay theirs.
   {
-    const __fund = await requireMinimumWalletBalance(supa, user.id);
+    const __fund = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
     if (!__fund.allowed) return json(__fund.body, __fund.status);
   }
 

@@ -77,20 +77,3 @@ export const BRIDGE_ONBOARDING_LIVE: boolean = true;
  */
 export const EXTERNAL_ACCOUNTS_LIVE: boolean = true;
 
-/**
- * Whether the gate-1 activation PAYMENT can actually be collected in-app.
- *
- * The activation funnel is: pay one-time fee → email (payment confirmation +
- * KYC link) → verify ID → accounts provision via Bridge webhooks. Gate-1
- * payment must be collected by an EXTERNAL gateway (Flutterwave / Stripe),
- * because a brand-new user has no funded virtual account to debit.
- *
- * - false: every activation / upgrade CTA shows <ActivationComingSoon/> so
- *          new users never hit the VA-debit modal that can't serve a first
- *          activation. (Current state — gateway pending account approval.)
- * - true:  the real checkout flow renders (UpgradeModal / hosted checkout).
- *
- * Flip to true in the SAME release that wires the approved gateway's
- * checkout → webhook → mark-paid → fire payment+KYC email.
- */
-export const ACTIVATION_GATEWAY_LIVE: boolean = true;

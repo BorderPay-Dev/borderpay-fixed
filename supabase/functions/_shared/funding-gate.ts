@@ -17,11 +17,15 @@
  */
 
 export const FUNDING_REQUIRED_CODE = "funding_required";
-export const MIN_WALLET_BALANCE_USD = 20;
+// Per CEO: individuals must hold ≥ $20, businesses ≥ $100. Funds are NOT deducted.
+export const MIN_WALLET_BALANCE_USD          = 20;   // individual floor
+export const MIN_WALLET_BALANCE_USD_BUSINESS = 100;  // business floor
+export const minimumWalletBalanceUsd = (isBusiness: boolean) =>
+  isBusiness ? MIN_WALLET_BALANCE_USD_BUSINESS : MIN_WALLET_BALANCE_USD;
 
-const FUNDING_MESSAGE =
-  "Fund your BorderPay wallet with at least $20 to unlock global virtual accounts. " +
-  "Your funds remain yours and can be used for transfers, payments, and treasury operations.";
+const fundingMessage = (minUsd: number) =>
+  `Fund your BorderPay wallet with at least $${minUsd} to unlock global virtual accounts. ` +
+  `Your funds remain yours and can be used for transfers, payments, and treasury operations.`;
 
 export type FundingGateResult =
   | { allowed: true;  currentUsd: number }
@@ -74,14 +78,17 @@ async function sumStablecoinBalancesUsd(
 }
 
 /**
- * Returns { allowed:true } when total wallet balance ≥ $20 USD-equiv.
- * Returns funding_required (402) with the user-facing funding message otherwise.
+ * Returns { allowed:true } when total wallet balance ≥ the per-account-type
+ * minimum (individual $20, business $100). Returns funding_required (402) with
+ * the user-facing funding message otherwise. Callers SHOULD pass `isBusiness`
+ * (or a custom `minUsd`); we default to the individual floor for safety.
  */
 export async function requireMinimumWalletBalance(
   supa: { from: (t: string) => any },
   userId: string,
-  minUsd: number = MIN_WALLET_BALANCE_USD,
+  opts: { isBusiness?: boolean; minUsd?: number } = {},
 ): Promise<FundingGateResult> {
+  const minUsd = opts.minUsd ?? minimumWalletBalanceUsd(!!opts.isBusiness);
   const [vaUsd, stableUsd] = await Promise.all([
     sumVirtualAccountBalancesUsd(supa, userId),
     sumStablecoinBalancesUsd(supa, userId),
@@ -97,9 +104,10 @@ export async function requireMinimumWalletBalance(
     body: {
       success:           false,
       code:              FUNDING_REQUIRED_CODE,
-      error:             FUNDING_MESSAGE,
+      error:             fundingMessage(minUsd),
       minimum_usd:       minUsd,
       current_balance_usd: Math.round(currentUsd * 100) / 100,
+      account_type:      opts.isBusiness ? "business" : "individual",
     },
   };
 }

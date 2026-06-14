@@ -423,11 +423,13 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // (plan_required is kept as a legacy alias so older clients in flight don't
   //  break, but the new model is a minimum wallet balance, not a paid plan.)
   const [fundCurrentUsd, setFundCurrentUsd] = useState<number | undefined>(undefined);
+  const [fundMinUsd, setFundMinUsd] = useState<number | undefined>(undefined);
   const [fundOpen, setFundOpen] = useState(false);
   useEffect(() => {
     const onFundingRequired = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       setFundCurrentUsd(typeof detail.current_balance_usd === 'number' ? detail.current_balance_usd : undefined);
+      setFundMinUsd(typeof detail.minimum_usd === 'number' ? detail.minimum_usd : undefined);
       setFundOpen(true);
     };
     window.addEventListener('borderpay:funding_required', onFundingRequired as EventListener);
@@ -857,6 +859,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         open={fundOpen}
         onClose={() => setFundOpen(false)}
         currentUsd={fundCurrentUsd}
+        minUsd={fundMinUsd}
+        accountType={accountType}
         onOpenWallet={() => navigateTo('wallet-detail')}
         userId={userId}
       />

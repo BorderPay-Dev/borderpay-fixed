@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
   // remove existing destinations.)
   {
     const isBusiness = profile?.account_type === "business";
-    const __planGate = await requireMinimumWalletBalance(supa, user.id);
+    const __planGate = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
     if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
   const acct = body.account;

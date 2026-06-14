@@ -409,7 +409,7 @@ function SuccessState({
         {tt('upgrade.success.title', 'Account activated')}
       </h2>
       <p className={`mt-2 text-sm ${tc.textSecondary}`}>
-        {tt('upgrade.success.body', 'Your one-time activation is complete. Multi-wallet functionality is unlocked.')}
+        {tt('upgrade.success.body', 'Your wallet meets the minimum funding requirement. Multi-wallet features are unlocked.')}
       </p>
       <button
         onClick={onDone}

@@ -108,21 +108,6 @@ verify_jwt = true
 [functions.authorize-verification]
 verify_jwt = true
 
-# Flutterwave activation (Phase A). Checkout is user-authenticated; the webhook
-# is public but signature-verified (verif-hash) in-code, so verify_jwt=false.
-[functions.flutterwave-checkout]
-verify_jwt = true
-
-[functions.flutterwave-webhook]
-verify_jwt = false
-
-# Flutterwave payout foundation (Phase B) — read-only lookups, user-authenticated.
-[functions.flutterwave-banks]
-verify_jwt = true
-
-[functions.flutterwave-resolve-account]
-verify_jwt = true
-
 # Saved external stablecoin payout addresses (user-authenticated; server-side
 # address validation; no money movement).
 [functions.external-wallet]

@@ -1470,15 +1470,6 @@ export const subscriptionAPI = {
       new_balance_minor: number;
     }>('subscription-upgrade', { method: 'POST', body: JSON.stringify(input) }),
 
-  /**
-   * Start the one-time activation payment via the external gateway.
-   * Records a pending payment and returns the params for the INLINE (embedded)
-   * checkout — the app opens it in-page (no redirect away). Plan is inferred
-   * from the user's account_type server-side.
-   */
-  startActivationCheckout: async () =>
-    apiCall<{ checkout_url: string; tx_ref: string }>(
-      'flutterwave-checkout', { method: 'POST', body: JSON.stringify({}) }),
 };
 
 /** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */
@@ -1486,12 +1477,12 @@ export const payoutsAPI = {
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
   listBanks: async (country: string) =>
     apiCall<{ banks: Array<{ code: string; name: string }> }>(
-      'flutterwave-banks', { method: 'POST', body: JSON.stringify({ country }) }),
+      'bridge-list-banks', { method: 'POST', body: JSON.stringify({ country }) }),
 
   /** Verify a bank account number → account holder name before payout. */
   resolveAccount: async (account_number: string, bank_code: string) =>
     apiCall<{ account_name: string }>(
-      'flutterwave-resolve-account', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) }),
+      'bridge-resolve-account', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) }),
 
   /**
    * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same

@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
   if (profile.bridge_kyc_status !== "approved") return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
   {
     const isBusiness = profile?.account_type === "business";
-    const gate = await requireMinimumWalletBalance(supa, user.id);
+    const gate = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
     if (!gate.allowed) return json(gate.body, gate.status);
   }
 
