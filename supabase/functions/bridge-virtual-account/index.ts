@@ -133,23 +133,59 @@ Deno.serve(async (req) => {
   }
 
   // Bridge REQUIRES a destination stablecoin wallet (incoming fiat auto-converts
-  // to it). Resolve one the user already holds — prefer USDC, then USDT, then any.
-  // If they don't have a stablecoin wallet yet, tell them to create one first.
+  // to it) AND the (stablecoin, chain) pair must be valid for the SOURCE fiat.
+  // Empirically confirmed against Bridge: EUR/GBP settle to USDC on EVM/Solana
+  // rails (e.g. Base) but NOT to USDT and NOT on Tron; USD is permissive. So we
+  // resolve a *compatible* wallet — and if the user doesn't have one, we
+  // provision USDC-on-Base automatically rather than failing the request.
+  //
+  // EUR/GBP-safe settlement: USDC only, on a non-Tron rail.
+  const EUR_SAFE_CHAINS = ["base", "ethereum", "polygon", "solana", "arbitrum", "optimism"];
+  const needsEurSafe = currency === "EUR" || currency === "GBP";
+
   const { data: stableWallets } = await supa
     .from("bridge_wallets")
     .select("currency, chain, address")
     .eq("user_id", user.id)
     .not("address", "is", null);
-  const pick =
-    (stableWallets || []).find((w: any) => String(w.currency).toUpperCase() === "USDC") ??
-    (stableWallets || []).find((w: any) => String(w.currency).toUpperCase() === "USDT") ??
-    (stableWallets || [])[0];
+  const lc = (s: any) => String(s ?? "").toLowerCase();
+  const isUsdc = (w: any) => lc(w.currency) === "usdc";
+  const isUsdt = (w: any) => lc(w.currency) === "usdt";
+  const eurSafe = (w: any) => isUsdc(w) && EUR_SAFE_CHAINS.includes(lc(w.chain));
+
+  let pick = needsEurSafe
+    ? (stableWallets || []).find(eurSafe)
+    : ((stableWallets || []).find(isUsdc) ?? (stableWallets || []).find(isUsdt) ?? (stableWallets || [])[0]);
+
+  // No compatible wallet → provision USDC on Base (works for USD, EUR and GBP),
+  // persist it, and use it as the destination. (Provisioning a receive address
+  // is not money movement.)
   if (!pick?.address || !pick?.chain) {
-    return json({
-      success: false,
-      code:    "stablecoin_wallet_required",
-      error:   "Create a USDC stablecoin wallet first — your virtual account converts incoming funds into it.",
-    }, 409);
+    try {
+      const created = await bridgeProvider.createWallet({
+        customer_id: profile.bridge_customer_id,
+        symbol: "USDC" as any,
+        chain:  "BASE" as any,
+      });
+      await supa.from("bridge_wallets").insert({
+        user_id:            user.id,
+        ...(isBusiness ? { business_user_id: user.id } : {}),
+        bridge_customer_id: profile.bridge_customer_id,
+        bridge_wallet_id:   created.wallet_id,
+        currency:           "USDC",
+        chain:              "base",
+        address:            created.deposit_address,
+        status:             "active",
+      });
+      pick = { currency: "USDC", chain: "base", address: created.deposit_address };
+    } catch (e) {
+      return json({
+        success: false,
+        code:    "settlement_wallet_failed",
+        error:   `Could not prepare a settlement wallet for your ${currency} account. Please try again.`,
+        detail:  (e as Error).message,
+      }, 502);
+    }
   }
 
   try {
