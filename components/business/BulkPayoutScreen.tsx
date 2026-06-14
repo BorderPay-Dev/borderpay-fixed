@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 interface Row { label: string; chain: string; address: string; amount: string }
 
 type Asset = 'USDC' | 'USDT';
-// Chains each stablecoin is actually issued on (Bridge-supported).
+// Chains each stablecoin is actually issued on (provider-supported).
 const CHAINS_BY_ASSET: Record<Asset, string[]> = {
   USDC: ['solana', 'ethereum', 'base', 'polygon'],
   USDT: ['tron', 'ethereum', 'solana', 'polygon'],

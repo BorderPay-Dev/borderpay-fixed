@@ -119,7 +119,22 @@ Deno.serve(async (req) => {
       customer_id: profile.bridge_customer_id,
       symbol, chain,
     });
-    await supa.from("wallets").upsert({
+
+    // Write the table the dashboard reads (bridge_wallets) — this is what
+    // BridgeWalletsCard lists. Previously we only wrote `wallets`, so created
+    // wallets never appeared in the UI.
+    const { error: bwErr } = await supa.from("bridge_wallets").insert({
+      user_id:            user.id,
+      ...(isBusiness ? { business_user_id: user.id } : {}),
+      bridge_customer_id: profile.bridge_customer_id,
+      bridge_wallet_id:   result.wallet_id,
+      currency:           symbol,
+      chain,
+      address:            result.deposit_address,
+      status:             "active",
+    });
+    // Legacy mirror for balance/ledger compatibility.
+    const { error: wErr } = await supa.from("wallets").upsert({
       user_id:           user.id,
       currency:          symbol,
       provider:          "bridge",
@@ -130,6 +145,16 @@ Deno.serve(async (req) => {
       balance:           0,
       status:            "active",
     });
+    if (bwErr || wErr) {
+      // Bridge created the wallet; surface the persistence problem with the id
+      // so the next sync reconciles it rather than silently losing it.
+      return json({
+        success: false,
+        code:    "persistence_failed",
+        error:   `Wallet created at Bridge (${result.wallet_id}) but local save failed: ${(bwErr || wErr)!.message}`,
+        bridge_wallet_id: result.wallet_id,
+      }, 500);
+    }
 
     return json({
       success: true,

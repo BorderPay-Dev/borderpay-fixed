@@ -64,12 +64,23 @@ export interface KycLinkResult {
 export interface VirtualAccountCreateInput {
   customer_id:    string;
   currency:       Extract<FiatCurrency, "USD" | "EUR" | "GBP">;
-  destination?:   {
-    payment_rail:    "ach"|"sepa"|"swift"|"faster_payments";
-    currency:        StablecoinSymbol;
-    chain:           StablecoinChain;
-    address?:        string;          // wallet to settle into
+  // REQUIRED by the provider: where incoming fiat auto-converts to. The stablecoin
+  // address + the blockchain rail it settles on. `rail` is a Bridge-canonical
+  // chain string (e.g. "solana", "ethereum", "polygon", "tron", "base").
+  destination:    {
+    rail:            string;
+    currency:        string;          // stablecoin symbol e.g. "usdc" | "usdt"
+    address:         string;          // the wallet address to receive at
   };
+}
+
+/** A provider wallet as returned by GET /v0/customers/{id}/wallets. */
+export interface ProviderWalletSummary {
+  wallet_id: string; currency: string; chain: string; address: string; balance?: string;
+}
+/** A provider virtual account as returned by GET /v0/customers/{id}/virtual_accounts. */
+export interface ProviderVirtualAccountSummary {
+  virtual_account_id: string; currency: string; rail?: string; status?: string; account_details: unknown;
 }
 
 export interface VirtualAccountResult {

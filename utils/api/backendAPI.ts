@@ -1193,6 +1193,26 @@ export const bridgeAPI = {
       ),
   },
 
+  /**
+   * Mirror the customer's Bridge wallets + virtual accounts into the local
+   * tables the dashboard reads. Read-only at Bridge. Deduped: concurrent callers
+   * (the wallets card + the VA card mounting together) share one in-flight call
+   * so we never double-insert.
+   */
+  syncAccounts: (() => {
+    let inFlight: Promise<any> | null = null;
+    let lastAt = 0;
+    return async () => {
+      const now = Date.now();
+      if (inFlight && now - lastAt < 8000) return inFlight;
+      lastAt = now;
+      inFlight = apiCall<{ wallets: unknown[]; virtual_accounts: unknown[] }>(
+        'bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) },
+      ).finally(() => { inFlight = null; });
+      return inFlight;
+    };
+  })(),
+
   /** Cross-rail Bridge transfer (stablecoin/fiat orchestration).
    *
    * Shape matches the bridge-transfer edge function exactly:

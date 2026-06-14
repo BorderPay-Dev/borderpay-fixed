@@ -121,32 +121,60 @@ Deno.serve(async (req) => {
     }, 402);  // 402 Payment Required
   }
 
-  // Idempotent: if a wallet for this currency already exists, return it.
-  const { data: existing } = await supa
-    .from("wallets")
-    .select("id, bridge_virtual_account_id, virtual_account_number")
+  // Idempotent: if this VA already exists in the UI mirror, return it.
+  const { data: existingVa } = await supa
+    .from("bridge_virtual_accounts")
+    .select("id, bridge_virtual_account_id")
     .eq("user_id", user.id)
     .eq("currency", currency)
-    .eq("provider", "bridge")
     .maybeSingle();
-  if (existing?.bridge_virtual_account_id) {
-    return json({ success: true, data: { virtual_account_id: existing.bridge_virtual_account_id, currency, already_exists: true } });
+  if (existingVa?.bridge_virtual_account_id) {
+    return json({ success: true, data: { virtual_account_id: existingVa.bridge_virtual_account_id, currency, already_exists: true } });
+  }
+
+  // Bridge REQUIRES a destination stablecoin wallet (incoming fiat auto-converts
+  // to it). Resolve one the user already holds — prefer USDC, then USDT, then any.
+  // If they don't have a stablecoin wallet yet, tell them to create one first.
+  const { data: stableWallets } = await supa
+    .from("bridge_wallets")
+    .select("currency, chain, address")
+    .eq("user_id", user.id)
+    .not("address", "is", null);
+  const pick =
+    (stableWallets || []).find((w: any) => String(w.currency).toUpperCase() === "USDC") ??
+    (stableWallets || []).find((w: any) => String(w.currency).toUpperCase() === "USDT") ??
+    (stableWallets || [])[0];
+  if (!pick?.address || !pick?.chain) {
+    return json({
+      success: false,
+      code:    "stablecoin_wallet_required",
+      error:   "Create a USDC stablecoin wallet first — your virtual account converts incoming funds into it.",
+    }, 409);
   }
 
   try {
     const result = await bridgeProvider.createVirtualAccount({
       customer_id: profile.bridge_customer_id,
       currency:    currency as "USD" | "EUR" | "GBP",
-      ...(body.settle_into?.symbol && body.settle_into.chain ? {
-        destination: {
-          payment_rail: RAIL_BY_CCY[currency] as "ach"|"sepa"|"faster_payments",
-          currency:     body.settle_into.symbol as any,
-          chain:        body.settle_into.chain  as any,
-          address:      body.settle_into.address,
-        },
-      } : {}),
+      destination: {
+        rail:     String(pick.chain),
+        currency: String(pick.currency).toLowerCase(),
+        address:  String(pick.address),
+      },
     });
 
+    // Write the table the dashboard reads (bridge_virtual_accounts), plus keep
+    // the legacy wallets mirror for balance/ledger compatibility.
+    await supa.from("bridge_virtual_accounts").insert({
+      user_id:                   user.id,
+      ...(isBusiness ? { business_user_id: user.id } : {}),
+      bridge_customer_id:        profile.bridge_customer_id,
+      bridge_virtual_account_id: result.virtual_account_id,
+      currency,
+      rail:                      RAIL_BY_CCY[currency] ?? null,
+      status:                    "active",
+      account_details:           result.raw ?? null,
+    });
     await supa.from("wallets").upsert({
       user_id:                   user.id,
       currency,

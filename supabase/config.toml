@@ -94,6 +94,10 @@ verify_jwt = true
 [functions.bridge-bulk-payout]
 verify_jwt = true
 
+# Read-only Bridge → local mirror (wallets + virtual accounts). No money move.
+[functions.bridge-sync-accounts]
+verify_jwt = true
+
 # Authorize verification — admin-only gate clearance (NOT yet deployed). Requires
 # a valid JWT at the platform; the function then enforces the admin/service
 # check in-code before charging billable Bridge KYC/KYB.

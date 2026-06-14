@@ -123,37 +123,75 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Virtual accounts (USD/EUR/GBP) ────────────────────────────────────────
+  // Bridge REQUIRES `source.currency` + a `destination` { currency (stablecoin),
+  // payment_rail (blockchain), address }. Incoming fiat auto-converts to that
+  // stablecoin at that address. Sending a flat `{ currency }` (the old shape)
+  // makes Bridge reject with "resubmit the following parameters … missing/invalid".
   async createVirtualAccount(input: VirtualAccountCreateInput): Promise<VirtualAccountResult> {
-    const body: Record<string, unknown> = {
-      currency: input.currency.toLowerCase(),
-    };
-    if (input.destination) {
-      body.destination = {
-        payment_rail: input.destination.payment_rail,
-        currency:     input.destination.currency.toLowerCase(),
-        ...(input.destination.chain   ? { chain:   input.destination.chain.toLowerCase() } : {}),
-        ...(input.destination.address ? { address: input.destination.address } : {}),
-      };
+    if (!input.destination?.address || !input.destination?.rail || !input.destination?.currency) {
+      throw new Error("virtual account requires a destination stablecoin wallet (address + rail + currency)");
     }
+    const body: Record<string, unknown> = {
+      developer_fee_percent: "0",
+      source:      { currency: input.currency.toLowerCase() },
+      destination: {
+        currency:     input.destination.currency.toLowerCase(),
+        payment_rail: input.destination.rail.toLowerCase(),
+        address:      input.destination.address,
+      },
+    };
     const r = await bridgeFetch({
       method: "POST",
       path:   `/v0/customers/${encodeURIComponent(input.customer_id)}/virtual_accounts`,
       body,
       idempotencyKey: `borderpay:va:${input.customer_id}:${input.currency}`,
     });
-    if (!r.ok) throw new Error(`Bridge createVirtualAccount failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      const detail = r.raw_text ? r.raw_text.slice(0, 600) : (r.error || `HTTP ${r.status}`);
+      throw new Error(`Bridge createVirtualAccount failed [${r.status}]: ${detail}`);
+    }
     const data = (r.data as any)?.data ?? r.data;
+    const sdi = data?.source_deposit_instructions ?? {};
     return {
       provider:           this.name,
       virtual_account_id: String(data?.id),
-      account_number:     data?.source_deposit_instructions?.bank_account_number,
-      routing_number:     data?.source_deposit_instructions?.bank_routing_number,
-      iban:               data?.source_deposit_instructions?.iban,
-      bic:                data?.source_deposit_instructions?.bic,
-      bank_name:          data?.source_deposit_instructions?.bank_name,
+      account_number:     sdi?.bank_account_number,
+      routing_number:     sdi?.bank_routing_number,
+      iban:               sdi?.iban,
+      bic:                sdi?.bic,
+      bank_name:          sdi?.bank_name,
       currency:           input.currency,
       raw:                r.data,
     };
+  }
+
+  // ── Read-only sync helpers (GET — no money movement) ──────────────────────
+  /** List the customer's custodial stablecoin wallets. */
+  async listWallets(customerId: string): Promise<Array<{ wallet_id: string; currency: string; chain: string; address: string; balance?: string }>> {
+    const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/wallets` });
+    if (!r.ok) throw new Error(`Bridge listWallets failed: ${r.error || r.status}`);
+    const rows = (r.data as any)?.data ?? r.data ?? [];
+    return (Array.isArray(rows) ? rows : []).map((w: any) => ({
+      wallet_id: String(w?.id),
+      currency:  String(w?.currency || w?.symbol || "").toUpperCase(),
+      chain:     String(w?.chain || ""),
+      address:   String(w?.address || w?.deposit_address || ""),
+      balance:   w?.balance != null ? String(w.balance) : undefined,
+    }));
+  }
+
+  /** List the customer's USD/EUR/GBP virtual accounts. */
+  async listVirtualAccounts(customerId: string): Promise<Array<{ virtual_account_id: string; currency: string; rail?: string; status?: string; account_details: unknown }>> {
+    const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts` });
+    if (!r.ok) throw new Error(`Bridge listVirtualAccounts failed: ${r.error || r.status}`);
+    const rows = (r.data as any)?.data ?? r.data ?? [];
+    return (Array.isArray(rows) ? rows : []).map((v: any) => ({
+      virtual_account_id: String(v?.id),
+      currency:  String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
+      rail:      v?.source_deposit_instructions?.payment_rail || v?.rail,
+      status:    v?.status,
+      account_details: v?.source_deposit_instructions ?? v,
+    }));
   }
 
   // ── Custodial stablecoin wallet ───────────────────────────────────────────

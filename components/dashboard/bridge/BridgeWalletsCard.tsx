@@ -56,6 +56,9 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const walletsSupported = isBridgeCustodialWalletSupported(country);
 
   const refresh = async () => {
+    // Pull anything created at Bridge (dashboard, or a create whose local save
+    // didn't complete) into bridge_wallets first, so the list matches Bridge.
+    try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
     const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
     const { data } = isBusiness
       ? await q.eq('business_user_id', userId)

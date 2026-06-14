@@ -65,6 +65,8 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   );
 
   const refresh = async () => {
+    // Mirror Bridge → local first so dashboard-created / unsynced VAs appear.
+    try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
     const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
     const { data } = isBusiness
       ? await q.eq('business_user_id', userId)
