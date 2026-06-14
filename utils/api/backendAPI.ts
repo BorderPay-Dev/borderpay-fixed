@@ -1446,6 +1446,26 @@ export const payoutsAPI = {
   resolveAccount: async (account_number: string, bank_code: string) =>
     apiCall<{ account_name: string }>(
       'flutterwave-resolve-account', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) }),
+
+  /**
+   * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same
+   * validated transfer rail once per recipient and returns a per-row result.
+   * Each item MUST carry a unique idempotency_key so retries never double-pay.
+   */
+  bulkPayout: async (payload: {
+    source_currency: string;
+    items: Array<{
+      destination: { payment_rail?: string; currency: string; chain?: string; address?: string; bank_account?: unknown };
+      amount: string;
+      idempotency_key: string;
+      label?: string;
+      source_chain?: string;
+    }>;
+  }) =>
+    apiCall<{
+      results: Array<{ row: number; label: string | null; transfer_id?: string; state: string; error?: string; replayed?: boolean }>;
+      summary: { total: number; submitted: number; failed: number; total_amount: number; currency: string };
+    }>('bridge-bulk-payout', { method: 'POST', body: JSON.stringify(payload) }),
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */

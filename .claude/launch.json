@@ -3,10 +3,32 @@
   "configurations": [
     {
       "name": "borderpay-dev",
-      "env": { "PATH": "/Users/a/.nvm/versions/node/v24.14.0/bin:/usr/local/bin:/usr/bin:/bin" },
+      "env": {
+        "PATH": "/Users/a/.nvm/versions/node/v24.14.0/bin:/usr/local/bin:/usr/bin:/bin"
+      },
       "runtimeExecutable": "/Users/a/.nvm/versions/node/v24.14.0/bin/npx",
-      "runtimeArgs": ["vite", "--port", "3000"],
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "3000"
+      ],
       "port": 3000
+    },
+    {
+      "name": "affiliates-dev",
+      "env": {
+        "PATH": "/Users/a/.nvm/versions/node/v24.14.0/bin:/usr/local/bin:/usr/bin:/bin"
+      },
+      "runtimeExecutable": "/Users/a/.nvm/versions/node/v24.14.0/bin/npx",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/a/Downloads/borderpay-affiliates",
+        "vite",
+        "/Users/a/Downloads/borderpay-affiliates",
+        "--port",
+        "5174"
+      ],
+      "port": 5174
     }
   ]
 }

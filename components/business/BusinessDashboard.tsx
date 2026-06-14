@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, ArrowRight,
-  AlertCircle, ShieldCheck, ShieldAlert, Users,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -203,8 +203,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           <div className="grid grid-cols-4 gap-2">
             <BizChip label="Send"    Icon={Send}     onClick={() => onNavigate('send-money')}    tc={tc} />
             <BizChip label="Receive" Icon={Download} onClick={() => onNavigate('receive-money')} tc={tc} />
-            <BizChip label="History" Icon={Wallet}   onClick={() => onNavigate('transactions')}  tc={tc} />
-            <BizChip label="Team"    Icon={Users}    onClick={() => onNavigate('team')}          tc={tc} primary />
+            <BizChip label="Payouts" Icon={Banknote} onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
+            <BizChip label="Team"    Icon={Users}    onClick={() => onNavigate('team')}          tc={tc} />
           </div>
         </section>
 

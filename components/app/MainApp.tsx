@@ -58,6 +58,7 @@ const ReceiveMoneyScreen = lazyImport(() => import('../receive/ReceiveMoneyScree
 const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
 const ExternalWalletsScreen = lazyImport(() => import('../wallets/ExternalWalletsScreen').then(m => ({ default: m.ExternalWalletsScreen })));
+const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
@@ -111,6 +112,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   notifications: (NotificationsScreen as any).preload,
   'external-accounts':   (ExternalAccountsScreen as any).preload,
   'external-wallets':    (ExternalWalletsScreen as any).preload,
+  'bulk-payout':         (BulkPayoutScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
 };
 
@@ -213,6 +215,7 @@ export type AppScreen =
   | 'notifications'
   | 'external-accounts'
   | 'external-wallets'
+  | 'bulk-payout'
   | 'add-external-account';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
@@ -573,6 +576,13 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onNavigate={navigateTo as (s: string) => void}
           />
         );
+
+      // Bulk payouts (payroll/supplier/contractor/marketplace). Same money gate
+      // as Send — TRANSFERS_LIVE off routes Send to coming-soon; the backend
+      // bridge-bulk-payout fails closed on BRIDGE_TRANSFERS_ENABLED regardless.
+      case 'bulk-payout':
+        if (!TRANSFERS_LIVE) { navigateTo('dashboard'); return null; }
+        return <BulkPayoutScreen onBack={navigateBack} />;
 
       case 'add-external-account':
         if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }

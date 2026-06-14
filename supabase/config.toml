@@ -89,6 +89,11 @@ verify_jwt = false
 [functions.bridge-transfer]
 verify_jwt = true
 
+# Bulk payouts (payroll/supplier/contractor/marketplace) — same money gate as
+# bridge-transfer (BRIDGE_TRANSFERS_ENABLED) + KYC + activated plan.
+[functions.bridge-bulk-payout]
+verify_jwt = true
+
 # Authorize verification — admin-only gate clearance (NOT yet deployed). Requires
 # a valid JWT at the platform; the function then enforces the admin/service
 # check in-code before charging billable Bridge KYC/KYB.
