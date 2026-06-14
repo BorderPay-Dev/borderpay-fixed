@@ -38,8 +38,25 @@ export const chainLabel = (c?: string | null): string => {
   return m[k] ?? (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
 };
 
+// Fiat currencies render a flag (mobile renders these crisply); stablecoins use
+// the brand-coloured coin glyph.
+const FLAG: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+
 export function AssetBadge({ symbol, size = 40 }: { symbol: string; size?: number }) {
-  const b = brandOf(symbol);
+  const sym = String(symbol || '').toUpperCase();
+  const flag = FLAG[sym];
+  if (flag) {
+    return (
+      <div
+        style={{ width: size, height: size, fontSize: size * 0.62, lineHeight: 1 }}
+        className="rounded-full flex items-center justify-center flex-shrink-0 bg-white/10 overflow-hidden"
+        aria-hidden
+      >
+        {flag}
+      </div>
+    );
+  }
+  const b = brandOf(sym);
   return (
     <div
       style={{ width: size, height: size, background: b.bg, color: b.fg, fontSize: size * 0.46 }}
