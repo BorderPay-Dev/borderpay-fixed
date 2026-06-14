@@ -1213,6 +1213,25 @@ export const bridgeAPI = {
     };
   })(),
 
+  /**
+   * Ensure an activated user has their base stablecoin wallets (USDC/USDT).
+   * Idempotent + silent no-op for ineligible users (never pops the activation
+   * modal). Deduped so concurrent dashboard mounts share one call.
+   */
+  provisionStablecoins: (() => {
+    let inFlight: Promise<any> | null = null;
+    let lastAt = 0;
+    return async () => {
+      const now = Date.now();
+      if (inFlight && now - lastAt < 8000) return inFlight;
+      lastAt = now;
+      inFlight = apiCall<{ wallets: Array<{ symbol: string; chain: string; address: string | null }> }>(
+        'bridge-provision-stablecoins', { method: 'POST', body: JSON.stringify({}) },
+      ).finally(() => { inFlight = null; });
+      return inFlight;
+    };
+  })(),
+
   /** Cross-rail Bridge transfer (stablecoin/fiat orchestration).
    *
    * Shape matches the bridge-transfer edge function exactly:

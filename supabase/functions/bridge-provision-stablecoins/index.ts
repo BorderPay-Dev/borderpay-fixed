@@ -1,0 +1,106 @@
+// bridge-provision-stablecoins — ensure an activated, KYC-approved customer has
+// their base stablecoin wallets (USDC on Base, USDT on Tron) so they can receive
+// stablecoin AND so a virtual account has a settlement destination ready.
+//
+// Idempotent: creates a wallet only if that (currency, chain) is missing; if it
+// already exists (incl. created on the Bridge dashboard once synced), it's a
+// no-op. Safe to call on every dashboard load — ineligible users get a silent
+// no-op (NO plan_required 402, so it never triggers the activation popup).
+//
+// POST {} → { success, data: { wallets: [{symbol, chain, address, already}] } }
+
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
+
+const CORS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+const json = (b: unknown, s = 200) =>
+  new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
+
+const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+// The base set every activated user gets. USDC-Base also settles USD/EUR/GBP
+// virtual accounts; USDT-Tron is the popular receive rail.
+const DEFAULTS: ReadonlyArray<{ symbol: string; chain: string }> = [
+  { symbol: "USDC", chain: "BASE" },
+  { symbol: "USDT", chain: "TRON" },
+];
+
+const ACTIVATED_PLANS = new Set(["individual_activated", "business_activated"]);
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
+  const user = userInfo?.user;
+  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+
+  const noop = (reason: string) => json({ success: true, data: { wallets: [], skipped: reason } });
+
+  const { data: profile } = await supa
+    .from("user_profiles")
+    .select("account_type, country, bridge_customer_id, bridge_kyc_status")
+    .eq("id", user.id)
+    .maybeSingle();
+  const isBusiness = profile?.account_type === "business";
+
+  // Silent no-ops for ineligible users — never an error, never a 402.
+  if (!profile?.bridge_customer_id) return noop("no_customer");
+  let verification = profile?.bridge_kyc_status ?? null;
+  if (isBusiness) {
+    const { data: biz } = await supa.from("business_profiles").select("bridge_kyb_status").eq("user_id", user.id).maybeSingle();
+    verification = biz?.bridge_kyb_status ?? verification;
+  }
+  if (verification !== "approved") return noop("kyc_not_approved");
+  if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
+
+  // Activation check — inline + silent (do NOT use the plan-gate, which dispatches
+  // plan_required and would pop the activation modal).
+  const subQ = supa.from("user_subscriptions").select("plan_key, status").in("status", ["active", "trialing"]).maybeSingle();
+  const { data: sub } = isBusiness ? await subQ.eq("business_user_id", user.id) : await subQ.eq("user_id", user.id);
+  if (!sub || !ACTIVATED_PLANS.has(String(sub.plan_key))) return noop("not_activated");
+
+  const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
+  const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];
+
+  for (const { symbol, chain } of DEFAULTS) {
+    // Idempotent: skip if this (currency, chain) already exists for the user.
+    const { data: existing } = await supa
+      .from("bridge_wallets")
+      .select("address")
+      .eq("user_id", user.id)
+      .ilike("currency", symbol)
+      .ilike("chain", chain)
+      .maybeSingle();
+    if (existing) { out.push({ symbol, chain: chain.toLowerCase(), address: existing.address, already: true }); continue; }
+
+    try {
+      const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: symbol as any, chain: chain as any });
+      await supa.from("bridge_wallets").insert({
+        ...ownerCols,
+        bridge_customer_id: profile.bridge_customer_id,
+        bridge_wallet_id:   created.wallet_id,
+        currency:           symbol,
+        chain:              chain.toLowerCase(),
+        address:            created.deposit_address,
+        status:             "active",
+      });
+      out.push({ symbol, chain: chain.toLowerCase(), address: created.deposit_address, already: false });
+    } catch (e) {
+      // One failure shouldn't block the other; report best-effort.
+      console.warn(`provision ${symbol}/${chain}: ${(e as Error).message}`);
+    }
+  }
+
+  return json({ success: true, data: { wallets: out } });
+});

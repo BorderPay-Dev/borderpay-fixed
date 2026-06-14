@@ -56,8 +56,10 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const walletsSupported = isBridgeCustodialWalletSupported(country);
 
   const refresh = async () => {
-    // Pull anything created at Bridge (dashboard, or a create whose local save
-    // didn't complete) into bridge_wallets first, so the list matches Bridge.
+    // Activated users get their base stablecoins (USDC/USDT) auto-provisioned,
+    // then we mirror everything Bridge has into bridge_wallets so the list
+    // matches Bridge. Both are idempotent + no-op when nothing's needed.
+    try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
     try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
     const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
     const { data } = isBusiness
