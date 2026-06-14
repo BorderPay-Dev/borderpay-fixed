@@ -19,10 +19,15 @@ import { toast } from 'sonner';
 
 interface Row { label: string; chain: string; address: string; amount: string }
 
-const CHAINS = ['solana', 'ethereum', 'polygon', 'tron', 'base'];
-const ASSET_BY_CURRENCY = 'USDC';
+type Asset = 'USDC' | 'USDT';
+// Chains each stablecoin is actually issued on (Bridge-supported).
+const CHAINS_BY_ASSET: Record<Asset, string[]> = {
+  USDC: ['solana', 'ethereum', 'base', 'polygon'],
+  USDT: ['tron', 'ethereum', 'solana', 'polygon'],
+};
+const defaultChain = (a: Asset) => CHAINS_BY_ASSET[a][0];
 
-const blankRow = (): Row => ({ label: '', chain: 'solana', address: '', amount: '' });
+const blankRow = (chain: string): Row => ({ label: '', chain, address: '', amount: '' });
 
 export interface BulkPayoutScreenProps {
   onBack: () => void;
@@ -30,8 +35,15 @@ export interface BulkPayoutScreenProps {
 
 export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const tc = useThemeClasses();
-  const [rows, setRows] = useState<Row[]>([blankRow(), blankRow()]);
+  const [asset, setAsset] = useState<Asset>('USDC');
+  const [rows, setRows] = useState<Row[]>([blankRow(defaultChain('USDC')), blankRow(defaultChain('USDC'))]);
   const [submitting, setSubmitting] = useState(false);
+
+  // Switching stablecoin resets each row's chain to one that asset is issued on.
+  const switchAsset = (a: Asset) => {
+    setAsset(a);
+    setRows((rs) => rs.map((r) => (CHAINS_BY_ASSET[a].includes(r.chain) ? r : { ...r, chain: defaultChain(a) })));
+  };
   const [results, setResults] = useState<null | {
     summary: { total: number; submitted: number; failed: number; total_amount: number; currency: string };
     results: Array<{ row: number; label: string | null; state: string; error?: string }>;
@@ -42,7 +54,7 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
 
   const update = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRow = () => setRows((rs) => [...rs, blankRow()]);
+  const addRow = () => setRows((rs) => [...rs, blankRow(defaultChain(asset))]);
   const removeRow = (i: number) => setRows((rs) => (rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs));
 
   const submit = async () => {
@@ -52,7 +64,7 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
     }
     if (valid.length === 0) { toast.error('Add at least one recipient with an address and amount.'); return; }
     if (!confirm(
-      `Send ${valid.length} payout${valid.length > 1 ? 's' : ''} totalling $${total.toFixed(2)} ${ASSET_BY_CURRENCY}?\n\n` +
+      `Send ${valid.length} payout${valid.length > 1 ? 's' : ''} totalling $${total.toFixed(2)} ${asset}?\n\n` +
       `This moves real money. Double-check the addresses — stablecoin transfers cannot be reversed.`
     )) return;
 
@@ -64,9 +76,9 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
         amount: String(r.amount),
         idempotency_key: (crypto as any).randomUUID(),
         source_chain: r.chain,
-        destination: { payment_rail: 'stablecoin', currency: ASSET_BY_CURRENCY, chain: r.chain, address: r.address.trim() },
+        destination: { payment_rail: 'stablecoin', currency: asset, chain: r.chain, address: r.address.trim() },
       }));
-      const res: any = await backendAPI.payouts.bulkPayout({ source_currency: ASSET_BY_CURRENCY, items });
+      const res: any = await backendAPI.payouts.bulkPayout({ source_currency: asset, items });
       if (res?.success && res.data) {
         setResults(res.data);
         const { submitted, failed } = res.data.summary;
@@ -93,13 +105,25 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
           <h1 className={`text-xl font-bold ${tc.text}`}>Bulk payout</h1>
         </div>
         <p className={`text-sm ${tc.textMuted} mb-6`}>
-          Pay many recipients at once — payroll, suppliers, contractors. Each row is paid in {ASSET_BY_CURRENCY}.
+          Pay many recipients at once — payroll, suppliers, contractors. Each row is paid in {asset}.
         </p>
 
         {results ? (
-          <ResultsView data={results} tc={tc} onDone={onBack} onAnother={() => { setResults(null); setRows([blankRow(), blankRow()]); }} />
+          <ResultsView data={results} tc={tc} onDone={onBack} onAnother={() => { setResults(null); setRows([blankRow(defaultChain(asset)), blankRow(defaultChain(asset))]); }} />
         ) : (
           <>
+            {/* Stablecoin selector — pay the whole batch in USDC or USDT. */}
+            <div className={`inline-flex p-1 rounded-full border ${tc.cardBorder} ${tc.card} mb-4`}>
+              {(['USDC', 'USDT'] as Asset[]).map((a) => (
+                <button key={a} onClick={() => switchAsset(a)}
+                  className={`px-5 py-1.5 rounded-full text-sm font-semibold transition ${
+                    asset === a ? 'bg-[#C7FF00] text-black' : `${tc.textMuted}`
+                  }`}>
+                  {a}
+                </button>
+              ))}
+            </div>
+
             <div className="space-y-3">
               {rows.map((r, i) => (
                 <div key={i} className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-3.5`}>
@@ -115,11 +139,11 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
                       className={`col-span-1 rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} outline-none`} />
                     <select value={r.chain} onChange={(e) => update(i, { chain: e.target.value })}
                       className={`col-span-1 rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} outline-none`}>
-                      {CHAINS.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {CHAINS_BY_ASSET[asset].map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <input value={r.address} onChange={(e) => update(i, { address: e.target.value })}
-                    placeholder={`${ASSET_BY_CURRENCY} wallet address`}
+                    placeholder={`${asset} wallet address`}
                     className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} outline-none mb-2 font-mono`} />
                   <div className="relative">
                     <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${tc.textMuted}`}>$</span>
