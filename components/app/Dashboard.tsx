@@ -33,7 +33,7 @@ import {
   TrendingDown,
   Activity,
 } from 'lucide-react';
-import { authAPI, storeUserProfile } from '../../utils/supabase/client';
+import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { deriveKycStatus, isKycVerified } from '../../utils/config/environment';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
@@ -131,6 +131,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     return 'starter';
   });
   const [has2FA, setHas2FA]               = useState<boolean>(cached2FA);
+  // True once a network refresh of `getSecurityStatus` has completed at least
+  // once. The "set up 2FA" banner is gated on this so it never flashes for a
+  // user who actually HAS 2FA but whose local cache hasn't been seeded yet
+  // (the COO on a fresh browser).
+  const [securityLoaded, setSecurityLoaded] = useState<boolean>(false);
   // Legacy provider status state removed — AffiliateBanner now gates on Bridge KYC only.
   const [userEmail, setUserEmail]         = useState<string>(cachedProfile?.email || '');
   const [hasPIN, setHasPIN]               = useState<boolean>(!!cachedSecurity.hasPIN);
@@ -199,12 +204,27 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     if (storedUser?.profile_picture_url) setProfilePicUrl(storedUser.profile_picture_url);
 
     try {
-      // Fire all four requests in parallel via canonical backendAPI
-      const [profileRes, walletsRes, securityRes, txRes] = await Promise.allSettled([
+      // Fire all five requests in parallel via canonical backendAPI. The
+      // legacy `wallets` table is empty for Bridge-only users like the COO —
+      // their assets live in bridge_wallets + bridge_virtual_accounts. We
+      // read both and merge below so the Dashboard tiles always reflect
+      // ALL of the user's accounts and stablecoins.
+      const [profileRes, walletsRes, securityRes, txRes, bridgeRes] = await Promise.allSettled([
         backendAPI.user.getProfile(),
         backendAPI.wallets.getWallets(),
         backendAPI.auth.getSecurityStatus(userId),
         backendAPI.transactions.getTransactions(5, 0),
+        (async () => {
+          const [{ data: bw }, { data: bva }] = await Promise.all([
+            supabase.from('bridge_wallets')
+              .select('currency, chain, address')
+              .eq('user_id', userId),
+            supabase.from('bridge_virtual_accounts')
+              .select('currency, status')
+              .eq('user_id', userId),
+          ]);
+          return { wallets: bw || [], virtualAccounts: bva || [] };
+        })(),
       ]);
 
       // ── Profile ──────────────────────────────────────────────────────────
@@ -225,17 +245,42 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       }
 
       // ── Wallets ───────────────────────────────────────────────────────────
-      if (walletsRes.status === 'fulfilled' && walletsRes.value?.success) {
-        const raw = walletsRes.value.data?.wallets || [];
-        const formatted = raw.map((w: any) => ({
-          currency: w.currency,
-          balance:  parseFloat(w.balance) || 0,
-          symbol:   CURRENCY_CONFIG[w.currency]?.symbol || w.currency,
-          color:    CURRENCY_CONFIG[w.currency]?.color  || '#666',
-        }));
-        setWallets(formatted);
-        setTotalBalance(usdLikeTotal(formatted));
-        writeJSON(DASH_WALLETS_KEY, formatted);
+      // Sources merged here:
+      //   • Legacy `wallets` (getWallets) — demo seed accounts live here.
+      //   • bridge_virtual_accounts        — USD / EUR / GBP for real users.
+      //   • bridge_wallets                 — USDC / USDT / etc.
+      // Deduped by currency so a row never appears twice if both sources
+      // happen to mirror it.
+      {
+        type Row = { currency: string; balance: number; symbol: string; color: string };
+        const out: Row[] = [];
+        const seen = new Set<string>();
+        const push = (currency: string, balance: number) => {
+          const key = String(currency || '').toUpperCase();
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          out.push({
+            currency: key,
+            balance,
+            symbol: CURRENCY_CONFIG[key]?.symbol || key,
+            color:  CURRENCY_CONFIG[key]?.color  || '#666',
+          });
+        };
+        // 1) Legacy wallets first (so demo-seeded balances show their amount)
+        if (walletsRes.status === 'fulfilled' && walletsRes.value?.success) {
+          const raw = walletsRes.value.data?.wallets || [];
+          for (const w of raw) push(w.currency, parseFloat(w.balance) || 0);
+        }
+        // 2) Real Bridge VAs (USD/EUR/GBP) — balance 0 until funded
+        if (bridgeRes.status === 'fulfilled') {
+          for (const v of (bridgeRes.value.virtualAccounts as any[])) push(v.currency, 0);
+          for (const w of (bridgeRes.value.wallets as any[]))         push(w.currency, 0);
+        }
+        if (out.length > 0 || (walletsRes.status === 'fulfilled' && walletsRes.value?.success)) {
+          setWallets(out);
+          setTotalBalance(usdLikeTotal(out));
+          writeJSON(DASH_WALLETS_KEY, out);
+        }
       }
       // On failure we keep the cached wallets/balance already on screen rather
       // than flashing $0.00.
@@ -251,9 +296,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         // Use OR across every source: if ANY says it's set, it's set.
         setHasPIN(sec?.pin_set || clientSecurity.hasPIN);
         setHas2FA(sec?.two_factor_enabled || clientSecurity.has2FA || totpOn);
+        setSecurityLoaded(true);
       } else {
         setHasPIN(clientSecurity.hasPIN);
         setHas2FA(clientSecurity.has2FA || totpOn);
+        // Do NOT setSecurityLoaded(true) on network failure — we'd rather hide
+        // the "set up 2FA" banner than show it incorrectly to a real 2FA user.
       }
 
       // ── Recent transactions ───────────────────────────────────────────────
@@ -516,8 +564,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         </section>
       )}
 
-      {/* ── 6. 2FA recommendation (compact) ────────────────────────── */}
-      {isVerified && !has2FA && show2FABanner && !loading && (
+      {/* ── 6. 2FA recommendation (compact) ──────────────────────────
+          Gated on `securityLoaded` so the banner never flashes for a user
+          who HAS 2FA but whose local cache hasn't been seeded yet. */}
+      {isVerified && !has2FA && show2FABanner && !loading && securityLoaded && (
         <section className="px-5 sm:px-6 mt-6">
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] px-4 py-3.5 flex items-center gap-3">
             <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0" />

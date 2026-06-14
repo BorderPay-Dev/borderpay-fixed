@@ -50,13 +50,28 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   useEffect(() => {
     const loadStatus = async () => {
       try {
-        // Load profile from backend — now includes pin_set, two_factor_enabled, email_confirmed
-        const profileRes = await backendAPI.user.getProfile();
+        // 2FA truth lives in `user_security` (not always denormalised onto
+        // user_profiles). Read both in parallel and OR with TOTPManager so the
+        // toggle never flickers ON-then-OFF for a user who actually has 2FA.
+        const totpOn = TOTPManager.isEnabled(userId);
+        const [profileRes, secRes] = await Promise.all([
+          backendAPI.user.getProfile(),
+          backendAPI.auth.getSecurityStatus(userId),
+        ]);
+        let hasPin = totpOn ? false : false;
+        let has2fa = totpOn;
         if (profileRes.success && profileRes.data?.user) {
           const p = profileRes.data.user;
-          setHasPIN(p.pin_set || false);
-          setHas2FA(p.two_factor_enabled || false);
+          hasPin = !!p.pin_set || hasPin;
+          has2fa = !!p.two_factor_enabled || has2fa;
         }
+        if (secRes.success) {
+          const s: any = secRes.data;
+          hasPin = !!s?.pin_set || hasPin;
+          has2fa = !!s?.two_factor_enabled || has2fa;
+        }
+        setHasPIN(hasPin);
+        setHas2FA(has2fa);
       } catch (e) {
         // Fallback to client-side SecurityManager if backend fails
         const secStatus = SecurityStatus.get(userId);

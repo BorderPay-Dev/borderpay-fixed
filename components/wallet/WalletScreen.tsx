@@ -187,40 +187,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           </button>
         </div>
 
-        {/* ── Total balance hero ─────────────────────────────────────────── */}
-        <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#15191F] via-[#0F1216] to-[#0B0E11] px-5 py-5 mb-5">
-          <div className="pointer-events-none absolute -top-20 -right-20 w-56 h-56 rounded-full bg-[#C7FF00] opacity-[0.06] blur-3xl" />
-          <p className="relative text-[10px] uppercase tracking-[0.18em] font-semibold text-white/40 mb-1.5">
-            {tt('wallet.totalBalance', 'Total balance (USD)')}
-          </p>
-          <div className="relative flex items-end gap-2">
-            <h1 className="text-white font-bold tracking-tight tabular-nums leading-none text-[38px] sm:text-[46px]">
-              {balanceHidden ? <span>••••••</span> : (
-                <>
-                  <span className="text-xl sm:text-2xl text-white/50 mr-1 align-top">$</span>
-                  {balances[0]}
-                  <span className="text-xl sm:text-2xl text-white/50">.{balances[1]}</span>
-                </>
-              )}
-            </h1>
-            <button onClick={() => { const n = !balanceHidden; setBalanceHidden(n); updatePrefs({ hide_balance: n }); }}
-              aria-label={balanceHidden ? 'Show balance' : 'Hide balance'}
-              className="ml-1 mb-1 p-1.5 rounded-full hover:bg-white/[0.06] transition-colors">
-              {balanceHidden ? <Eye className="w-4 h-4 text-white/50" /> : <EyeOff className="w-4 h-4 text-white/50" />}
-            </button>
-          </div>
-          <p className="relative text-[11px] text-white/40 mt-1.5">
-            Across your accounts and stablecoins
-          </p>
-
-          {/* Quick actions */}
-          <div className="relative grid grid-cols-4 gap-2 mt-5">
-            <QuickAction icon={ArrowUpRight}  label="Send"    onClick={() => onNavigate?.('send-money')}    tc={tc} />
-            <QuickAction icon={ArrowDownLeft} label="Receive" onClick={() => onNavigate?.('receive-money')} tc={tc} />
-            <QuickAction icon={Plus}          label="Deposit" onClick={() => { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }} tc={tc} />
-            <QuickAction icon={RefreshCw}     label="Convert" onClick={() => onNavigate?.('exchange')}      tc={tc} />
-          </div>
-        </div>
+{/* Balance hero + quick actions live on the dashboard — the Wallet tab is
+    a focused list of accounts + stablecoins, so we don't duplicate them here. */}
 
         {/* ── Balances list ──────────────────────────────────────────────── */}
         <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
