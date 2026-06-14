@@ -643,20 +643,20 @@ export const kycAPI = {
   },
 };
 
+/**
+ * DEPRECATED — proof-of-address was a pre-Bridge step; Bridge now collects it
+ * inside the hosted KYC flow. The `poa-submit` / `upload-poa` edge functions
+ * and the `address_verifications` table have been removed. These stubs exist
+ * only so `components/auth/SignUpFlow.tsx`'s legacy POA branch still compiles
+ * — at runtime they short-circuit with a clear error if reached.
+ */
+const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = {
+  success: false,
+  error: 'Proof of address is now collected inside the hosted KYC flow. This step is no longer used.',
+};
 export const proofOfAddressAPI = {
-  async getUploadUrl(fileType: string, fileName: string) {
-    return apiCall('poa-upload-url', {
-      method: 'POST',
-      body: JSON.stringify({ file_type: fileType, file_name: fileName }),
-    });
-  },
-
-  async submit(filePath: string, documentType: string) {
-    return apiCall('poa-submit', {
-      method: 'POST',
-      body: JSON.stringify({ file_path: filePath, document_type: documentType }),
-    });
-  },
+  getUploadUrl: async (_fileType: string, _fileName: string) => deprecatedPoaResponse,
+  submit:       async (_filePath: string, _documentType: string) => deprecatedPoaResponse,
 };
 
 // ============================================================================
