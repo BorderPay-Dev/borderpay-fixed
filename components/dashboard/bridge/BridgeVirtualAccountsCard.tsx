@@ -12,8 +12,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { friendlyError } from '../../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
-import { Building2, Copy, Plus, Loader2, Lock } from 'lucide-react';
+import { Building2, Plus, Loader2, Lock, ChevronRight } from 'lucide-react';
 import { Skeleton } from '../../common/Skeleton';
+import { AssetBadge, AccountDetailSheet } from './WalletVisuals';
 import { supabase } from '../../../utils/supabase/client';
 import { backendAPI } from '../../../utils/api/backendAPI';
 import { authAPI } from '../../../utils/supabase/client';
@@ -57,6 +58,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const [creating, setCreating] = useState<Currency | null>(null);
   const [derivedApproved, setDerivedApproved] = useState(false);
   const [country, setCountry] = useState<string | null>(() => authAPI.getStoredUser()?.country ?? null);
+  const [selected, setSelected] = useState<VARow | null>(null);
 
   const isApproved = kycApproved ?? derivedApproved;
   const availableCurrencies = useMemo(
@@ -127,10 +129,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     refresh();
   };
 
-  const handleCopy = async (text?: string | null) => {
-    if (!text) return;
-    try { await navigator.clipboard.writeText(text); showToast.success(tt('common.copied', 'Copied')); } catch { /* noop */ }
-  };
+  const railLabel = (c: Currency) => (c === 'EUR' ? 'SEPA · bank transfer' : c === 'GBP' ? 'Faster Payments' : 'ACH / Wire');
 
   return (
     <motion.div
@@ -172,25 +171,21 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
           {rows.length > 0 && (
             <ul className="space-y-2 mb-3">
               {rows.map(r => (
-                <li key={r.id} className={`p-3 rounded-2xl ${tc.bgAlt} border ${tc.border}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`font-semibold ${tc.text}`}>{r.currency}</span>
-                    <span className={`text-xs ${r.status === 'active' ? 'text-green-500' : tc.textMuted}`}>{r.status}</span>
-                  </div>
-                  {r.account_details?.bank_account_number && (
-                    <button onClick={() => handleCopy(r.account_details.bank_account_number)}
-                            className={`flex items-center gap-1 text-xs ${tc.textSecondary} hover:${tc.text}`}>
-                      {r.account_details.bank_account_number}
-                      <Copy className="w-3 h-3" />
-                    </button>
-                  )}
-                  {r.account_details?.iban && (
-                    <button onClick={() => handleCopy(r.account_details.iban)}
-                            className={`flex items-center gap-1 text-xs ${tc.textSecondary} hover:${tc.text}`}>
-                      IBAN: {r.account_details.iban}
-                      <Copy className="w-3 h-3" />
-                    </button>
-                  )}
+                <li key={r.id}>
+                  <button
+                    onClick={() => setSelected(r)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-2xl ${tc.bgAlt} border ${tc.border} ${tc.hoverBg} transition`}
+                  >
+                    <AssetBadge symbol={r.currency} size={40} />
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className={`text-sm font-semibold ${tc.text}`}>{r.currency} account</div>
+                      <div className={`text-xs ${tc.textMuted} truncate`}>{railLabel(r.currency)}</div>
+                    </div>
+                    <span className={`text-[11px] font-medium ${r.status === 'active' ? 'text-[#C7FF00]' : tc.textMuted}`}>
+                      {r.status === 'active' ? 'View details' : r.status}
+                    </span>
+                    <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0`} />
+                  </button>
                 </li>
               ))}
             </ul>
@@ -226,6 +221,12 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
           )}
         </>
       )}
+
+      <AccountDetailSheet
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        va={selected ? { currency: selected.currency, rail: selected.rail, status: selected.status, account_details: selected.account_details } : null}
+      />
     </motion.div>
   );
 }

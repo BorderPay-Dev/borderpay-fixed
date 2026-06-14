@@ -10,8 +10,9 @@
 import React, { useEffect, useState } from 'react';
 import { friendlyError } from '../../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
-import { Wallet, Plus, Copy, Loader2, Lock } from 'lucide-react';
+import { Wallet, Plus, Loader2, Lock, ChevronRight } from 'lucide-react';
 import { Skeleton } from '../../common/Skeleton';
+import { AssetBadge, WalletDetailSheet, chainLabel, assetName } from './WalletVisuals';
 import { supabase } from '../../../utils/supabase/client';
 import { backendAPI } from '../../../utils/api/backendAPI';
 import { authAPI } from '../../../utils/supabase/client';
@@ -51,6 +52,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const [creating, setCreating] = useState(false);
   const [derivedApproved, setDerivedApproved] = useState(false);
   const [country, setCountry] = useState<string | null>(() => authAPI.getStoredUser()?.country ?? null);
+  const [selected, setSelected] = useState<WalletRow | null>(null);
 
   const isApproved = kycApproved ?? derivedApproved;
   const walletsSupported = isBridgeCustodialWalletSupported(country);
@@ -118,10 +120,6 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     refresh();
   };
 
-  const copy = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); showToast.success(tt('common.copied', 'Copied')); } catch { /* noop */ }
-  };
-
   const hasDefault = rows.some(r => r.currency.toLowerCase() === DEFAULT_STABLECOIN.symbol && r.chain.toLowerCase() === DEFAULT_STABLECOIN.chain);
 
   return (
@@ -171,21 +169,28 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
         <>
           {rows.length > 0 && (
             <ul className="space-y-2 mb-3">
-              {rows.map(r => (
-                <li key={r.id} className={`p-3 rounded-2xl ${tc.bgAlt} border ${tc.border}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`font-semibold ${tc.text}`}>{r.currency.toUpperCase()} · {r.chain}</span>
-                    <span className={`text-xs ${r.status === 'active' ? 'text-green-500' : tc.textMuted}`}>{r.status}</span>
-                  </div>
-                  {r.address && (
-                    <button onClick={() => copy(r.address)}
-                            className={`flex items-center gap-1 text-xs ${tc.textSecondary} hover:${tc.text} truncate max-w-full`}>
-                      <span className="truncate font-mono">{r.address}</span>
-                      <Copy className="w-3 h-3 shrink-0" />
+              {rows.map(r => {
+                const sym = r.currency.toUpperCase();
+                return (
+                  <li key={r.id}>
+                    <button
+                      onClick={() => setSelected(r)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-2xl ${tc.bgAlt} border ${tc.border} ${tc.hoverBg} transition`}
+                    >
+                      <AssetBadge symbol={sym} size={40} />
+                      <div className="flex-1 min-w-0 text-left">
+                        <div className={`text-sm font-semibold ${tc.text}`}>{sym}</div>
+                        <div className={`text-xs ${tc.textMuted} truncate`}>{assetName(sym)} · {chainLabel(r.chain)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-sm font-bold ${tc.text}`} style={{ fontVariantNumeric: 'tabular-nums' }}>$0.00</div>
+                        <div className={`text-[11px] ${tc.textMuted}`} style={{ fontVariantNumeric: 'tabular-nums' }}>0.00 {sym}</div>
+                      </div>
+                      <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0`} />
                     </button>
-                  )}
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
 
@@ -206,6 +211,12 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
           )}
         </>
       )}
+
+      <WalletDetailSheet
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        wallet={selected ? { currency: selected.currency, chain: selected.chain, address: selected.address } : null}
+      />
     </motion.div>
   );
 }
