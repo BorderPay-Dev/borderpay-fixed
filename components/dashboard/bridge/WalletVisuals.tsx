@@ -10,6 +10,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Copy, Check, Info, ArrowDownLeft } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
 
@@ -239,11 +240,23 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
           </div>
         </div>
 
+        {/* QR code — Binance-style. White panel so dark-mode scanners read it. */}
+        {addr && (
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.bgAlt} p-4 mb-3 flex flex-col items-center`}>
+            <div className="bg-white rounded-xl p-3" aria-label={`${sym} ${chainLabel(chn)} deposit QR`}>
+              <QRCodeSVG value={addr} size={184} level="M" includeMargin={false} />
+            </div>
+            <p className={`text-[11px] ${tc.textMuted} mt-3 text-center`}>
+              Scan to receive <b className={tc.text}>{sym}</b> on <b className={tc.text}>{chainLabel(chn) || 'this network'}</b>
+            </p>
+          </div>
+        )}
+
         {/* Address — large, mono, full-bleed, tap-anywhere to copy */}
         <button onClick={copyAll}
           className={`w-full text-left rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-4 ${tc.hoverBg} transition mb-3`}>
           <div className="flex items-center justify-between mb-2">
-            <span className={`text-[10px] uppercase tracking-wider ${tc.textMuted}`}>{sym} address</span>
+            <span className={`text-[10px] uppercase tracking-wider ${tc.textMuted}`}>{sym} deposit address</span>
             <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${done ? 'text-[#C7FF00]' : tc.textSecondary}`}>
               {done ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
               {done ? 'Copied' : 'Tap to copy'}
@@ -254,13 +267,49 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
           </div>
         </button>
 
-        {/* Safety note */}
-        <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-3 flex items-start gap-2`}>
+        {/* Safety note — short, bright */}
+        <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-3 flex items-start gap-2 mb-4`}>
           <ArrowDownLeft className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
           <p className={`text-xs ${tc.textSecondary} leading-relaxed`}>
             Send only <b>{sym}</b> on <b>{chainLabel(chn) || 'this network'}</b>. Funds sent on a
             different network may be lost.
           </p>
+        </div>
+
+        {/* Instructions — Binance-style numbered checklist */}
+        <p className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${tc.textMuted} mb-2 px-1`}>
+          How to deposit
+        </p>
+        <ol className={`rounded-2xl border ${tc.cardBorder} ${tc.bgAlt} px-4 py-3 mb-3 space-y-2.5`}>
+          {[
+            <>Copy the address above or scan the QR with the sender's wallet app.</>,
+            <>Make sure the sender picks <b>{chainLabel(chn) || sym}</b> as the network — sending on a different network can lose the funds.</>,
+            <>Verify the sender's preview shows the matching address before they confirm.</>,
+            <>Funds usually arrive within a few minutes after the network confirms; you'll see a transaction in <b>Activity</b>.</>,
+          ].map((step, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#C7FF00] text-black text-[11px] font-bold flex items-center justify-center">
+                {i + 1}
+              </span>
+              <span className={`text-xs ${tc.textSecondary} leading-relaxed pt-0.5`}>{step}</span>
+            </li>
+          ))}
+        </ol>
+
+        {/* Quick facts strip */}
+        <div className={`grid grid-cols-3 gap-2`}>
+          <div className={`rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5`}>
+            <div className={`text-[10px] uppercase tracking-wider ${tc.textMuted}`}>Minimum</div>
+            <div className={`text-xs font-semibold ${tc.text} mt-0.5`}>No minimum</div>
+          </div>
+          <div className={`rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5`}>
+            <div className={`text-[10px] uppercase tracking-wider ${tc.textMuted}`}>Deposit fee</div>
+            <div className={`text-xs font-semibold ${tc.text} mt-0.5`}>Free</div>
+          </div>
+          <div className={`rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5`}>
+            <div className={`text-[10px] uppercase tracking-wider ${tc.textMuted}`}>Network</div>
+            <div className={`text-xs font-semibold ${tc.text} mt-0.5 truncate`}>{chainLabel(chn) || '—'}</div>
+          </div>
         </div>
       </div>
     </Sheet>
