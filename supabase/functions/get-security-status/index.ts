@@ -28,7 +28,7 @@ serve(async (req) => {
 
     const { data, error } = await supabase
       .from('user_security')
-      .select('pin_set, two_factor_enabled, failed_pin_attempts')
+      .select('pin_set, two_factor_enabled, pin_failed_attempts, failed_pin_attempts')
       .eq('user_id', user.id)
       .single();
 
@@ -45,7 +45,7 @@ serve(async (req) => {
         data: {
           pin_set: data.pin_set,
           two_factor_enabled: data.two_factor_enabled,
-          failed_pin_attempts: data.failed_pin_attempts,
+          failed_pin_attempts: data.pin_failed_attempts ?? data.failed_pin_attempts ?? 0,
         },
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

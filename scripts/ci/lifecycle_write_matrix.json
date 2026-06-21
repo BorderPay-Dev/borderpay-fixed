@@ -1,0 +1,161 @@
+{
+  "description": "Lifecycle write path classification matrix for cutover enforcement",
+  "runtime_phase_c_block_tables": [
+    "pending_events",
+    "bridge_webhook_events",
+    "bridge_transfers"
+  ],
+  "bridge_webhook_events_runtime_direct_allowed_columns": [
+    "target_entity_type",
+    "target_entity_id"
+  ],
+  "bridge_webhook_events_runtime_forbidden_columns": [
+    "processing_status",
+    "status",
+    "processed_at",
+    "completed_at",
+    "attempts",
+    "max_attempts",
+    "reconciliation_status",
+    "reconciliation_reason",
+    "pending_event_id",
+    "queued_at",
+    "last_error",
+    "payload",
+    "payload_hash",
+    "signature_ok",
+    "received_at",
+    "event_type",
+    "event_id"
+  ],
+  "rules": [
+    {
+      "id": "RUNTIME_PROCESS_PENDING_EVENTS_PENDING_CLAIM",
+      "path_regex": "^supabase/functions/process-pending-events/index\\.ts$",
+      "table": "pending_events",
+      "ops": ["update"],
+      "classification": "must_migrate_to_rpc",
+      "future_rpc": "claim_specific_pending_event or claim_pending_events"
+    },
+    {
+      "id": "RUNTIME_PROCESS_PENDING_EVENTS_BWE_BACKLINK",
+      "path_regex": "^supabase/functions/process-pending-events/index\\.ts$",
+      "table": "bridge_webhook_events",
+      "ops": ["update"],
+      "classification": "safe_direct_non_lifecycle_status",
+      "future_rpc": "column-scoped direct update allowed or dedicated backlink RPC"
+    },
+    {
+      "id": "RUNTIME_PROCESS_PENDING_EVENTS_TRANSFER_UPSERT",
+      "path_regex": "^supabase/functions/process-pending-events/index\\.ts$",
+      "table": "bridge_transfers",
+      "ops": ["upsert"],
+      "classification": "must_migrate_to_rpc",
+      "future_rpc": "upsert_bridge_transfer_projection"
+    },
+    {
+      "id": "RUNTIME_PROCESS_PENDING_EVENTS_WEBHOOK_LOCK",
+      "path_regex": "^supabase/functions/process-pending-events/index\\.ts$",
+      "table": "webhook_logs",
+      "ops": ["insert", "update", "upsert", "delete"],
+      "classification": "safe_direct_non_lifecycle",
+      "future_rpc": "n/a"
+    },
+    {
+      "id": "RUNTIME_BRIDGE_TEST_WEBHOOK_LIFECYCLE_WRITES",
+      "path_regex": "^supabase/functions/bridge-test-webhook/index\\.ts$",
+      "table": "pending_events",
+      "ops": ["insert", "update", "upsert", "delete"],
+      "classification": "conditional_synthetic_path",
+      "future_rpc": "ingest_bridge_test_event"
+    },
+    {
+      "id": "RUNTIME_BRIDGE_TEST_WEBHOOK_BWE_WRITES",
+      "path_regex": "^supabase/functions/bridge-test-webhook/index\\.ts$",
+      "table": "bridge_webhook_events",
+      "ops": ["insert", "update", "upsert", "delete"],
+      "classification": "conditional_synthetic_path",
+      "future_rpc": "ingest_bridge_test_event"
+    },
+    {
+      "id": "RUNTIME_BRIDGE_TEST_WEBHOOK_LOG_WRITES",
+      "path_regex": "^supabase/functions/bridge-test-webhook/index\\.ts$",
+      "table": "webhook_logs",
+      "ops": ["insert", "update", "upsert", "delete"],
+      "classification": "conditional_synthetic_path",
+      "future_rpc": "ingest_bridge_test_event"
+    },
+    {
+      "id": "DBFN_INGEST_BRIDGE_EVENT",
+      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "table": "bridge_webhook_events",
+      "ops": ["insert", "update"],
+      "classification": "canonical_rpc",
+      "future_rpc": "ingest_bridge_event"
+    },
+    {
+      "id": "DBFN_INGEST_BRIDGE_EVENT_QUEUE",
+      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "table": "pending_events",
+      "ops": ["insert"],
+      "classification": "canonical_rpc",
+      "future_rpc": "ingest_bridge_event"
+    },
+    {
+      "id": "DBFN_INGEST_BRIDGE_EVENT_LOGS",
+      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "table": "webhook_logs",
+      "ops": ["insert", "update"],
+      "classification": "canonical_rpc",
+      "future_rpc": "ingest_bridge_event"
+    },
+    {
+      "id": "DBFN_QUEUE_LIFECYCLE_RPCS",
+      "path_regex": "^supabase/migrations/20260620_queue_lifecycle_decouple_from_bridge_ingress\\.sql$",
+      "table": "pending_events",
+      "ops": ["update"],
+      "classification": "canonical_rpc",
+      "future_rpc": "claim/complete/fail/reap"
+    },
+    {
+      "id": "DBFN_QUEUE_LIFECYCLE_WEBHOOK_LOGS",
+      "path_regex": "^supabase/migrations/20260620_queue_lifecycle_decouple_from_bridge_ingress\\.sql$",
+      "table": "webhook_logs",
+      "ops": ["update"],
+      "classification": "canonical_rpc",
+      "future_rpc": "claim/complete/fail/reap"
+    },
+    {
+      "id": "DBFN_BRIDGE_WALLET_CREDIT_COMPLETE",
+      "path_regex": "^supabase/migrations/20260510_bridge_wallet_credit_rpc\\.sql$",
+      "table": "pending_events",
+      "ops": ["update"],
+      "classification": "domain_rpc",
+      "future_rpc": "apply_bridge_wallet_credit_and_complete"
+    },
+    {
+      "id": "HISTORICAL_DBFN_INGEST_V0_BWE",
+      "path_regex": "^supabase/migrations/20260510_bridge_webhook_atomic_ingest\\.sql$",
+      "table": "bridge_webhook_events",
+      "ops": ["insert", "update"],
+      "classification": "historical_migration_superseded",
+      "future_rpc": "ingest_bridge_event (20260529)"
+    },
+    {
+      "id": "HISTORICAL_DBFN_INGEST_V0_PE",
+      "path_regex": "^supabase/migrations/20260510_bridge_webhook_atomic_ingest\\.sql$",
+      "table": "pending_events",
+      "ops": ["insert"],
+      "classification": "historical_migration_superseded",
+      "future_rpc": "ingest_bridge_event (20260529)"
+    },
+    {
+      "id": "HISTORICAL_BRIDGE_TRANSFER_BACKFILL",
+      "path_regex": "^supabase/migrations/20260619103000_security_abuse_and_reconciliation_hardening\\.sql$",
+      "table": "bridge_transfers",
+      "ops": ["update"],
+      "classification": "historical_migration_backfill",
+      "future_rpc": "n/a (one-time migration update)"
+    }
+  ]
+}

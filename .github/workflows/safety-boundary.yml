@@ -1,0 +1,21 @@
+name: Safety Boundary Guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  enforce-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Enforce lifecycle and incident boundaries
+        run: bash scripts/ci/enforce-safety-boundaries.sh

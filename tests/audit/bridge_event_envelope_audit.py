@@ -31,13 +31,14 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, "supabase", "functions", "process-pending-events", "index.ts")
 
-# The five Bridge entity handlers that consume event payloads.
+# Bridge entity handlers that consume event payloads.
 HANDLERS = [
     "handleBridgeKycKyb",
     "handleBridgeCustomerStatus",
     "handleBridgeVirtualAccount",
     "handleBridgeWallet",
     "handleBridgeTransfer",
+    "handleBridgeExternalAccount",
 ]
 
 ENVELOPE = "ev.payload?.event_object ?? ev.payload?.data ?? ev.payload"
@@ -62,11 +63,11 @@ def main() -> int:
             f"{h} must set d from `{ENVELOPE}`",
         ))
 
-    # S2: exactly 5 envelope-aware d-assignments (one per handler).
+    # S2: at least one envelope-aware d-assignment per handler.
     checks.append((
-        "S2 five envelope-aware payload reads",
-        code.count(ENVELOPE) == 5,
-        f"expected 5 occurrences of the envelope read, found {code.count(ENVELOPE)}",
+        "S2 envelope-aware payload reads for all handlers",
+        code.count(ENVELOPE) >= len(HANDLERS),
+        f"expected >= {len(HANDLERS)} envelope reads, found {code.count(ENVELOPE)}",
     ))
 
     # S3: no handler left on the old bare `ev.payload?.data ?? ev.payload;` form.

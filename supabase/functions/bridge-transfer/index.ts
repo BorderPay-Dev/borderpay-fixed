@@ -66,6 +66,8 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
+import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -95,6 +97,17 @@ function transfersEnabled(): boolean {
   return (Deno.env.get("BRIDGE_TRANSFERS_ENABLED") || "").toLowerCase() === "true";
 }
 
+/** Strict positive decimal parser for money values.
+ *  Rejects exponent notation / NaN / Infinity and bounds precision. */
+function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | null {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const raw = String(v).trim();
+  if (!/^\d+(\.\d{1,12})?$/.test(raw)) return null;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return { raw, numeric };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -121,6 +134,10 @@ Deno.serve(async (req) => {
   if (!body?.source?.amount || !body?.source?.currency || !body?.destination?.currency) {
     return json({ success: false, error: "source.amount, source.currency, destination.currency required" }, 400);
   }
+  const amount = parsePositiveAmount(body?.source?.amount);
+  if (!amount) {
+    return json({ success: false, error: "source.amount must be a positive decimal number (up to 12 dp, no exponent)" }, 400);
+  }
   if (!isValidIdempotencyKey(body?.idempotency_key)) {
     return json({
       success: false,
@@ -129,9 +146,14 @@ Deno.serve(async (req) => {
     }, 400);
   }
 
-  const { data: profile } = await supa
+  const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
+  if (!identity.ok) {
+    return json({ success: false, ...identity.failure }, 409);
+  }
+  const profile = identity.context;
+  const { data: maintenance } = await supa
     .from("user_profiles")
-    .select("account_type, country, bridge_customer_id, bridge_kyc_status, payment_provider, maintenance_overdue")
+    .select("maintenance_overdue")
     .eq("id", user.id)
     .maybeSingle();
   if (isBridgeBlocked(profile?.country)) {
@@ -139,7 +161,7 @@ Deno.serve(async (req) => {
   }
   // Maintenance gate (#3): block OUTBOUND money movement while a virtual-account
   // maintenance fee is unpaid. Inbound/top-ups stay open so the user can clear it.
-  if (profile?.maintenance_overdue === true) {
+  if (maintenance?.maintenance_overdue === true) {
     return json({
       success: false,
       code:    "maintenance_due",
@@ -147,10 +169,10 @@ Deno.serve(async (req) => {
     }, 402);
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
-  if (!profile?.bridge_customer_id) {
+  if (!profile.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }
-  if (profile.bridge_kyc_status !== "approved") {
+  if (profile.verification_status !== "approved") {
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
 
@@ -158,8 +180,11 @@ Deno.serve(async (req) => {
   // funnel KYC can be free, so this is what keeps money movement paid-gated —
   // an unpaid user gets `plan_required` → the app shows the activation popup.
   {
-    const isBusiness = profile?.account_type === "business";
-    const __planGate = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
+    const isBusiness = profile.account_type === "business";
+    const __planGate = await requireMinimumWalletBalance(supa, user.id, {
+      isBusiness,
+      bridgeCustomerId: profile.bridge_customer_id,
+    });
     if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
 
@@ -214,7 +239,7 @@ Deno.serve(async (req) => {
         payment_rail: sourceRail,
         currency:     body.source.currency,
         chain:        body.source.chain,
-        amount:       String(body.source.amount),
+        amount:       amount.raw,
       },
       destination:     body.destination,
       developer_fee:   { percentage: devFeePercent },
@@ -228,17 +253,19 @@ Deno.serve(async (req) => {
     // cannot infer the partial unique index on bridge_transfer_id
     // (which is `WHERE provider='bridge' AND bridge_transfer_id IS NOT NULL`);
     // the RPC expresses that predicate explicitly in its ON CONFLICT.
-    const dbStatus =
-      result.state === "succeeded" ? "completed"
-    : result.state === "failed"    ? "failed"
-    :                                "pending";
+    const mapped = mapBridgeTransferState(result.state);
     const { error: upsertErr } = await supa.rpc("upsert_bridge_transaction", {
       p_user_id:            user.id,
       p_bridge_transfer_id: result.transfer_id,
-      p_amount:             Number(body.source.amount),
+      p_amount:             amount.raw,
       p_currency:           body.source.currency,
-      p_status:             dbStatus,
-      p_metadata:           { idempotency_key: idem, raw: result.raw },
+      p_status:             mapped.transactionStatus,
+      p_metadata:           {
+        idempotency_key: idem,
+        provider_state:  mapped.providerState,
+        provider_state_recognized: mapped.recognized,
+        raw: result.raw,
+      },
       p_description:        null,
     });
     if (upsertErr) {
@@ -252,7 +279,14 @@ Deno.serve(async (req) => {
       }, 500);
     }
 
-    return json({ success: true, data: { transfer_id: result.transfer_id, state: result.state } });
+    return json({
+      success: true,
+      data: {
+        transfer_id:    result.transfer_id,
+        state:          mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
+        provider_state: mapped.providerState,
+      },
+    });
   } catch (e) {
     return json({ success: false, error: (e as Error).message }, 502);
   }

@@ -1,20 +1,12 @@
 /**
- * Provider registry — single function to resolve which provider to use for
- * a given user. Bridge is the only live provider. African on/off-ramp is a
- * future-state placeholder with no live implementation yet.
+ * Provider registry — Bridge-only runtime selection.
  *
  * Selection rules (fail-closed):
- *   • payment_provider IS NULL / empty     → Bridge (default for new users).
- *   • payment_provider === 'bridge'        → Bridge.
- *   • payment_provider === 'african_onramp'→ throw (not yet implemented).
- *   • any other value                      → throw `Provider '<value>' has
- *     been removed or is unsupported`. We deliberately DO NOT reinterpret an
- *     explicit non-live provider value as Bridge — those rows may not have
- *     Bridge customer state, and silently routing them to Bridge could create
- *     stranded customer rows or duplicate identities.
+ *   • payment_provider IS NULL / empty → Bridge (default).
+ *   • payment_provider === 'bridge'    → Bridge.
+ *   • any other value                  → throw unsupported.
  *
- * `getDefaultProviderName()` is consulted only for missing/default settings,
- * never as a rescue for a removed provider value.
+ * We never reinterpret explicit non-Bridge provider values as Bridge.
  */
 
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -32,9 +24,8 @@ function supa(): SupabaseClient {
   return _supa;
 }
 
-const PROVIDERS: Record<ProviderName, PaymentProvider | null> = {
-  bridge:         bridgeProvider,
-  african_onramp: null,    // future-state local rails; no live calls
+const PROVIDERS: Record<ProviderName, PaymentProvider> = {
+  bridge: bridgeProvider,
 };
 
 export async function getProviderForUser(userId: string): Promise<PaymentProvider> {
@@ -53,14 +44,7 @@ export async function getProviderForUser(userId: string): Promise<PaymentProvide
   // Explicit live provider.
   if (raw === "bridge") return getProviderByName("bridge");
 
-  // Explicit future-state provider — surface as not-implemented (do NOT
-  // silently route to Bridge; the user has been explicitly assigned a
-  // different rail).
-  if (raw === "african_onramp") {
-    throw new Error("Provider 'african_onramp' is not yet implemented");
-  }
-
-  // Anything else (legacy values, typos, future unknown values): fail closed.
+  // Anything else (legacy values, typos, unknown values): fail closed.
   // We never reinterpret an explicit non-Bridge provider as Bridge.
   throw new Error(`Provider '${raw}' has been removed or is unsupported`);
 }
@@ -74,7 +58,5 @@ export async function getDefaultProviderName(): Promise<ProviderName> {
 }
 
 export function getProviderByName(name: ProviderName): PaymentProvider {
-  const p = PROVIDERS[name];
-  if (!p) throw new Error(`Provider '${name}' not registered`);
-  return p;
+  return PROVIDERS[name];
 }

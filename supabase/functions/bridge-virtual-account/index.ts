@@ -14,6 +14,7 @@ import {
   isBridgeVirtualAccountCurrencyAvailable,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
+import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -49,24 +50,14 @@ Deno.serve(async (req) => {
     return json({ success: false, error: `currency must be USD, EUR, or GBP (got ${currency})` }, 400);
   }
 
-  const { data: profile } = await supa
-    .from("user_profiles")
-    .select("id, account_type, country, bridge_customer_id, bridge_kyc_status")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isBusiness = profile?.account_type === "business";
-  let productCountry = profile?.country ?? null;
-  let verificationStatus = profile?.bridge_kyc_status ?? null;
-
-  if (isBusiness) {
-    const { data: biz } = await supa
-      .from("business_profiles")
-      .select("country, bridge_kyb_status")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    productCountry = biz?.country ?? productCountry;
-    verificationStatus = biz?.bridge_kyb_status ?? verificationStatus;
+  const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
+  if (!identity.ok) {
+    return json({ success: false, ...identity.failure }, 409);
   }
+  const profile = identity.context;
+  const isBusiness = profile.account_type === "business";
+  const productCountry = profile.country;
+  const verificationStatus = profile.verification_status;
 
   if (isBridgeBlocked(productCountry)) {
     return json(bridgeCountryBlockResponse(productCountry!), 403);
@@ -81,7 +72,7 @@ Deno.serve(async (req) => {
     }, 403);
   }
   logControlledBridgeTraffic("bridge-virtual-account", productCountry, user.id);
-  if (!profile?.bridge_customer_id) {
+  if (!profile.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }
   if (verificationStatus !== "approved") {
@@ -92,7 +83,10 @@ Deno.serve(async (req) => {
   // wallet-balance requirement. The user must hold at least $20 USD-equivalent
   // across their BorderPay wallets — funds are NOT deducted, they stay theirs.
   {
-    const __fund = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
+    const __fund = await requireMinimumWalletBalance(supa, user.id, {
+      isBusiness,
+      bridgeCustomerId: profile.bridge_customer_id,
+    });
     if (!__fund.allowed) return json(__fund.body, __fund.status);
   }
 

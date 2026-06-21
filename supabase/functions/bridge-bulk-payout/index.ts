@@ -29,6 +29,8 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
+import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -51,6 +53,17 @@ function isValidIdempotencyKey(v: unknown): v is string {
 }
 function transfersEnabled(): boolean {
   return (Deno.env.get("BRIDGE_TRANSFERS_ENABLED") || "").toLowerCase() === "true";
+}
+
+/** Strict positive decimal parser for money values.
+ *  Rejects exponent notation / NaN / Infinity and bounds precision. */
+function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | null {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const raw = String(v).trim();
+  if (!/^\d+(\.\d{1,12})?$/.test(raw)) return null;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return { raw, numeric };
 }
 
 Deno.serve(async (req) => {
@@ -90,9 +103,11 @@ Deno.serve(async (req) => {
     if (!it?.amount || !it?.destination?.currency) {
       return json({ success: false, error: `Row ${i + 1}: amount and destination.currency are required` }, 400);
     }
-    if (!(Number(it.amount) > 0)) {
-      return json({ success: false, error: `Row ${i + 1}: amount must be greater than 0` }, 400);
+    const parsedAmount = parsePositiveAmount(it.amount);
+    if (!parsedAmount) {
+      return json({ success: false, error: `Row ${i + 1}: amount must be a positive decimal (up to 12 dp, no exponent)` }, 400);
     }
+    it.__parsedAmount = parsedAmount;
     if (!isValidIdempotencyKey(it.idempotency_key)) {
       return json({ success: false, error: `Row ${i + 1}: a unique idempotency_key (8-128 printable ASCII) is required` }, 400);
     }
@@ -103,23 +118,29 @@ Deno.serve(async (req) => {
   }
 
   // Account-level gates — checked ONCE for the whole batch (same as a single send).
-  const { data: profile } = await supa
+  const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
+  if (!identity.ok) return json({ success: false, ...identity.failure }, 409);
+  const profile = identity.context;
+  const { data: maintenance } = await supa
     .from("user_profiles")
-    .select("account_type, country, bridge_customer_id, bridge_kyc_status, maintenance_overdue")
+    .select("maintenance_overdue")
     .eq("id", user.id)
     .maybeSingle();
 
   if (isBridgeBlocked(profile?.country)) return json(bridgeCountryBlockResponse(profile!.country!), 403);
-  if (profile?.maintenance_overdue === true) {
+  if (maintenance?.maintenance_overdue === true) {
     return json({ success: false, code: "maintenance_due",
       error: "Clear your account maintenance fee before sending. Outbound transfers are paused until then." }, 402);
   }
   logControlledBridgeTraffic("bridge-bulk-payout", profile?.country, user.id);
-  if (!profile?.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);
-  if (profile.bridge_kyc_status !== "approved") return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
+  if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);
+  if (profile.verification_status !== "approved") return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
   {
-    const isBusiness = profile?.account_type === "business";
-    const gate = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
+    const isBusiness = profile.account_type === "business";
+    const gate = await requireMinimumWalletBalance(supa, user.id, {
+      isBusiness,
+      bridgeCustomerId: profile.bridge_customer_id,
+    });
     if (!gate.allowed) return json(gate.body, gate.status);
   }
 
@@ -145,7 +166,7 @@ Deno.serve(async (req) => {
         results.push({ row, label: it.label ?? null, transfer_id: existing.bridge_transfer_id,
           state: existing.status === "completed" ? "succeeded" : existing.status === "failed" ? "failed" : "pending",
           replayed: true });
-        submitted++; totalAmount += Number(it.amount) || 0;
+        submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
         continue;
       }
 
@@ -158,21 +179,28 @@ Deno.serve(async (req) => {
           payment_rail: sourceRail,
           currency:     sourceCurrency,
           chain:        it.source_chain,
-          amount:       String(it.amount),
+          amount:       it.__parsedAmount.raw,
         },
         destination:     it.destination,
         developer_fee:   { percentage: devFeePercent },
         idempotency_key: idem,
       });
 
-      const dbStatus = result.state === "succeeded" ? "completed" : result.state === "failed" ? "failed" : "pending";
+      const mapped = mapBridgeTransferState(result.state);
       const { error: upsertErr } = await supa.rpc("upsert_bridge_transaction", {
         p_user_id:            user.id,
         p_bridge_transfer_id: result.transfer_id,
-        p_amount:             Number(it.amount),
+        p_amount:             it.__parsedAmount.raw,
         p_currency:           sourceCurrency,
-        p_status:             dbStatus,
-        p_metadata:           { idempotency_key: idem, bulk: true, label: it.label ?? null, raw: result.raw },
+        p_status:             mapped.transactionStatus,
+        p_metadata:           {
+          idempotency_key: idem,
+          bulk: true,
+          label: it.label ?? null,
+          provider_state: mapped.providerState,
+          provider_state_recognized: mapped.recognized,
+          raw: result.raw,
+        },
         p_description:        it.label ? `Bulk payout — ${it.label}` : "Bulk payout",
       });
       if (upsertErr) {
@@ -182,8 +210,14 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      results.push({ row, label: it.label ?? null, transfer_id: result.transfer_id, state: result.state });
-      submitted++; totalAmount += Number(it.amount) || 0;
+      results.push({
+        row,
+        label: it.label ?? null,
+        transfer_id: result.transfer_id,
+        state: mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
+        provider_state: mapped.providerState,
+      });
+      submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
     } catch (e) {
       results.push({ row, label: it.label ?? null, state: "failed", error: (e as Error).message });
       failed++;

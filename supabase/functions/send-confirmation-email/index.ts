@@ -16,13 +16,39 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+const INTERNAL_TOKEN = Deno.env.get('SEND_EMAIL_INTERNAL_TOKEN') || '';
+const APP_URL = Deno.env.get('BORDERPAY_APP_URL') || 'https://app.borderpayafrica.com';
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length === 0 || ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ success: false, error: 'POST only' }),
+      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
   try {
+    const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+    if (!INTERNAL_TOKEN || !timingSafeEqualStr(token, INTERNAL_TOKEN)) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized — internal token required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { email, full_name, confirmation_url } = await req.json();
 
     if (!email || !confirmation_url) {
@@ -31,6 +57,24 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    let parsedConfirmation: URL;
+    let appOrigin: URL;
+    try {
+      parsedConfirmation = new URL(String(confirmation_url));
+      appOrigin = new URL(APP_URL);
+    } catch {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid confirmation URL' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    if (parsedConfirmation.origin !== appOrigin.origin) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'confirmation_url origin not allowed' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const safeConfirmationUrl = parsedConfirmation.toString();
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     const FROM_EMAIL = Deno.env.get('BORDERPAY_FROM_EMAIL') || 'BorderPay <noreply@borderpayafrica.com>';
@@ -88,7 +132,7 @@ serve(async (req) => {
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
-                    <a href="${confirmation_url}"
+                    <a href="${safeConfirmationUrl}"
                        target="_blank"
                        style="display:inline-block;padding:14px 40px;background-color:#C7FF00;color:#0B0E11;font-size:15px;font-weight:700;text-decoration:none;border-radius:12px;letter-spacing:0.3px;">
                       Verify My Email
@@ -101,7 +145,7 @@ serve(async (req) => {
                 If the button doesn't work, copy and paste this link into your browser:
               </p>
               <p style="margin:8px 0 0;font-size:11px;color:#C7FF00;text-align:center;word-break:break-all;line-height:1.4;">
-                ${confirmation_url}
+                ${safeConfirmationUrl}
               </p>
             </td>
           </tr>

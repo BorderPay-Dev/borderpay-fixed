@@ -23,6 +23,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { assertBridgeIngressDecision, evaluateBridgeIngressEvent } from "../_shared/bridge-ingress-evaluator.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -120,30 +121,80 @@ Deno.serve(async (req) => {
 
   const parsed = sigHdr ? parseSigHeader(sigHdr) : null;
   if (!parsed) {
-    return json({ error: "missing or malformed X-Webhook-Signature" }, 401);
+    const evalRes = evaluateBridgeIngressEvent({
+      source: "bridge",
+      eventIdRaw: null,
+      eventTypeRaw: null,
+      payload: {},
+      signatureOk: false,
+      replayWindowOk: true,
+      parseOk: false,
+    });
+    return json({ error: "missing or malformed X-Webhook-Signature", reason_code: evalRes.reason_code }, 401);
   }
 
   const ageMs = Math.abs(Date.now() - parsed.ts);
   if (ageMs > REPLAY_WINDOW_MS) {
-    return json({ error: "timestamp outside replay window", age_ms: ageMs }, 400);
+    const evalRes = evaluateBridgeIngressEvent({
+      source: "bridge",
+      eventIdRaw: null,
+      eventTypeRaw: null,
+      payload: {},
+      signatureOk: true,
+      replayWindowOk: false,
+      parseOk: false,
+    });
+    return json({ error: "timestamp outside replay window", age_ms: ageMs, reason_code: evalRes.reason_code }, 400);
   }
 
   const sigOk = await verifySignature(rawBody, parsed.tsRaw, parsed.sig);
 
   let payload: any;
-  try { payload = JSON.parse(rawBody); } catch { return json({ error: "invalid JSON" }, 400); }
+  try { payload = JSON.parse(rawBody); } catch {
+    const evalRes = evaluateBridgeIngressEvent({
+      source: "bridge",
+      eventIdRaw: null,
+      eventTypeRaw: null,
+      payload: {},
+      signatureOk: sigOk,
+      replayWindowOk: true,
+      parseOk: false,
+    });
+    return json({ error: "invalid JSON", reason_code: evalRes.reason_code }, 400);
+  }
 
   const eventId   = payload?.id || payload?.event_id || payload?.data?.id || `unsigned_${await sha256Hex(rawBody)}`;
   const eventType = payload?.type || payload?.event_type || "unknown";
   const hash      = await sha256Hex(rawBody);
+  const ingress = evaluateBridgeIngressEvent({
+    source: "bridge",
+    eventIdRaw: String(eventId),
+    eventTypeRaw: String(eventType),
+    payload,
+    signatureOk: sigOk,
+    replayWindowOk: true,
+    parseOk: true,
+  });
+  assertBridgeIngressDecision(ingress);
+  if (ingress.decision === "reject") {
+    return json({ error: "invalid signature", reason_code: ingress.reason_code }, 401);
+  }
+  if (ingress.routing_target !== "queue") {
+    return json({
+      status: "ignored",
+      event_id: eventId,
+      reason_code: ingress.reason_code,
+      routing_target: ingress.routing_target,
+    }, 200);
+  }
 
   // Single atomic RPC: inserts bridge_webhook_events + pending_events in one
   // transaction. Rejected events are logged but not enqueued.
   const { data: ingest, error: rpcErr } = await supa.rpc("ingest_bridge_event", {
     p_event_id:     String(eventId),
-    p_event_type:   String(eventType),
+    p_event_type:   ingress.derived_event_type,
     p_signature_ok: sigOk,
-    p_payload:      payload,
+    p_payload:      ingress.normalized_payload,
     p_payload_hash: hash,
   });
   if (rpcErr) {
@@ -155,7 +206,23 @@ Deno.serve(async (req) => {
     return json({ error: "invalid signature" }, 401);
   }
   if (row?.was_duplicate) {
-    return json({ status: "duplicate", event_id: eventId }, 200);
+    const duplicate = evaluateBridgeIngressEvent({
+      source: "bridge",
+      eventIdRaw: String(eventId),
+      eventTypeRaw: ingress.derived_event_type,
+      payload: ingress.normalized_payload,
+      signatureOk: true,
+      replayWindowOk: true,
+      parseOk: true,
+      knownDuplicate: true,
+    });
+    assertBridgeIngressDecision(duplicate);
+    return json({
+      status: "duplicate",
+      event_id: eventId,
+      reason_code: duplicate.reason_code,
+      idempotency_key: duplicate.idempotency_key,
+    }, 200);
   }
   if (!row?.queued) {
     return json({ error: "ingest returned no queue confirmation" }, 500);

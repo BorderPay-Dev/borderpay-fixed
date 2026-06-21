@@ -1,25 +1,31 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { derivePinHashV2 } from '../_shared/security/pin.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-async function hashPin(pin: string, salt: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pin + salt);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ success: false, error: 'POST only' }),
+      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
   try {
-    const authHeader = req.headers.get('Authorization')!;
+    const authHeader = req.headers.get('Authorization') || '';
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -42,15 +48,12 @@ serve(async (req) => {
       );
     }
 
-    const pin_hash = await hashPin(pin, user.id);
+    const pin_hash_v2 = await derivePinHashV2(pin);
 
-    const { error } = await supabase
-      .from('user_security')
-      .upsert({
-        user_id: user.id,
-        pin_hash,
-        pin_set: true,
-      }, { onConflict: 'user_id' });
+    const { error } = await supabase.rpc('set_user_pin_v2', {
+      p_user_id: user.id,
+      p_pin_hash_v2: pin_hash_v2,
+    });
 
     if (error) {
       return new Response(

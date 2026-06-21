@@ -29,6 +29,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
+import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -82,19 +83,17 @@ Deno.serve(async (req) => {
   const action = String(body.action || "create");
 
   // Shared customer/KYC/country guard.
-  const { data: profile } = await supa
-    .from("user_profiles")
-    .select("id, account_type, country, bridge_customer_id, bridge_kyc_status")
-    .eq("id", user.id)
-    .maybeSingle();
+  const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
+  if (!identity.ok) return json({ success: false, ...identity.failure }, 409);
+  const profile = identity.context;
   if (isBridgeBlocked(profile?.country)) {
     return json(bridgeCountryBlockResponse(profile!.country!), 403);
   }
   logControlledBridgeTraffic("bridge-external-account", profile?.country, user.id);
-  if (!profile?.bridge_customer_id) {
+  if (!profile.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }
-  if (profile.bridge_kyc_status !== "approved") {
+  if (profile.verification_status !== "approved") {
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
   const customerId = profile.bridge_customer_id;
@@ -138,8 +137,11 @@ Deno.serve(async (req) => {
   // activated (paid) plan. (list/delete stay open so users can always view /
   // remove existing destinations.)
   {
-    const isBusiness = profile?.account_type === "business";
-    const __planGate = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
+    const isBusiness = profile.account_type === "business";
+    const __planGate = await requireMinimumWalletBalance(supa, user.id, {
+      isBusiness,
+      bridgeCustomerId: profile.bridge_customer_id,
+    });
     if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
   const acct = body.account;

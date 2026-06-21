@@ -17,6 +17,7 @@ import {
   isBridgeCustodialWalletSupported,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
+import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -51,31 +52,24 @@ Deno.serve(async (req) => {
   if (!SYMS.includes(symbol))   return json({ success: false, error: `Unsupported symbol: ${symbol}` }, 400);
   if (!CHAINS.includes(chain))  return json({ success: false, error: `Unsupported chain: ${chain}` }, 400);
 
-  const { data: profile } = await supa
-    .from("user_profiles")
-    .select("account_type, country, bridge_customer_id, bridge_kyc_status")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isBusiness = profile?.account_type === "business";
+  const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
+  if (!identity.ok) {
+    return json({ success: false, ...identity.failure }, 409);
+  }
+  const profile = identity.context;
+  const isBusiness = profile.account_type === "business";
 
   // Paid gate: provisioning a wallet requires an activated (paid) plan. In the
   // Wise funnel KYC can be free, but money/account features stay paid-gated, so
   // an unpaid user gets `plan_required` → the app shows the activation popup.
-  const __planGate = await requireMinimumWalletBalance(supa, user.id, { isBusiness });
+  const __planGate = await requireMinimumWalletBalance(supa, user.id, {
+    isBusiness,
+    bridgeCustomerId: profile.bridge_customer_id,
+  });
   if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
 
-  let productCountry = profile?.country ?? null;
-  let verificationStatus = profile?.bridge_kyc_status ?? null;
-
-  if (isBusiness) {
-    const { data: biz } = await supa
-      .from("business_profiles")
-      .select("country, bridge_kyb_status")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    productCountry = biz?.country ?? productCountry;
-    verificationStatus = biz?.bridge_kyb_status ?? verificationStatus;
-  }
+  const productCountry = profile.country;
+  const verificationStatus = profile.verification_status;
 
   // Defense-in-depth: even though Bridge customer creation already blocks
   // prohibited jurisdictions, a legacy/dirty row with a bridge_customer_id
@@ -94,7 +88,7 @@ Deno.serve(async (req) => {
     }, 403);
   }
   logControlledBridgeTraffic("bridge-wallet", productCountry, user.id);
-  if (!profile?.bridge_customer_id) {
+  if (!profile.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
   }
   if (verificationStatus !== "approved") {

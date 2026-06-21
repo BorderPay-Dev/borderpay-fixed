@@ -21,6 +21,9 @@ const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 // Internal token for authenticating to send-email (NOT the service-role key).
 const SEND_EMAIL_TOKEN      = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 const APP_URL               = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
+const SIGNUP_CAPTCHA_SECRET = Deno.env.get("SIGNUP_CAPTCHA_SECRET") ?? "";
+const SIGNUP_CAPTCHA_VERIFY_URL =
+  Deno.env.get("SIGNUP_CAPTCHA_VERIFY_URL") ?? "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -40,15 +43,46 @@ interface SignupBody {
   account_type?:        "individual" | "business";
   company_name?:        string;
   registration_number?: string;
+  captcha_token?:       string;
+}
+
+async function verifySignupCaptcha(
+  token: string,
+  remoteIp: string | null,
+): Promise<{ ok: true } | { ok: false; code: string; error: string }> {
+  if (!SIGNUP_CAPTCHA_SECRET) return { ok: true };
+  if (!token) {
+    return { ok: false, code: "captcha_required", error: "CAPTCHA token is required." };
+  }
+  try {
+    const payload = new URLSearchParams();
+    payload.set("secret", SIGNUP_CAPTCHA_SECRET);
+    payload.set("response", token);
+    if (remoteIp) payload.set("remoteip", remoteIp);
+
+    const resp = await fetch(SIGNUP_CAPTCHA_VERIFY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: payload.toString(),
+    });
+    const data = await resp.json().catch(() => ({} as Record<string, unknown>));
+    if (!resp.ok || data?.success !== true) {
+      return { ok: false, code: "captcha_failed", error: "CAPTCHA validation failed." };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, code: "captcha_unavailable", error: "CAPTCHA validation unavailable. Please retry." };
+  }
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
   try {
     const body = (await req.json()) as SignupBody;
     const { email, password, full_name, phone_number, country_code,
-            account_type, company_name, registration_number } = body;
+            account_type, company_name, registration_number, captcha_token } = body;
 
     if (!email || !password || !full_name) {
       return json({ success: false, error: "Email, password, and full name are required" }, 400);
@@ -63,6 +97,41 @@ Deno.serve(async (req: Request) => {
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+    const xff = req.headers.get("x-forwarded-for") || "";
+    const requestIp = xff.split(",")[0]?.trim() || null;
+    const ua = req.headers.get("user-agent") || "";
+
+    // Abuse gate (rate-limit + cooldown) before any auth row is created.
+    const { data: abuseGate, error: abuseErr } = await supabaseAdmin.rpc("enforce_signup_abuse_protection", {
+      p_email:      email,
+      p_ip:         requestIp,
+      p_user_agent: ua,
+    });
+    if (abuseErr) {
+      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
+    }
+    const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
+    if (!abuse?.allowed) {
+      const retryAfter = Number(abuse?.retry_after_seconds || 30);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: abuse?.code || "rate_limited",
+          error: "Too many signup attempts. Please wait and try again.",
+          retry_after_seconds: retryAfter,
+        }),
+        {
+          status: 429,
+          headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
+        },
+      );
+    }
+
+    // CAPTCHA hook. When SIGNUP_CAPTCHA_SECRET is configured this fails-closed.
+    const captchaCheck = await verifySignupCaptcha(String(captcha_token || "").trim(), requestIp);
+    if (!captchaCheck.ok) {
+      return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
+    }
 
     // ── Create the auth user UNCONFIRMED ─────────────────────────────────
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -174,13 +243,11 @@ Deno.serve(async (req: Request) => {
 
     // ── Issue a verification token ────────────────────────────────────────
     const tokenPurpose = normalizedAccountType === "business" ? "signup_business" : "signup_individual";
-    const xff = req.headers.get("x-forwarded-for") || "";
-    const ua  = req.headers.get("user-agent") || "";
     const { data: tokenData, error: tokenErr } = await supabaseAdmin.rpc("issue_email_token", {
       p_user_id:     userId,
       p_purpose:     tokenPurpose,
       p_ttl_minutes: 60 * 24,
-      p_ip:          xff.split(",")[0]?.trim() || null,
+      p_ip:          requestIp,
       p_ua:          ua,
     });
     if (tokenErr || !tokenData) {

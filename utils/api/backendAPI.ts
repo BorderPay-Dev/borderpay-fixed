@@ -187,6 +187,7 @@ export const authSecurityAPI = {
     account_type?:        'individual' | 'business';
     company_name?:        string;
     registration_number?: string;
+    captcha_token?:       string;
   }, anonKey: string) {
     return apiCallPublic('auth-signup', {
       method: 'POST',

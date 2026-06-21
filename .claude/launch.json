@@ -29,6 +29,22 @@
         "5174"
       ],
       "port": 5174
+    },
+    {
+      "name": "borderpay-website",
+      "env": {
+        "PATH": "/Users/a/.nvm/versions/node/v24.14.0/bin:/usr/local/bin:/usr/bin:/bin"
+      },
+      "runtimeExecutable": "/Users/a/.nvm/versions/node/v24.14.0/bin/npx",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/a/Downloads/website-borderpay",
+        "vite",
+        "/Users/a/Downloads/website-borderpay",
+        "--port",
+        "5179"
+      ],
+      "port": 5179
     }
   ]
 }

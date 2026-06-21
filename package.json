@@ -4,11 +4,15 @@
   "type": "module",
   "description": "BorderPay Africa - Mobile-first fintech app with neon green and black aesthetic",
   "scripts": {
+    "guard:safety-boundaries": "bash scripts/ci/enforce-safety-boundaries.sh",
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run guard:safety-boundaries && vite build",
     "preview": "vite preview",
     "deploy": "npm run build && firebase deploy --only hosting",
-    "predeploy": "npm ci && npm run build",
+    "predeploy:gate": "python3 scripts/predeploy/run_predeploy_gate.py",
+    "predeploy:gate:ci": "python3 scripts/predeploy/run_predeploy_gate.py --ci",
+    "predeploy": "npm run predeploy:gate",
+    "live:bridge:validate": "python3 scripts/live_bridge/run_live_bridge_validation.py",
     "type-check": "tsc --noEmit",
     "test:build": "npm ci && npm run build && npm run preview",
     "prepare": "command -v husky >/dev/null 2>&1 && husky install || true"

@@ -196,6 +196,34 @@ export class BridgeProvider implements PaymentProvider {
     });
   }
 
+  /** Get per-wallet balance rows from Bridge. */
+  async getWalletBalances(customerId: string, walletId: string): Promise<Array<{ currency: string; chain?: string; balance: string }>> {
+    const r = await bridgeFetch({
+      method: "GET",
+      path:   `/v0/customers/${encodeURIComponent(customerId)}/wallets/${encodeURIComponent(walletId)}/balances`,
+    });
+    if (!r.ok) throw new Error(`Bridge getWalletBalances failed: ${r.error || r.status}`);
+    const payload = (r.data as any)?.data ?? r.data;
+
+    // Some API shapes return an array of balances; others return one object.
+    const rows = Array.isArray(payload?.balances)
+      ? payload.balances
+      : Array.isArray(payload)
+      ? payload
+      : [payload];
+
+    return (rows || []).map((b: any) => ({
+      currency: String(b?.currency || b?.symbol || ""),
+      chain:    b?.chain ? String(b.chain) : undefined,
+      balance:  String(
+        b?.balance ??
+        b?.available_balance ??
+        b?.available ??
+        "0",
+      ),
+    }));
+  }
+
   /** List the customer's USD/EUR/GBP virtual accounts. */
   async listVirtualAccounts(customerId: string): Promise<Array<{ virtual_account_id: string; currency: string; rail?: string; status?: string; account_details: unknown }>> {
     const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts` });
@@ -271,9 +299,7 @@ export class BridgeProvider implements PaymentProvider {
     return {
       provider:    this.name,
       transfer_id: String(data?.id),
-      state:       (["pending","processing","succeeded","failed"].includes(state)
-                     ? state as TransferResult["state"]
-                     : "pending"),
+      state,
       raw:         r.data,
     };
   }

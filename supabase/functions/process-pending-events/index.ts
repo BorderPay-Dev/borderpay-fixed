@@ -35,9 +35,18 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
+import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import {
+  assertBridgeIngressDecision,
+  evaluateBridgeIngressEvent,
+  type BridgeIngressDecision,
+} from "../_shared/bridge-ingress-evaluator.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SYNTHETIC_EVENTS_ENABLED = (Deno.env.get("SYNTHETIC_EVENTS_ENABLED") ?? "false").toLowerCase() === "true";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -156,6 +165,115 @@ interface PendingEvent {
   max_attempts: number;
 }
 
+const DEFAULT_STABLECOIN_WALLETS: ReadonlyArray<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }> = [
+  { symbol: "USDC", chain: "BASE" },
+  { symbol: "USDT", chain: "TRON" },
+];
+
+const PROVISIONING_LOCK_STALE_SECONDS = 180;
+
+async function sha256Hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function provisioningLockEventId(customerId: string, symbol: string, chain: string): string {
+  return `provlock:wallet:${customerId}:${symbol.toUpperCase()}:${chain.toLowerCase()}`;
+}
+
+type ProvisioningLockResult =
+  | { state: "acquired" | "stale_acquired"; lockEventId: string }
+  | { state: "busy" | "already_completed"; lockEventId: string };
+
+async function tryAcquireProvisioningLock(customerId: string, symbol: string, chain: string): Promise<ProvisioningLockResult> {
+  const lockEventId = provisioningLockEventId(customerId, symbol, chain);
+  const nowIso = new Date().toISOString();
+  const payloadHash = await sha256Hex(lockEventId);
+  const marker = `worker=${WORKER_ID};symbol=${symbol};chain=${chain.toLowerCase()}`;
+
+  const { error: insertErr } = await supabase
+    .from("webhook_logs")
+    .insert({
+      event_id: lockEventId,
+      source: "bridge",
+      event_type: "provisioning.wallet",
+      status: "processing",
+      signature_ok: true,
+      payload_hash: payloadHash,
+      attempts: 1,
+      last_error: `${marker};state=started`,
+      received_at: nowIso,
+      queued_at: nowIso,
+      completed_at: null,
+    });
+  if (!insertErr) return { state: "acquired", lockEventId };
+
+  // 23505 = unique violation (event_id already exists).
+  if ((insertErr as any)?.code !== "23505") {
+    throw new Error(`provisioning lock insert failed: ${insertErr.message}`);
+  }
+
+  const { data: row, error: readErr } = await supabase
+    .from("webhook_logs")
+    .select("status, received_at, attempts")
+    .eq("event_id", lockEventId)
+    .maybeSingle();
+  if (readErr) throw new Error(`provisioning lock read failed: ${readErr.message}`);
+  const status = String(row?.status || "").toLowerCase();
+  if (status === "completed") return { state: "already_completed", lockEventId };
+
+  // If another worker currently holds this lock, don't compete.
+  const receivedAt = row?.received_at ? new Date(String(row.received_at)) : new Date(0);
+  const staleBefore = new Date(Date.now() - PROVISIONING_LOCK_STALE_SECONDS * 1000);
+  if (status === "processing" && receivedAt > staleBefore) {
+    return { state: "busy", lockEventId };
+  }
+
+  // Stale or failed lock row: takeover with CAS-like predicates.
+  const staleIso = staleBefore.toISOString();
+  const attempts = Number(row?.attempts || 0) + 1;
+  const { data: taken, error: takeoverErr } = await supabase
+    .from("webhook_logs")
+    .update({
+      status: "processing",
+      attempts,
+      last_error: `${marker};state=takeover`,
+      received_at: nowIso,
+      queued_at: nowIso,
+      completed_at: null,
+    })
+    .eq("event_id", lockEventId)
+    .eq("status", status || "failed")
+    .lte("received_at", staleIso)
+    .select("event_id")
+    .maybeSingle();
+  if (takeoverErr) throw new Error(`provisioning lock takeover failed: ${takeoverErr.message}`);
+  if (taken?.event_id) return { state: "stale_acquired", lockEventId };
+  return { state: "busy", lockEventId };
+}
+
+async function completeProvisioningLock(lockEventId: string, note: string): Promise<void> {
+  await supabase
+    .from("webhook_logs")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      last_error: note.slice(0, 512),
+    })
+    .eq("event_id", lockEventId);
+}
+
+async function failProvisioningLock(lockEventId: string, errorText: string): Promise<void> {
+  await supabase
+    .from("webhook_logs")
+    .update({
+      status: "failed",
+      last_error: errorText.slice(0, 512),
+      completed_at: null,
+    })
+    .eq("event_id", lockEventId);
+}
+
 // ── Top-level router (source-aware) ──────────────────────────────────────
 //
 // BorderPay has one active provider path in this worker. Unknown source values
@@ -164,8 +282,35 @@ interface PendingEvent {
 
 async function processEvent(ev: PendingEvent): Promise<void> {
   switch (ev.source) {
-    case "bridge":
-      return await processBridgeEvent(ev);
+    case "bridge": {
+      const decision = evaluateBridgeIngressEvent({
+        source: "bridge",
+        eventIdRaw: ev.event_id,
+        eventTypeRaw: ev.event_type,
+        payload: ev.payload,
+        signatureOk: true,
+        replayWindowOk: true,
+        parseOk: true,
+      });
+      return await processBridgeEvent(ev, decision);
+    }
+    case "bridge_test":
+      if (!SYNTHETIC_EVENTS_ENABLED) {
+        await supabase.rpc("complete_pending_event", {
+          p_event_id: ev.event_id,
+          p_summary: { source: "bridge_test", skipped: "synthetic_mode_disabled" },
+        });
+        return;
+      }
+      return await processBridgeTestEvent(ev, evaluateBridgeIngressEvent({
+        source: "bridge_test",
+        eventIdRaw: ev.event_id,
+        eventTypeRaw: ev.event_type,
+        payload: ev.payload,
+        signatureOk: true,
+        replayWindowOk: true,
+        parseOk: true,
+      }));
 
     default:
       // Unknown source — fail closed.
@@ -179,28 +324,168 @@ async function processEvent(ev: PendingEvent): Promise<void> {
 
 // ── Bridge event router ──────────────────────────────────────────────────
 
-async function processBridgeEvent(ev: PendingEvent): Promise<void> {
-  const t = ev.event_type.toLowerCase();
+async function processBridgeEvent(ev: PendingEvent, ingress: BridgeIngressDecision): Promise<void> {
+  assertBridgeIngressDecision(ingress);
+  if (SYNTHETIC_EVENTS_ENABLED && (ev.payload as any)?.test_origin === true) {
+    const syntheticDecision = evaluateBridgeIngressEvent({
+      source: "bridge_test",
+      eventIdRaw: ev.event_id,
+      eventTypeRaw: ev.event_type,
+      payload: ev.payload,
+      signatureOk: true,
+      replayWindowOk: true,
+      parseOk: true,
+    });
+    return await processBridgeTestEvent(ev, syntheticDecision);
+  }
 
-  if (t.startsWith("kyc_link.") || t.startsWith("customer.kyc") || t.startsWith("customer.kyb")) {
-    return await handleBridgeKycKyb(ev);
+  switch (ingress.route_bucket) {
+    case "bridge.kyc":
+      return await handleBridgeKycKyb(ev);
+    case "bridge.virtual_account":
+      return await handleBridgeVirtualAccount(ev);
+    case "bridge.wallet":
+      return await handleBridgeWallet(ev);
+    case "bridge.external_account":
+      return await handleBridgeExternalAccount(ev);
+    case "bridge.transfer":
+      return await handleBridgeTransfer(ev);
+    case "bridge.customer":
+      return await handleBridgeCustomerStatus(ev);
+    default:
+      await supabase.rpc("complete_pending_event", {
+        p_event_id: ev.event_id,
+        p_summary:  { source: "bridge", unknown_event_type: ingress.derived_event_type, reason_code: ingress.reason_code },
+      });
+      return;
   }
-  if (t.startsWith("virtual_account.")) {
-    return await handleBridgeVirtualAccount(ev);
+}
+
+// ── Synthetic Bridge-test router (dry-run only, no financial writes) ────────
+
+function syntheticForceFail(ev: PendingEvent): boolean {
+  const ctrl = (ev.payload as any)?.test_control ?? {};
+  return ctrl?.force_fail === true || (ev.payload as any)?.force_fail === true;
+}
+
+function syntheticEnvelope(ev: PendingEvent): Record<string, unknown> {
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  return {
+    source: "bridge_test",
+    dry_run: true,
+    event_type: ev.event_type,
+    event_id: ev.event_id,
+    replay_group_key: (ev.payload as any)?.replay_group_key ?? null,
+    test_case_id: (ev.payload as any)?.test_case_id ?? null,
+    bridge_event_id: (ev.payload as any)?.bridge_event_id ?? null,
+    event_object_id: d?.id ?? d?.transfer_id ?? d?.wallet_id ?? d?.virtual_account_id ?? d?.external_account_id ?? null,
+    customer_id: d?.customer_id ?? d?.customer?.id ?? null,
+  };
+}
+
+async function processBridgeTestEvent(ev: PendingEvent, ingress: BridgeIngressDecision): Promise<void> {
+  assertBridgeIngressDecision(ingress);
+  if (syntheticForceFail(ev)) {
+    throw new Error("synthetic_forced_failure");
   }
-  if (t.startsWith("wallet.")) {
-    return await handleBridgeWallet(ev);
+
+  const t = ingress.derived_event_type.toLowerCase();
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const base = syntheticEnvelope(ev);
+
+  if (ingress.route_bucket === "bridge.kyc") {
+    const status = String(d?.status ?? d?.kyc_status ?? ev.payload?.event_object_status ?? "").toLowerCase() || "pending";
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        ...base,
+        simulated_handler: "handleBridgeKycKyb",
+        intended_write_tables: ["user_profiles", "business_profiles", "bridge_webhook_events"],
+        normalized_status: status,
+        financial_write_blocked: true,
+      },
+    });
+    return;
   }
-  if (t.startsWith("transfer.") || t.startsWith("payout.") || t.startsWith("deposit.")) {
-    return await handleBridgeTransfer(ev);
+
+  if (ingress.route_bucket === "bridge.virtual_account") {
+    const isActivity = t.includes("activity") || t.includes("deposit") || t.includes("credit");
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        ...base,
+        simulated_handler: "handleBridgeVirtualAccount",
+        intended_write_tables: isActivity
+          ? ["bridge_virtual_account_balances", "bridge_balance_ledger", "wallets", "transactions", "bridge_webhook_events"]
+          : ["bridge_virtual_accounts", "bridge_webhook_events"],
+        event_branch: isActivity ? "activity" : "lifecycle",
+        financial_write_blocked: true,
+      },
+    });
+    return;
   }
-  if (t.startsWith("customer.")) {
-    return await handleBridgeCustomerStatus(ev);
+
+  if (ingress.route_bucket === "bridge.wallet") {
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        ...base,
+        simulated_handler: "handleBridgeWallet",
+        intended_write_tables: ["bridge_wallets", "bridge_webhook_events"],
+        financial_write_blocked: true,
+      },
+    });
+    return;
+  }
+
+  if (ingress.route_bucket === "bridge.external_account") {
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        ...base,
+        simulated_handler: "handleBridgeExternalAccount",
+        intended_write_tables: ["bridge_external_accounts"],
+        recognized_event: t.endsWith(".created") || t.endsWith(".updated") || t.endsWith(".deleted"),
+        financial_write_blocked: true,
+      },
+    });
+    return;
+  }
+
+  if (ingress.route_bucket === "bridge.transfer") {
+    const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
+    const mapped = mapBridgeTransferState(providerState);
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        ...base,
+        simulated_handler: "handleBridgeTransfer",
+        intended_write_tables: ["bridge_transfers", "transactions", "bridge_webhook_events"],
+        provider_state: mapped.providerState,
+        internal_state: mapped.transactionStatus,
+        provider_state_recognized: mapped.recognized,
+        financial_write_blocked: true,
+      },
+    });
+    return;
+  }
+
+  if (ingress.route_bucket === "bridge.customer") {
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        ...base,
+        simulated_handler: "handleBridgeCustomerStatus",
+        intended_write_tables: ["user_profiles", "business_profiles", "bridge_webhook_events", "bridge_wallets"],
+        financial_write_blocked: true,
+      },
+    });
+    return;
   }
 
   await supabase.rpc("complete_pending_event", {
     p_event_id: ev.event_id,
-    p_summary:  { source: "bridge", unknown_event_type: t },
+    p_summary: { ...base, unknown_event_type: t, financial_write_blocked: true },
   });
 }
 
@@ -242,6 +527,16 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
       kyc_status:               normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : "pending",
       updated_at:               new Date().toISOString(),
     }).eq("id", resolved);
+  }
+
+  // Product requirement: auto-provision stablecoin wallets after approval.
+  // Any failure must surface so the queue retries safely with idempotent keys.
+  if (normalized === "approved") {
+    await ensureStablecoinWalletsProvisioned({
+      userId: resolved,
+      bridgeCustomerId: String(customer),
+      accountType: isKyb || account_type === "business" ? "business" : "individual",
+    });
   }
 
   await supabase.from("bridge_webhook_events")
@@ -320,6 +615,15 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
           );
         }
       } catch { /* best-effort: never fail the webhook on email */ }
+    }
+
+    if (canonicalKyc === "verified") {
+      const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+      await ensureStablecoinWalletsProvisioned({
+        userId: owner.resolved,
+        bridgeCustomerId: String(customer),
+        accountType: owner.account_type,
+      });
     }
   }
   await supabase.from("bridge_webhook_events")
@@ -484,8 +788,8 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
 async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the wallet; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
-  const walletId = d?.wallet_id ?? d?.id ?? ev.payload?.event_object_id;
-  const customer = d?.customer_id ?? d?.customer?.id;
+  const walletId = d?.wallet_id ?? d?.bridge_wallet_id ?? d?.id ?? ev.payload?.event_object_id;
+  const customer = d?.customer_id ?? d?.customer?.id ?? d?.bridge_customer_id ?? d?.bridge_wallet?.customer_id;
   if (!walletId || !customer) throw new Error("bridge wallet event missing ids");
 
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
@@ -510,6 +814,80 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   });
 }
 
+async function handleBridgeExternalAccount(ev: PendingEvent): Promise<void> {
+  const t = ev.event_type.toLowerCase();
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const externalAccountId = d?.external_account_id ?? d?.id ?? ev.payload?.event_object_id;
+  if (!externalAccountId) {
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary:  { source: "bridge", kind: "external_account", skipped: "missing_external_account_id" },
+    });
+    return;
+  }
+
+  const customer = d?.customer_id ?? d?.customer?.id;
+  if (!customer) {
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary:  {
+        source: "bridge",
+        kind: "external_account",
+        external_account_id: String(externalAccountId),
+        skipped: "missing_customer_id",
+      },
+    });
+    return;
+  }
+
+  const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+  const status =
+    String(d?.status ?? "").toLowerCase()
+    || (t.includes("deleted") || t.includes("deactivated") ? "deleted" : "active");
+  const active = !["deleted", "deactivated", "inactive", "disabled", "closed"].includes(status);
+  const accountType = String(d?.account_type ?? d?.type ?? "").toLowerCase();
+  const currency = String(d?.currency ?? d?.bank_account?.currency ?? "").toUpperCase();
+  const last4 =
+    String(
+      d?.last_4
+      ?? d?.account_last4
+      ?? d?.bank_account?.account_last4
+      ?? d?.bank_account?.last_4
+      ?? "",
+    );
+  const ownerName =
+    String(d?.account_owner_name ?? d?.owner_name ?? d?.bank_account?.account_owner_name ?? "");
+
+  await supabase.from("bridge_external_accounts").upsert({
+    bridge_external_account_id: String(externalAccountId),
+    bridge_customer_id: String(customer),
+    user_id: owner.resolved,
+    account_type: accountType || null,
+    currency: currency || null,
+    account_owner_name: ownerName || null,
+    account_owner_type: d?.account_owner_type ?? null,
+    bank_name: d?.bank_name ?? d?.bank_account?.bank_name ?? null,
+    last_4: last4 || null,
+    rail: d?.rail ?? d?.payment_rail ?? null,
+    status,
+    active,
+    metadata: d ?? {},
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "bridge_external_account_id" });
+
+  await supabase.rpc("complete_pending_event", {
+    p_event_id: ev.event_id,
+    p_summary: {
+      source: "bridge",
+      kind: "external_account",
+      external_account_id: String(externalAccountId),
+      status,
+      active,
+      recognized_event: t.endsWith(".created") || t.endsWith(".updated") || t.endsWith(".deleted"),
+    },
+  });
+}
+
 async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the transfer; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
@@ -517,22 +895,20 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   const customer   = d?.customer_id ?? d?.customer?.id ?? d?.source?.customer_id ?? d?.destination?.customer_id;
   if (!transferId) throw new Error("bridge transfer event missing id");
 
-  const state = String(d?.state ?? d?.status ?? "pending").toLowerCase();
-  const validStates = ["pending","processing","succeeded","failed","cancelled","refunded","returned"];
-  const normalizedState = validStates.includes(state) ? state : "pending";
-
-  // Map Bridge transfer state → public.transaction_status enum.
-  //   succeeded                       → completed
-  //   failed | cancelled | returned   → failed
-  //   else (pending|processing|refunded|unknown) → pending
-  const txStatus =
-    normalizedState === "succeeded"                                       ? "completed"
-    : ["failed","cancelled","returned"].includes(normalizedState)         ? "failed"
-    :                                                                       "pending";
+  const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
+  const mappedState = mapBridgeTransferState(providerState);
 
   let owner: { resolved: string | null; account_type: "individual" | "business" | null } = { resolved: null, account_type: null };
-  if (customer) {
-    try { owner = await resolveOwnerFromBridgeCustomer(customer); } catch { /* best effort */ }
+  let reconciliationReason: string | null = null;
+  if (!customer) {
+    reconciliationReason = "missing_customer_id";
+  } else {
+    try {
+      owner = await resolveOwnerFromBridgeCustomer(customer);
+    } catch (e) {
+      reconciliationReason = `owner_unmapped_for_customer:${String(customer)}`;
+      console.error(`bridge transfer reconciliation required for transfer=${transferId}: ${(e as Error).message}`);
+    }
   }
 
   const sourceType = String(d?.source?.type ?? d?.source?.payment_rail ?? "external_bank");
@@ -543,19 +919,45 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   const amount   = Number(d?.amount ?? 0);
   const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
 
-  // 1. Bridge-native row: full provider truth.
-  await supabase.from("bridge_transfers").upsert({
-    bridge_transfer_id:   String(transferId),
-    user_id:              owner.account_type === "individual" ? owner.resolved : null,
-    business_user_id:     owner.account_type === "business"   ? owner.resolved : null,
-    source_type:          normSource,
-    destination_type:     normDest,
-    amount:               amount,
-    currency:             currency,
-    state:                normalizedState,
-    raw:                  d,
-    updated_at:           new Date().toISOString(),
-  }, { onConflict: "bridge_transfer_id" });
+  // 1) Bridge transfer projection + lifecycle state must flow via canonical RPC
+  // (no direct runtime upsert on bridge_transfers).
+  const transferState = mappedState.recognized
+    ? (mappedState.providerState === "payment_processed"
+        ? "succeeded"
+        : (mappedState.providerState === "canceled" ? "cancelled" : (
+          ["returned", "refunded"].includes(mappedState.providerState)
+            ? mappedState.providerState
+            : mappedState.transactionStatus === "failed"
+              ? "failed"
+              : "pending"
+        )))
+    : "pending";
+  const transferRaw = {
+    ...d,
+    borderpay_reconciliation_reason: reconciliationReason,
+    borderpay_provider_state_recognized: mappedState.recognized,
+  };
+  const { error: btErr } = await supabase.rpc("upsert_bridge_transfer_projection", {
+    p_bridge_transfer_id: String(transferId),
+    p_user_id: owner.account_type === "individual" ? owner.resolved : null,
+    p_business_user_id: owner.account_type === "business" ? owner.resolved : null,
+    p_source_type: normSource,
+    p_destination_type: normDest,
+    p_amount: amount,
+    p_currency: currency,
+    p_state: transferState,
+    p_raw: transferRaw,
+  });
+  if (btErr) {
+    throw new Error(`upsert_bridge_transfer_projection failed: ${btErr.message}`);
+  }
+
+  if (reconciliationReason) {
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: "transfer", target_entity_id: String(transferId) })
+      .eq("event_id", ev.event_id);
+    throw new Error(`reconciliation_required:${reconciliationReason}`);
+  }
 
   // 2. Mirror into public.transactions so existing readers (TransactionsScreen,
   //    exports, admin views) reflect Bridge activity. Idempotent via the
@@ -569,13 +971,14 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       p_bridge_transfer_id: String(transferId),
       p_amount:             amount,
       p_currency:           currency,
-      p_status:             txStatus,
+      p_status:             mappedState.transactionStatus,
       p_metadata: {
         source:           "bridge",
         account_type:     owner.account_type,
         source_type:      normSource,
         destination_type: normDest,
-        bridge_state:     normalizedState,
+        bridge_state:     mappedState.providerState,
+        bridge_state_recognized: mappedState.recognized,
         raw:              d,
       },
     });
@@ -589,26 +992,101 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
     .eq("event_id", ev.event_id);
   await supabase.rpc("complete_pending_event", {
     p_event_id: ev.event_id,
-    p_summary:  { source: "bridge", kind: "transfer", transfer_id: transferId, state: normalizedState },
+    p_summary:  {
+      source: "bridge",
+      kind: "transfer",
+      transfer_id: transferId,
+      provider_state: mappedState.providerState,
+      internal_status: mappedState.transactionStatus,
+      recognized: mappedState.recognized,
+    },
   });
 }
 
+async function ensureStablecoinWalletsProvisioned(input: {
+  userId: string;
+  bridgeCustomerId: string;
+  accountType: "individual" | "business";
+}): Promise<void> {
+  const profileTable = input.accountType === "business" ? "business_profiles" : "user_profiles";
+  const idCol = input.accountType === "business" ? "user_id" : "id";
+  const statusCol = input.accountType === "business" ? "bridge_kyb_status" : "bridge_kyc_status";
+  const { data: profile } = await supabase
+    .from(profileTable)
+    .select(`country, ${statusCol}`)
+    .eq(idCol, input.userId)
+    .maybeSingle();
+
+  const country = String(profile?.country || "");
+  if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
+  if (String(profile?.[statusCol] || "").toLowerCase() !== "approved") return;
+
+  for (const { symbol, chain } of DEFAULT_STABLECOIN_WALLETS) {
+    const chainLc = chain.toLowerCase();
+    const lock = await tryAcquireProvisioningLock(input.bridgeCustomerId, symbol, chainLc);
+    if (lock.state === "already_completed" || lock.state === "busy") continue;
+
+    try {
+      const { data: existing } = await supabase
+        .from("bridge_wallets")
+        .select("bridge_wallet_id,address")
+        .eq("bridge_customer_id", input.bridgeCustomerId)
+        .ilike("currency", symbol)
+        .ilike("chain", chainLc)
+        .maybeSingle();
+      if (existing?.bridge_wallet_id) {
+        await completeProvisioningLock(lock.lockEventId, "already_exists");
+        continue;
+      }
+
+      const created = await bridgeProvider.createWallet({
+        customer_id: input.bridgeCustomerId,
+        symbol,
+        chain,
+      });
+      await supabase.from("bridge_wallets").upsert({
+        bridge_wallet_id:   created.wallet_id,
+        bridge_customer_id: input.bridgeCustomerId,
+        user_id:            input.accountType === "individual" ? input.userId : null,
+        business_user_id:   input.accountType === "business" ? input.userId : null,
+        currency:           symbol,
+        chain:              chainLc,
+        address:            created.deposit_address,
+        status:             "active",
+        updated_at:         new Date().toISOString(),
+      }, { onConflict: "bridge_wallet_id" });
+      await completeProvisioningLock(lock.lockEventId, "provisioned");
+    } catch (e) {
+      await failProvisioningLock(lock.lockEventId, (e as Error).message || "provision_failed");
+      throw e;
+    }
+  }
+}
+
 async function resolveOwnerFromBridgeCustomer(bridgeCustomerId: string): Promise<{ resolved: string; account_type: "individual" | "business" }> {
-  const { data: biz } = await supabase
+  const { data: bizRows } = await supabase
     .from("business_profiles")
     .select("user_id")
     .eq("bridge_customer_id", String(bridgeCustomerId))
-    .maybeSingle();
-  if (biz?.user_id) return { resolved: biz.user_id as string, account_type: "business" };
+    .limit(2);
 
-  const { data: prof } = await supabase
+  const { data: userRows } = await supabase
     .from("user_profiles")
     .select("id, account_type")
     .eq("bridge_customer_id", String(bridgeCustomerId))
-    .maybeSingle();
-  if (prof?.id) return { resolved: prof.id as string, account_type: (prof.account_type as any) === "business" ? "business" : "individual" };
+    .limit(2);
 
-  throw new Error(`no profile row for bridge_customer_id=${bridgeCustomerId}`);
+  const bizOwners = (Array.isArray(bizRows) ? bizRows : []).map((r: any) => ({ resolved: String(r.user_id), account_type: "business" as const }));
+  const userOwners = (Array.isArray(userRows) ? userRows : []).map((r: any) => ({
+    resolved: String(r.id),
+    account_type: (r.account_type as any) === "business" ? "business" as const : "individual" as const,
+  }));
+  const owners = [...bizOwners, ...userOwners];
+
+  if (owners.length === 1) return owners[0];
+  if (owners.length === 0) throw new Error(`no profile row for bridge_customer_id=${bridgeCustomerId}`);
+
+  throw new Error(`ambiguous profile rows for bridge_customer_id=${bridgeCustomerId}`);
 }
 
 // ── claim & drain ────────────────────────────────────────────────────────
@@ -665,28 +1143,15 @@ Deno.serve(async (req) => {
   // Path 1: Supabase Database Webhook payload — process exactly that record.
   if (body?.type === "INSERT" && body?.table === "pending_events" && body?.record?.event_id) {
     const eventId = body.record.event_id as string;
-    const { data: claimed, error } = await supabase
-      .from("pending_events")
-      .update({
-        status:     "processing",
-        locked_by:  WORKER_ID,
-        locked_at:  new Date().toISOString(),
-        attempts:   1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("event_id", eventId)
-      .eq("status", "queued")
-      .select("*")
-      .maybeSingle();
-    if (error) {
-      return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500 });
-    }
-    if (!claimed) {
-      // Already picked up by another worker — fine.
-      return new Response(JSON.stringify({ ok: true, note: "not-claimable" }), { status: 200 });
-    }
-    const r = await processOne(claimed as PendingEvent);
-    return new Response(JSON.stringify({ ok: r.ok, error: r.error, event_id: eventId }), { status: 200 });
+    // Canonical lifecycle mutation path only: claim via RPC and process drain.
+    // We do not issue direct pending_events updates from the worker anymore.
+    const result = await drain(1);
+    return new Response(JSON.stringify({
+      ok: true,
+      mode: "insert_webhook_drain",
+      requested_event_id: eventId,
+      ...result,
+    }), { status: 200 });
   }
 
   // Path 2: drain mode (pg_cron / manual ops).

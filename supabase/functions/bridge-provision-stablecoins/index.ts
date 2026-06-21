@@ -13,6 +13,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
+import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -46,20 +47,21 @@ Deno.serve(async (req) => {
 
   const noop = (reason: string) => json({ success: true, data: { wallets: [], skipped: reason } });
 
-  const { data: profile } = await supa
-    .from("user_profiles")
-    .select("account_type, country, bridge_customer_id, bridge_kyc_status")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isBusiness = profile?.account_type === "business";
+  const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
+  if (!identity.ok) {
+    // Keep this endpoint best-effort/noise-free for ineligible users, but never
+    // hide an approved identity invariant break.
+    if (identity.failure.reason === "approved_without_customer_id") {
+      return json({ success: false, ...identity.failure }, 409);
+    }
+    return noop(identity.failure.reason);
+  }
+  const profile = identity.context;
+  const isBusiness = profile.account_type === "business";
 
   // Silent no-ops for ineligible users — never an error, never a 402.
-  if (!profile?.bridge_customer_id) return noop("no_customer");
-  let verification = profile?.bridge_kyc_status ?? null;
-  if (isBusiness) {
-    const { data: biz } = await supa.from("business_profiles").select("bridge_kyb_status").eq("user_id", user.id).maybeSingle();
-    verification = biz?.bridge_kyb_status ?? verification;
-  }
+  if (!profile.bridge_customer_id) return noop("no_customer");
+  const verification = profile.verification_status;
   if (verification !== "approved") return noop("kyc_not_approved");
   if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
 

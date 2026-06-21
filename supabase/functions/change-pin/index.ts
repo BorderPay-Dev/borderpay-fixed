@@ -1,25 +1,31 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { derivePinHashV2, derivePinHashV2FromStored, hashLegacyPin } from '../_shared/security/pin.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-async function hashPin(pin: string, salt: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pin + salt);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ success: false, error: 'POST only' }),
+      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
   try {
-    const authHeader = req.headers.get('Authorization')!;
+    const authHeader = req.headers.get('Authorization') || '';
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -34,6 +40,12 @@ serve(async (req) => {
     }
 
     const { old_pin, new_pin } = await req.json();
+    if (!old_pin || !/^\d{4,6}$/.test(old_pin)) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Current PIN must be 4-6 digits' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!new_pin || !/^\d{4,6}$/.test(new_pin)) {
       return new Response(
@@ -44,7 +56,7 @@ serve(async (req) => {
 
     const { data: security, error: fetchError } = await supabase
       .from('user_security')
-      .select('pin_hash, failed_pin_attempts, pin_locked_until')
+      .select('pin_hash_v2, pin_hash')
       .eq('user_id', user.id)
       .single();
 
@@ -55,49 +67,48 @@ serve(async (req) => {
       );
     }
 
-    // Check if account is locked
-    if (security.pin_locked_until && new Date(security.pin_locked_until) > new Date()) {
+    const storedV2 = typeof security.pin_hash_v2 === 'string' ? security.pin_hash_v2 : '';
+    const storedLegacy = typeof security.pin_hash === 'string' ? security.pin_hash : '';
+    if (!storedV2 && !storedLegacy) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Account locked. Try again later.' }),
-        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, error: 'PIN not set up' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Verify old PIN
-    const old_hash = await hashPin(old_pin, user.id);
+    const candidateV2 = storedV2 ? await derivePinHashV2FromStored(old_pin, storedV2) : null;
+    const candidateLegacy = storedLegacy ? await hashLegacyPin(old_pin, user.id) : null;
+    const newHashV2 = await derivePinHashV2(new_pin);
+    const { data: changeData, error: changeErr } = await supabase.rpc('change_user_pin_atomic', {
+      p_user_id: user.id,
+      p_candidate_hash_v2: candidateV2,
+      p_candidate_hash_legacy: candidateLegacy,
+      p_new_hash_v2: newHashV2,
+    });
+    if (changeErr) {
+      return new Response(
+        JSON.stringify({ success: false, error: changeErr.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const row = Array.isArray(changeData) ? changeData[0] : changeData;
 
-    if (old_hash !== security.pin_hash) {
-      const newAttempts = (security.failed_pin_attempts || 0) + 1;
-      const updateData: Record<string, unknown> = { failed_pin_attempts: newAttempts };
-
-      if (newAttempts >= 5) {
-        const lockUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-        updateData.pin_locked_until = lockUntil;
+    if (row?.changed !== true) {
+      if (row?.locked === true) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Account locked. Try again later.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
-
-      await supabase
-        .from('user_security')
-        .update(updateData)
-        .eq('user_id', user.id);
-
+      if (row?.pin_set === false) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'PIN not set up' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid PIN' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Old PIN is valid, set new PIN
-    const new_hash = await hashPin(new_pin, user.id);
-
-    const { error: updateError } = await supabase
-      .from('user_security')
-      .update({ pin_hash: new_hash, failed_pin_attempts: 0, pin_locked_until: null })
-      .eq('user_id', user.id);
-
-    if (updateError) {
-      return new Response(
-        JSON.stringify({ success: false, error: updateError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

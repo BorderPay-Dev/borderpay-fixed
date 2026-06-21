@@ -7,6 +7,9 @@
 // The dashboard calls this on load so what the user sees always matches Bridge.
 //
 // POST {} → { success, data: { wallets: [...], virtual_accounts: [...] } }
+//
+// Contract rule: response is sourced from BorderPay internal tables only.
+// We never expose provider response shape directly to product surfaces.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -50,9 +53,6 @@ Deno.serve(async (req) => {
     ? { user_id: user.id, business_user_id: user.id }
     : { user_id: user.id };
 
-  let wallets: any[] = [];
-  let vas: any[] = [];
-
   // ── Wallets ───────────────────────────────────────────────────────────────
   try {
     const bw = await bridgeProvider.listWallets(customerId);
@@ -79,7 +79,6 @@ Deno.serve(async (req) => {
       if (existing?.id) await supa.from("bridge_wallets").update(row).eq("id", existing.id);
       else              await supa.from("bridge_wallets").insert(row);
     }
-    wallets = bw;
   } catch (e) {
     // Non-fatal: still try VAs, surface a soft note.
     console.warn(`bridge-sync-accounts wallets: ${(e as Error).message}`);
@@ -105,10 +104,32 @@ Deno.serve(async (req) => {
       if (existing?.id) await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id);
       else              await supa.from("bridge_virtual_accounts").insert(row);
     }
-    vas = bva;
   } catch (e) {
     console.warn(`bridge-sync-accounts virtual_accounts: ${(e as Error).message}`);
   }
 
-  return json({ success: true, data: { wallets, virtual_accounts: vas } });
+  // Return internal normalized state (not provider payload) so UI/product
+  // logic depends only on BorderPay's own schema.
+  const wq = supa
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,currency,chain,address,status,updated_at")
+    .order("updated_at", { ascending: false });
+  const vq = supa
+    .from("bridge_virtual_accounts")
+    .select("bridge_virtual_account_id,currency,rail,status,account_details,updated_at")
+    .order("updated_at", { ascending: false });
+  const [{ data: wallets }, { data: virtualAccounts }] = isBusiness
+    ? await Promise.all([
+        wq.eq("business_user_id", user.id),
+        vq.eq("business_user_id", user.id),
+      ])
+    : await Promise.all([
+        wq.eq("user_id", user.id),
+        vq.eq("user_id", user.id),
+      ]);
+
+  return json({
+    success: true,
+    data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [] },
+  });
 });

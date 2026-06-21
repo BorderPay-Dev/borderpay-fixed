@@ -1,17 +1,9 @@
 /**
- * Payment Provider Abstraction
- * ───────────────────────────────────────────────────────────────────────────
- * Every external financial-infrastructure provider implements this interface.
- * Edge functions write
- * against the interface, never against a specific provider's API shape, so
- * we can add or swap providers without rewriting business logic.
- *
- * Bridge is the only live provider. `african_onramp` is a future-state
- * placeholder with no live implementation yet. Unknown / removed provider
- * names resolve to Bridge via the registry, never to a legacy provider.
+ * Bridge provider contract.
+ * Bridge is the only supported provider for runtime financial operations.
  */
 
-export type ProviderName = "bridge" | "african_onramp";
+export type ProviderName = "bridge";
 export type AccountType  = "individual" | "business";
 export type FiatCurrency = "USD" | "EUR" | "GBP" | "NGN" | "KES" | "GHS" | "UGX" | "TZS" | "XAF" | "XOF" | "ZAR";
 export type StablecoinSymbol = "USDC" | "USDT" | "PYUSD" | "USDB" | "EURC";
@@ -133,7 +125,7 @@ export interface TransferCreateInput {
 export interface TransferResult {
   provider:     ProviderName;
   transfer_id:  string;
-  state:        "pending" | "processing" | "succeeded" | "failed";
+  state:        string;              // raw provider state (preserved)
   raw:          unknown;
 }
 

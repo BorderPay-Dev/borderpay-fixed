@@ -48,6 +48,11 @@ verify_jwt = true
 [functions.send-email]
 verify_jwt = false
 
+# Legacy confirmation sender (deprecated). Kept for compatibility only and now
+# locked down in-code by SEND_EMAIL_INTERNAL_TOKEN + app-origin validation.
+[functions.send-confirmation-email]
+verify_jwt = false
+
 # Forgot-password request — public route (forgot-password form). Generates a
 # GoTrue recovery link and sends the reset email via the logged send-email.
 # Enumeration-safe (uniform generic response).

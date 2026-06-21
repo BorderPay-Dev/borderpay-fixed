@@ -1,20 +1,19 @@
 /**
- * Minimum-wallet-funding gate.
+ * Minimum stablecoin-funding gate.
  *
- * Replaces the old "activated plan" paid-gate. BorderPay no longer charges an
- * activation fee — users instead must hold a minimum balance ($20 USD-equiv)
- * in their BorderPay wallets to unlock money-movement / VA creation. The
- * funds REMAIN the user's; nothing is deducted.
+ * Product rule:
+ * - Individual: >= $20
+ * - Business:   >= $100
  *
- * Balance sources (summed as USD-equivalent):
- *   • bridge_virtual_account_balances (per-currency available_balance_minor)
- *   • bridge_wallet_balances_minor (stablecoins; if mirrored locally)
+ * Source of truth:
+ * - Bridge stablecoin wallet balances only.
  *
- * FX (conservative, lenient — we never want to block a genuinely funded user):
- *   USD = 1.00, EUR = 1.00, GBP = 1.00, USDC/USDT/USDB/PYUSD = 1.00
- *   (No live FX engine yet; using 1:1 means the gate only blocks empty
- *    accounts. Tighten when we wire real rates.)
+ * Explicitly excluded:
+ * - Virtual account balances
+ * - Any fabricated 1:1 cross-currency FX assumptions
  */
+
+import { bridgeProvider } from "./providers/bridge.ts";
 
 export const FUNDING_REQUIRED_CODE = "funding_required";
 // Per CEO: individuals must hold ≥ $20, businesses ≥ $100. Funds are NOT deducted.
@@ -31,50 +30,27 @@ export type FundingGateResult =
   | { allowed: true;  currentUsd: number }
   | { allowed: false; code: string; status: number; body: Record<string, unknown>; currentUsd: number };
 
-const FX_TO_USD: Record<string, number> = {
-  USD: 1, EUR: 1, GBP: 1,
-  USDC: 1, USDT: 1, USDB: 1, PYUSD: 1, EURC: 1,
-};
+const USD_PEGGED_STABLECOINS = new Set(["USDC", "USDT", "USDB", "PYUSD"]);
+const FUNDING_OUTAGE_POLICY = (Deno.env.get("FUNDING_GATE_OUTAGE_POLICY") || "fail_closed").toLowerCase();
 
-async function sumVirtualAccountBalancesUsd(
-  supa: { from: (t: string) => any },
-  userId: string,
-): Promise<number> {
-  try {
-    const { data } = await supa
-      .from("bridge_virtual_account_balances")
-      .select("currency, available_balance_minor")
-      .eq("user_id", userId);
-    if (!Array.isArray(data)) return 0;
-    let total = 0;
-    for (const r of data) {
-      const cur = String(r?.currency || "").toUpperCase();
-      const rate = FX_TO_USD[cur] ?? 0;
-      total += (Number(r?.available_balance_minor || 0) / 100) * rate;
-    }
-    return total;
-  } catch { return 0; }
+function parseDecimalAmount(v: unknown): number | null {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const raw = String(v).trim();
+  if (!/^-?\d+(\.\d+)?$/.test(raw)) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return n;
 }
 
-async function sumStablecoinBalancesUsd(
+async function resolveBridgeCustomerId(
   supa: { from: (t: string) => any },
   userId: string,
-): Promise<number> {
-  // Optional local mirror (best-effort — table may not exist yet).
-  try {
-    const { data } = await supa
-      .from("bridge_wallet_balances")
-      .select("currency, balance_minor")
-      .eq("user_id", userId);
-    if (!Array.isArray(data)) return 0;
-    let total = 0;
-    for (const r of data) {
-      const cur = String(r?.currency || "").toUpperCase();
-      const rate = FX_TO_USD[cur] ?? 0;
-      total += (Number(r?.balance_minor || 0) / 100) * rate;
-    }
-    return total;
-  } catch { return 0; }
+  isBusiness: boolean,
+): Promise<string | null> {
+  const table = isBusiness ? "business_profiles" : "user_profiles";
+  const idCol = isBusiness ? "user_id" : "id";
+  const { data } = await supa.from(table).select("bridge_customer_id").eq(idCol, userId).maybeSingle();
+  return data?.bridge_customer_id ? String(data.bridge_customer_id) : null;
 }
 
 /**
@@ -86,14 +62,92 @@ async function sumStablecoinBalancesUsd(
 export async function requireMinimumWalletBalance(
   supa: { from: (t: string) => any },
   userId: string,
-  opts: { isBusiness?: boolean; minUsd?: number } = {},
+  opts: { isBusiness?: boolean; minUsd?: number; bridgeCustomerId?: string } = {},
 ): Promise<FundingGateResult> {
   const minUsd = opts.minUsd ?? minimumWalletBalanceUsd(!!opts.isBusiness);
-  const [vaUsd, stableUsd] = await Promise.all([
-    sumVirtualAccountBalancesUsd(supa, userId),
-    sumStablecoinBalancesUsd(supa, userId),
-  ]);
-  const currentUsd = vaUsd + stableUsd;
+  const isBusiness = !!opts.isBusiness;
+  const bridgeCustomerId = opts.bridgeCustomerId ?? await resolveBridgeCustomerId(supa, userId, isBusiness);
+  if (!bridgeCustomerId) {
+    return {
+      allowed: false,
+      code: FUNDING_REQUIRED_CODE,
+      status: 402,
+      currentUsd: 0,
+      body: {
+        success: false,
+        code: FUNDING_REQUIRED_CODE,
+        error: fundingMessage(minUsd),
+        minimum_usd: minUsd,
+        current_balance_usd: 0,
+        account_type: isBusiness ? "business" : "individual",
+      },
+    };
+  }
+
+  // Provider truth: only Bridge stablecoin wallet balances count.
+  // We explicitly keep chain+asset granularity and aggregate only USD-pegged
+  // stablecoin balances into USD thresholds.
+  let currentUsd = 0;
+  try {
+    const wallets = await bridgeProvider.listWallets(bridgeCustomerId);
+    for (const wallet of wallets) {
+      const symbol = String(wallet.currency || "").toUpperCase();
+      if (!USD_PEGGED_STABLECOINS.has(symbol)) continue;
+
+      const direct = parseDecimalAmount(wallet.balance);
+      if (direct !== null && direct > 0) {
+        currentUsd += direct;
+        continue;
+      }
+
+      // Fallback for API shapes that omit list-level balances.
+      const balanceRows = await bridgeProvider.getWalletBalances(bridgeCustomerId, String(wallet.wallet_id));
+      for (const row of balanceRows) {
+        const rowSymbol = String(row.currency || symbol).toUpperCase();
+        if (!USD_PEGGED_STABLECOINS.has(rowSymbol)) continue;
+        const amount = parseDecimalAmount(row.balance);
+        if (amount !== null && amount > 0) currentUsd += amount;
+      }
+    }
+  } catch (e) {
+    // Bridge-first policy: never invent balances. Default is fail-closed.
+    if (FUNDING_OUTAGE_POLICY !== "grace_window") {
+      return {
+        allowed: false,
+        code: "funding_balance_unavailable",
+        status: 503,
+        currentUsd: 0,
+        body: {
+          success: false,
+          code: "funding_balance_unavailable",
+          error: "We could not verify your Bridge wallet balances right now. Please retry shortly.",
+          minimum_usd: minUsd,
+          account_type: isBusiness ? "business" : "individual",
+          retryable: true,
+        },
+      };
+    }
+    // Grace-window mode is intentionally not enabled by default because this
+    // runtime has no durable, integrity-verified balance cache primitive.
+    // Keep fail-closed behavior even if misconfigured.
+    return {
+      allowed: false,
+      code: "funding_balance_unavailable",
+      status: 503,
+      currentUsd: 0,
+      body: {
+        success: false,
+        code: "funding_balance_unavailable",
+        error: "Balance verification is temporarily unavailable. Please retry shortly.",
+        minimum_usd: minUsd,
+        account_type: isBusiness ? "business" : "individual",
+        retryable: true,
+        policy: "fail_closed",
+        detail: (e as Error).message,
+      },
+    };
+  }
+
   if (currentUsd + 1e-9 >= minUsd) return { allowed: true, currentUsd };
 
   return {
@@ -107,7 +161,7 @@ export async function requireMinimumWalletBalance(
       error:             fundingMessage(minUsd),
       minimum_usd:       minUsd,
       current_balance_usd: Math.round(currentUsd * 100) / 100,
-      account_type:      opts.isBusiness ? "business" : "individual",
+      account_type:      isBusiness ? "business" : "individual",
     },
   };
 }

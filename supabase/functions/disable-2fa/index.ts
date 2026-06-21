@@ -10,9 +10,21 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ success: false, error: 'POST only' }),
+      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
   try {
-    const authHeader = req.headers.get('Authorization')!;
+    const authHeader = req.headers.get('Authorization') || '';
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -51,7 +63,14 @@ serve(async (req) => {
     // Disable 2FA
     const { error: updateError } = await supabase
       .from('user_security')
-      .update({ two_factor_enabled: false, two_factor_secret: null })
+      .update({
+        two_factor_enabled: false,
+        two_factor_secret: null,
+        two_factor_secret_encrypted: null,
+        two_factor_enc_version: null,
+        failed_2fa_attempts: 0,
+        two_factor_locked_until: null,
+      })
       .eq('user_id', user.id);
 
     if (updateError) {
