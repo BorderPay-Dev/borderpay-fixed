@@ -789,15 +789,59 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the wallet; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const walletId = d?.wallet_id ?? d?.bridge_wallet_id ?? d?.id ?? ev.payload?.event_object_id;
-  const customer = d?.customer_id ?? d?.customer?.id ?? d?.bridge_customer_id ?? d?.bridge_wallet?.customer_id;
-  if (!walletId || !customer) throw new Error("bridge wallet event missing ids");
+  if (!walletId) throw new Error("bridge wallet event missing wallet_id");
 
-  const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
+  const payloadCustomer = d?.customer_id ?? d?.customer?.id ?? d?.bridge_customer_id ?? d?.bridge_wallet?.customer_id;
+  let customer = payloadCustomer ? String(payloadCustomer) : "";
+  let resolved = "";
+  let account_type: "individual" | "business" = "individual";
+
+  if (customer) {
+    const owner = await resolveOwnerFromBridgeCustomer(customer);
+    resolved = owner.resolved;
+    account_type = owner.account_type;
+  } else {
+    const { data: mappedWallet } = await supabase
+      .from("bridge_wallets")
+      .select("bridge_customer_id,user_id,business_user_id")
+      .eq("bridge_wallet_id", String(walletId))
+      .maybeSingle();
+
+    if (!mappedWallet?.bridge_customer_id) {
+      await supabase.from("bridge_webhook_events")
+        .update({ target_entity_type: "wallet", target_entity_id: String(walletId) })
+        .eq("event_id", ev.event_id);
+      await supabase.rpc("complete_pending_event", {
+        p_event_id: ev.event_id,
+        p_summary: {
+          source: "bridge",
+          kind: "wallet",
+          wallet_id: walletId,
+          reconciliation_required: "wallet_activity_missing_customer_mapping",
+        },
+      });
+      return;
+    }
+
+    customer = String(mappedWallet.bridge_customer_id);
+    if (mappedWallet.user_id) {
+      resolved = String(mappedWallet.user_id);
+      account_type = "individual";
+    } else if (mappedWallet.business_user_id) {
+      resolved = String(mappedWallet.business_user_id);
+      account_type = "business";
+    } else {
+      const owner = await resolveOwnerFromBridgeCustomer(customer);
+      resolved = owner.resolved;
+      account_type = owner.account_type;
+    }
+  }
+
   await supabase.from("bridge_wallets").upsert({
     bridge_wallet_id:    String(walletId),
     bridge_customer_id:  String(customer),
     user_id:             account_type === "individual" ? resolved : null,
-    business_user_id:     account_type === "business"   ? resolved : null,
+    business_user_id:    account_type === "business"   ? resolved : null,
     currency:            String(d?.currency ?? "usdc").toLowerCase(),
     chain:               String(d?.chain ?? "base").toLowerCase(),
     address:             String(d?.address ?? d?.deposit_address ?? ""),
