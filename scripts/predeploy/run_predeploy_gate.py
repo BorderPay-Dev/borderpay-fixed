@@ -22,6 +22,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from shutil import which
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS_DIR = ROOT / "docs"
@@ -54,8 +55,24 @@ def timestamp_for_file() -> str:
 
 
 def run_shell(cmd: str, timeout: int = 180) -> tuple[int, str, str]:
+    shell_prefix: list[str] | None = None
+    candidates = [
+        os.environ.get("SHELL"),
+        "/bin/zsh",
+        "/usr/bin/zsh",
+        "/bin/bash",
+        "/usr/bin/bash",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            shell_prefix = [candidate, "-lc"]
+            break
+    if shell_prefix is None:
+        bash = which("bash")
+        shell_prefix = [bash, "-lc"] if bash else ["/usr/bin/env", "bash", "-lc"]
+
     proc = subprocess.run(
-        ["/bin/zsh", "-lc", f"cd {shlex.quote(str(ROOT))} && {cmd}"],
+        [*shell_prefix, f"cd {shlex.quote(str(ROOT))} && {cmd}"],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -108,6 +125,7 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
 
     required_files = [
         "scripts/runtime/verify_runtime_contract.py",
+        "scripts/ci/compute_rc1_status.py",
         "scripts/predeploy/run_predeploy_gate.py",
         "scripts/ci/enforce-safety-boundaries.sh",
         "tests/audit/customer_identity_invariant_phase1_audit.py",
@@ -117,6 +135,12 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
         "tests/audit/provisioning_lock_resilience_audit.py",
         "tests/audit/funding_gate_outage_policy_audit.py",
         "tests/audit/external_account_webhook_coverage_audit.py",
+        "tests/audit/financial_engine_drift_prevention_audit.py",
+        "tests/audit/rc1_business_certification_gate_audit.py",
+        "tests/audit/rc1_freeze_rule_audit.py",
+        "tests/audit/rc1_runtime_killswitch_audit.py",
+        "tests/audit/business_performance_parity_phase2_audit.py",
+        "tests/audit/business_platform_navigation_audit.py",
     ]
     missing = [p for p in required_files if not (ROOT / p).is_file()]
     stage.checks.append(CheckResult(
@@ -177,10 +201,34 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
 def stage2_runtime_contract() -> StageResult:
     stage = StageResult(name="Stage 2 - Runtime Contract", passed=True, started_at=now_utc())
     stage.checks.append(run_check_command(
+        "compute_rc1_status.py --check",
+        "python3 scripts/ci/compute_rc1_status.py --check",
+        severity="critical",
+        remediation="Regenerate RC1 computed status from gate evidence (python3 scripts/ci/compute_rc1_status.py --write).",
+    ))
+    stage.checks.append(run_check_command(
         "verify_runtime_contract.py",
         "python3 scripts/runtime/verify_runtime_contract.py",
         severity="critical",
         remediation="Reconcile live runtime contract failures (tables/columns/indexes/constraints/RPCs/functions/cron/queue settings).",
+    ))
+    stage.checks.append(run_check_command(
+        "verify_financial_schema_contract.py",
+        "python3 scripts/ci/verify_financial_schema_contract.py",
+        severity="critical",
+        remediation="Fix financial read-model schema/RPC/ownership contract drift before deployment.",
+    ))
+    stage.checks.append(run_check_command(
+        "verify_financial_value_propagation.py",
+        "python3 scripts/ci/verify_financial_value_propagation.py",
+        severity="critical",
+        remediation="Fix value propagation drift (ledger -> projections -> snapshot -> financial surfaces) before deployment.",
+    ))
+    stage.checks.append(run_check_command(
+        "verify_business_platform_rc1.py",
+        "python3 scripts/ci/verify_business_platform_rc1.py",
+        severity="critical",
+        remediation="Fix business platform RC1 convergence failures before deployment.",
     ))
     stage.passed = all(c.passed for c in stage.checks)
     stage.ended_at = now_utc()
@@ -204,6 +252,14 @@ def stage3_financial_correctness() -> StageResult:
         "tests/audit/state_transition_invariant_audit.py",
         "tests/audit/bridge_ingress_canonicalization_audit.py",
         "tests/audit/synthetic_event_isolation_audit.py",
+        "tests/audit/operator_account_exclusion_audit.py",
+        "tests/audit/financial_engine_convergence_audit.py",
+        "tests/audit/financial_engine_drift_prevention_audit.py",
+        "tests/audit/rc1_business_certification_gate_audit.py",
+        "tests/audit/rc1_freeze_rule_audit.py",
+        "tests/audit/rc1_runtime_killswitch_audit.py",
+        "tests/audit/business_performance_parity_phase2_audit.py",
+        "tests/audit/business_platform_navigation_audit.py",
     ]
     for audit in audits:
         stage.checks.append(run_check_command(
