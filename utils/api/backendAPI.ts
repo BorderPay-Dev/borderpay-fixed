@@ -569,6 +569,19 @@ export const financialReadModelAPI = (() => {
   let lastSnapshot: any = null;
   let lastSnapshotAt = 0;
   let lastSnapshotKey = '';
+  const EXTERNAL_FETCH_TIMEOUT_MS = 900;
+
+  async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<T>((resolve) => {
+      timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
 
   function persistKey(userId: string): string {
     return `borderpay_snapshot_cache_v1:${userId}`;
@@ -622,9 +635,23 @@ export const financialReadModelAPI = (() => {
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(limit),
-      bridgeAPI.externalAccount.list(),
-      bridgeAPI.externalAccount.capabilities(),
-      externalWalletsAPI.list(),
+      // External-account surfaces are route-specific and should never block
+      // the shared snapshot used by Dashboard/Wallet/Receive/Transactions/etc.
+      withTimeout(
+        bridgeAPI.externalAccount.list() as Promise<any>,
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'timeout' } as any,
+      ),
+      withTimeout(
+        bridgeAPI.externalAccount.capabilities() as Promise<any>,
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'timeout' } as any,
+      ),
+      withTimeout(
+        externalWalletsAPI.list() as Promise<any>,
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'timeout' } as any,
+      ),
     ]);
 
     if (!profileRes?.success) {
@@ -706,7 +733,16 @@ export const financialReadModelAPI = (() => {
 
   return {
     async getSnapshot(limit = 50) {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      // Fast path: session user is locally available and avoids an extra
+      // auth round-trip on every route mount.
+      const { data: sessionData } = await supabase.auth.getSession();
+      let user = sessionData?.session?.user ?? null;
+      let userErr: any = null;
+      if (!user) {
+        const r = await supabase.auth.getUser();
+        user = r.data?.user ?? null;
+        userErr = r.error;
+      }
       if (userErr || !user) {
         navPerfTrackSnapshot(false);
         return { success: false, error: userErr?.message || 'Not signed in' };
