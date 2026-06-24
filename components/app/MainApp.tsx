@@ -10,7 +10,7 @@
  *     screen's chunk on hover/touchstart, making the click feel instant.
  */
 
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { Dashboard } from './Dashboard';
 import { useVerification } from '../../utils/verification/useVerification';
@@ -22,8 +22,24 @@ import { ErrorBoundary } from '../common/ErrorBoundary';
 import { FundWalletSheet } from '../activation/FundWalletSheet';
 import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
-import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
+import {
+  TRANSFERS_LIVE,
+  EXTERNAL_ACCOUNTS_LIVE,
+  FX_NAV_ENABLED,
+  FX_RUNTIME_ENABLED,
+  PAYROLL_NAV_ENABLED,
+  PAYROLL_RUNTIME_ENABLED,
+  RAMPS_NAV_ENABLED,
+} from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
+import {
+  navPerfGetReport,
+  navPerfMarkFirstPaint,
+  navPerfMarkRouteMounted,
+  navPerfReset,
+  navPerfStartRoute,
+} from '../../utils/performance/navigationPerf';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -58,6 +74,8 @@ const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m
 const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
 const ExternalWalletsScreen = lazyImport(() => import('../wallets/ExternalWalletsScreen').then(m => ({ default: m.ExternalWalletsScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
+const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
+const RampsScreen = lazyImport(() => import('../business/RampsScreen').then(m => ({ default: m.RampsScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
@@ -72,6 +90,8 @@ const ProofOfAddressScreen = lazyImport(() => import('../settings/ProofOfAddress
 const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
 const TeamScreen          = lazyImport(() => import('../team/TeamScreen').then(m => ({ default: m.TeamScreen })));
 const NotificationsScreen = lazyImport(() => import('../notifications/NotificationsScreen').then(m => ({ default: m.NotificationsScreen })));
+const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
+const IndividualBroadcastScreen = lazyImport(() => import('../admin/IndividualBroadcastScreen').then(m => ({ default: m.IndividualBroadcastScreen })));
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
 // so any nav button can call it on hover/touchstart.
@@ -112,7 +132,11 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'external-accounts':   (ExternalAccountsScreen as any).preload,
   'external-wallets':    (ExternalWalletsScreen as any).preload,
   'bulk-payout':         (BulkPayoutScreen as any).preload,
+  payroll:              (PayrollScreen as any).preload,
+  ramps:                (RampsScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
+  'admin-broadcast-business': (BusinessBroadcastScreen as any).preload,
+  'admin-broadcast-individual': (IndividualBroadcastScreen as any).preload,
 };
 
 export function prefetchScreen(name: string) {
@@ -148,6 +172,50 @@ function writeCachedUnreadCount(userId: string, count: number): void {
   try {
     localStorage.setItem(unreadCountCacheKey(userId), String(Math.max(0, Math.floor(count || 0))));
   } catch { /* ignore notification cache write */ }
+}
+
+function seedSnapshotCaches(userId: string, accountType: 'individual' | 'business', data: any): void {
+  try {
+    if (!data || typeof data !== 'object') return;
+
+    const scoped = { userId, accountType };
+    const wallets = Array.isArray(data.wallets) ? data.wallets : [];
+    const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+    const virtualAccounts = Array.isArray(data.virtual_accounts) ? data.virtual_accounts : [];
+    const stableWallets = Array.isArray(data.stablecoin_wallets) ? data.stablecoin_wallets : [];
+    const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+    const externalAccounts = Array.isArray(data.external_accounts) ? data.external_accounts : [];
+    const capabilities = Array.isArray(data.external_account_capabilities) ? data.external_account_capabilities : [];
+
+    localStorage.setItem(financialCacheKey('borderpay_wallets_v1', scoped), JSON.stringify(wallets));
+    localStorage.setItem(financialCacheKey('borderpay_tx_history_v1', scoped), JSON.stringify(transactions));
+    localStorage.setItem(financialCacheKey('borderpay_va_v1', scoped), JSON.stringify(virtualAccounts));
+    localStorage.setItem(financialCacheKey('borderpay_send_wallets_v1', scoped), JSON.stringify(wallets));
+    localStorage.setItem(financialCacheKey('borderpay_send_caps_v1', scoped), JSON.stringify(capabilities));
+    localStorage.setItem(financialCacheKey('borderpay_payout_accounts_v1', { userId }), JSON.stringify(externalAccounts));
+    localStorage.setItem(
+      financialCacheKey('borderpay_notifications_cache:', { userId }),
+      JSON.stringify({ rows: notifications.slice(0, 50), cached_at: Date.now() }),
+    );
+
+    const byCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
+      const c = String(w?.currency || '').toUpperCase();
+      if (c) acc[c] = Number(w?.balance || 0);
+      return acc;
+    }, {});
+    localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(byCurrency));
+    localStorage.setItem(
+      `borderpay_wallet_total_${userId}`,
+      String(wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0)),
+    );
+
+    // Wallet/Receive screens read stablecoin rows from the wallet cache key.
+    if (stableWallets.length > 0) {
+      localStorage.setItem(financialCacheKey('borderpay_wallets_v1', { userId }), JSON.stringify(stableWallets));
+    }
+  } catch {
+    // Best effort: never block navigation on cache seed failures.
+  }
 }
 
 // ─── Skeleton Fallback (no spinner!) ───────────────────────────────────
@@ -215,7 +283,11 @@ export type AppScreen =
   | 'external-accounts'
   | 'external-wallets'
   | 'bulk-payout'
-  | 'add-external-account';
+  | 'payroll'
+  | 'ramps'
+  | 'add-external-account'
+  | 'admin-broadcast-business'
+  | 'admin-broadcast-individual';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
 // The shell speaks `AppRoute` (Home/Send/Receive/Account + drawer items).
@@ -360,20 +432,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           try {
             localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, ...u, account_type: t }));
           } catch { /* ignore */ }
-          if (t === 'business') {
-            try {
-              const biz: any = await backendAPI.business.getProfile();
-              if (cancelled) return;
-              if (biz?.success && biz.data?.company_name) {
-                const company_name = biz.data.company_name;
-                if (company_name !== shellUserName) setShellUserName(company_name);
-                try {
-                  const latest = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-                  localStorage.setItem('borderpay_user', JSON.stringify({ ...latest, account_type: 'business', company_name }));
-                } catch { /* ignore company cache patch */ }
-              }
-            } catch { /* keep profile payload */ }
-          }
         }
       } catch { /* keep cached */ }
     })();
@@ -381,20 +439,35 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ─── Unread notifications badge for AppShell ──────────────────────────
-  // One-shot on mount + on every refresh; cheap GET so we don't poll.
+  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>([]);
+  const externalAccountsEnabled = EXTERNAL_ACCOUNTS_LIVE && externalAccountTypes.length > 0;
+
+  // ─── Shell snapshot (unread + external-account capabilities) ───────────
+  // Single snapshot request fan-outs into shell-level state to avoid duplicate
+  // network work on Business route transitions.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r: any = await backendAPI.notifications.getUnreadCount();
-        if (cancelled) return;
-        const n = Number(r?.data?.count ?? r?.data?.unread_count ?? 0);
+        const r: any = await backendAPI.financial.getSnapshot(20);
+        if (cancelled || !r?.success) return;
+        seedSnapshotCaches(userId, accountType, r.data);
+
+        const n = Number(r?.data?.notifications_unread_count ?? 0);
         if (Number.isFinite(n)) updateUnreadCount(n);
-      } catch { /* non-fatal */ }
+
+        if (!EXTERNAL_ACCOUNTS_LIVE) {
+          setExternalAccountTypes([]);
+          return;
+        }
+        const types = Array.isArray(r?.data?.external_account_capabilities) ? r.data.external_account_capabilities : [];
+        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+      } catch {
+        if (!cancelled && EXTERNAL_ACCOUNTS_LIVE) setExternalAccountTypes([]);
+      }
     })();
     return () => { cancelled = true; };
-  }, [userId, refreshKey, updateUnreadCount]);
+  }, [userId, accountType, refreshKey, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
   // Reads user_subscriptions via the subscription-current edge function. If
@@ -473,6 +546,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // Pre-warm the chunk in case the user reached this state without a
     // hover preload (e.g. programmatic nav)
     prefetchScreen(target);
+    navPerfStartRoute(target, accountType);
 
     setCurrentScreen(target);
     setNavigationStack(prev => [...prev, target]);
@@ -481,8 +555,21 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   React.useEffect(() => {
     (window as any).__borderpay_navigate = navigateTo;
-    return () => { delete (window as any).__borderpay_navigate; };
+    (window as any).__borderpay_nav_perf_report = () => navPerfGetReport();
+    (window as any).__borderpay_nav_perf_reset = () => navPerfReset();
+    return () => {
+      delete (window as any).__borderpay_navigate;
+      delete (window as any).__borderpay_nav_perf_report;
+      delete (window as any).__borderpay_nav_perf_reset;
+    };
   });
+
+  useEffect(() => {
+    navPerfStartRoute(currentScreen, accountType);
+    navPerfMarkRouteMounted(currentScreen);
+    const id = requestAnimationFrame(() => navPerfMarkFirstPaint(currentScreen));
+    return () => cancelAnimationFrame(id);
+  }, [currentScreen, accountType]);
 
   // Prefetch most-likely-next screens once the dashboard is mounted, so the
   // user's first navigation is instant. Runs once per session, in background.
@@ -495,11 +582,43 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     };
     idle(() => {
       if (cancelled) return;
-      ['transactions', 'send-money', 'receive-money', 'add-money', 'profile', 'settings', 'preferences', 'wallet-detail', 'kyc', 'pricing', 'notifications', 'exchange']
+      ['transactions', 'send-money', 'receive-money', 'add-money', 'profile', 'settings', 'preferences', 'wallet-detail', 'kyc', 'pricing', 'notifications']
         .forEach(prefetchScreen);
     });
     return () => { cancelled = true; };
   }, []);
+
+  // Business first-open latency killer: warm route chunks likely to be opened
+  // from the burger menu so route switches don't wait on lazy imports.
+  React.useEffect(() => {
+    if (accountType !== 'business') return;
+    let cancelled = false;
+    const warm = [
+      'wallet-detail',
+      'receive-money',
+      'send-money',
+      'transactions',
+      'team',
+      'settings',
+      'profile',
+      'notifications',
+      'external-accounts',
+      'external-wallets',
+      'bulk-payout',
+    ];
+    if (PAYROLL_NAV_ENABLED) warm.push('payroll');
+    if (FX_NAV_ENABLED) warm.push('exchange');
+    if (RAMPS_NAV_ENABLED) warm.push('ramps');
+
+    const id = window.setTimeout(() => {
+      if (cancelled) return;
+      warm.forEach(prefetchScreen);
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [accountType]);
 
   const navigateBack = () => {
     if (navigationStack.length > 1) {
@@ -576,7 +695,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       // EXTERNAL_ACCOUNTS_LIVE is false these route to the dashboard so the
       // feature is fully inert until the table/edge/secret are in place.
       case 'external-accounts':
-        if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
+        if (!externalAccountsEnabled) { navigateTo('dashboard'); return null; }
         return (
           <ExternalAccountsScreen
             onBack={navigateBack}
@@ -599,8 +718,28 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         if (!TRANSFERS_LIVE) { navigateTo('dashboard'); return null; }
         return <BulkPayoutScreen onBack={navigateBack} />;
 
+      case 'payroll':
+        if (!PAYROLL_NAV_ENABLED) { navigateTo('dashboard'); return null; }
+        if (!PAYROLL_RUNTIME_ENABLED) { navigateTo('dashboard'); return null; }
+        if (!TRANSFERS_LIVE) { navigateTo('dashboard'); return null; }
+        return (
+          <PayrollScreen
+            onBack={navigateBack}
+            onOpenBulkPayout={() => navigateTo('bulk-payout')}
+          />
+        );
+
+      case 'ramps':
+        if (!RAMPS_NAV_ENABLED) { navigateTo('dashboard'); return null; }
+        return (
+          <RampsScreen
+            onBack={navigateBack}
+            onNavigate={navigateTo}
+          />
+        );
+
       case 'add-external-account':
-        if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
+        if (!externalAccountsEnabled) { navigateTo('dashboard'); return null; }
         return (
           <AddExternalAccountScreen
             onBack={navigateBack}
@@ -609,6 +748,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'exchange':
+        if (!FX_NAV_ENABLED) { navigateTo('dashboard'); return null; }
+        if (!FX_RUNTIME_ENABLED) { navigateTo('dashboard'); return null; }
         return <ExchangeScreen onBack={navigateBack} />;
 
       case 'converter':
@@ -789,6 +930,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'notifications':
         return <NotificationsScreen onBack={navigateBack} onUnreadCountChange={updateUnreadCount} />;
 
+      case 'admin-broadcast-business':
+        return <BusinessBroadcastScreen onBack={navigateBack} />;
+
+      case 'admin-broadcast-individual':
+        return <IndividualBroadcastScreen onBack={navigateBack} />;
+
       case 'dashboard':
       case 'home':
       default:
@@ -822,7 +969,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       <div className="glass-noise-overlay" />
 
       <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden relative z-[2] no-scrollbar" style={{ WebkitOverflowScrolling: 'auto', overscrollBehavior: 'none' }}>
-        <ErrorBoundary key={currentScreen}>
+        <ErrorBoundary>
           <Suspense fallback={<ScreenSkeleton />}>
             {TOP_LEVEL_SCREENS.has(currentScreen) ? (
               <AppShell
@@ -839,8 +986,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 isBusinessAccount={accountType === 'business'}
                 onSignOut={onLogout}
                 onLock={onLock}
-                onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
+                onOpenPayoutAccounts={externalAccountsEnabled ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
+                onOpenReferral={accountType === 'individual' ? () => navigateTo('referral') : undefined}
               >
                 {renderScreen()}
               </AppShell>

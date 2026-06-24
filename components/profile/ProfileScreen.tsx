@@ -26,6 +26,9 @@ import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { deriveKycStatus } from '../../utils/config/environment';
+import { deriveWalletStatus, type WalletStatus } from '../../utils/financial/walletStatus';
+import { Skeleton, SkeletonRows } from '../common/Skeleton';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ProfileScreenProps {
   userId: string;
@@ -55,6 +58,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingPic, setUploadingPic] = useState(false);
+  const [walletStatus, setWalletStatus] = useState<WalletStatus>('locked');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
@@ -67,6 +71,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       email: '',
       phone: '',
       address: '',
+      address_object: null as Record<string, any> | null,
       city: '',
       country: '',
       postal_code: '',
@@ -75,6 +80,8 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       bridge_kyc_status: null as string | null,
       bridge_kyb_status: null as string | null,
       bridge_account_status: null as string | null,
+      wallet_status: 'locked' as WalletStatus,
+      verification_status: 'not_started',
       account_type: 'individual',
       is_unlocked: false,
       email_confirmed: false,
@@ -93,6 +100,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           email: u.email || '',
           phone: u.phone || '',
           address: u.address || '',
+          address_object: u.address_object || null,
           city: u.city || '',
           country: u.country || '',
           postal_code: u.postal_code || '',
@@ -101,6 +109,8 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           bridge_kyc_status: u.bridge_kyc_status ?? null,
           bridge_kyb_status: u.bridge_kyb_status ?? null,
           bridge_account_status: u.bridge_account_status ?? null,
+          wallet_status: (u.wallet_status as WalletStatus) || 'locked',
+          verification_status: u.verification_status || 'not_started',
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
           email_confirmed: deriveEmailConfirmed(u),
@@ -119,6 +129,10 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
 
+  useEffect(() => {
+    navPerfTrackCache('profile', !loading);
+  }, [loading]);
+
   const mergeProfileCache = (next: Record<string, unknown>) => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
@@ -133,19 +147,26 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const loadProfile = async () => {
     // Fetch fresh data from backend (cached data already loaded synchronously in useState)
     try {
-      const result = await backendAPI.user.getProfile();
+      const cachedCompanyName = (() => {
+        try {
+          const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+          return cached?.company_name || '';
+        } catch {
+          return '';
+        }
+      })();
+      const snapshot: any = await backendAPI.financial.getSnapshot(50);
+      const result = snapshot?.success ? { success: true, data: { user: snapshot.data?.profile } } : await backendAPI.user.getProfile();
 
       if (result.success && result.data?.user) {
-        const u = result.data.user;
-        const cachedCompanyName = profile.company_name || (() => {
-          try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.company_name || ''; } catch { return ''; }
-        })();
+        const u = result.data.user as any;
         const profileData = {
           full_name: u.full_name || '',
           company_name: u.company_name || cachedCompanyName || '',
           email: u.email || '',
           phone: u.phone || '',
           address: u.address || '',
+          address_object: u.address_object || null,
           city: u.city || '',
           country: u.country || '',
           postal_code: u.postal_code || '',
@@ -154,6 +175,15 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           bridge_kyc_status: u.bridge_kyc_status ?? null,
           bridge_kyb_status: u.bridge_kyb_status ?? null,
           bridge_account_status: u.bridge_account_status ?? null,
+          wallet_status: (u.wallet_status as WalletStatus) || deriveWalletStatus({
+            account_type: u.account_type,
+            bridge_kyc_status: u.bridge_kyc_status,
+            bridge_kyb_status: u.bridge_kyb_status,
+            bridge_account_status: u.bridge_account_status,
+            is_unlocked: u.is_unlocked,
+            has_funding_surface: Boolean(snapshot?.data?.has_funding_surface),
+          }),
+          verification_status: u.verification_status || 'not_started',
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
           email_confirmed: deriveEmailConfirmed(u),
@@ -164,18 +194,28 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         };
         setProfile(profileData);
         setEditedProfile(profileData);
+        setWalletStatus(profileData.wallet_status);
         mergeProfileCache({ ...u, company_name: profileData.company_name });
 
-        if (profileData.account_type === 'business') {
-          try {
-            const biz: any = await backendAPI.business.getProfile();
-            if (biz?.success && biz.data?.company_name) {
-              const company_name = biz.data.company_name;
-              setProfile((p) => ({ ...p, company_name }));
-              setEditedProfile((p) => ({ ...p, company_name }));
-              mergeProfileCache({ company_name, account_type: 'business' });
+        // Do not block first paint on business-profile enrichment.
+        setLoading(false);
+
+        if ((u.account_type || profileData.account_type) === 'business') {
+          void (async () => {
+            try {
+              const businessProfile = await backendAPI.business.getProfile();
+              const company_name = businessProfile?.success
+                ? String(businessProfile?.data?.company_name || '').trim()
+                : '';
+              if (company_name) {
+                setProfile((p) => ({ ...p, company_name }));
+                setEditedProfile((p) => ({ ...p, company_name }));
+                mergeProfileCache({ company_name, account_type: 'business' });
+              }
+            } catch {
+              // Non-fatal: keep profile data already rendered from snapshot/user profile.
             }
-          } catch { /* keep profile payload/cache */ }
+          })();
         }
       }
       // No error toast — screen already shows cached or default data
@@ -281,6 +321,30 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     ? (profile.company_name || 'Business account')
     : (profile.full_name || 'No Name');
   const avatarInitial = displayName?.charAt(0)?.toUpperCase() || 'U';
+  const addressObject = profile.address_object || {};
+  const bridgeStreet = [addressObject.street_line_1, addressObject.street_line_2].filter(Boolean).join(', ');
+  const displayAddress = editing ? editedProfile.address : (profile.address || bridgeStreet);
+  const displayCity = editing ? editedProfile.city : (profile.city || addressObject.city || '');
+  const displayPostalCode = editing ? editedProfile.postal_code : (profile.postal_code || addressObject.postal_code || '');
+  const displayCountry = editing ? editedProfile.country : (profile.country || addressObject.country || '');
+  const verificationLabel = String(profile.verification_status || 'not_started').replace(/_/g, ' ');
+  const walletAccessActivated = walletStatus === 'active';
+
+  if (loading) {
+    return (
+      <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
+        <div className="max-w-2xl mx-auto px-5 pt-5">
+          <Skeleton className="h-3 w-28 mb-6" />
+          <div className="flex flex-col items-center mb-6">
+            <Skeleton className="w-24 h-24 rounded-full mb-4" />
+            <Skeleton className="h-5 w-40 mb-2" />
+            <Skeleton className="h-4 w-52" />
+          </div>
+          <SkeletonRows count={8} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
@@ -410,7 +474,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           <ProfileField
             icon={MapPin}
             label="Street Address"
-            value={editing ? editedProfile.address : profile.address}
+            value={displayAddress}
             editing={editing}
             onChange={(value) => setEditedProfile({ ...editedProfile, address: value })}
           />
@@ -419,14 +483,14 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
             <ProfileField
               icon={MapPin}
               label="City"
-              value={editing ? editedProfile.city : profile.city}
+              value={displayCity}
               editing={editing}
               onChange={(value) => setEditedProfile({ ...editedProfile, city: value })}
             />
             <ProfileField
               icon={MapPin}
               label="Postal Code"
-              value={editing ? editedProfile.postal_code : profile.postal_code}
+              value={displayPostalCode}
               editing={editing}
               onChange={(value) => setEditedProfile({ ...editedProfile, postal_code: value })}
             />
@@ -435,7 +499,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           <ProfileField
             icon={Globe}
             label="Country"
-            value={editing ? editedProfile.country : profile.country}
+            value={displayCountry}
             editing={false}
             disabled
           />
@@ -446,10 +510,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           <h3 className="text-xs text-gray-400 font-semibold uppercase tracking-wider px-1">Account Status</h3>
           <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
             <StatusRow label="Account Type" value={profile.account_type === 'business' ? 'Business' : 'Individual'} />
+            <StatusRow label="Verification Status" value={verificationLabel} />
             <StatusRow
               label="Wallet Access"
-              value={profile.is_unlocked ? 'Activated' : 'Locked'}
-              valueColor={profile.is_unlocked ? 'text-[#C7FF00]' : 'text-orange-400'}
+              value={walletAccessActivated ? 'Activated' : 'Locked'}
+              valueColor={walletAccessActivated ? 'text-[#C7FF00]' : 'text-orange-400'}
             />
             <StatusRow label="2FA" value={profile.two_factor_enabled ? 'Enabled' : 'Disabled'} valueColor={profile.two_factor_enabled ? 'text-[#C7FF00]' : 'text-orange-400'} />
             {profile.last_sign_in_at && (

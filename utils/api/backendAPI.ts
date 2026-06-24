@@ -9,6 +9,9 @@
  */
 
 import { authAPI, BASE_URL, ANON_KEY, supabase } from '../supabase/client';
+import { ownerOrFilter } from '../financial/ownership';
+import { deriveWalletStatus } from '../financial/walletStatus';
+import { navPerfTrackApi, navPerfTrackSnapshot } from '../performance/navigationPerf';
 
 // ── CSRF token (per-session, rotated on page load) ───────────────────────────
 const CSRF_TOKEN = crypto.randomUUID();
@@ -30,6 +33,7 @@ async function apiCall<T = any>(
   options: RequestInit = {},
   retries: number = 0
 ): Promise<{ success: boolean; data?: T; error?: string }> {
+  navPerfTrackApi(endpoint, 'start');
   try {
     const token = authAPI.getToken();
 
@@ -57,9 +61,14 @@ async function apiCall<T = any>(
 
     // Funding gate: when an edge function returns 402 funding_required (new
     // minimum-balance model), surface it as a DOM event so any screen pops the
-    // FundWalletSheet without prop-drilling. plan_required is kept as a legacy
-    // alias for in-flight responses on older deployments.
-    if (response.status === 402 && (data?.code === 'funding_required' || data?.code === 'plan_required') && typeof window !== 'undefined') {
+    // FundWalletSheet without prop-drilling.
+    // `plan_required` and `payment_required` are kept as compatibility aliases
+    // for older/parallel deployments that still emit those codes.
+    if (
+      response.status === 402 &&
+      (data?.code === 'funding_required' || data?.code === 'plan_required' || data?.code === 'payment_required') &&
+      typeof window !== 'undefined'
+    ) {
       try {
         window.dispatchEvent(new CustomEvent('borderpay:funding_required', { detail: data }));
         // legacy alias
@@ -73,6 +82,7 @@ async function apiCall<T = any>(
     }
 
     if (!response.ok) {
+      navPerfTrackApi(endpoint, 'end', false);
       return {
         success: false,
         error: sanitizeError(data.error || data.message),
@@ -84,11 +94,14 @@ async function apiCall<T = any>(
     // If the edge function already returns { success, data }, pass through
     if (data && typeof data === 'object' && 'success' in data) {
       if (!data.success) data.error = sanitizeError(data.error);
+      navPerfTrackApi(endpoint, 'end', !!data.success);
       return data;
     }
 
+    navPerfTrackApi(endpoint, 'end', true);
     return { success: true, data };
   } catch (error: any) {
+    navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
       return { success: false, error: 'Request aborted' };
     }
@@ -108,6 +121,7 @@ async function apiCallPublic<T = any>(
   options: RequestInit = {},
   anonKey?: string
 ): Promise<{ success: boolean; data?: T; error?: string }> {
+  navPerfTrackApi(endpoint, 'start');
   try {
     const key = anonKey || ANON_KEY;
     const headers: HeadersInit = {
@@ -120,6 +134,7 @@ async function apiCallPublic<T = any>(
     const response = await fetch(`${BASE_URL}/${endpoint}`, { ...options, headers });
     const data = await response.json();
     if (!response.ok) {
+      navPerfTrackApi(endpoint, 'end', false);
       // Preserve structured server codes (cooldown / rate_limit / expired /
       // already_used / not_found / purpose_mismatch / malformed) on public
       // endpoints so the auth screens can render specific UX. Mirrors the
@@ -133,10 +148,13 @@ async function apiCallPublic<T = any>(
     }
 
     if (data && typeof data === 'object' && 'success' in data) {
+      navPerfTrackApi(endpoint, 'end', !!data.success);
       return data;
     }
+    navPerfTrackApi(endpoint, 'end', true);
     return { success: true, data };
   } catch (error: any) {
+    navPerfTrackApi(endpoint, 'end', false);
     return { success: false, error: error.message || 'Unable to connect to our servers.' };
   }
 }
@@ -324,15 +342,104 @@ export const walletAPI = {
     if (userErr || !user) {
       return { success: false, error: userErr?.message || 'Not signed in' };
     }
-    const { data, error } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-    if (error) {
-      return { success: false, error: error.message };
+    const SCALE: Record<string, number> = {
+      USD: 2, EUR: 2, GBP: 2,
+      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6,
+    };
+    const minorToMajor = (minor: unknown, currency: string): number => {
+      const n = Number(minor ?? 0);
+      if (!Number.isFinite(n)) return 0;
+      const scale = SCALE[String(currency || '').toUpperCase()] ?? 2;
+      return n / (10 ** scale);
+    };
+
+    const [
+      { data: bridgeWallets, error: bridgeWalletErr },
+      { data: bridgeVas, error: bridgeVaErr },
+      { data: balanceLedger, error: balanceLedgerErr },
+    ] = await Promise.all([
+      supabase
+        .from('bridge_wallets')
+        .select('bridge_wallet_id,currency,status,updated_at')
+        .or(ownerOrFilter(user.id)),
+      supabase
+        .from('bridge_virtual_accounts')
+        .select('bridge_virtual_account_id,currency,status,updated_at')
+        .or(ownerOrFilter(user.id)),
+      supabase
+        .from('bridge_balance_ledger')
+        .select('currency,amount_minor,direction,entity_type,created_at')
+        .or(ownerOrFilter(user.id))
+        .in('entity_type', ['wallet', 'virtual_account']),
+    ]);
+
+    const firstErr = bridgeWalletErr || bridgeVaErr || balanceLedgerErr;
+    if (firstErr) return { success: false, error: firstErr.message };
+
+    const byCurrency = new Map<string, any>();
+    const nowIso = new Date().toISOString();
+    const ensure = (currencyRaw: string | null | undefined) => {
+      const currency = String(currencyRaw || '').toUpperCase();
+      if (!currency) return null;
+      let row = byCurrency.get(currency);
+      if (!row) {
+        row = {
+          id: `canonical:${currency}`,
+          user_id: user.id,
+          currency,
+          balance: 0,
+          status: 'active',
+          provider: 'bridge',
+          source: 'canonical_read_model',
+          updated_at: nowIso,
+          bridge_wallet_id: null,
+          bridge_virtual_account_id: null,
+        };
+        byCurrency.set(currency, row);
+      }
+      return row;
+    };
+
+    // Canonical wallet/VA balances from immutable bridge_balance_ledger.
+    const ledgerByCurrency = new Map<string, number>();
+    for (const r of (balanceLedger || [])) {
+      const c = String((r as any).currency || '').toUpperCase();
+      if (!c) continue;
+      const rawMinor = Number((r as any).amount_minor ?? 0);
+      const direction = String((r as any).direction || '').toLowerCase();
+      const signedMinor = direction === 'debit' ? -Math.abs(rawMinor) : Math.abs(rawMinor);
+      ledgerByCurrency.set(c, (ledgerByCurrency.get(c) || 0) + minorToMajor(signedMinor, c));
     }
-    return { success: true, data: { wallets: data || [] } };
+    for (const w of (bridgeWallets || [])) {
+      const c = String((w as any).currency || '').toUpperCase();
+      const row = ensure(c);
+      if (!row) continue;
+      row.bridge_wallet_id = (w as any).bridge_wallet_id ?? row.bridge_wallet_id;
+      row.status = (w as any).status || row.status;
+      row.updated_at = (w as any).updated_at || row.updated_at;
+      row.balance = ledgerByCurrency.get(c) || 0;
+    }
+
+    // Virtual-account balances use the same canonical ledger source.
+    for (const va of (bridgeVas || [])) {
+      const c = String((va as any).currency || '').toUpperCase();
+      const row = ensure(c);
+      if (!row) continue;
+      row.bridge_virtual_account_id = (va as any).bridge_virtual_account_id ?? row.bridge_virtual_account_id;
+      row.status = (va as any).status || row.status;
+      row.updated_at = (va as any).updated_at || row.updated_at;
+      row.balance = ledgerByCurrency.get(c) || 0;
+    }
+    // If projections lag but ledger has balance rows, still expose balances.
+    for (const [currency, balance] of ledgerByCurrency.entries()) {
+      const row = ensure(currency);
+      if (!row) continue;
+      row.balance = balance;
+    }
+
+    const wallets = Array.from(byCurrency.values())
+      .sort((a, b) => String(a.currency).localeCompare(String(b.currency)));
+    return { success: true, data: { wallets } };
   },
 
   async createVirtualAccount(_userId: string, currency: string) {
@@ -371,16 +478,58 @@ export const transactionAPI = {
     if (userErr || !user) {
       return { success: false, error: userErr?.message || 'Not signed in' };
     }
+    const SCALE: Record<string, number> = {
+      USD: 2, EUR: 2, GBP: 2,
+      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6, EURC: 6,
+    };
+    const minorToMajor = (minor: unknown, currency: string): number => {
+      const n = Number(minor ?? 0);
+      if (!Number.isFinite(n)) return 0;
+      const scale = SCALE[String(currency || '').toUpperCase()] ?? 2;
+      return n / (10 ** scale);
+    };
+    const statusFromMetadata = (md: any): 'completed' | 'pending' | 'failed' => {
+      const raw = String(md?.state || md?.status || '').toLowerCase();
+      if (raw === 'failed' || raw === 'error' || raw === 'returned' || raw === 'refunded') return 'failed';
+      if (raw === 'pending' || raw === 'processing' || raw === 'queued') return 'pending';
+      return 'completed';
+    };
+    const descriptionFromRow = (row: any): string => {
+      const md = row?.metadata || {};
+      return String(
+        md?.description ||
+        md?.reason ||
+        md?.bridge_event_type ||
+        `${String(row?.entity_type || 'ledger').replace(/_/g, ' ')} ${String(row?.direction || '').toLowerCase() || 'entry'}`
+      );
+    };
+
     const { data, error } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id)
+      .from('bridge_balance_ledger')
+      .select('id,event_id,entity_type,entity_id,currency,amount_minor,direction,metadata,created_at')
+      .or(ownerOrFilter(user.id))
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
     if (error) {
       return { success: false, error: error.message };
     }
-    return { success: true, data: { transactions: data || [] } };
+    const transactions = (data || []).map((row: any) => {
+      const currency = String(row?.currency || '').toUpperCase();
+      const direction = String(row?.direction || 'debit').toLowerCase() === 'credit' ? 'credit' : 'debit';
+      const amountMajorAbs = Math.abs(minorToMajor(row?.amount_minor, currency));
+      const metadata = { ...(row?.metadata || {}), direction };
+      return {
+        id: row?.id || row?.event_id,
+        type: String(metadata?.transaction_type || row?.entity_type || 'transaction'),
+        amount: amountMajorAbs,
+        currency,
+        description: descriptionFromRow(row),
+        status: statusFromMetadata(metadata),
+        created_at: row?.created_at || new Date().toISOString(),
+        metadata,
+      };
+    });
+    return { success: true, data: { transactions } };
   },
 
   async getCustomerTransactions(customerId: string, filters?: any) {
@@ -404,6 +553,230 @@ export const transactionAPI = {
     });
   },
 };
+
+// ============================================================================
+// CANONICAL FINANCIAL READ MODEL
+// ============================================================================
+export const financialReadModelAPI = (() => {
+  // Route-performance model:
+  // - Revalidate cadence keeps data fresh in background.
+  // - Stale window keeps navigation instant across business routes.
+  const REVALIDATE_MS = 5000;
+  const STALE_MAX_MS = 5 * 60 * 1000;
+  const PERSIST_STALE_MAX_MS = 30 * 60 * 1000;
+  let inFlight: Promise<any> | null = null;
+  let inFlightKey = '';
+  let lastSnapshot: any = null;
+  let lastSnapshotAt = 0;
+  let lastSnapshotKey = '';
+
+  function persistKey(userId: string): string {
+    return `borderpay_snapshot_cache_v1:${userId}`;
+  }
+
+  function loadPersistedSnapshot(userId: string): { snapshot: any; at: number } | null {
+    try {
+      if (typeof window === 'undefined') return null;
+      const raw = localStorage.getItem(persistKey(userId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const at = Number(parsed?.at || 0);
+      if (!parsed?.snapshot || !at) return null;
+      if (Date.now() - at > PERSIST_STALE_MAX_MS) return null;
+      return { snapshot: parsed.snapshot, at };
+    } catch {
+      return null;
+    }
+  }
+
+  function savePersistedSnapshot(userId: string, snapshot: any) {
+    try {
+      if (typeof window === 'undefined') return;
+      localStorage.setItem(
+        persistKey(userId),
+        JSON.stringify({ at: Date.now(), snapshot }),
+      );
+    } catch {
+      // best effort
+    }
+  }
+
+  async function fetchSnapshot(userId: string, limit: number) {
+    const [profileRes, walletsRes, txRes, stableRes, vaRes, notifRes, externalListRes, externalCapsRes, externalWalletsRes] = await Promise.all([
+      userAPI.getProfile(),
+      walletAPI.getWallets(),
+      transactionAPI.getTransactions(limit, 0),
+      supabase
+        .from('bridge_wallets')
+        .select('*')
+        .or(ownerOrFilter(userId))
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('bridge_virtual_accounts')
+        .select('*')
+        .or(ownerOrFilter(userId))
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit),
+      bridgeAPI.externalAccount.list(),
+      bridgeAPI.externalAccount.capabilities(),
+      externalWalletsAPI.list(),
+    ]);
+
+    if (!profileRes?.success) {
+      navPerfTrackSnapshot(false);
+      return profileRes as any;
+    }
+    if (!walletsRes?.success) {
+      navPerfTrackSnapshot(false);
+      return walletsRes as any;
+    }
+    if (!txRes?.success) {
+      navPerfTrackSnapshot(false);
+      return txRes as any;
+    }
+
+    const profile = (profileRes as any)?.data?.user || {};
+    const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
+    const transactions = Array.isArray((txRes as any)?.data?.transactions) ? (txRes as any).data.transactions : [];
+    const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
+    const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
+    const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
+    const externalAccounts = ((externalListRes as any)?.success && Array.isArray((externalListRes as any)?.data?.external_accounts))
+      ? (externalListRes as any).data.external_accounts
+      : [];
+    const externalAccountCapabilities = ((externalCapsRes as any)?.success && Array.isArray((externalCapsRes as any)?.data?.supported_account_types))
+      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+      : [];
+    const externalWallets = ((externalWalletsRes as any)?.success && Array.isArray((externalWalletsRes as any)?.data?.wallets))
+      ? (externalWalletsRes as any).data.wallets
+      : [];
+    const isReady = Boolean(!stableRes?.error && !vaRes?.error && !notifRes?.error);
+    if (stableRes?.error) {
+      navPerfTrackSnapshot(false);
+      return { success: false, error: stableRes.error.message };
+    }
+    if (vaRes?.error) {
+      navPerfTrackSnapshot(false);
+      return { success: false, error: vaRes.error.message };
+    }
+    if (notifRes?.error) {
+      navPerfTrackSnapshot(false);
+      return { success: false, error: notifRes.error.message };
+    }
+
+    const hasFundingSurface = wallets.length > 0;
+    const walletStatus = deriveWalletStatus({
+      account_type: profile?.account_type,
+      bridge_kyc_status: profile?.bridge_kyc_status,
+      bridge_kyb_status: profile?.bridge_kyb_status,
+      bridge_account_status: profile?.bridge_account_status,
+      is_unlocked: profile?.is_unlocked,
+      has_funding_surface: hasFundingSurface,
+    });
+
+    navPerfTrackSnapshot(true);
+    return {
+      success: true,
+      data: {
+        profile: { ...profile, wallet_status: profile?.wallet_status || walletStatus },
+        wallets,
+        transactions,
+        stablecoin_wallets: stablecoinWallets,
+        virtual_accounts: virtualAccounts,
+        notifications,
+        notifications_unread_count: notifications.filter((n: any) => !n?.read).length,
+        external_accounts: externalAccounts,
+        external_account_capabilities: externalAccountCapabilities,
+        external_wallets: externalWallets,
+        external_accounts_partial:
+          !((externalListRes as any)?.success) || !((externalCapsRes as any)?.success),
+        external_wallets_partial: !((externalWalletsRes as any)?.success),
+        isReady,
+        wallet_status: profile?.wallet_status || walletStatus,
+        has_funding_surface: hasFundingSurface,
+        total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
+      },
+    };
+  }
+
+  return {
+    async getSnapshot(limit = 50) {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr || !user) {
+        navPerfTrackSnapshot(false);
+        return { success: false, error: userErr?.message || 'Not signed in' };
+      }
+
+      const key = `${user.id}`;
+      const now = Date.now();
+      if (lastSnapshot && lastSnapshotKey === key && now - lastSnapshotAt < STALE_MAX_MS) {
+        navPerfTrackCache('snapshot', true);
+        if (now - lastSnapshotAt >= REVALIDATE_MS && (!inFlight || inFlightKey !== key)) {
+          inFlightKey = key;
+          inFlight = fetchSnapshot(user.id, limit).then((next) => {
+            if (next?.success) {
+              lastSnapshot = next;
+              lastSnapshotAt = Date.now();
+              lastSnapshotKey = key;
+              savePersistedSnapshot(user.id, next);
+            }
+            return next;
+          }).finally(() => {
+            inFlight = null;
+            inFlightKey = '';
+          });
+        }
+        return lastSnapshot;
+      }
+
+      const persisted = loadPersistedSnapshot(user.id);
+      if (persisted?.snapshot) {
+        navPerfTrackCache('snapshot', true);
+        lastSnapshot = persisted.snapshot;
+        lastSnapshotAt = persisted.at;
+        lastSnapshotKey = key;
+        if (!inFlight || inFlightKey !== key) {
+          inFlightKey = key;
+          inFlight = fetchSnapshot(user.id, limit).then((next) => {
+            if (next?.success) {
+              lastSnapshot = next;
+              lastSnapshotAt = Date.now();
+              lastSnapshotKey = key;
+              savePersistedSnapshot(user.id, next);
+            }
+            return next;
+          }).finally(() => {
+            inFlight = null;
+            inFlightKey = '';
+          });
+        }
+        return persisted.snapshot;
+      }
+
+      if (inFlight && inFlightKey === key) return inFlight;
+
+      inFlightKey = key;
+      inFlight = fetchSnapshot(user.id, limit).then((next) => {
+        if (next?.success) {
+          lastSnapshot = next;
+          lastSnapshotAt = Date.now();
+          lastSnapshotKey = key;
+          savePersistedSnapshot(user.id, next);
+        }
+        return next;
+      }).finally(() => {
+        inFlight = null;
+        inFlightKey = '';
+      });
+      return inFlight;
+    },
+  };
+})();
 
 // ============================================================================
 // VIRTUAL CARDS
@@ -494,18 +867,90 @@ export const cardAPI = {
 // `getHistory` returns whatever audit rows exist; `getLiveRates` is
 // client-side indicative fallback.
 export const fxAPI = {
-  async getQuote(_sourceCurrency: string, _targetCurrency: string, _amount: number) {
-    return RAILS_FUTURE_STATE;
+  async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
+    const from = String(sourceCurrency || '').toUpperCase();
+    const to = String(targetCurrency || '').toUpperCase();
+    const amt = Number(amount || 0);
+    if (!from || !to || !Number.isFinite(amt) || amt <= 0) {
+      return { success: false, error: 'Invalid FX quote request' };
+    }
+    if (from === to) {
+      return {
+        success: true,
+        data: {
+          source_currency: from,
+          target_currency: to,
+          amount: amt,
+          rate: 1,
+          converted_amount: amt,
+          fee: 0,
+          source: 'identity',
+        },
+      };
+    }
+
+    const rates: any = await fxAPI.getLiveRates();
+    if (!rates?.success || !rates?.data?.rates) {
+      return { success: false, error: 'FX rates unavailable' };
+    }
+    const key = `${from}_${to}`;
+    const rate = Number(rates.data.rates[key] || 0);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      return { success: false, error: `Unsupported pair ${from}/${to}` };
+    }
+    const converted = amt * rate;
+    return {
+      success: true,
+      data: {
+        source_currency: from,
+        target_currency: to,
+        amount: amt,
+        rate,
+        converted_amount: Number(converted.toFixed(2)),
+        fee: 0,
+        source: rates.data.source || 'live',
+      },
+    };
   },
 
-  async convert(_data: {
-    quote_reference: string | null;
-    source_wallet_id: string;
-    destination_wallet_id: string;
+  async convert(data: {
     amount: number;
-    transaction_pin: string;
+    source: { payment_rail: string; currency: string; chain?: string; bridge_wallet_id?: string; external_account_id?: string; from_address?: string };
+    destination: { payment_rail: string; currency: string; chain?: string; address?: string; bridge_wallet_id?: string; external_account_id?: string; deposit_id?: string };
+    idempotency_key?: string;
   }) {
-    return RAILS_FUTURE_STATE;
+    const amount = Number(data?.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { success: false, error: 'amount must be greater than 0' };
+    }
+    const idempotencyKey = data?.idempotency_key || crypto.randomUUID();
+    return apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed'; replayed?: boolean }>(
+      'bridge-transfer',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          idempotency_key: idempotencyKey,
+          source: {
+            payment_rail: data.source.payment_rail,
+            currency: data.source.currency,
+            ...(data.source.chain ? { chain: data.source.chain } : {}),
+            ...(data.source.bridge_wallet_id ? { bridge_wallet_id: data.source.bridge_wallet_id } : {}),
+            ...(data.source.external_account_id ? { external_account_id: data.source.external_account_id } : {}),
+            ...(data.source.from_address ? { from_address: data.source.from_address } : {}),
+            amount: String(amount),
+          },
+          destination: {
+            payment_rail: data.destination.payment_rail,
+            currency: data.destination.currency,
+            ...(data.destination.chain ? { chain: data.destination.chain } : {}),
+            ...(data.destination.address ? { address: data.destination.address } : {}),
+            ...(data.destination.bridge_wallet_id ? { bridge_wallet_id: data.destination.bridge_wallet_id } : {}),
+            ...(data.destination.external_account_id ? { external_account_id: data.destination.external_account_id } : {}),
+            ...(data.destination.deposit_id ? { deposit_id: data.destination.deposit_id } : {}),
+          },
+        }),
+      },
+    );
   },
 
   async getHistory() {
@@ -1252,21 +1697,30 @@ export const bridgeAPI = {
    */
   transfer: {
     create: async (input: {
-      source: { payment_rail?: string; currency: string; chain?: string; amount: string };
-      destination: { payment_rail: string; currency: string; chain?: string; address?: string; bank_account?: { account_number?: string; routing_number?: string; iban?: string; bic?: string } };
+      source: { payment_rail?: string; currency: string; chain?: string; amount: string; bridge_wallet_id?: string; external_account_id?: string; from_address?: string };
+      destination: { payment_rail: string; currency: string; chain?: string; address?: string; bridge_wallet_id?: string; external_account_id?: string; deposit_id?: string; bank_account?: { account_number?: string; routing_number?: string; iban?: string; bic?: string } };
       developer_fee?: { percentage?: number; flat_amount?: string };
+      idempotency_key?: string;
     }) =>
       apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed' }>(
         'bridge-transfer',
-        { method: 'POST', body: JSON.stringify(input) },
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            ...input,
+            idempotency_key: input.idempotency_key || crypto.randomUUID(),
+          }),
+        },
       ),
   },
 
   /** Fiat payout (offramp) destinations — Bridge external accounts.
    *
-   *  v1 covers two account types:
+   *  v1 covers Bridge-documented account types:
    *    • us   — USD bank account (ACH / ACH same-day / Wire).
    *    • iban — EUR bank account (SEPA).
+   *    • clabe — MXN bank account (SPEI).
+   *    • pix — BRL Pix key or BR code.
    *
    *  `create` and `remove` proxy the `bridge-external-account` edge
    *  function (which holds the Bridge Api-Key and enforces the
@@ -1299,8 +1753,28 @@ export const bridgeAPI = {
           last_name?: string;
           business_name?: string;
         }
+      | {
+          account_type: 'clabe';
+          account_owner_name: string;
+          clabe_number: string;
+          bank_name?: string;
+          account_name?: string;
+          account_owner_type?: 'individual' | 'business';
+          first_name?: string;
+          last_name?: string;
+          business_name?: string;
+          address: { street_line_1: string; city: string; state: string; postal_code: string; country: string };
+        }
+      | {
+          account_type: 'pix';
+          account_owner_name: string;
+          bank_name?: string;
+          pix_key?: string;
+          br_code?: string;
+          document_number: string;
+        }
     ) =>
-      apiCall<{ external_account_id: string; account_type: 'us' | 'iban'; currency: 'USD' | 'EUR'; rail: string; last_4: string; bank_name: string | null }>(
+      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'clabe' | 'pix'; currency: 'USD' | 'EUR' | 'MXN' | 'BRL'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
       ),
@@ -1311,20 +1785,20 @@ export const bridgeAPI = {
         { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId }) },
       ),
 
-    /** Read the signed-in user's payout destinations from the local mirror
-     *  (RLS: external_accounts_own). Read-only; no edge call. */
+    /** Read payout destinations from Bridge (source of truth). */
     list: async () => {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr || !user) return { success: false, error: userErr?.message || 'Not signed in' };
-      const { data, error } = await supabase
-        .from('bridge_external_accounts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('active', true)
-        .order('created_at', { ascending: false });
-      if (error) return { success: false, error: error.message };
-      return { success: true, data: { external_accounts: data || [] } };
+      return apiCall(
+        'bridge-external-account',
+        { method: 'POST', body: JSON.stringify({ action: 'list' }) },
+      );
     },
+
+    /** Query Bridge-backed capabilities for external-account rails. */
+    capabilities: async () =>
+      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'clabe' | 'pix'> }>(
+        'bridge-external-account',
+        { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
+      ),
   },
 };
 
@@ -1519,9 +1993,39 @@ export const externalWalletsAPI = {
     apiCall<{ removed: boolean }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'remove', id }) }),
 };
 
+export const adminAPI = {
+  broadcast: async (
+    action: 'business_verification_delay' | 'business_platform_live' | 'individual_platform_live',
+    opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {},
+  ) =>
+    apiCall<{
+      dry_run: boolean;
+      eligible_recipients: number;
+      selected_recipients: number;
+      start_index: number;
+      max_recipients: number;
+      sent_count?: number;
+      failed_count?: number;
+      failed?: Array<{ user_id: string; email: string; error: string }>;
+    }>('admin-broadcast-email', {
+      method: 'POST',
+      body: JSON.stringify({
+        action,
+        dry_run: opts.dry_run !== false,
+        max_recipients: typeof opts.max_recipients === 'number' ? opts.max_recipients : 2000,
+        start_index: typeof opts.start_index === 'number' ? opts.start_index : 0,
+      }),
+    }),
+  broadcastBusinessVerificationDelay: async (opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {}) =>
+    adminAPI.broadcast('business_verification_delay', opts),
+  broadcastIndividualPlatformLive: async (opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {}) =>
+    adminAPI.broadcast('individual_platform_live', opts),
+};
+
 export const backendAPI = {
   auth: authSecurityAPI,
   user: userAPI,
+  financial: financialReadModelAPI,
   wallets: walletAPI,
   transactions: transactionAPI,
   cards: cardAPI,
@@ -1542,6 +2046,7 @@ export const backendAPI = {
   subscription: subscriptionAPI,
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,
+  admin:        adminAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,
 };

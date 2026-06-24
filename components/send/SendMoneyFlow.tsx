@@ -34,6 +34,8 @@ import { computePayoutFee } from '../../utils/fees/engine';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { ExternalCryptoWithdrawalFields, isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +98,10 @@ function getCurrencySymbol(code: string) {
   return CURRENCY_SYMBOLS[code] || code;
 }
 
+const SNAPSHOT_READY_TIMEOUT_MS = 2000;
+const SEND_WALLETS_CACHE_KEY = 'borderpay_send_wallets_v1';
+const SEND_CAPS_CACHE_KEY = 'borderpay_send_caps_v1';
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -117,12 +123,27 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return 'pending';
   });
 
+  const sendWalletsCacheKey = useMemo(
+    () => financialCacheKey(SEND_WALLETS_CACHE_KEY, { userId }),
+    [userId],
+  );
+  const sendCapsCacheKey = useMemo(
+    () => financialCacheKey(SEND_CAPS_CACHE_KEY, { userId }),
+    [userId],
+  );
+  const cachedSendWallets = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem(sendWalletsCacheKey) || '[]'); } catch { return []; }
+  }, [sendWalletsCacheKey]);
+  const cachedSendCaps = useMemo(() => {
+    try { const v = JSON.parse(localStorage.getItem(sendCapsCacheKey) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  }, [sendCapsCacheKey]);
+
   // Step & method
   const [step, setStep] = useState<Step>('method');
   const [method, setMethod] = useState<TransferMethod>('bank');
 
   // Currency & wallet
-  const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [wallets, setWallets] = useState<Wallet[]>(cachedSendWallets);
   const [selectedCurrency, setSelectedCurrency] = useState('NGN');
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
@@ -173,8 +194,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       localStorage.removeItem('borderpay_prefill_withdraw');
       const p = JSON.parse(raw);
       if (p?.address && p?.chain) {
+        const token = String(p.asset || 'USDC').toUpperCase();
         setMethod('stablecoin');
-        setCrypto({ network: p.chain as any, token: (String(p.asset || 'USDC').toUpperCase()) as any, address: String(p.address) });
+        setSelectedCurrency(token);
+        setCrypto({ network: p.chain as any, token: token as any, address: String(p.address) });
         setStep('details');
       }
     } catch { /* noop */ }
@@ -201,15 +224,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return 'individual';
   }, []);
 
-  // Region gate: African users withdraw via stablecoin only; international
-  // regions (US / EEA / LatAm / RoW) also get External Bank Account (ACH/SEPA).
-  const isAfricanRegion = useMemo(() => {
-    try {
-      const s = localStorage.getItem('borderpay_user');
-      if (s) return classifyCorridor(JSON.parse(s).country) === 'african';
-    } catch { /* default below */ }
-    return false;
-  }, []);
+  // Bridge-backed capability gate for external bank accounts.
+  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
+    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+  );
 
   // BorderPay Network Fee — corridor-aware, via the revenue fee engine.
   // Provider stays invisible; the total is fully disclosed to the user.
@@ -238,33 +256,75 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
+  // Never block route rendering on capability/snapshot checks.
+  const [snapshotReady, setSnapshotReady] = useState(true);
+
+  useEffect(() => {
+    navPerfTrackCache('send-money', cachedSendWallets.length > 0 || cachedSendCaps.length > 0);
+  }, [cachedSendWallets.length, cachedSendCaps.length]);
 
   // ---------------------------------------------------------------------------
-  // Load wallets on mount
+  // Snapshot hydration gate:
+  // - render send flow only when snapshot.isReady === true
+  // - derive wallets + external account capabilities from the same snapshot
+  // - no post-render capability patching
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await backendAPI.wallets.getWallets();
-        if (res.success && res.data) {
-          const list = (res.data.wallets || res.data || []).map((w: any) => ({
-            id: w.id,
-            currency: w.currency,
-            balance: parseFloat(w.balance) || 0,
-            symbol: getCurrencySymbol(w.currency),
-          }));
-          setWallets(list);
+    let cancelled = false;
+    const hydrate = async () => {
+      const startedAt = Date.now();
+      while (!cancelled) {
+        const timedOut = Date.now() - startedAt >= SNAPSHOT_READY_TIMEOUT_MS;
+        try {
+          const res: any = await backendAPI.financial.getSnapshot(100);
+          if (cancelled) return;
+          if (res?.success && res?.data) {
+            const list = ((res.data as any).wallets || []).map((w: any) => ({
+              id: w.id,
+              currency: w.currency,
+              balance: parseFloat(w.balance) || 0,
+              symbol: getCurrencySymbol(w.currency),
+            }));
+            const types = Array.isArray(res?.data?.external_account_capabilities)
+              ? res.data.external_account_capabilities
+              : [];
+            setWallets(list);
+            setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+            try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
+            try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
+            // Render deterministically once the snapshot is explicitly ready,
+            // or after the timeout with partial capabilities.
+            if (res?.data?.isReady === true || timedOut) {
+              setSnapshotReady(true);
+              return;
+            }
+          }
+        } catch {
+          // Keep polling until timeout, then fail-open with deterministic UI.
         }
-      } catch (e) {
+        if (timedOut) {
+          setSnapshotReady(true);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1200));
       }
-    })();
-  }, [userId]);
+    };
+    hydrate();
+    return () => { cancelled = true; };
+  }, [userId, sendWalletsCacheKey, sendCapsCacheKey]);
 
   // Select wallet when currency changes
   useEffect(() => {
     const w = wallets.find(w => w.currency === selectedCurrency);
     setSelectedWallet(w || null);
   }, [selectedCurrency, wallets]);
+
+  // Stablecoin sends must always use the selected stablecoin asset as source.
+  useEffect(() => {
+    if (method !== 'stablecoin') return;
+    const tokenCurrency = String(crypto.token || 'USDC').toUpperCase();
+    if (tokenCurrency !== selectedCurrency) setSelectedCurrency(tokenCurrency);
+  }, [method, crypto.token, selectedCurrency]);
 
   // ---------------------------------------------------------------------------
   // Load institutions when method/currency changes
@@ -390,7 +450,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           address: crypto.address.trim(),
           chain: crypto.network,                                  // tron|polygon|arbitrum|solana|base|ethereum
           coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
-          funding_source: 'USD',
           transaction_pin: verifiedPin,
           // Required by bridge-transfer v2. Reusing the per-mount key
           // means a network retry of the same Confirm tap returns the
@@ -495,6 +554,33 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
   };
 
+  if (!snapshotReady) {
+    return (
+      <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe relative`}>
+        <FloatingBackButton onBack={onBack} />
+        <div className={`sticky top-0 z-30 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
+          <div className="flex items-center justify-center px-5 py-4 pt-safe-header">
+            <h1 className={`text-base font-bold ${tc.text}`}>{t('send.title')}</h1>
+          </div>
+        </div>
+        <div className="px-5 py-6">
+          <div className={`animate-pulse ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 mb-3`}>
+            <div className="h-4 w-40 bg-white/10 rounded mb-3" />
+            <div className="h-3 w-56 bg-white/10 rounded" />
+          </div>
+          <div className={`animate-pulse ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 mb-3`}>
+            <div className="h-4 w-36 bg-white/10 rounded mb-3" />
+            <div className="h-3 w-64 bg-white/10 rounded" />
+          </div>
+          <div className={`animate-pulse ${tc.card} border ${tc.cardBorder} rounded-2xl p-5`}>
+            <div className="h-4 w-44 bg-white/10 rounded mb-3" />
+            <div className="h-3 w-52 bg-white/10 rounded" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -554,7 +640,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {TRANSFERS_LIVE ? (
                 <button
                   type="button"
-                  onClick={() => { setMethod('stablecoin'); setStep('details'); }}
+                  onClick={() => {
+                    const tokenCurrency = String(crypto.token || 'USDC').toUpperCase();
+                    setMethod('stablecoin');
+                    setSelectedCurrency(tokenCurrency);
+                    setStep('details');
+                  }}
                   className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-colors`}
                 >
                   <div className="w-12 h-12 rounded-full bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
@@ -582,10 +673,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
               )}
 
-              {/* External Bank Account (ACH / SEPA / local) — international
-                  regions only (US / EEA / LatAm / RoW). African regions are
-                  stablecoin-only. Interactive when EXTERNAL_ACCOUNTS_LIVE. */}
-              {!isAfricanRegion && (
+              {/* External bank accounts — only where Bridge supports them.
+                  Otherwise, stablecoin is the only visible payout rail. */}
+              {externalAccountTypes.length > 0 && (
                 EXTERNAL_ACCOUNTS_LIVE ? (
                   <button
                     type="button"
@@ -597,7 +687,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </div>
                     <div className="flex-1 text-left">
                       <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
-                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>ACH (US) · SEPA (EEA) · local bank — pay to a linked account</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>
+                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
+                          ? 'ACH (US) · SEPA (EEA) — pay to a linked account'
+                          : externalAccountTypes.includes('us')
+                            ? 'ACH (US) — pay to a linked account'
+                            : 'SEPA (EEA) — pay to a linked account'}
+                      </p>
                     </div>
                     <ArrowRight size={18} className={tc.textMuted} />
                   </button>
@@ -611,7 +707,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </div>
                     <div className="flex-1 text-left">
                       <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
-                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>ACH (US) · SEPA (EEA) · local bank — coming soon</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>
+                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
+                          ? 'ACH (US) · SEPA (EEA) — coming soon'
+                          : externalAccountTypes.includes('us')
+                            ? 'ACH (US) — coming soon'
+                            : 'SEPA (EEA) — coming soon'}
+                      </p>
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
                   </div>
@@ -840,8 +942,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
                     <span className="text-lg">🇺🇸</span>
                     <div className="flex-1">
-                      <p className={`text-sm font-semibold ${tc.text}`}>USD Wallet</p>
-                      <p className={`text-xs ${tc.textMuted}`}>USD equivalent debited & exchanged to fund transfer</p>
+                      <p className={`text-sm font-semibold ${tc.text}`}>{selectedCurrency} Wallet</p>
+                      <p className={`text-xs ${tc.textMuted}`}>{selectedCurrency} wallet balance funds this transfer</p>
                     </div>
                     <CheckCircle size={16} className="text-[#C7FF00]" />
                   </div>
@@ -1116,7 +1218,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </div>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Funding Source</span>
-                      <span className={`text-sm font-medium ${tc.text}`}>USD Wallet</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{selectedCurrency} Wallet</span>
                     </div>
                   </>
                 )}
