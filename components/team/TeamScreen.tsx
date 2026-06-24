@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { backendAPI, type TeamMemberRow, type TeamRosterResponse, type TeamRole } from '../../utils/api/backendAPI';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 export interface TeamScreenProps {
   onBack: () => void;
@@ -50,7 +51,7 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 10_000;
+const TEAM_LOAD_TIMEOUT_MS = 2_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -63,13 +64,27 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 // Roster cache — instant mount on revisit, refreshed in the background.
-const TEAM_CACHE_KEY = 'borderpay_team_roster_v1';
+const TEAM_CACHE_KEY_PREFIX = 'borderpay_team_roster_v1';
+function currentTeamCacheKey(): string {
+  try {
+    const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    const userId = String(user?.id || '').trim();
+    return `${TEAM_CACHE_KEY_PREFIX}:${userId || 'anon'}`;
+  } catch {
+    return `${TEAM_CACHE_KEY_PREFIX}:anon`;
+  }
+}
+
 function readRosterCache(): TeamRosterResponse | null {
-  try { const v = JSON.parse(localStorage.getItem(TEAM_CACHE_KEY) || 'null'); return v && typeof v === 'object' ? v : null; }
+  try {
+    const key = currentTeamCacheKey();
+    const v = JSON.parse(localStorage.getItem(key) || 'null');
+    return v && typeof v === 'object' ? v : null;
+  }
   catch { return null; }
 }
 function writeRosterCache(r: TeamRosterResponse): void {
-  try { localStorage.setItem(TEAM_CACHE_KEY, JSON.stringify(r)); } catch { /* quota */ }
+  try { localStorage.setItem(currentTeamCacheKey(), JSON.stringify(r)); } catch { /* quota */ }
 }
 
 export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenProps) {
@@ -120,6 +135,10 @@ function BusinessTeamPanel({
   const [email, setEmail]           = useState('');
   const [role, setRole]             = useState<Exclude<TeamRole, 'owner'>>('member');
   const [inviting, setInviting]     = useState(false);
+
+  useEffect(() => {
+    navPerfTrackCache('team', cachedRoster !== null);
+  }, [cachedRoster]);
 
   // Background refresh — does not blank the cached roster (no setLoading(true)).
   const load = useCallback(async () => {
