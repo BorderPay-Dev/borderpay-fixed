@@ -12,19 +12,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Shield, Inbox, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { useVerification } from '../../utils/verification/useVerification';
-import { authAPI, supabase } from '../../utils/supabase/client';
+import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
 import {
-  bridgeVirtualAccountCurrenciesForCountry,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { showToast } from '../common/StatusToast';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -40,6 +40,26 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
 
+function isApproved(value?: string | null): boolean {
+  if (typeof value !== 'string') return false;
+  return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
+}
+
+function readCachedVerified(): boolean {
+  try {
+    const u = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    const accountType = String(u?.account_type || 'individual').toLowerCase();
+    const kycApproved = isApproved(u?.bridge_kyc_status);
+    const kybApproved = isApproved(u?.bridge_kyb_status);
+    const accountApproved = isApproved(u?.bridge_account_status);
+    return accountType === 'business'
+      ? (kybApproved || kycApproved || accountApproved)
+      : (kycApproved || accountApproved);
+  } catch {
+    return false;
+  }
+}
+
 export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
@@ -47,20 +67,30 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const storedUser = authAPI.getStoredUser() || {};
   const userId = (storedUser.id as string) || '';
-  const country = (storedUser.country as string) || null;
-  const verification = useVerification(userId);
+  const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
 
-  const availableVaCurrencies = useMemo(
-    () => bridgeVirtualAccountCurrenciesForCountry(country),
-    [country],
+  // Bridge is the source of truth for VA support. UI must not hardcode
+  // country-policy assumptions; expose all supported product currencies and
+  // let server-side Bridge capability checks decide eligibility.
+  const availableVaCurrencies = useMemo<BridgeVirtualAccountCurrency[]>(
+    () => ['USD', 'EUR', 'GBP'],
+    [],
+  );
+  const stableWalletsCacheKey = useMemo(
+    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    [userId],
+  );
+  const vaCacheKey = useMemo(
+    () => financialCacheKey('borderpay_va_v1', { userId }),
+    [userId],
   );
 
   // ── Data (seeded from cache so the screen mounts instantly) ──────────────
   const [stables, setStables] = useState<StableRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem('borderpay_wallets_ind_v1') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem('borderpay_va_ind_v1') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
   });
   const [loading, setLoading] = useState(stables.length === 0 && vas.length === 0);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,25 +99,47 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
 
+  useEffect(() => {
+    navPerfTrackCache('receive-money', stables.length > 0 || vas.length > 0);
+  }, [stables.length, vas.length]);
+
   const refresh = async () => {
     setRefreshing(true);
-    try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
-    try { await backendAPI.bridge.syncAccounts(); }        catch { /* best-effort */ }
-    const [{ data: bw }, { data: bv }] = await Promise.all([
-      supabase.from('bridge_wallets').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('bridge_virtual_accounts').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-    ]);
-    const sList = (bw as StableRow[]) ?? [];
-    const vList = (bv as VaRow[]) ?? [];
-    setStables(sList);
-    setVas(vList);
-    try { localStorage.setItem('borderpay_wallets_ind_v1', JSON.stringify(sList)); } catch { /* noop */ }
-    try { localStorage.setItem('borderpay_va_ind_v1',      JSON.stringify(vList)); } catch { /* noop */ }
-    setLoading(false);
-    setRefreshing(false);
+    try {
+      const snapshot: any = await backendAPI.financial.getSnapshot(100);
+      const sList = (snapshot?.data?.stablecoin_wallets as StableRow[]) ?? [];
+      const vList = (snapshot?.data?.virtual_accounts as VaRow[]) ?? [];
+      setStables(sList);
+      setVas(vList);
+      try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
+      try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
+      // Heavy provider sync/provision runs after first paint; never blocks route render.
+      void Promise.allSettled([
+        backendAPI.bridge.provisionStablecoins(),
+        backendAPI.bridge.syncAccounts(),
+      ]).then(async () => {
+        try {
+          const next: any = await backendAPI.financial.getSnapshot(100);
+          const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
+          const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
+          setStables(nextStables);
+          setVas(nextVas);
+          try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
+          try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVas)); } catch { /* noop */ }
+        } catch {
+          // keep first snapshot
+        }
+      });
+    } catch {
+      // Keep cached data visible; refresh is best-effort.
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
-  useEffect(() => { if (verification.isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, verification.isVerified]);
+  useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
+  useEffect(() => { if (isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, isVerified]);
 
   // Missing VA currencies (the inline "Open X account" rows)
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
@@ -106,7 +158,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
-  if (!verification.isVerified) {
+  if (!isVerified) {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
         <FloatingBackButton onBack={onBack} />
