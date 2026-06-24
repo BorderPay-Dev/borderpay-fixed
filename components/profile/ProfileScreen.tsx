@@ -140,6 +140,18 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     } catch { /* ignore */ }
   };
 
+  const hasFundingSurfaceFromCache = (): boolean => {
+    try {
+      const walletsRaw = localStorage.getItem(`borderpay_wallets_v1:${userId}`);
+      const wallets = walletsRaw ? JSON.parse(walletsRaw) : [];
+      if (Array.isArray(wallets) && wallets.length > 0) return true;
+      const totalRaw = localStorage.getItem(`borderpay_wallet_total_${userId}`);
+      return Number(totalRaw || 0) > 0;
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     loadProfile();
   }, [userId]);
@@ -155,11 +167,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           return '';
         }
       })();
-      const snapshot: any = await backendAPI.financial.getSnapshot(50);
-      const result = snapshot?.success ? { success: true, data: { user: snapshot.data?.profile } } : await backendAPI.user.getProfile();
+      const result = await backendAPI.user.getProfile();
 
       if (result.success && result.data?.user) {
         const u = result.data.user as any;
+        const hasFundingSurface = hasFundingSurfaceFromCache();
         const profileData = {
           full_name: u.full_name || '',
           company_name: u.company_name || cachedCompanyName || '',
@@ -181,7 +193,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
             bridge_kyb_status: u.bridge_kyb_status,
             bridge_account_status: u.bridge_account_status,
             is_unlocked: u.is_unlocked,
-            has_funding_surface: Boolean(snapshot?.data?.has_funding_surface),
+            has_funding_surface: hasFundingSurface,
           }),
           verification_status: u.verification_status || 'not_started',
           account_type: u.account_type || 'individual',
