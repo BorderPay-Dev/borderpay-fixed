@@ -34,7 +34,9 @@ import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 import {
   navPerfGetReport,
   navPerfMarkFirstPaint,
+  navPerfMarkRouteRender,
   navPerfMarkRouteMounted,
+  navPerfMarkRouteUnmounted,
   navPerfReset,
   navPerfStartRoute,
 } from '../../utils/performance/navigationPerf';
@@ -566,8 +568,15 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     navPerfStartRoute(currentScreen, accountType);
     navPerfMarkRouteMounted(currentScreen);
     const id = requestAnimationFrame(() => navPerfMarkFirstPaint(currentScreen));
-    return () => cancelAnimationFrame(id);
+    return () => {
+      cancelAnimationFrame(id);
+      navPerfMarkRouteUnmounted(currentScreen);
+    };
   }, [currentScreen, accountType]);
+
+  useEffect(() => {
+    navPerfMarkRouteRender(currentScreen);
+  });
 
   // Prefetch most-likely-next screens once the dashboard is mounted, so the
   // user's first navigation is instant. Runs once per session, in background.
