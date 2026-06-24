@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, ArrowRight,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRightLeft, ArrowDownUp, BriefcaseBusiness,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -24,10 +24,18 @@ import { TreasuryCard } from './TreasuryCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import type { PlanKey } from '../../utils/subscriptions/plans';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
-const BIZ_WALLETS_KEY = 'borderpay_biz_wallets_v1';
-function readBizWallets(): WalletRow[] {
-  try { const raw = localStorage.getItem(BIZ_WALLETS_KEY); return raw ? JSON.parse(raw) : []; }
+const BIZ_WALLETS_KEY = 'borderpay_wallets_v1';
+const BIZ_TX_KEY = 'borderpay_tx_history_v1';
+function readBizWallets(cacheKey: string): WalletRow[] {
+  try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
+  catch { return []; }
+}
+function readBizTx(cacheKey: string): any[] {
+  try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
 }
 
@@ -62,18 +70,35 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     () => stored?.company_name || '',
     [stored],
   );
+  const initialCountry = useMemo(
+    () => (stored?.country ? String(stored.country) : null),
+    [stored],
+  );
 
   const [companyName, setCompanyName]               = useState<string>(initialCompanyName);
   const [registrationNumber, setRegistrationNumber] = useState<string | null>(null);
-  const [country, setCountry]                       = useState<string | null>(null);
-  const [profileLoading, setProfileLoading]         = useState(true);
+  const [country, setCountry]                       = useState<string | null>(initialCountry);
   const [profileError, setProfileError]             = useState<string | null>(null);
 
   // Seed wallets from cache so the balance + treasury paint instantly.
-  const cachedBizWallets = useMemo(() => readBizWallets(), []);
+  const bizWalletsCacheKey = useMemo(
+    () => financialCacheKey(BIZ_WALLETS_KEY, { userId, accountType: 'business' }),
+    [userId],
+  );
+  const cachedBizWallets = useMemo(() => readBizWallets(bizWalletsCacheKey), [bizWalletsCacheKey]);
+  const bizTxCacheKey = useMemo(
+    () => financialCacheKey(BIZ_TX_KEY, { userId, accountType: 'business' }),
+    [userId],
+  );
+  const cachedBizTransactions = useMemo(() => readBizTx(bizTxCacheKey), [bizTxCacheKey]);
   const [wallets, setWallets]             = useState<WalletRow[]>(cachedBizWallets);
+  const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
+
+  useEffect(() => {
+    navPerfTrackCache('dashboard', cachedBizWallets.length > 0);
+  }, [cachedBizWallets.length]);
 
   const usdLikeTotal = useMemo(
     () => wallets.filter(w => ['USD', 'USDT', 'USDC', 'PYUSD', 'USDB'].includes(w.currency))
@@ -81,67 +106,61 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     [wallets],
   );
 
-  const loadProfile = async () => {
-    setProfileLoading(true);
-    setProfileError(null);
-    try {
-      const r: any = await backendAPI.business.getProfile();
-      if (r.success && r.data) {
-        const nextCompanyName = r.data.company_name || initialCompanyName;
-        setCompanyName(nextCompanyName);
-        setRegistrationNumber(r.data.registration_number);
-        setCountry(r.data.country);
-        try {
-          const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-          localStorage.setItem('borderpay_user', JSON.stringify({
-            ...cached,
-            account_type: 'business',
-            ...(r.data.company_name ? { company_name: r.data.company_name } : {}),
-          }));
-        } catch { /* ignore cache write */ }
-      } else if (r.success && !r.data) {
-        // No business profile yet — surface a friendly note.
-        setProfileError('Your business profile is being set up. Add company details from Profile.');
-      } else {
-        setProfileError(friendlyError(r.error, 'Could not load business profile'));
-      }
-    } catch (e: any) {
-      setProfileError(friendlyError(e, 'Could not load business profile'));
-    } finally {
-      setProfileLoading(false);
-    }
-  };
-
   const loadWallets = async () => {
-    setWalletsLoading(true);
+    // Do not blank a cached dashboard on refresh; only skeleton on cold start.
+    if (wallets.length === 0) setWalletsLoading(true);
     setWalletsError(null);
     try {
-      const r: any = await backendAPI.wallets.getWallets();
-      if (r?.success) {
-        const raw = r.data?.wallets || r.data?.data?.wallets || [];
+      const r: any = await backendAPI.financial.getSnapshot(20);
+      if (r?.success && r?.data) {
+        const raw = r.data?.wallets || [];
+        const tx = Array.isArray(r.data?.transactions) ? r.data.transactions : [];
+        const profile = r.data?.profile || {};
         const formatted = raw.map((w: any) => ({
           currency: w.currency,
           balance:  parseFloat(w.balance) || 0,
         }));
         setWallets(formatted);
-        try { localStorage.setItem(BIZ_WALLETS_KEY, JSON.stringify(formatted)); } catch { /* noop */ }
+        setTransactions(tx);
+        // Shared-engine parity: hydrate business identity from the same
+        // canonical financial snapshot path as Individual.
+        const snapshotCompany = String(profile?.company_name || '').trim();
+        if (snapshotCompany) setCompanyName(snapshotCompany);
+        const snapshotCountry = String(profile?.country || '').trim();
+        if (snapshotCountry) setCountry(snapshotCountry);
+        const snapshotReg = String(profile?.registration_number || '').trim();
+        if (snapshotReg) setRegistrationNumber(snapshotReg);
+        setProfileError(null);
+        try {
+          const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+          localStorage.setItem('borderpay_user', JSON.stringify({
+            ...cached,
+            account_type: 'business',
+            ...(snapshotCompany ? { company_name: snapshotCompany } : {}),
+            ...(snapshotCountry ? { country: snapshotCountry } : {}),
+            ...(snapshotReg ? { registration_number: snapshotReg } : {}),
+          }));
+        } catch { /* ignore cache write */ }
+        try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
+        try { localStorage.setItem(bizTxCacheKey, JSON.stringify(tx)); } catch { /* noop */ }
       } else if (wallets.length === 0) {
         // Only error when we have nothing cached to show.
         setWalletsError(friendlyError(r?.error, 'Could not load wallets'));
       }
     } catch (e: any) {
       if (wallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
+      if (companyName.length === 0) setProfileError('Your business profile is being set up. Add company details from Profile.');
     } finally {
       setWalletsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadProfile();
     loadWallets();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
-  const refreshAll = () => { loadProfile(); loadWallets(); };
+  const refreshAll = () => { loadWallets(); };
 
   const initials = (companyName || 'B').slice(0, 2).toUpperCase();
 
@@ -167,7 +186,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center ${tc.hoverBg} flex-shrink-0`}
           aria-label="Refresh"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${tc.text} ${(profileLoading || walletsLoading) ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${tc.text} ${walletsLoading ? 'animate-spin' : ''}`} />
         </button>
       </section>
 
@@ -196,18 +215,33 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           )}
         </section>
 
-        {/* ── 3. Quick actions (4-up, outlined chips) ─────────────── */}
+        {/* ── 3. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
           <div className="grid grid-cols-4 gap-2">
             <BizChip label="Send"    Icon={Send}     onClick={() => onNavigate('send-money')}    tc={tc} />
             <BizChip label="Receive" Icon={Download} onClick={() => onNavigate('receive-money')} tc={tc} />
             <BizChip label="Payouts" Icon={Banknote} onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
             <BizChip label="Team"    Icon={Users}    onClick={() => onNavigate('team')}          tc={tc} />
+            <BizChip
+              label={PAYROLL_RUNTIME_ENABLED ? 'Payroll' : 'Payroll Soon'}
+              Icon={BriefcaseBusiness}
+              onClick={() => onNavigate('payroll')}
+              tc={tc}
+              disabled={!PAYROLL_RUNTIME_ENABLED}
+            />
+            <BizChip
+              label="FX"
+              Icon={ArrowRightLeft}
+              onClick={() => onNavigate('exchange')}
+              tc={tc}
+            />
+            <BizChip label="Ramps"   Icon={ArrowDownUp} onClick={() => onNavigate('ramps')} tc={tc} />
+            <BizChip label="Wallets" Icon={Wallet} onClick={() => onNavigate('wallet-detail')} tc={tc} />
           </div>
         </section>
 
         {/* ── Treasury management ─────────────────────────────────── */}
-        <TreasuryCard totalUsd={usdLikeTotal} wallets={wallets} />
+        <TreasuryCard totalUsd={usdLikeTotal} wallets={wallets} transactions={transactions} userId={userId} />
 
         {/* Profile error */}
         {profileError && (
@@ -306,8 +340,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           <CardsLockedCard />
         </section>
 
-        {/* ── 6b. Exchange rates (live, shared with individual dashboard) ─ */}
-        <ExchangeRateWidget onNavigate={onNavigate} />
+        {/* ── 6b. Exchange rates (shared with individual dashboard) ─ */}
+        {FX_NAV_ENABLED && <ExchangeRateWidget onNavigate={onNavigate} />}
 
         {/* ── 7. Trust line ────────────────────────────────────────── */}
         <section className="px-5 sm:px-6 pt-1 flex items-center justify-center gap-1.5">
@@ -324,18 +358,20 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 // `primary` swaps the background to lime (used for "Team" so the team-mgmt
 // surface gets visual priority for business owners).
 function BizChip({
-  label, Icon, onClick, primary, tc,
+  label, Icon, onClick, primary, tc, disabled,
 }: {
   label:    string;
   Icon:     React.ComponentType<{ className?: string }>;
   onClick:  () => void;
   primary?: boolean;
   tc:       ReturnType<typeof useThemeClasses>;
+  disabled?: boolean;
 }) {
   return (
     <button
+      disabled={disabled}
       onClick={onClick}
-      className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl py-3.5 transition-colors active:scale-[0.97] ${
+      className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl py-3.5 transition-colors active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed ${
         primary
           ? 'bg-[#C7FF00] text-black hover:brightness-95'
           : `${tc.card} border ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`

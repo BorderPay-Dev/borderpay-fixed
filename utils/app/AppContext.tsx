@@ -219,20 +219,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const arr = await pRes.json();
             if (Array.isArray(arr) && arr[0]) {
               profile = arr[0];
-              if (profile?.account_type === 'business') {
-                try {
-                  const bRes = await fetch(`${SUPABASE_URL}/rest/v1/business_profiles?user_id=eq.${user.id}&select=bridge_kyb_status`, {
-                    headers: { Authorization: `Bearer ${session.access_token}`, apikey: ANON_KEY },
-                  });
-                  if (bRes.ok) {
-                    const biz = await bRes.json();
-                    profile = {
-                      ...profile,
-                      bridge_kyb_status: Array.isArray(biz) ? (biz[0]?.bridge_kyb_status ?? null) : null,
-                    };
-                  }
-                } catch {}
-              }
               storeUserProfile(profile);
             }
           }
