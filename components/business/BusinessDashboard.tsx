@@ -28,8 +28,8 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
-const BIZ_WALLETS_KEY = 'borderpay_wallets_v1';
-const BIZ_TX_KEY = 'borderpay_tx_history_v1';
+const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
+const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }

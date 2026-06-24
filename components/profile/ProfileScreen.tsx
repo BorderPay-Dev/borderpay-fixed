@@ -200,23 +200,9 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         // Do not block first paint on business-profile enrichment.
         setLoading(false);
 
-        if ((u.account_type || profileData.account_type) === 'business') {
-          void (async () => {
-            try {
-              const businessProfile = await backendAPI.business.getProfile();
-              const company_name = businessProfile?.success
-                ? String(businessProfile?.data?.company_name || '').trim()
-                : '';
-              if (company_name) {
-                setProfile((p) => ({ ...p, company_name }));
-                setEditedProfile((p) => ({ ...p, company_name }));
-                mergeProfileCache({ company_name, account_type: 'business' });
-              }
-            } catch {
-              // Non-fatal: keep profile data already rendered from snapshot/user profile.
-            }
-          })();
-        }
+        // Shared-engine parity: avoid a second business-only profile fetch.
+        // Canonical profile values come from the same snapshot/user path used
+        // by both account types.
       }
       // No error toast — screen already shows cached or default data
     } catch (_) {

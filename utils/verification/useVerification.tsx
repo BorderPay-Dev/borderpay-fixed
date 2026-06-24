@@ -27,15 +27,17 @@ export interface VerificationStatus {
 }
 
 function isApproved(value?: string | null): boolean {
-  return typeof value === 'string' && value.toLowerCase() === 'approved';
+  if (typeof value !== 'string') return false;
+  return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
 }
 
 function deriveFromProfile(profile?: any): VerificationStatus {
   // Business accounts use bridge_kyb_status; individuals use bridge_kyc_status.
+  const accountStatusApproved = isApproved(profile?.bridge_account_status);
   const verified =
     profile?.account_type === 'business'
-      ? isApproved(profile?.bridge_kyb_status)
-      : isApproved(profile?.bridge_kyc_status);
+      ? (isApproved(profile?.bridge_kyb_status) || isApproved(profile?.bridge_kyc_status) || accountStatusApproved)
+      : (isApproved(profile?.bridge_kyc_status) || accountStatusApproved);
   return {
     isVerified:        verified,
     kycTier:           verified ? ENV_CONFIG.kycTier.FULL_ENROLLMENT : ENV_CONFIG.kycTier.NONE,
@@ -65,6 +67,17 @@ export function useVerification(userId: string): VerificationStatus {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
+    const cacheKey = `borderpay_verification_refreshed_at:${userId}`;
+
+    const recentlyRefreshed = (() => {
+      try {
+        const ts = Number(localStorage.getItem(cacheKey) || 0);
+        return Number.isFinite(ts) && ts > 0 && (Date.now() - ts) < 60_000;
+      } catch {
+        return false;
+      }
+    })();
+    if (recentlyRefreshed) return;
 
     (async () => {
       try {
@@ -73,6 +86,7 @@ export function useVerification(userId: string): VerificationStatus {
         if (profileResult.success && profileResult.data?.user) {
           const p = profileResult.data.user;
           try { localStorage.setItem('borderpay_user', JSON.stringify(p)); } catch {}
+          try { localStorage.setItem(cacheKey, String(Date.now())); } catch {}
           const next = deriveFromProfile(p);
           setStatus(prev =>
             prev.isVerified === next.isVerified &&
