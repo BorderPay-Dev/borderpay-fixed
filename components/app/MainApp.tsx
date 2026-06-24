@@ -13,7 +13,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { Dashboard } from './Dashboard';
-import { useVerification } from '../../utils/verification/useVerification';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -346,7 +345,6 @@ type StablecoinConfirmData = {
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('dashboard');
   const [navigationStack, setNavigationStack] = useState<AppScreen[]>(['dashboard']);
-  const verificationStatus = useVerification(userId);
   const [refreshKey, setRefreshKey] = useState(0);
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
@@ -588,35 +586,34 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     return () => { cancelled = true; };
   }, []);
 
-  // Business first-open latency killer: warm route chunks likely to be opened
-  // from the burger menu so route switches don't wait on lazy imports.
+  // Business prefetch is staged and idle-only to avoid competing with first
+  // interaction/render on lower-end devices.
   React.useEffect(() => {
     if (accountType !== 'business') return;
     let cancelled = false;
-    const warm = [
-      'wallet-detail',
-      'receive-money',
-      'send-money',
-      'transactions',
-      'team',
-      'settings',
-      'profile',
-      'notifications',
-      'external-accounts',
-      'external-wallets',
-      'bulk-payout',
-    ];
+    const warm: string[] = ['team', 'external-accounts', 'external-wallets', 'bulk-payout'];
     if (PAYROLL_NAV_ENABLED) warm.push('payroll');
     if (FX_NAV_ENABLED) warm.push('exchange');
     if (RAMPS_NAV_ENABLED) warm.push('ramps');
 
-    const id = window.setTimeout(() => {
+    let timerId: number | null = null;
+    const run = () => {
       if (cancelled) return;
-      warm.forEach(prefetchScreen);
-    }, 300);
+      warm.forEach((name, idx) => {
+        window.setTimeout(() => {
+          if (!cancelled) prefetchScreen(name);
+        }, idx * 120);
+      });
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') {
+      ric(run, { timeout: 3000 });
+    } else {
+      timerId = window.setTimeout(run, 1200);
+    }
     return () => {
       cancelled = true;
-      window.clearTimeout(id);
+      if (timerId != null) window.clearTimeout(timerId);
     };
   }, [accountType]);
 
@@ -804,7 +801,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <WalletScreen
             userId={userId}
             onBack={navigateBack}
-            isVerified={verificationStatus.isVerified}
+            isVerified={false}
             onNavigate={navigateTo}
           />
         );
