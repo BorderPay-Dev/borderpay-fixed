@@ -1,7 +1,7 @@
 /**
  * NotificationsScreen — full-page notification inbox.
  *
- * Reads via `backendAPI.notifications.getNotifications`. Each row supports
+ * Reads via canonical `backendAPI.financial.getSnapshot`. Each row supports
  * mark-as-read on tap and per-row delete. A "Mark all as read" header
  * action calls `mark-all-notifications-read`.
  *
@@ -16,7 +16,12 @@ import {
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Sparkles, Info,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { supabase } from '../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
+import { SkeletonRows } from '../common/Skeleton';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface NotificationRow {
   id:           string;
@@ -42,7 +47,16 @@ const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
 function currentNotificationCacheKey(): string | null {
   try {
     const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    return user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null;
+    return user?.id ? financialCacheKey(NOTIFICATIONS_CACHE_PREFIX, { userId: String(user.id) }) : null;
+  } catch {
+    return null;
+  }
+}
+
+function currentUserId(): string | null {
+  try {
+    const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    return user?.id ? String(user.id) : null;
   } catch {
     return null;
   }
@@ -107,28 +121,43 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
+  useEffect(() => {
+    navPerfTrackCache('notifications', rows.length > 0);
+  }, [rows.length]);
+
   const load = useCallback(async () => {
-    setLoading(true);
+    // Keep cached rows visible during background refresh.
+    if (rows.length === 0) setLoading(true);
     setError(null);
     try {
-      const r: any = await backendAPI.notifications.getNotifications(50);
-      // The edge function may return either `{ data: { notifications: [...] } }`
-      // or `{ data: [...] }` — handle both shapes defensively.
-      const data: any =
-          Array.isArray(r?.data?.notifications) ? r.data.notifications
-        : Array.isArray(r?.data)                 ? r.data
-        : Array.isArray(r?.notifications)        ? r.notifications
-        : [];
+      const uid = currentUserId();
+      let data: any[] = [];
+      if (uid) {
+        const { data: rowsData, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (!error && Array.isArray(rowsData)) {
+          data = rowsData;
+        } else {
+          // Fallback path if direct table read is unavailable.
+          const r: any = await backendAPI.notifications.getNotifications(50);
+          data = Array.isArray((r as any)?.data?.notifications)
+            ? (r as any).data.notifications
+            : (Array.isArray((r as any)?.data) ? (r as any).data : []);
+        }
+      }
       setRows(data);
       writeCachedNotifications(data);
       onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
-      if (!r?.success && r?.error) setError(friendlyError(r.error));
     } catch (e: any) {
       setError(friendlyError(e, 'Could not load notifications'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [rows.length]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -208,11 +237,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         )}
 
         {loading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className={`h-16 rounded-2xl ${tc.bgAlt} animate-pulse`} />
-            ))}
-          </div>
+          <SkeletonRows count={5} />
         ) : rows.length === 0 ? (
           <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} px-6 py-12 text-center`}>
             <div className={`w-14 h-14 rounded-2xl ${tc.bgAlt} flex items-center justify-center mx-auto mb-4`}>
@@ -228,7 +253,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
             <AnimatePresence initial={false}>
               {rows.map((n, i) => {
                 const Icon = notifIcon(n.type);
-                const message = (n.body || n.message || '').toString();
+                const message = sanitizeCustomerFacingText((n.body || n.message || '').toString());
+                const title = sanitizeCustomerFacingText(
+                  n.title || (n.type ? n.type.replace(/_/g, ' ') : 'Notification')
+                );
                 return (
                   <motion.div
                     key={n.id}
@@ -246,7 +274,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <p className={`text-sm font-semibold ${tc.text} truncate`}>
-                          {n.title || (n.type ? n.type.replace(/_/g, ' ') : 'Notification')}
+                          {title}
                         </p>
                         {!n.read && (
                           <span className="w-1.5 h-1.5 rounded-full bg-[#C7FF00] flex-shrink-0" aria-label="Unread" />
