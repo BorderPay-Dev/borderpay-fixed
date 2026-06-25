@@ -14,6 +14,12 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspens
 import { backendAPI } from '../../utils/api/backendAPI';
 import { Dashboard } from './Dashboard';
 import { BusinessDashboard } from '../business/BusinessDashboard';
+import { KYCVerification } from '../kyc/KYCVerification';
+import { TransactionsScreen } from '../transactions/TransactionsScreen';
+import { WalletScreen } from '../wallet/WalletScreen';
+import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
+import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
+import { ExchangeScreen } from '../exchange/ExchangeScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -25,8 +31,6 @@ import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShe
 import {
   TRANSFERS_LIVE,
   EXTERNAL_ACCOUNTS_LIVE,
-  FX_NAV_ENABLED,
-  FX_RUNTIME_ENABLED,
   PAYROLL_NAV_ENABLED,
   PAYROLL_RUNTIME_ENABLED,
 } from '../../utils/featureFlags';
@@ -46,11 +50,8 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
 const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
 const TwoFactorSetup = lazyImport(() => import('../security/TwoFactorSetup').then(m => ({ default: m.TwoFactorSetup })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
-const KYCVerification = lazyImport(() => import('../kyc/KYCVerification').then(m => ({ default: m.KYCVerification })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
-const TransactionsScreen = lazyImport(() => import('../transactions/TransactionsScreen').then(m => ({ default: m.TransactionsScreen })));
 const SettingsScreen = lazyImport(() => import('../settings/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
-const WalletScreen = lazyImport(() => import('../wallet/WalletScreen').then(m => ({ default: m.WalletScreen })));
 const ProfileScreen = lazyImport(() => import('../profile/ProfileScreen').then(m => ({ default: m.ProfileScreen })));
 const ChangePIN = lazyImport(() => import('../settings/ChangePIN').then(m => ({ default: m.ChangePIN })));
 const ChangePassword = lazyImport(() => import('../settings/ChangePassword').then(m => ({ default: m.ChangePassword })));
@@ -59,14 +60,11 @@ const TermsOfServiceScreen = lazyImport(() => import('../legal/TermsOfServiceScr
 const PrivacyPolicyScreen = lazyImport(() => import('../legal/PrivacyPolicyScreen').then(m => ({ default: m.PrivacyPolicyScreen })));
 const PreferencesScreen = lazyImport(() => import('../app/PreferencesScreen').then(m => ({ default: m.PreferencesScreen })));
 const CountryEligibilityScreen = lazyImport(() => import('../compliance/CountryEligibilityScreen').then(m => ({ default: m.CountryEligibilityScreen })));
-const ReceiveMoneyScreen = lazyImport(() => import('../receive/ReceiveMoneyScreen').then(m => ({ default: m.ReceiveMoneyScreen })));
 const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
-const ExternalWalletsScreen = lazyImport(() => import('../wallets/ExternalWalletsScreen').then(m => ({ default: m.ExternalWalletsScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
-const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
 const MomoCollectionScreen = lazyImport(() => import('../momo/MomoCollectionScreen').then(m => ({ default: m.MomoCollectionScreen })));
 const CreateCounterpartyScreen = lazyImport(() => import('../counterparty/CreateCounterpartyScreen').then(m => ({ default: m.CreateCounterpartyScreen })));
@@ -81,23 +79,24 @@ const TeamScreen          = lazyImport(() => import('../team/TeamScreen').then(m
 const NotificationsScreen = lazyImport(() => import('../notifications/NotificationsScreen').then(m => ({ default: m.NotificationsScreen })));
 const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
 const IndividualBroadcastScreen = lazyImport(() => import('../admin/IndividualBroadcastScreen').then(m => ({ default: m.IndividualBroadcastScreen })));
+const eagerPreload = () => Promise.resolve();
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
 // so any nav button can call it on hover/touchstart.
 const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   cards: (CardsScreen as any).preload,
   'send-money': (SendMoneyFlow as any).preload,
-  'receive-money': (ReceiveMoneyScreen as any).preload,
-  exchange: (ExchangeScreen as any).preload,
-  converter: (ExchangeScreen as any).preload,
+  'receive-money': eagerPreload,
+  exchange: eagerPreload,
+  converter: eagerPreload,
   deposit: (FundingScreen as any).preload,
   'add-money': (FundingScreen as any).preload,
   'two-factor-setup': (TwoFactorSetup as any).preload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': (BiometricSetup as any).preload,
-  kyc: (KYCVerification as any).preload,
-  transactions: (TransactionsScreen as any).preload,
-  'wallet-detail': (WalletScreen as any).preload,
+  kyc: eagerPreload,
+  transactions: eagerPreload,
+  'wallet-detail': eagerPreload,
   settings: (SettingsScreen as any).preload,
   profile: (ProfileScreen as any).preload,
   'change-pin': (ChangePIN as any).preload,
@@ -119,7 +118,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   team:          (TeamScreen    as any).preload,
   notifications: (NotificationsScreen as any).preload,
   'external-accounts':   (ExternalAccountsScreen as any).preload,
-  'external-wallets':    (ExternalWalletsScreen as any).preload,
+  'external-wallets':    eagerPreload,
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
@@ -381,8 +380,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const externalAccountsEnabled = EXTERNAL_ACCOUNTS_LIVE;
-
   // ─── Shell hydration (unread count) ──────────────────────────────────────
   // Route-level screens own their own data caches; shell only hydrates the
   // tiny values it actually needs for first-navigation responsiveness.
@@ -597,11 +594,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'receive-money':
         return <ReceiveMoneyScreen onBack={navigateBack} />;
 
-      // Bridge external accounts (payout destinations). Flag-gated: when
-      // EXTERNAL_ACCOUNTS_LIVE is false these route to the dashboard so the
-      // feature is fully inert until the table/edge/secret are in place.
       case 'external-accounts':
-        if (!externalAccountsEnabled) { navigateTo('dashboard'); return null; }
         return (
           <ExternalAccountsScreen
             onBack={navigateBack}
@@ -636,7 +629,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'add-external-account':
-        if (!externalAccountsEnabled) { navigateTo('dashboard'); return null; }
         return (
           <AddExternalAccountScreen
             onBack={navigateBack}
@@ -645,8 +637,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'exchange':
-        if (!FX_NAV_ENABLED) { navigateTo('dashboard'); return null; }
-        if (!FX_RUNTIME_ENABLED) { navigateTo('dashboard'); return null; }
         return <ExchangeScreen onBack={navigateBack} />;
 
       case 'converter':
