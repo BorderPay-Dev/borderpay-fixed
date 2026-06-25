@@ -403,7 +403,7 @@ export function AppShell({
                 <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  description={tt('nav.receive.desc',      'Get paid into your accounts')}     active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => go('receive')}      tc={tc} />
                 <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
                 {onOpenPayoutAccounts && (
-                  <DrawerItem icon={Banknote}  label={tt('nav.payout_accounts', 'Payout accounts')} description={tt('nav.payout_accounts.desc', 'Manage withdrawal destinations')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
+                  <DrawerItem icon={Banknote}  label={tt('nav.external_accounts', 'External Accounts')} description={tt('nav.external_accounts.desc', 'Manage withdrawal destinations')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
                 )}
                 {onOpenWithdrawalWallets && (
                   <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onClick={() => { setDrawerOpen(false); onOpenWithdrawalWallets(); }} tc={tc} />

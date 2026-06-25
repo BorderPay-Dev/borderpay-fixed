@@ -20,6 +20,21 @@ import { WalletScreen } from '../wallet/WalletScreen';
 import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
 import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
 import { ExchangeScreen } from '../exchange/ExchangeScreen';
+import { SettingsScreen } from '../settings/SettingsScreen';
+import { ProfileScreen } from '../profile/ProfileScreen';
+import { NotificationsScreen } from '../notifications/NotificationsScreen';
+import { TeamScreen } from '../team/TeamScreen';
+import { ExternalAccountsScreen } from '../payouts/ExternalAccountsScreen';
+import { TwoFactorSetup } from '../security/TwoFactorSetup';
+import { BiometricSetup } from '../security/BiometricSetup';
+import { ChangePIN } from '../settings/ChangePIN';
+import { ChangePassword } from '../settings/ChangePassword';
+import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
+import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
+import { PreferencesScreen } from './PreferencesScreen';
+import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
+import { HelpCenterScreen } from '../settings/HelpCenterScreen';
+import { ProofOfAddressScreen } from '../settings/ProofOfAddressScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -28,6 +43,7 @@ import { ErrorBoundary } from '../common/ErrorBoundary';
 import { FundWalletSheet } from '../activation/FundWalletSheet';
 import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 import {
   TRANSFERS_LIVE,
   EXTERNAL_ACCOUNTS_LIVE,
@@ -48,20 +64,10 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
 };
 
 const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
-const TwoFactorSetup = lazyImport(() => import('../security/TwoFactorSetup').then(m => ({ default: m.TwoFactorSetup })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
-const SettingsScreen = lazyImport(() => import('../settings/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
-const ProfileScreen = lazyImport(() => import('../profile/ProfileScreen').then(m => ({ default: m.ProfileScreen })));
-const ChangePIN = lazyImport(() => import('../settings/ChangePIN').then(m => ({ default: m.ChangePIN })));
-const ChangePassword = lazyImport(() => import('../settings/ChangePassword').then(m => ({ default: m.ChangePassword })));
 const PaymentMethods = lazyImport(() => import('../settings/PaymentMethods').then(m => ({ default: m.PaymentMethods })));
-const TermsOfServiceScreen = lazyImport(() => import('../legal/TermsOfServiceScreen').then(m => ({ default: m.TermsOfServiceScreen })));
-const PrivacyPolicyScreen = lazyImport(() => import('../legal/PrivacyPolicyScreen').then(m => ({ default: m.PrivacyPolicyScreen })));
-const PreferencesScreen = lazyImport(() => import('../app/PreferencesScreen').then(m => ({ default: m.PreferencesScreen })));
-const CountryEligibilityScreen = lazyImport(() => import('../compliance/CountryEligibilityScreen').then(m => ({ default: m.CountryEligibilityScreen })));
 const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
-const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
@@ -71,12 +77,7 @@ const CreateCounterpartyScreen = lazyImport(() => import('../counterparty/Create
 const StablecoinDepositScreen = lazyImport(() => import('../wallets/StablecoinDepositScreen').then(m => ({ default: m.StablecoinDepositScreen })));
 const StablecoinConfirmScreen = lazyImport(() => import('../wallets/StablecoinConfirmScreen').then(m => ({ default: m.StablecoinConfirmScreen })));
 const ReferralScreen = lazyImport(() => import('../referral/ReferralScreen').then(m => ({ default: m.ReferralScreen })));
-const BiometricSetup = lazyImport(() => import('../security/BiometricSetup').then(m => ({ default: m.BiometricSetup })));
-const HelpCenterScreen = lazyImport(() => import('../settings/HelpCenterScreen').then(m => ({ default: m.HelpCenterScreen })));
-const ProofOfAddressScreen = lazyImport(() => import('../settings/ProofOfAddressScreen').then(m => ({ default: m.ProofOfAddressScreen })));
 const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
-const TeamScreen          = lazyImport(() => import('../team/TeamScreen').then(m => ({ default: m.TeamScreen })));
-const NotificationsScreen = lazyImport(() => import('../notifications/NotificationsScreen').then(m => ({ default: m.NotificationsScreen })));
 const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
 const IndividualBroadcastScreen = lazyImport(() => import('../admin/IndividualBroadcastScreen').then(m => ({ default: m.IndividualBroadcastScreen })));
 const eagerPreload = () => Promise.resolve();
@@ -91,33 +92,33 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   converter: eagerPreload,
   deposit: (FundingScreen as any).preload,
   'add-money': (FundingScreen as any).preload,
-  'two-factor-setup': (TwoFactorSetup as any).preload,
+  'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
-  'biometric-setup': (BiometricSetup as any).preload,
+  'biometric-setup': eagerPreload,
   kyc: eagerPreload,
   transactions: eagerPreload,
   'wallet-detail': eagerPreload,
-  settings: (SettingsScreen as any).preload,
-  profile: (ProfileScreen as any).preload,
-  'change-pin': (ChangePIN as any).preload,
-  'change-password': (ChangePassword as any).preload,
+  settings: eagerPreload,
+  profile: eagerPreload,
+  'change-pin': eagerPreload,
+  'change-password': eagerPreload,
   'payment-methods': (PaymentMethods as any).preload,
-  'country-eligibility': (CountryEligibilityScreen as any).preload,
-  'terms-of-service': (TermsOfServiceScreen as any).preload,
-  'privacy-policy': (PrivacyPolicyScreen as any).preload,
-  preferences: (PreferencesScreen as any).preload,
+  'country-eligibility': eagerPreload,
+  'terms-of-service': eagerPreload,
+  'privacy-policy': eagerPreload,
+  preferences: eagerPreload,
   'usd-account': (USDAccountScreen as any).preload,
   'momo-collect': (MomoCollectionScreen as any).preload,
   'create-counterparty': (CreateCounterpartyScreen as any).preload,
   'stablecoin-deposit': (StablecoinDepositScreen as any).preload,
   'stablecoin-confirm': (StablecoinConfirmScreen as any).preload,
-  'help-center': (HelpCenterScreen as any).preload,
-  'proof-of-address': (ProofOfAddressScreen as any).preload,
+  'help-center': eagerPreload,
+  'proof-of-address': eagerPreload,
   referral: (ReferralScreen as any).preload,
   pricing:       (PricingScreen as any).preload,
-  team:          (TeamScreen    as any).preload,
-  notifications: (NotificationsScreen as any).preload,
-  'external-accounts':   (ExternalAccountsScreen as any).preload,
+  team:          eagerPreload,
+  notifications: eagerPreload,
+  'external-accounts':   eagerPreload,
   'external-wallets':    eagerPreload,
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
@@ -522,6 +523,83 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     });
     return () => { cancelled = true; };
   }, []);
+
+  // Warm shared financial route data in the background so first opens of
+  // Wallet / Receive / Transactions / External Accounts render from cache.
+  React.useEffect(() => {
+    let cancelled = false;
+    const warm = async () => {
+      try {
+        const walletRoute: any = await backendAPI.financial.getWalletRouteData();
+        if (!cancelled && walletRoute?.success) {
+          const data = walletRoute?.data || {};
+          const walletsKey = financialCacheKey('borderpay_wallets_v1', { userId });
+          const vaKey = financialCacheKey('borderpay_va_v1', { userId });
+          try { localStorage.setItem(walletsKey, JSON.stringify(Array.isArray(data?.stablecoin_wallets) ? data.stablecoin_wallets : [])); } catch {}
+          try { localStorage.setItem(vaKey, JSON.stringify(Array.isArray(data?.virtual_accounts) ? data.virtual_accounts : [])); } catch {}
+          const rows: any[] = Array.isArray(data?.wallets) ? data.wallets : [];
+          if (rows.length > 0) {
+            const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
+              const c = String(w?.currency || '').toUpperCase();
+              if (!c) return acc;
+              acc[c] = Number(w?.balance || 0);
+              return acc;
+            }, {});
+            try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch {}
+            try {
+              const total = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+              localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total));
+            } catch {}
+          }
+        }
+      } catch {}
+
+      try {
+        const txRes: any = await backendAPI.transactions.getTransactions(100, 0);
+        if (!cancelled && txRes?.success) {
+          const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
+          const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
+          try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
+        }
+      } catch {}
+
+      try {
+        const extRes: any = await backendAPI.bridge.externalAccount.list();
+        if (!cancelled && extRes?.success) {
+          const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
+          const extRows = Array.isArray(extRes?.data?.external_accounts) ? extRes.data.external_accounts : [];
+          const normalized = extRows.map((row: any, idx: number) => {
+            const rawType = String(row?.account_type || '').toLowerCase();
+            const accountType =
+              rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+            const rawCurrency = String(row?.currency || '');
+            const currency = rawCurrency
+              ? rawCurrency.toUpperCase()
+              : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+            const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
+            const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
+            return {
+              id: String(row?.id || externalId || `ext_${idx}`),
+              bridge_external_account_id: externalId,
+              account_type: accountType,
+              currency,
+              account_owner_name: row?.account_owner_name ?? null,
+              bank_name: row?.bank_name ?? null,
+              last_4: last4 ? String(last4) : null,
+              rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+              status: String(row?.status || 'active'),
+            };
+          }).filter((r: any) => !!r.bridge_external_account_id);
+          try { localStorage.setItem(extKey, JSON.stringify(normalized)); } catch {}
+        }
+      } catch {}
+    };
+
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1200 });
+    else setTimeout(() => { void warm(); }, 500);
+    return () => { cancelled = true; };
+  }, [userId]);
 
   const navigateBack = () => {
     if (navigationStack.length > 1) {

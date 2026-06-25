@@ -100,7 +100,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [balanceByCurrency, setBalanceByCurrency] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_${userId}`) || '{}'); } catch { return {}; }
   });
-  const [loading, setLoading] = useState(stables.length === 0 && vas.length === 0);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
 

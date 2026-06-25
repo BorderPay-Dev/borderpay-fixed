@@ -92,7 +92,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [vas, setVas] = useState<VaRow[]>(() => {
     try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
   });
-  const [loading, setLoading] = useState(stables.length === 0 && vas.length === 0);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
 

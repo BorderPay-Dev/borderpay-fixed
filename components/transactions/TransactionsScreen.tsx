@@ -70,7 +70,6 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const loadTransactions = async () => {
     setLoadError(false);
     // Preserve cached rows during refresh; only show skeleton on cold start.
-    if (transactions.length === 0) setLoading(true);
     try {
       // Phase 2 P1: read directly from `public.transactions` via the
       // canonical, RLS-safe getTransactions(). The previous "try
@@ -92,7 +91,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
         setLoadError(true);
       }
     } catch (error) {
-      setLoadError(true);
+      if (transactions.length === 0) setLoadError(true);
     } finally {
       setLoading(false);
     }
