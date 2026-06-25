@@ -149,18 +149,6 @@ function readCachedExternalAccounts(): CachedExternalAccountRow[] {
   return [];
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<T>((resolve) => {
-    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
-
 export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
@@ -246,29 +234,19 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const loadSnapshot = async (foreground: boolean = false) => {
     if (foreground) setSnapshotLoading(true);
     try {
-      const [routeResSettled, externalRes, snapshotResSettled] = await Promise.all([
-        Promise.allSettled([backendAPI.financial.getWalletRouteData()]),
-        withTimeout(
-          backendAPI.bridge.externalAccount.list() as Promise<any>,
-          1400,
-          { success: false, data: { external_accounts: [] } } as any,
-        ),
-        Promise.allSettled([backendAPI.financial.getSnapshot(20)]),
-      ]);
-      const routeRes = routeResSettled[0].status === 'fulfilled' ? routeResSettled[0].value : null;
-      const snapshotRes = snapshotResSettled[0].status === 'fulfilled' ? snapshotResSettled[0].value : null;
-      const routeData = (routeRes as any)?.success ? (routeRes as any).data : {};
-      const snapshotData = (snapshotRes as any)?.success ? (snapshotRes as any).data : {};
+      // Use the exact same live route source as WalletScreen first.
+      const routeRes: any = await backendAPI.financial.getWalletRouteData();
+      const routeData = routeRes?.success ? routeRes.data : null;
+      const snapshotRes: any = routeData ? null : await backendAPI.financial.getSnapshot(20);
+      const snapshotData = (!routeData && snapshotRes?.success) ? snapshotRes.data : null;
+
       const stableRows = Array.isArray(routeData?.stablecoin_wallets)
         ? routeData.stablecoin_wallets
-        : [];
-      const cachedExternalRows = readCachedExternalAccounts();
-      const externalRows = Array.isArray(externalRes?.data?.external_accounts)
-        ? externalRes.data.external_accounts
-        : cachedExternalRows;
+        : (Array.isArray(snapshotData?.stablecoin_wallets) ? snapshotData.stablecoin_wallets : []);
       const vaRows = Array.isArray(routeData?.virtual_accounts)
         ? routeData.virtual_accounts
-        : [];
+        : (Array.isArray(snapshotData?.virtual_accounts) ? snapshotData.virtual_accounts : []);
+
       const cachedDashWallets = readCachedDashboardWallets();
       const cachedBalanceRows = readCachedBalanceByCurrencyRows();
       const walletRows = Array.isArray(routeData?.wallets)
@@ -276,6 +254,13 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         : (Array.isArray(snapshotData?.wallets)
           ? snapshotData.wallets
           : (cachedDashWallets.length > 0 ? cachedDashWallets : cachedBalanceRows));
+
+      // Destination list must come from the same live source as ExternalAccountsScreen.
+      const externalRes: any = await backendAPI.bridge.externalAccount.list();
+      const cachedExternalRows = readCachedExternalAccounts();
+      const externalRows = Array.isArray(externalRes?.data?.external_accounts)
+        ? externalRes.data.external_accounts
+        : cachedExternalRows;
 
       const stableFromBridge: StableWallet[] = stableRows
         .map((r: any) => ({
@@ -327,11 +312,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         }))
         .filter((r: ExternalAccount) => !!r.bridge_external_account_id && !!r.currency);
 
-      if (wallets.length > 0) {
-        setStableWallets(wallets);
-      } else if (stableWallets.length === 0) {
-        setStableWallets([]);
-      }
+      setStableWallets(wallets);
       setExternalAccounts(accounts);
       setHasVirtualAccount(vaRows.length > 0);
       if (!sourceWalletId && wallets[0]) setSourceWalletId(wallets[0].id);

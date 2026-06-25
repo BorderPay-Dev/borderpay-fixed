@@ -1,49 +1,27 @@
 /**
- * Affiliate Program Banner — shown at top of dashboard for eligible users.
- * Dismissible permanently via localStorage.
+ * Affiliate Program Banner — shown on dashboard footer for all users.
+ * Dismissible via localStorage.
  */
 
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { supabase } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { affiliateProgramUrl } from '../../utils/affiliate/config';
 
-const AFFILIATE_URL = 'https://affiliate.borderpayafrica.com/login';
-const DISMISSED_KEY = 'affiliate_banner_dismissed';
+const DISMISSED_KEY = 'affiliate_banner_dismissed_v2';
 
 interface AffiliateBannerProps {
-  kycStatus: string;
-  userEmail: string;
+  kycStatus?: string;
 }
 
-export function AffiliateBanner({ kycStatus, userEmail }: AffiliateBannerProps) {
+export function AffiliateBanner({ kycStatus }: AffiliateBannerProps) {
   const [visible, setVisible] = useState(false);
   const tc = useThemeClasses();
 
   useEffect(() => {
-    // Only show to verified users.
-    if (kycStatus !== 'verified') return;
     if (localStorage.getItem(DISMISSED_KEY) === 'true') return;
-    if (!userEmail) return;
-
-    // Check if already an affiliate
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from('affiliates')
-          .select('id')
-          .eq('email', userEmail)
-          .eq('status', 'approved')
-          .maybeSingle();
-        if (!cancelled && !data) setVisible(true);
-      } catch {
-        // If table doesn't exist or query fails, show banner anyway
-        if (!cancelled) setVisible(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [kycStatus, userEmail]);
+    setVisible(true);
+  }, [kycStatus]);
 
   const handleDismiss = () => {
     localStorage.setItem(DISMISSED_KEY, 'true');
@@ -51,7 +29,10 @@ export function AffiliateBanner({ kycStatus, userEmail }: AffiliateBannerProps) 
   };
 
   const handleJoin = () => {
-    window.open(AFFILIATE_URL, '_blank', 'noopener,noreferrer');
+    const url = affiliateProgramUrl('banner');
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    // Fallback path: open in current tab if popup/external open fails.
+    if (!win) window.location.assign(url);
   };
 
   if (!visible) return null;
@@ -68,7 +49,7 @@ export function AffiliateBanner({ kycStatus, userEmail }: AffiliateBannerProps) 
         }}
       >
         <p className={`${tc.text} text-[12px] font-medium min-w-0 flex-1 truncate`}>
-          Earn money referring friends
+          Affiliate Program Beta
         </p>
 
         <button
@@ -76,7 +57,7 @@ export function AffiliateBanner({ kycStatus, userEmail }: AffiliateBannerProps) 
           className="shrink-0 px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors hover:opacity-90 whitespace-nowrap"
           style={{ backgroundColor: '#C7FF00', color: '#06080C' }}
         >
-          Join now
+          Join beta
         </button>
 
         <button
