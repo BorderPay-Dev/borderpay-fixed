@@ -20,6 +20,7 @@ import {
   Settings,
   Home,
   Coins,
+  Wallet,
   CreditCard,
   User,
   ArrowDownLeft,
@@ -35,7 +36,7 @@ import {
 } from 'lucide-react';
 import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { deriveKycStatus, isKycVerified } from '../../utils/config/environment';
+import { isKycVerified } from '../../utils/config/environment';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
@@ -51,6 +52,9 @@ import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
+import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { FX_NAV_ENABLED } from '../../utils/featureFlags';
 
 // Pull cached profile once at module-eval — every initial-state hook below
 // reads from this synchronously so the dashboard never flickers.
@@ -82,6 +86,18 @@ function initialsFromName(name?: string, email?: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function deriveBridgeOnboardingStatus(profile: any): 'verified' | 'rejected' | 'under_review' | 'pending' | 'not_started' {
+  const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
+  const isBusiness = norm(profile?.account_type) === 'business';
+  const verification = isBusiness ? norm(profile?.bridge_kyb_status) : norm(profile?.bridge_kyc_status);
+  const account = norm(profile?.bridge_account_status);
+  if (['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(verification) || ['active', 'approved', 'authorized'].includes(account)) return 'verified';
+  if (verification === 'rejected' || account === 'rejected') return 'rejected';
+  if (verification === 'under_review' || verification === 'review_pending') return 'under_review';
+  if (verification === 'pending' || verification === 'incomplete' || verification === 'not_started' || account === 'incomplete') return 'pending';
+  return 'not_started';
+}
+
 interface DashboardProps {
   userId: string;
   onLogout: () => void;
@@ -108,7 +124,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const cachedSecurity = useMemo(() => {
     try { return SecurityStatus.get(userId); } catch { return { hasPIN: false, has2FA: false }; }
   }, [userId]);
-  const cachedKycStatus = deriveKycStatus(cachedProfile);
+  const cachedKycStatus = deriveBridgeOnboardingStatus(cachedProfile);
   const isCachedVerified = cachedKycStatus === 'verified';
   // Canonical 2FA signal (LoginScreen uses TOTPManager) so the dashboard agrees.
   const cached2FA = useMemo(() => {
@@ -141,17 +157,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [hasPIN, setHasPIN]               = useState<boolean>(!!cachedSecurity.hasPIN);
   // Seed wallets / balance / recent activity from cache so the dashboard never
   // first-paints $0.00 or an empty activity list, then refreshes silently.
+  const dashWalletsKey = useMemo(() => financialCacheKey(DASH_WALLETS_KEY, { userId }), [userId]);
+  const dashRecentKey = useMemo(() => financialCacheKey(DASH_RECENT_KEY, { userId }), [userId]);
   const cachedWallets = useMemo(
-    () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(DASH_WALLETS_KEY, []),
-    [],
+    () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(dashWalletsKey, []),
+    [dashWalletsKey],
   );
-  const cachedRecent = useMemo(() => readJSON<any[]>(DASH_RECENT_KEY, []), []);
-  const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) => {
-    const usdLike = new Set(['USD', 'USDT', 'USDC', 'PYUSD', 'USDB']);
-    return ws.reduce((s, w) => s + (usdLike.has(w.currency) ? w.balance : 0), 0);
-  };
+  const cachedRecent = useMemo(() => readJSON<any[]>(dashRecentKey, []), [dashRecentKey]);
+  const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
+    ws.reduce((s, w) => s + Number(w.balance || 0), 0);
   const [wallets, setWallets]             = useState(cachedWallets);
   const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
+  const [walletsLoaded, setWalletsLoaded] = useState<boolean>(cachedWallets.length > 0);
   const [recentTransactions, setRecentTransactions] = useState<any[]>(cachedRecent);
   // True once a network refresh of recent activity has completed at least once;
   // gates the skeleton so we only show it on a genuinely cold (uncached) load.
@@ -209,29 +226,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // their assets live in bridge_wallets + bridge_virtual_accounts. We
       // read both and merge below so the Dashboard tiles always reflect
       // ALL of the user's accounts and stablecoins.
-      const [profileRes, walletsRes, securityRes, txRes, bridgeRes] = await Promise.allSettled([
-        backendAPI.user.getProfile(),
-        backendAPI.wallets.getWallets(),
+      const [snapshotRes, securityRes] = await Promise.allSettled([
+        backendAPI.financial.getSnapshot(5),
         backendAPI.auth.getSecurityStatus(userId),
-        backendAPI.transactions.getTransactions(5, 0),
-        (async () => {
-          const [{ data: bw }, { data: bva }] = await Promise.all([
-            supabase.from('bridge_wallets')
-              .select('currency, chain, address')
-              .eq('user_id', userId),
-            supabase.from('bridge_virtual_accounts')
-              .select('currency, status')
-              .eq('user_id', userId),
-          ]);
-          return { wallets: bw || [], virtualAccounts: bva || [] };
-        })(),
       ]);
+      const snapshotOk = snapshotRes.status === 'fulfilled' && snapshotRes.value?.success;
+      const snapshotData = snapshotOk ? (snapshotRes.value as any).data : null;
 
       // ── Profile ──────────────────────────────────────────────────────────
-      if (profileRes.status === 'fulfilled' && profileRes.value?.success) {
-        const p = profileRes.value.data?.user;
+      if (snapshotData?.profile) {
+        const p = snapshotData.profile;
         if (p) {
-          const nextKycStatus = deriveKycStatus(p);
+          const nextKycStatus = deriveBridgeOnboardingStatus(p);
           const verified   = nextKycStatus === 'verified';
           // Only update if value changed — prevents an avoidable re-render
           // (and visible flicker) when nothing's actually different.
@@ -245,42 +251,29 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       }
 
       // ── Wallets ───────────────────────────────────────────────────────────
-      // Sources merged here:
-      //   • Legacy `wallets` (getWallets) — demo seed accounts live here.
-      //   • bridge_virtual_accounts        — USD / EUR / GBP for real users.
-      //   • bridge_wallets                 — USDC / USDT / etc.
-      // Deduped by currency so a row never appears twice if both sources
-      // happen to mirror it.
+      // Canonical read-model source:
+      //   the canonical financial snapshot now merges bridge ledger + VA balance
+      //   projections into one currency-deduped output.
       {
         type Row = { currency: string; balance: number; symbol: string; color: string };
-        const out: Row[] = [];
-        const seen = new Set<string>();
-        const push = (currency: string, balance: number) => {
-          const key = String(currency || '').toUpperCase();
-          if (!key || seen.has(key)) return;
-          seen.add(key);
-          out.push({
-            currency: key,
-            balance,
-            symbol: CURRENCY_CONFIG[key]?.symbol || key,
-            color:  CURRENCY_CONFIG[key]?.color  || '#666',
+        if (Array.isArray(snapshotData?.wallets)) {
+          const raw = snapshotData.wallets || [];
+          const rows: Row[] = raw.map((w: any) => {
+            const c = String(w?.currency || '').toUpperCase();
+            return {
+              currency: c,
+              balance: Number(w?.balance || 0),
+              symbol: CURRENCY_CONFIG[c]?.symbol || c,
+              color: CURRENCY_CONFIG[c]?.color || '#666',
+            };
           });
-        };
-        // 1) Legacy wallets first (so demo-seeded balances show their amount)
-        if (walletsRes.status === 'fulfilled' && walletsRes.value?.success) {
-          const raw = walletsRes.value.data?.wallets || [];
-          for (const w of raw) push(w.currency, parseFloat(w.balance) || 0);
+          setWallets(rows);
+          setTotalBalance(usdLikeTotal(rows));
+          writeJSON(dashWalletsKey, rows);
         }
-        // 2) Real Bridge VAs (USD/EUR/GBP) — balance 0 until funded
-        if (bridgeRes.status === 'fulfilled') {
-          for (const v of (bridgeRes.value.virtualAccounts as any[])) push(v.currency, 0);
-          for (const w of (bridgeRes.value.wallets as any[]))         push(w.currency, 0);
-        }
-        if (out.length > 0 || (walletsRes.status === 'fulfilled' && walletsRes.value?.success)) {
-          setWallets(out);
-          setTotalBalance(usdLikeTotal(out));
-          writeJSON(DASH_WALLETS_KEY, out);
-        }
+        // Loading must always terminate even when API fails; empty-state is
+        // represented by zero rows, not an infinite loading placeholder.
+        setWalletsLoaded(true);
       }
       // On failure we keep the cached wallets/balance already on screen rather
       // than flashing $0.00.
@@ -305,11 +298,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       }
 
       // ── Recent transactions ───────────────────────────────────────────────
-      if (txRes.status === 'fulfilled' && txRes.value?.success) {
-        const txns = txRes.value.data?.transactions || [];
+      if (Array.isArray(snapshotData?.transactions)) {
+        const txns = snapshotData.transactions || [];
         const recent = Array.isArray(txns) ? txns.slice(0, 5) : [];
         setRecentTransactions(recent);
-        writeJSON(DASH_RECENT_KEY, recent);
+        writeJSON(dashRecentKey, recent);
       }
       // On failure keep cached recent activity rather than blanking it.
       setTxLoaded(true);
@@ -348,14 +341,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const handleLockedFeatureClick = (_featureName: string, action: string) => {
     handleNavigate(action);
   };
-
-  // ─── quick actions ────────────────────────────────────────────────────────
-  const quickActions = [
-    { id: 'add-money',           label: t('action.addMoney'), icon: Plus,           bg: '#C7FF00', color: '#000' },
-    { id: 'send-money',          label: t('action.send'),     icon: Send,           bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
-    { id: 'receive-money',       label: t('action.receive') || 'Receive', icon: ArrowDownLeft, bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
-    { id: 'exchange',            label: t('action.exchange'), icon: ArrowLeftRight,  bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
-  ];
 
   // ─── transaction helpers ──────────────────────────────────────────────────
   const getTxIcon = (txn: any) => {
@@ -407,7 +392,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     if (h < 18) return tt('dashboard.greet.afternoon','Good afternoon');
     return        tt('dashboard.greet.evening', 'Good evening');
   })();
-  const firstName  = (userFullName || '').trim().split(/\s+/)[0] || '';
+  const firstName  = ((userFullName || '').trim().split(/\s+/)[0] || (userEmail || '').split('@')[0] || '').trim();
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
@@ -443,6 +428,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               <h1 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[40px] sm:text-[52px]">
                 {balanceHidden ? (
                   <span>••••••</span>
+                ) : !walletsLoaded ? (
+                  <span className="text-2xl sm:text-3xl text-white/40">Loading…</span>
                 ) : (
                   <>
                     <span className="text-xl sm:text-2xl text-white/50 mr-1 align-top">$</span>
@@ -473,10 +460,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           {/* Circular action buttons (Revolut idiom) */}
           <div className="relative mt-6 grid grid-cols-4 gap-1">
             <HeroAction
-              label={tt('action.addMoney', 'Add money')}
-              Icon={Plus}
+              label={tt('nav.wallet', 'Wallet')}
+              Icon={Wallet}
               primary
-              onClick={() => setProvisioningOpen(true)}
+              onClick={() => handleNavigate('wallet-detail')}
+              onHover={() => prefetchScreen('wallet-detail')}
             />
             <HeroAction
               label={tt('action.send', 'Send')}
@@ -744,7 +732,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium ${tc.text} truncate`}>
-                      {txn.description || txn.type || 'Transaction'}
+                      {sanitizeCustomerFacingText(txn.description || txn.type || 'Transaction')}
                     </p>
                     <div className={`flex items-center gap-2 text-[11px] ${tc.textMuted} mt-0.5`}>
                       <span>{formatTxDate(txn.created_at)}</span>
@@ -767,16 +755,16 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       </section>
 
       {/* ── Exchange rates (below recent activity) ─────────────────── */}
-      <ExchangeRateWidget onNavigate={handleNavigate} />
+      {FX_NAV_ENABLED && <ExchangeRateWidget onNavigate={handleNavigate} />}
 
       {/* ── 11. Affiliate banner (footer position) ─────────────────── */}
       <section className="px-5 sm:px-6 mt-6 pb-2">
-        <AffiliateBanner kycStatus={isVerified ? 'verified' : 'pending'} userEmail={userEmail} />
+        <AffiliateBanner kycStatus={isVerified ? 'verified' : 'pending'} />
       </section>
 
       {/* Bottom navigation lives in AppShell (mounted by MainApp). */}
 
-      {/* Provisioning modal — hooked to "Add wallet" card + "Add money" quick action */}
+      {/* Provisioning modal — hooked to "Add wallet" card */}
       <RequestProvisioningModal
         open={provisioningOpen}
         onClose={() => setProvisioningOpen(false)}
@@ -784,14 +772,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           // Refresh wallets list after a successful provisioning call.
           (async () => {
             try {
-              const res: any = await backendAPI.wallets.getWallets();
-              // walletAPI now returns `{ success, data: { wallets: [...] } }`
-              // (canonical envelope; matches every other consumer).
-              // Tolerate the legacy bare-array shape for safety.
-              const list: any[] =
-                res?.data?.wallets ??
-                (Array.isArray(res?.data) ? res.data : []) ??
-                [];
+              const res: any = await backendAPI.financial.getSnapshot(20);
+              const list: any[] = Array.isArray(res?.data?.wallets) ? res.data.wallets : [];
               if (res?.success && list.length > 0) {
                 const mapped = list.map((w: any) => ({
                   currency: w.currency,
@@ -849,21 +831,23 @@ const FALLBACK_PAIRS: RatePair[] = [
 // variant uses a solid lime disc; secondary variants use a soft white tint
 // so they stay legible against the dark gradient. Label sits beneath.
 function HeroAction({
-  label, Icon, onClick, onHover, primary,
+  label, Icon, onClick, onHover, primary, disabled,
 }: {
   label:    string;
   Icon:     React.ComponentType<{ className?: string }>;
   onClick:  () => void;
   onHover?: () => void;
   primary?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <motion.button
       whileTap={{ scale: 0.94 }}
+      disabled={disabled}
       onClick={onClick}
       onMouseEnter={onHover}
       onTouchStart={onHover}
-      className="flex flex-col items-center justify-start gap-1.5 py-1 group"
+      className="flex flex-col items-center justify-start gap-1.5 py-1 group disabled:opacity-60 disabled:cursor-not-allowed"
     >
       <span
         className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${

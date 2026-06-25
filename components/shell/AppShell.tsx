@@ -75,8 +75,6 @@ export interface AppShellProps {
   /** When provided, a "Withdrawal wallets" drawer item is shown (saved external
    *  stablecoin addresses you can withdraw to directly). */
   onOpenWithdrawalWallets?: () => void;
-  /** Opens the affiliate/referral program screen. */
-  onOpenReferral?: () => void;
   children:           React.ReactNode;
 }
 
@@ -109,7 +107,6 @@ export function AppShell({
   unreadCount = 0, subscription, isBusinessAccount, onSignOut, onLock,
   onOpenPayoutAccounts,
   onOpenWithdrawalWallets,
-  onOpenReferral,
   children,
 }: AppShellProps) {
   const { t } = useThemeLanguage();

@@ -142,7 +142,6 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 
   const load = useCallback(async () => {
     // Keep first paint instant; refresh in background.
-    setLoading(true);
     setError(null);
     try {
       const uid = currentUserId();
@@ -155,7 +154,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
             .eq('user_id', uid)
             .order('created_at', { ascending: false })
             .limit(50),
-          2500,
+          1200,
           { data: null, error: new Error('notifications query timeout') } as any,
         );
         if (!error && Array.isArray(rowsData)) {
