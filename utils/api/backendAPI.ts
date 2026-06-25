@@ -11,7 +11,7 @@
 import { authAPI, BASE_URL, ANON_KEY, supabase } from '../supabase/client';
 import { ownerOrFilter } from '../financial/ownership';
 import { deriveWalletStatus } from '../financial/walletStatus';
-import { navPerfTrackApi, navPerfTrackSnapshot, navPerfTrackCache } from '../performance/navigationPerf';
+import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../performance/navigationPerf';
 
 // ── CSRF token (per-session, rotated on page load) ───────────────────────────
 const CSRF_TOKEN = crypto.randomUUID();
@@ -57,7 +57,15 @@ async function apiCall<T = any>(
       headers,
     });
 
-    const data = await response.json();
+    const raw = await response.text();
+    let data: any = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { message: raw };
+      }
+    }
 
     // Funding gate: when an edge function returns 402 funding_required (new
     // minimum-balance model), surface it as a DOM event so any screen pops the
@@ -132,7 +140,15 @@ async function apiCallPublic<T = any>(
     };
 
     const response = await fetch(`${BASE_URL}/${endpoint}`, { ...options, headers });
-    const data = await response.json();
+    const raw = await response.text();
+    let data: any = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { message: raw };
+      }
+    }
     if (!response.ok) {
       navPerfTrackApi(endpoint, 'end', false);
       // Preserve structured server codes (cooldown / rate_limit / expired /
@@ -569,6 +585,19 @@ export const financialReadModelAPI = (() => {
   let lastSnapshot: any = null;
   let lastSnapshotAt = 0;
   let lastSnapshotKey = '';
+  const EXTERNAL_FETCH_TIMEOUT_MS = 900;
+
+  async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<T>((resolve) => {
+      timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
 
   function persistKey(userId: string): string {
     return `borderpay_snapshot_cache_v1:${userId}`;
@@ -622,9 +651,23 @@ export const financialReadModelAPI = (() => {
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(limit),
-      bridgeAPI.externalAccount.list(),
-      bridgeAPI.externalAccount.capabilities(),
-      externalWalletsAPI.list(),
+      // External-account surfaces are route-specific and should never block
+      // the shared snapshot used by Dashboard/Wallet/Receive/Transactions/etc.
+      withTimeout(
+        bridgeAPI.externalAccount.list() as Promise<any>,
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'timeout' } as any,
+      ),
+      withTimeout(
+        bridgeAPI.externalAccount.capabilities() as Promise<any>,
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'timeout' } as any,
+      ),
+      withTimeout(
+        externalWalletsAPI.list() as Promise<any>,
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'timeout' } as any,
+      ),
     ]);
 
     if (!profileRes?.success) {
@@ -704,9 +747,33 @@ export const financialReadModelAPI = (() => {
     };
   }
 
+  async function getCurrentUserId(): Promise<{ userId?: string; error?: string }> {
+    const { data: sessionData } = await supabase.auth.getSession();
+    let user = sessionData?.session?.user ?? null;
+    let userErr: any = null;
+    if (!user) {
+      const r = await supabase.auth.getUser();
+      user = r.data?.user ?? null;
+      userErr = r.error;
+    }
+    if (userErr || !user) {
+      return { error: userErr?.message || 'Not signed in' };
+    }
+    return { userId: user.id };
+  }
+
   return {
     async getSnapshot(limit = 50) {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      // Fast path: session user is locally available and avoids an extra
+      // auth round-trip on every route mount.
+      const { data: sessionData } = await supabase.auth.getSession();
+      let user = sessionData?.session?.user ?? null;
+      let userErr: any = null;
+      if (!user) {
+        const r = await supabase.auth.getUser();
+        user = r.data?.user ?? null;
+        userErr = r.error;
+      }
       if (userErr || !user) {
         navPerfTrackSnapshot(false);
         return { success: false, error: userErr?.message || 'Not signed in' };
@@ -774,6 +841,81 @@ export const financialReadModelAPI = (() => {
         inFlightKey = '';
       });
       return inFlight;
+    },
+
+    async getWalletRouteData() {
+      const { userId, error } = await getCurrentUserId();
+      if (!userId) return { success: false, error: error || 'Not signed in' };
+
+      const [walletsRes, stableRes, vaRes] = await Promise.all([
+        walletAPI.getWallets(),
+        supabase
+          .from('bridge_wallets')
+          .select('*')
+          .or(ownerOrFilter(userId))
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('bridge_virtual_accounts')
+          .select('*')
+          .or(ownerOrFilter(userId))
+          .order('created_at', { ascending: false }),
+      ]);
+
+      if (!walletsRes?.success) return walletsRes as any;
+
+      const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
+      const balanceByCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
+        const c = String(w?.currency || '').toUpperCase();
+        if (!c) return acc;
+        acc[c] = Number(w?.balance || 0);
+        return acc;
+      }, {});
+
+      return {
+        success: true,
+        data: {
+          wallets,
+          stablecoin_wallets: Array.isArray(stableRes?.data) ? stableRes.data : [],
+          virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data : [],
+          balance_by_currency: balanceByCurrency,
+          total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
+          stablecoin_wallets_partial: Boolean(stableRes?.error),
+          virtual_accounts_partial: Boolean(vaRes?.error),
+        },
+      };
+    },
+
+    async getReceiveRouteData() {
+      const r = await this.getWalletRouteData();
+      if (!r?.success) return r;
+      return {
+        success: true,
+        data: {
+          stablecoin_wallets: (r as any).data?.stablecoin_wallets || [],
+          virtual_accounts: (r as any).data?.virtual_accounts || [],
+        },
+      };
+    },
+
+    async getSendRouteData() {
+      const walletsRes = await walletAPI.getWallets();
+      if (!walletsRes?.success) return walletsRes as any;
+      const capsRes: any = await withTimeout(
+        bridgeAPI.externalAccount.capabilities() as Promise<any>,
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'timeout' } as any,
+      );
+      const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
+        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+        : [];
+      return {
+        success: true,
+        data: {
+          wallets: Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
+          external_account_capabilities: caps,
+          external_accounts_partial: !capsRes?.success,
+        },
+      };
     },
   };
 })();
