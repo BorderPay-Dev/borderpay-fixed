@@ -30,6 +30,7 @@ const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /no .*customer|customer .*(not|n't) (found|exist|provision)|customer_id|not_started|onboarding/i, message: 'Finish verifying your identity to use this feature.' },
   { pattern: /endorsement|not .*available .*region|unsupported.*region|nexus/i, message: 'This service isn\'t available for your region yet.' },
   { pattern: /virtual account|wallet .*(not|n't)|not provisioned|no account/i, message: 'This account isn\'t ready yet. Please try again shortly.' },
+  { pattern: /can't find variable|is not defined|referenceerror/i, message: 'Something went wrong. Please refresh and try again.' },
 ];
 
 /**
@@ -37,7 +38,7 @@ const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
  * of these, we drop the raw text entirely and return the safe fallback — the
  * message is partner/infrastructure detail, not something a user should read.
  */
-const FORBIDDEN = /\b(bridge|flutterwave|stripe|youverify|persona|plaid|resend|supabase|postgres|postgrest|deno|webhook|edge function|rpc|enum|kyc_link|kyb|bvn|sql|constraint|null value|undefined|stack|traceback|payload|deployment_id)\b/i;
+const FORBIDDEN = /\b(bridge|flutterwave|stripe|youverify|persona|plaid|resend|supabase|postgres|postgrest|deno|webhook|edge function|rpc|enum|kyc_link|kyb|bvn|sql|constraint|null value|undefined|stack|traceback|payload|deployment_id|referenceerror|navperftrackcache|arrowright)\b/i;
 
 /**
  * Convert a raw error into a user-friendly message.

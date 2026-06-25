@@ -1004,7 +1004,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
-                onOpenReferral={accountType === 'individual' ? () => navigateTo('referral') : undefined}
               >
                 {renderScreen()}
               </AppShell>
