@@ -292,12 +292,18 @@ def stage4_bridge_integration() -> StageResult:
     funding_path = ROOT / "supabase/functions/_shared/funding-gate.ts"
     transfer_map_path = ROOT / "supabase/functions/_shared/bridge-transfer-state.ts"
     ingress_eval_path = ROOT / "supabase/functions/_shared/bridge-ingress-evaluator.ts"
+    fx_screen_path = ROOT / "components/exchange/ExchangeScreen.tsx"
+    backend_api_path = ROOT / "utils/api/backendAPI.ts"
+    bridge_transfer_path = ROOT / "supabase/functions/bridge-transfer/index.ts"
 
     worker = worker_path.read_text(encoding="utf-8")
     bridge = bridge_path.read_text(encoding="utf-8")
     funding = funding_path.read_text(encoding="utf-8")
     transfer_map = transfer_map_path.read_text(encoding="utf-8")
     ingress_eval = ingress_eval_path.read_text(encoding="utf-8")
+    fx_screen = fx_screen_path.read_text(encoding="utf-8")
+    backend_api = backend_api_path.read_text(encoding="utf-8")
+    bridge_transfer = bridge_transfer_path.read_text(encoding="utf-8")
 
     lifecycle_checks = [
         ("Customer lifecycle handler", "handleBridgeCustomerStatus(" in worker),
@@ -327,6 +333,22 @@ def stage4_bridge_integration() -> StageResult:
         ("Bridge idempotency (transfer create)", "idempotencyKey: input.idempotency_key" in bridge),
         ("Funding gate uses Bridge wallet balances only", "bridge_virtual_account_balances" not in funding and "bridgeProvider.listWallets(" in funding),
         ("Canonical transfer state mapper exists", "mapBridgeTransferState" in transfer_map and "payment_processed" in transfer_map),
+        # FX execution gate — prevent promotion of a placeholder FX screen.
+        ("FX screen wired to executable action", "executeFxTransfer" in fx_screen and "Run FX transfer" in fx_screen),
+        ("FX screen calls backendAPI.fx.convert", "backendAPI.fx.convert({" in fx_screen),
+        ("FX convert API routes through bridge-transfer", "export const fxAPI = {" in backend_api and "async convert(" in backend_api and "'bridge-transfer'" in backend_api),
+        ("bridge-transfer function exposes FX transfer lifecycle logs", all(x in bridge_transfer for x in [
+            'fxLog("request_received"',
+            'fxLog("validation_passed"',
+            'fxLog("bridge_request_sent"',
+            'fxLog("bridge_response_received"',
+            'fxLog("transaction_recorded"',
+        ])),
+        ("FX placeholder copy absent from executable screen", all(x not in fx_screen for x in [
+            "In the works",
+            "Convert your balances",
+            "Coming Soon",
+        ])),
     ]
 
     for name, passed in lifecycle_checks:
