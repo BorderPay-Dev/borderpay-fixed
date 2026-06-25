@@ -15,7 +15,6 @@ import { backendAPI } from './utils/api/backendAPI';
 import { readUserProfile } from './utils/supabase/client';
 import { useAuth } from './utils/auth/useAuth';
 import { ThemeLanguageProvider } from './utils/i18n/ThemeLanguageContext';
-import { AppProvider } from './utils/app/AppContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useInactivityTimer } from './utils/auth/useInactivityTimer';
 import { PINManager } from './utils/security/SecurityManager';
@@ -656,7 +655,6 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeLanguageProvider>
-        <AppProvider>
         <AppContent />
         <Toaster
           position="top-center"
@@ -677,7 +675,6 @@ export default function App() {
           visibleToasts={3}
           offset={16}
         />
-        </AppProvider>
       </ThemeLanguageProvider>
     </ErrorBoundary>
   );

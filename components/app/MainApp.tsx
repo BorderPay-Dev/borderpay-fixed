@@ -32,15 +32,6 @@ import {
   RAMPS_NAV_ENABLED,
 } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
-import {
-  navPerfGetReport,
-  navPerfMarkFirstPaint,
-  navPerfMarkRouteRender,
-  navPerfMarkRouteMounted,
-  navPerfMarkRouteUnmounted,
-  navPerfReset,
-  navPerfStartRoute,
-} from '../../utils/performance/navigationPerf';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -507,8 +498,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // Pre-warm the chunk in case the user reached this state without a
     // hover preload (e.g. programmatic nav)
     prefetchScreen(target);
-    navPerfStartRoute(target, accountType);
-
     setCurrentScreen(target);
     setNavigationStack(prev => [...prev, target]);
     scrollToTop();
@@ -516,27 +505,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   React.useEffect(() => {
     (window as any).__borderpay_navigate = navigateTo;
-    (window as any).__borderpay_nav_perf_report = () => navPerfGetReport();
-    (window as any).__borderpay_nav_perf_reset = () => navPerfReset();
     return () => {
       delete (window as any).__borderpay_navigate;
-      delete (window as any).__borderpay_nav_perf_report;
-      delete (window as any).__borderpay_nav_perf_reset;
     };
-  });
-
-  useEffect(() => {
-    navPerfStartRoute(currentScreen, accountType);
-    navPerfMarkRouteMounted(currentScreen);
-    const id = requestAnimationFrame(() => navPerfMarkFirstPaint(currentScreen));
-    return () => {
-      cancelAnimationFrame(id);
-      navPerfMarkRouteUnmounted(currentScreen);
-    };
-  }, [currentScreen, accountType]);
-
-  useEffect(() => {
-    navPerfMarkRouteRender(currentScreen);
   });
 
   // Prefetch most-likely-next screens once the dashboard is mounted, so the
