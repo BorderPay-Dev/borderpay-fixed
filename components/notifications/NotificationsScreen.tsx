@@ -16,6 +16,7 @@ import {
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Sparkles, Info,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { authAPI } from '../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface NotificationRow {
@@ -41,8 +42,9 @@ const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
 
 function currentNotificationCacheKey(): string | null {
   try {
-    const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    return user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null;
+    const cachedUser = authAPI.getStoredUser();
+    const userId = cachedUser?.id;
+    return userId ? `${NOTIFICATIONS_CACHE_PREFIX}${userId}` : null;
   } catch {
     return null;
   }
@@ -102,13 +104,15 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [rows, setRows]       = useState<NotificationRow[]>(() => readCachedNotifications());
-  const [loading, setLoading] = useState(() => readCachedNotifications().length === 0);
+  const cachedRows = useMemo(() => readCachedNotifications(), []);
+  const [rows, setRows]       = useState<NotificationRow[]>(cachedRows);
+  const [loading, setLoading] = useState(() => cachedRows.length === 0);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const coldStart = rows.length === 0;
+    if (coldStart) setLoading(true);
     setError(null);
     try {
       const r: any = await backendAPI.notifications.getNotifications(50);
@@ -126,9 +130,9 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     } catch (e: any) {
       setError(friendlyError(e, 'Could not load notifications'));
     } finally {
-      setLoading(false);
+      if (coldStart) setLoading(false);
     }
-  }, []);
+  }, [rows.length, onUnreadCountChange]);
 
   useEffect(() => { load(); }, [load]);
 
