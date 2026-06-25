@@ -11,7 +11,7 @@
 import { authAPI, BASE_URL, ANON_KEY, supabase } from '../supabase/client';
 import { ownerOrFilter } from '../financial/ownership';
 import { deriveWalletStatus } from '../financial/walletStatus';
-import { navPerfTrackApi, navPerfTrackSnapshot } from '../performance/navigationPerf';
+import { navPerfTrackApi, navPerfTrackSnapshot, navPerfTrackCache } from '../performance/navigationPerf';
 
 // ── CSRF token (per-session, rotated on page load) ───────────────────────────
 const CSRF_TOKEN = crypto.randomUUID();

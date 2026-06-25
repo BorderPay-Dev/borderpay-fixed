@@ -138,9 +138,10 @@ if (typeof window !== 'undefined') {
 }
 
 function getBusinessDisplayName(profile: any): string {
+  const emailLocal = typeof profile?.email === 'string' ? profile.email.split('@')[0] : '';
   return profile?.account_type === 'business'
-    ? (profile?.company_name || 'Business account')
-    : (profile?.full_name || '');
+    ? (profile?.company_name || profile?.full_name || emailLocal || 'Business account')
+    : (profile?.full_name || emailLocal || 'Account');
 }
 
 function hasBusinessAccountCached(): boolean {
@@ -325,10 +326,20 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
   const [shellUserName, setShellUserName] = useState<string>(() => {
-    try { return getBusinessDisplayName(JSON.parse(localStorage.getItem('borderpay_user') || '{}')); } catch { return ''; }
+    try {
+      const cached = authAPI.getStoredUser() || JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      return getBusinessDisplayName(cached);
+    } catch {
+      return '';
+    }
   });
   const [shellAvatarUrl, setShellAvatarUrl] = useState<string | null>(() => {
-    try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.profile_picture_url || null; } catch { return null; }
+    try {
+      const cached = authAPI.getStoredUser() || JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      return cached?.profile_picture_url || cached?.avatar_url || null;
+    } catch {
+      return null;
+    }
   });
   const [unreadCount, setUnreadCount] = useState<number>(() => readCachedUnreadCount(userId));
 

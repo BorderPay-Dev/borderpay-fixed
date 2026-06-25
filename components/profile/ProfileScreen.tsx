@@ -22,6 +22,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { authAPI } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -65,11 +66,12 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   // Read cached user data synchronously to avoid blank/flash on mount
   const [profile, setProfile] = useState(() => {
+    const cachedAuthUser = authAPI.getStoredUser() || {};
     const defaults = {
-      full_name: '',
-      company_name: '',
-      email: '',
-      phone: '',
+      full_name: cachedAuthUser?.full_name || '',
+      company_name: cachedAuthUser?.company_name || '',
+      email: cachedAuthUser?.email || '',
+      phone: cachedAuthUser?.phone || '',
       address: '',
       address_object: null as Record<string, any> | null,
       city: '',
@@ -82,12 +84,12 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       bridge_account_status: null as string | null,
       wallet_status: 'locked' as WalletStatus,
       verification_status: 'not_started',
-      account_type: 'individual',
+      account_type: cachedAuthUser?.account_type || 'individual',
       is_unlocked: false,
       email_confirmed: false,
       last_sign_in_at: null as string | null,
       created_at: '',
-      profile_picture_url: null as string | null,
+      profile_picture_url: (cachedAuthUser?.profile_picture_url || cachedAuthUser?.avatar_url || null) as string | null,
       two_factor_enabled: false,
     };
     try {

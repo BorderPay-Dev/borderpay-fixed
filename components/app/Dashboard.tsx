@@ -56,6 +56,8 @@ import { txDirection } from '../../utils/transactions/direction';
 // reads from this synchronously so the dashboard never flickers.
 function readCachedProfile(): any {
   try {
+    const authCached = authAPI.getStoredUser();
+    if (authCached) return authCached;
     const raw = localStorage.getItem('borderpay_user');
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
@@ -202,6 +204,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     // Fast path: show cached user data immediately
     const storedUser = authAPI.getStoredUser();
     if (storedUser?.profile_picture_url) setProfilePicUrl(storedUser.profile_picture_url);
+    if (storedUser?.full_name) setUserFullName(storedUser.full_name);
+    if (storedUser?.email) setUserEmail(storedUser.email);
 
     try {
       // Fire all five requests in parallel via canonical backendAPI. The
