@@ -114,7 +114,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const load = async () => {
     setError(null);
     try {
-      const r: any = await backendAPI.financial.getSnapshot(50);
+      const r: any = await backendAPI.bridge.externalAccount.list();
       if (r?.success) {
         const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
         setRows(next);

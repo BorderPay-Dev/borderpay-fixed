@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { Dashboard } from './Dashboard';
+import { BusinessDashboard } from '../business/BusinessDashboard';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -54,7 +55,6 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
 };
 
 const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
-const BusinessDashboard = lazyImport(() => import('../business/BusinessDashboard').then(m => ({ default: m.BusinessDashboard })));
 const TwoFactorSetup = lazyImport(() => import('../security/TwoFactorSetup').then(m => ({ default: m.TwoFactorSetup })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
 const KYCVerification = lazyImport(() => import('../kyc/KYCVerification').then(m => ({ default: m.KYCVerification })));
