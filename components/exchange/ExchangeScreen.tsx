@@ -3,7 +3,6 @@ import { ArrowRightLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle } from '
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { authAPI, supabase } from '../../utils/supabase/client';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExchangeScreenProps {
@@ -80,6 +79,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const [submitResult, setSubmitResult] = useState<{ transfer_id: string; state: string } | null>(null);
 
   const FX_RATES_CACHE_KEY = 'borderpay_fx_rates_cache_v1';
+  const FX_ROUTE_CACHE_KEY = 'borderpay_fx_route_cache_v1';
 
   const selectedWallet = useMemo(
     () => stableWallets.find((w) => w.id === sourceWalletId) || null,
@@ -133,28 +133,21 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const loadSnapshot = async () => {
     setSnapshotLoading(true);
     try {
-      const userId = String(authAPI.getStoredUser()?.id || '').trim();
-      if (!userId) return;
-      const [stableRes, vaRes, externalRes] = await Promise.all([
-        supabase
-          .from('bridge_wallets')
-          .select('*')
-          .or(`user_id.eq.${userId},business_user_id.eq.${userId}`)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('bridge_virtual_accounts')
-          .select('*')
-          .or(`user_id.eq.${userId},business_user_id.eq.${userId}`)
-          .order('created_at', { ascending: false }),
+      const [routeRes, externalRes] = await Promise.all([
+        backendAPI.financial.getWalletRouteData(),
         withTimeout(
           backendAPI.bridge.externalAccount.list() as Promise<any>,
           900,
           { success: false, data: { external_accounts: [] } } as any,
         ),
       ]);
-      const stableRows = Array.isArray(stableRes?.data) ? stableRes.data : [];
+      const stableRows = Array.isArray((routeRes as any)?.data?.stablecoin_wallets)
+        ? (routeRes as any).data.stablecoin_wallets
+        : [];
       const externalRows = Array.isArray(externalRes?.data?.external_accounts) ? externalRes.data.external_accounts : [];
-      const vaRows = Array.isArray(vaRes?.data) ? vaRes.data : [];
+      const vaRows = Array.isArray((routeRes as any)?.data?.virtual_accounts)
+        ? (routeRes as any).data.virtual_accounts
+        : [];
 
       const wallets: StableWallet[] = stableRows
         .map((r: any) => ({
@@ -180,6 +173,13 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       setHasVirtualAccount(vaRows.length > 0);
       if (!sourceWalletId && wallets[0]) setSourceWalletId(wallets[0].id);
       if (!destinationAccountId && accounts[0]) setDestinationAccountId(accounts[0].id);
+      try {
+        localStorage.setItem(FX_ROUTE_CACHE_KEY, JSON.stringify({
+          wallets,
+          externalAccounts: accounts,
+          hasVirtualAccount: vaRows.length > 0,
+        }));
+      } catch { /* ignore cache write */ }
     } finally {
       setSnapshotLoading(false);
     }
@@ -187,6 +187,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
   useEffect(() => {
     let hasCachedRates = false;
+    let hasCachedRoute = false;
     try {
       const cached = JSON.parse(localStorage.getItem(FX_RATES_CACHE_KEY) || 'null');
       if (cached && Array.isArray(cached.rates) && cached.rates.length > 0) {
@@ -197,7 +198,19 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         setLoadingRates(false);
       }
     } catch { /* ignore malformed cache */ }
-    navPerfTrackCache('exchange', hasCachedRates);
+    try {
+      const cachedRoute = JSON.parse(localStorage.getItem(FX_ROUTE_CACHE_KEY) || 'null');
+      if (cachedRoute && Array.isArray(cachedRoute.wallets)) {
+        hasCachedRoute = true;
+        setStableWallets(cachedRoute.wallets);
+        setExternalAccounts(Array.isArray(cachedRoute.externalAccounts) ? cachedRoute.externalAccounts : []);
+        setHasVirtualAccount(Boolean(cachedRoute.hasVirtualAccount));
+        if (!sourceWalletId && cachedRoute.wallets[0]) setSourceWalletId(cachedRoute.wallets[0].id);
+        if (!destinationAccountId && cachedRoute.externalAccounts?.[0]) setDestinationAccountId(cachedRoute.externalAccounts[0].id);
+        setSnapshotLoading(false);
+      }
+    } catch { /* ignore malformed cache */ }
+    navPerfTrackCache('exchange', hasCachedRates || hasCachedRoute);
     loadRates();
     loadSnapshot();
     // eslint-disable-next-line react-hooks/exhaustive-deps

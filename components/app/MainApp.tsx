@@ -41,7 +41,6 @@ import {
   navPerfReset,
   navPerfStartRoute,
 } from '../../utils/performance/navigationPerf';
-import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -173,54 +172,6 @@ function writeCachedUnreadCount(userId: string, count: number): void {
   try {
     localStorage.setItem(unreadCountCacheKey(userId), String(Math.max(0, Math.floor(count || 0))));
   } catch { /* ignore notification cache write */ }
-}
-
-function seedSnapshotCaches(userId: string, _accountType: 'individual' | 'business', data: any): void {
-  try {
-    if (!data || typeof data !== 'object') return;
-
-    const wallets = Array.isArray(data.wallets) ? data.wallets : [];
-    const transactions = Array.isArray(data.transactions) ? data.transactions : [];
-    const virtualAccounts = Array.isArray(data.virtual_accounts) ? data.virtual_accounts : [];
-    const stableWallets = Array.isArray(data.stablecoin_wallets) ? data.stablecoin_wallets : [];
-    const notifications = Array.isArray(data.notifications) ? data.notifications : [];
-    const externalAccounts = Array.isArray(data.external_accounts) ? data.external_accounts : [];
-    const capabilities = Array.isArray(data.external_account_capabilities) ? data.external_account_capabilities : [];
-
-    // Shared-engine parity: write both account scopes so a late account-type
-    // resolution never forces an extra snapshot pass just to warm caches.
-    (['individual', 'business'] as const).forEach((type) => {
-      const scoped = { userId, accountType: type };
-      localStorage.setItem(financialCacheKey('borderpay_wallets_v1', scoped), JSON.stringify(wallets));
-      localStorage.setItem(financialCacheKey('borderpay_tx_history_v1', scoped), JSON.stringify(transactions));
-      localStorage.setItem(financialCacheKey('borderpay_va_v1', scoped), JSON.stringify(virtualAccounts));
-      localStorage.setItem(financialCacheKey('borderpay_send_wallets_v1', scoped), JSON.stringify(wallets));
-      localStorage.setItem(financialCacheKey('borderpay_send_caps_v1', scoped), JSON.stringify(capabilities));
-    });
-    localStorage.setItem(financialCacheKey('borderpay_payout_accounts_v1', { userId }), JSON.stringify(externalAccounts));
-    localStorage.setItem(
-      financialCacheKey('borderpay_notifications_cache:', { userId }),
-      JSON.stringify({ rows: notifications.slice(0, 50), cached_at: Date.now() }),
-    );
-
-    const byCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
-      const c = String(w?.currency || '').toUpperCase();
-      if (c) acc[c] = Number(w?.balance || 0);
-      return acc;
-    }, {});
-    localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(byCurrency));
-    localStorage.setItem(
-      `borderpay_wallet_total_${userId}`,
-      String(wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0)),
-    );
-
-    // Wallet/Receive screens read stablecoin rows from the wallet cache key.
-    if (stableWallets.length > 0) {
-      localStorage.setItem(financialCacheKey('borderpay_wallets_v1', { userId }), JSON.stringify(stableWallets));
-    }
-  } catch {
-    // Best effort: never block navigation on cache seed failures.
-  }
 }
 
 // ─── Skeleton Fallback (no spinner!) ───────────────────────────────────
@@ -446,25 +397,31 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>([]);
   const externalAccountsEnabled = EXTERNAL_ACCOUNTS_LIVE && externalAccountTypes.length > 0;
 
-  // ─── Shell snapshot (unread + external-account capabilities) ───────────
-  // Single snapshot request fan-outs into shell-level state to avoid duplicate
-  // network work on Business route transitions.
+  // ─── Shell hydration (unread + external-account capabilities) ───────────
+  // Route-level screens own their own data caches; shell only hydrates the
+  // tiny values it actually needs for first-navigation responsiveness.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r: any = await backendAPI.financial.getSnapshot(20);
-        if (cancelled || !r?.success) return;
-        seedSnapshotCaches(userId, accountType, r.data);
+        const [unreadRes, capsRes] = await Promise.allSettled([
+          backendAPI.notifications.getUnreadCount(),
+          EXTERNAL_ACCOUNTS_LIVE ? backendAPI.bridge.externalAccount.capabilities() : Promise.resolve({ success: true, data: { supported_account_types: [] } }),
+        ]);
+        if (cancelled) return;
 
-        const n = Number(r?.data?.notifications_unread_count ?? 0);
-        if (Number.isFinite(n)) updateUnreadCount(n);
+        if (unreadRes.status === 'fulfilled' && unreadRes.value?.success) {
+          const n = Number((unreadRes.value as any)?.data?.notifications_unread_count ?? 0);
+          if (Number.isFinite(n)) updateUnreadCount(n);
+        }
 
         if (!EXTERNAL_ACCOUNTS_LIVE) {
           setExternalAccountTypes([]);
           return;
         }
-        const types = Array.isArray(r?.data?.external_account_capabilities) ? r.data.external_account_capabilities : [];
+        const types = (capsRes.status === 'fulfilled' && (capsRes.value as any)?.success && Array.isArray((capsRes.value as any)?.data?.supported_account_types))
+          ? (capsRes.value as any).data.supported_account_types
+          : [];
         setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
       } catch {
         if (!cancelled && EXTERNAL_ACCOUNTS_LIVE) setExternalAccountTypes([]);
