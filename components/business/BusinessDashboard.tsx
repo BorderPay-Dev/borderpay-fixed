@@ -111,41 +111,55 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     if (wallets.length === 0) setWalletsLoading(true);
     setWalletsError(null);
     try {
-      const r: any = await backendAPI.financial.getSnapshot(20);
-      if (r?.success && r?.data) {
-        const raw = r.data?.wallets || [];
-        const tx = Array.isArray(r.data?.transactions) ? r.data.transactions : [];
-        const profile = r.data?.profile || {};
+      const [walletRouteRes, txRes, profileRes] = await Promise.allSettled([
+        backendAPI.financial.getWalletRouteData(),
+        backendAPI.transactions.getTransactions(12, 0),
+        backendAPI.user.getProfile(),
+      ]);
+
+      const walletOk = walletRouteRes.status === 'fulfilled' && (walletRouteRes.value as any)?.success;
+      if (walletOk) {
+        const walletData = (walletRouteRes as PromiseFulfilledResult<any>).value?.data || {};
+        const raw = Array.isArray(walletData?.wallets) ? walletData.wallets : [];
         const formatted = raw.map((w: any) => ({
           currency: w.currency,
           balance:  parseFloat(w.balance) || 0,
         }));
         setWallets(formatted);
+        try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
+      } else if (wallets.length === 0) {
+        setWalletsError('Could not load wallets');
+      }
+
+      const txOk = txRes.status === 'fulfilled' && (txRes.value as any)?.success;
+      if (txOk) {
+        const tx = Array.isArray((txRes as PromiseFulfilledResult<any>).value?.data?.transactions)
+          ? (txRes as PromiseFulfilledResult<any>).value.data.transactions
+          : [];
         setTransactions(tx);
-        // Shared-engine parity: hydrate business identity from the same
-        // canonical financial snapshot path as Individual.
-        const snapshotCompany = String(profile?.company_name || '').trim();
-        if (snapshotCompany) setCompanyName(snapshotCompany);
-        const snapshotCountry = String(profile?.country || '').trim();
-        if (snapshotCountry) setCountry(snapshotCountry);
-        const snapshotReg = String(profile?.registration_number || '').trim();
-        if (snapshotReg) setRegistrationNumber(snapshotReg);
+        try { localStorage.setItem(bizTxCacheKey, JSON.stringify(tx)); } catch { /* noop */ }
+      }
+
+      const profileOk = profileRes.status === 'fulfilled' && (profileRes.value as any)?.success;
+      if (profileOk) {
+        const profile = (profileRes as PromiseFulfilledResult<any>).value?.data?.user || {};
+        const nextCompany = String(profile?.company_name || '').trim();
+        const nextCountry = String(profile?.country || '').trim();
+        const nextReg = String(profile?.registration_number || '').trim();
+        if (nextCompany) setCompanyName(nextCompany);
+        if (nextCountry) setCountry(nextCountry);
+        if (nextReg) setRegistrationNumber(nextReg);
         setProfileError(null);
         try {
           const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
           localStorage.setItem('borderpay_user', JSON.stringify({
             ...cached,
             account_type: 'business',
-            ...(snapshotCompany ? { company_name: snapshotCompany } : {}),
-            ...(snapshotCountry ? { country: snapshotCountry } : {}),
-            ...(snapshotReg ? { registration_number: snapshotReg } : {}),
+            ...(nextCompany ? { company_name: nextCompany } : {}),
+            ...(nextCountry ? { country: nextCountry } : {}),
+            ...(nextReg ? { registration_number: nextReg } : {}),
           }));
         } catch { /* ignore cache write */ }
-        try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
-        try { localStorage.setItem(bizTxCacheKey, JSON.stringify(tx)); } catch { /* noop */ }
-      } else if (wallets.length === 0) {
-        // Only error when we have nothing cached to show.
-        setWalletsError(friendlyError(r?.error, 'Could not load wallets'));
       }
     } catch (e: any) {
       if (wallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));

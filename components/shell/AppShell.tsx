@@ -203,17 +203,6 @@ export function AppShell({
     (window as any).__borderpay_prefetch?.(PREFETCH_BY_ROUTE[next]);
   }, []);
 
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const commonWarmRoutes: AppRoute[] = ['wallet', 'transactions', 'kyc', 'settings', 'notifications', 'account', 'send', 'receive'];
-    const businessWarmRoutes: AppRoute[] = ['team'];
-    commonWarmRoutes.forEach(prefetchRoute);
-    if (isBusinessAccount) businessWarmRoutes.forEach(prefetchRoute);
-    // Warm the payout-accounts chunk too (not a shell route) so it opens instantly.
-    if (onOpenPayoutAccounts) (window as any).__borderpay_prefetch?.('external-accounts');
-    if (onOpenWithdrawalWallets) (window as any).__borderpay_prefetch?.('external-wallets');
-  }, [drawerOpen, isBusinessAccount, prefetchRoute, onOpenPayoutAccounts, onOpenWithdrawalWallets]);
-
   const primaryTabs = useMemo(() => {
     const shared = [
       { route: 'dashboard' as AppRoute, icon: Home, label: tt('nav.home', 'Home') },
