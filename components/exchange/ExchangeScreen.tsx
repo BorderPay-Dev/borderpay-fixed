@@ -276,6 +276,9 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const loadSnapshot = async (foreground: boolean = false) => {
     if (foreground) setSnapshotLoading(true);
     try {
+      const externalListPromise: Promise<any> = backendAPI.bridge.externalAccount.list()
+        .catch(() => ({ success: false, data: { external_accounts: [] } } as any));
+
       // Use the exact same live route source as WalletScreen first.
       const routeRes: any = await backendAPI.financial.getWalletRouteData();
       const routeData = routeRes?.success ? routeRes.data : null;
@@ -299,13 +302,6 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           : (Array.isArray(snapshotData?.wallets)
             ? snapshotData.wallets
             : (cachedDashWallets.length > 0 ? cachedDashWallets : cachedBalanceRows)));
-
-      // Destination list must come from the same live source as ExternalAccountsScreen.
-      const externalRes: any = await backendAPI.bridge.externalAccount.list();
-      const cachedExternalRows = readCachedExternalAccounts();
-      const externalRows = Array.isArray(externalRes?.data?.external_accounts)
-        ? externalRes.data.external_accounts
-        : cachedExternalRows;
 
       const stableFromBridge: StableWallet[] = stableRows
         .map((r: any) => ({
@@ -372,6 +368,23 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       const wallets: StableWallet[] = Array.from(byCurrency.values())
         .filter((w) => !!w.currency);
 
+      // Paint wallets first; external accounts hydrate independently.
+      setStableWallets(wallets);
+      setHasVirtualAccount(vaRows.length > 0);
+      if (!sourceWalletId && wallets[0]) setSourceWalletId(wallets[0].id);
+      try {
+        localStorage.setItem(FX_ROUTE_CACHE_KEY, JSON.stringify({
+          wallets,
+          externalAccounts: Array.isArray(externalAccounts) ? externalAccounts : [],
+          hasVirtualAccount: vaRows.length > 0,
+        }));
+      } catch { /* ignore cache write */ }
+
+      const externalRes: any = await externalListPromise;
+      const cachedExternalRows = readCachedExternalAccounts();
+      const externalRows = Array.isArray(externalRes?.data?.external_accounts)
+        ? externalRes.data.external_accounts
+        : cachedExternalRows;
       const accounts: ExternalAccount[] = externalRows
         .map((r: any) => ({
           id: String(r?.bridge_external_account_id || r?.id || ''),
@@ -381,10 +394,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         }))
         .filter((r: ExternalAccount) => !!r.bridge_external_account_id && !!r.currency);
 
-      setStableWallets(wallets);
       setExternalAccounts(accounts);
-      setHasVirtualAccount(vaRows.length > 0);
-      if (!sourceWalletId && wallets[0]) setSourceWalletId(wallets[0].id);
       if (!destinationAccountId && accounts[0]) setDestinationAccountId(accounts[0].id);
       try {
         localStorage.setItem(FX_ROUTE_CACHE_KEY, JSON.stringify({
