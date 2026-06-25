@@ -62,6 +62,7 @@ function inferChainFromCurrency(currency: string): string {
 }
 
 type CachedWalletRow = { currency: string; balance: number; bridge_wallet_id?: string };
+type CachedExternalAccountRow = { bridge_external_account_id?: string; id?: string; currency?: string; rail?: string; account_type?: string };
 
 function getKnownUserIdsForCache(): string[] {
   const ids = new Set<string>();
@@ -105,6 +106,46 @@ function readCachedDashboardWallets(): CachedWalletRow[] {
       }
     }
   } catch { /* ignore cache read failures */ }
+  return [];
+}
+
+function readCachedBalanceByCurrencyRows(): CachedWalletRow[] {
+  try {
+    const userIds = getKnownUserIdsForCache();
+    for (const userId of userIds) {
+      const raw = localStorage.getItem(`borderpay_wallet_balances_${userId}`);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') continue;
+      const rows = Object.entries(parsed).map(([currency, balance]) => ({
+        currency: String(currency || '').toUpperCase(),
+        balance: Number(balance || 0),
+      }));
+      if (rows.length > 0) return rows;
+    }
+  } catch { /* ignore */ }
+  return [];
+}
+
+function readCachedExternalAccounts(): CachedExternalAccountRow[] {
+  try {
+    const userIds = getKnownUserIdsForCache();
+    for (const userId of userIds) {
+      const keys = [
+        `borderpay_payout_accounts_v1:${userId}`,
+        `borderpay_snapshot_cache_v1:${userId}`,
+      ];
+      for (const key of keys) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed?.snapshot?.data?.external_accounts) && parsed.snapshot.data.external_accounts.length > 0) {
+          return parsed.snapshot.data.external_accounts;
+        }
+      }
+    }
+  } catch { /* ignore */ }
   return [];
 }
 
@@ -221,14 +262,20 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       const stableRows = Array.isArray(routeData?.stablecoin_wallets)
         ? routeData.stablecoin_wallets
         : [];
-      const externalRows = Array.isArray(externalRes?.data?.external_accounts) ? externalRes.data.external_accounts : [];
+      const cachedExternalRows = readCachedExternalAccounts();
+      const externalRows = Array.isArray(externalRes?.data?.external_accounts)
+        ? externalRes.data.external_accounts
+        : cachedExternalRows;
       const vaRows = Array.isArray(routeData?.virtual_accounts)
         ? routeData.virtual_accounts
         : [];
       const cachedDashWallets = readCachedDashboardWallets();
+      const cachedBalanceRows = readCachedBalanceByCurrencyRows();
       const walletRows = Array.isArray(routeData?.wallets)
         ? routeData.wallets
-        : (Array.isArray(snapshotData?.wallets) ? snapshotData.wallets : cachedDashWallets);
+        : (Array.isArray(snapshotData?.wallets)
+          ? snapshotData.wallets
+          : (cachedDashWallets.length > 0 ? cachedDashWallets : cachedBalanceRows));
 
       const stableFromBridge: StableWallet[] = stableRows
         .map((r: any) => ({
