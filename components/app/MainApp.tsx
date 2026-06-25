@@ -13,7 +13,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { Dashboard } from './Dashboard';
-import { useVerification } from '../../utils/verification/useVerification';
+import { BusinessDashboard } from '../business/BusinessDashboard';
+import { KYCVerification } from '../kyc/KYCVerification';
+import { TransactionsScreen } from '../transactions/TransactionsScreen';
+import { WalletScreen } from '../wallet/WalletScreen';
+import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
+import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
+import { ExchangeScreen } from '../exchange/ExchangeScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -25,20 +31,10 @@ import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShe
 import {
   TRANSFERS_LIVE,
   EXTERNAL_ACCOUNTS_LIVE,
-  FX_NAV_ENABLED,
-  FX_RUNTIME_ENABLED,
   PAYROLL_NAV_ENABLED,
   PAYROLL_RUNTIME_ENABLED,
 } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
-import {
-  navPerfGetReport,
-  navPerfMarkFirstPaint,
-  navPerfMarkRouteMounted,
-  navPerfReset,
-  navPerfStartRoute,
-} from '../../utils/performance/navigationPerf';
-import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -52,14 +48,10 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
 };
 
 const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
-const BusinessDashboard = lazyImport(() => import('../business/BusinessDashboard').then(m => ({ default: m.BusinessDashboard })));
 const TwoFactorSetup = lazyImport(() => import('../security/TwoFactorSetup').then(m => ({ default: m.TwoFactorSetup })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
-const KYCVerification = lazyImport(() => import('../kyc/KYCVerification').then(m => ({ default: m.KYCVerification })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
-const TransactionsScreen = lazyImport(() => import('../transactions/TransactionsScreen').then(m => ({ default: m.TransactionsScreen })));
 const SettingsScreen = lazyImport(() => import('../settings/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
-const WalletScreen = lazyImport(() => import('../wallet/WalletScreen').then(m => ({ default: m.WalletScreen })));
 const ProfileScreen = lazyImport(() => import('../profile/ProfileScreen').then(m => ({ default: m.ProfileScreen })));
 const ChangePIN = lazyImport(() => import('../settings/ChangePIN').then(m => ({ default: m.ChangePIN })));
 const ChangePassword = lazyImport(() => import('../settings/ChangePassword').then(m => ({ default: m.ChangePassword })));
@@ -68,14 +60,11 @@ const TermsOfServiceScreen = lazyImport(() => import('../legal/TermsOfServiceScr
 const PrivacyPolicyScreen = lazyImport(() => import('../legal/PrivacyPolicyScreen').then(m => ({ default: m.PrivacyPolicyScreen })));
 const PreferencesScreen = lazyImport(() => import('../app/PreferencesScreen').then(m => ({ default: m.PreferencesScreen })));
 const CountryEligibilityScreen = lazyImport(() => import('../compliance/CountryEligibilityScreen').then(m => ({ default: m.CountryEligibilityScreen })));
-const ReceiveMoneyScreen = lazyImport(() => import('../receive/ReceiveMoneyScreen').then(m => ({ default: m.ReceiveMoneyScreen })));
 const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccountsScreen').then(m => ({ default: m.ExternalAccountsScreen })));
-const ExternalWalletsScreen = lazyImport(() => import('../wallets/ExternalWalletsScreen').then(m => ({ default: m.ExternalWalletsScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
-const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
 const MomoCollectionScreen = lazyImport(() => import('../momo/MomoCollectionScreen').then(m => ({ default: m.MomoCollectionScreen })));
 const CreateCounterpartyScreen = lazyImport(() => import('../counterparty/CreateCounterpartyScreen').then(m => ({ default: m.CreateCounterpartyScreen })));
@@ -90,23 +79,24 @@ const TeamScreen          = lazyImport(() => import('../team/TeamScreen').then(m
 const NotificationsScreen = lazyImport(() => import('../notifications/NotificationsScreen').then(m => ({ default: m.NotificationsScreen })));
 const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
 const IndividualBroadcastScreen = lazyImport(() => import('../admin/IndividualBroadcastScreen').then(m => ({ default: m.IndividualBroadcastScreen })));
+const eagerPreload = () => Promise.resolve();
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
 // so any nav button can call it on hover/touchstart.
 const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   cards: (CardsScreen as any).preload,
   'send-money': (SendMoneyFlow as any).preload,
-  'receive-money': (ReceiveMoneyScreen as any).preload,
-  exchange: (ExchangeScreen as any).preload,
-  converter: (ExchangeScreen as any).preload,
+  'receive-money': eagerPreload,
+  exchange: eagerPreload,
+  converter: eagerPreload,
   deposit: (FundingScreen as any).preload,
   'add-money': (FundingScreen as any).preload,
   'two-factor-setup': (TwoFactorSetup as any).preload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': (BiometricSetup as any).preload,
-  kyc: (KYCVerification as any).preload,
-  transactions: (TransactionsScreen as any).preload,
-  'wallet-detail': (WalletScreen as any).preload,
+  kyc: eagerPreload,
+  transactions: eagerPreload,
+  'wallet-detail': eagerPreload,
   settings: (SettingsScreen as any).preload,
   profile: (ProfileScreen as any).preload,
   'change-pin': (ChangePIN as any).preload,
@@ -128,7 +118,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   team:          (TeamScreen    as any).preload,
   notifications: (NotificationsScreen as any).preload,
   'external-accounts':   (ExternalAccountsScreen as any).preload,
-  'external-wallets':    (ExternalWalletsScreen as any).preload,
+  'external-wallets':    eagerPreload,
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
@@ -169,50 +159,6 @@ function writeCachedUnreadCount(userId: string, count: number): void {
   try {
     localStorage.setItem(unreadCountCacheKey(userId), String(Math.max(0, Math.floor(count || 0))));
   } catch { /* ignore notification cache write */ }
-}
-
-function seedSnapshotCaches(userId: string, accountType: 'individual' | 'business', data: any): void {
-  try {
-    if (!data || typeof data !== 'object') return;
-
-    const scoped = { userId, accountType };
-    const wallets = Array.isArray(data.wallets) ? data.wallets : [];
-    const transactions = Array.isArray(data.transactions) ? data.transactions : [];
-    const virtualAccounts = Array.isArray(data.virtual_accounts) ? data.virtual_accounts : [];
-    const stableWallets = Array.isArray(data.stablecoin_wallets) ? data.stablecoin_wallets : [];
-    const notifications = Array.isArray(data.notifications) ? data.notifications : [];
-    const externalAccounts = Array.isArray(data.external_accounts) ? data.external_accounts : [];
-    const capabilities = Array.isArray(data.external_account_capabilities) ? data.external_account_capabilities : [];
-
-    localStorage.setItem(financialCacheKey('borderpay_wallets_v1', scoped), JSON.stringify(wallets));
-    localStorage.setItem(financialCacheKey('borderpay_tx_history_v1', scoped), JSON.stringify(transactions));
-    localStorage.setItem(financialCacheKey('borderpay_va_v1', scoped), JSON.stringify(virtualAccounts));
-    localStorage.setItem(financialCacheKey('borderpay_send_wallets_v1', scoped), JSON.stringify(wallets));
-    localStorage.setItem(financialCacheKey('borderpay_send_caps_v1', scoped), JSON.stringify(capabilities));
-    localStorage.setItem(financialCacheKey('borderpay_payout_accounts_v1', { userId }), JSON.stringify(externalAccounts));
-    localStorage.setItem(
-      financialCacheKey('borderpay_notifications_cache:', { userId }),
-      JSON.stringify({ rows: notifications.slice(0, 50), cached_at: Date.now() }),
-    );
-
-    const byCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
-      const c = String(w?.currency || '').toUpperCase();
-      if (c) acc[c] = Number(w?.balance || 0);
-      return acc;
-    }, {});
-    localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(byCurrency));
-    localStorage.setItem(
-      `borderpay_wallet_total_${userId}`,
-      String(wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0)),
-    );
-
-    // Wallet/Receive screens read stablecoin rows from the wallet cache key.
-    if (stableWallets.length > 0) {
-      localStorage.setItem(financialCacheKey('borderpay_wallets_v1', { userId }), JSON.stringify(stableWallets));
-    }
-  } catch {
-    // Best effort: never block navigation on cache seed failures.
-  }
 }
 
 // ─── Skeleton Fallback (no spinner!) ───────────────────────────────────
@@ -342,7 +288,6 @@ type StablecoinConfirmData = {
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('dashboard');
   const [navigationStack, setNavigationStack] = useState<AppScreen[]>(['dashboard']);
-  const verificationStatus = useVerification(userId);
   const [refreshKey, setRefreshKey] = useState(0);
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
@@ -435,34 +380,24 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const externalAccountsEnabled = EXTERNAL_ACCOUNTS_LIVE;
-
-  // ─── Shell snapshot (unread + external-account capabilities) ───────────
-  // Single snapshot request fan-outs into shell-level state to avoid duplicate
-  // network work on Business route transitions.
+  // ─── Shell hydration (unread count) ──────────────────────────────────────
+  // Route-level screens own their own data caches; shell only hydrates the
+  // tiny values it actually needs for first-navigation responsiveness.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r: any = await backendAPI.financial.getSnapshot(20);
-        if (cancelled || !r?.success) return;
-        seedSnapshotCaches(userId, accountType, r.data);
+        const unreadRes = await backendAPI.notifications.getUnreadCount();
+        if (cancelled) return;
 
-        const n = Number(r?.data?.notifications_unread_count ?? 0);
-        if (Number.isFinite(n)) updateUnreadCount(n);
-
-        if (!EXTERNAL_ACCOUNTS_LIVE) {
-          setExternalAccountTypes([]);
-          return;
+        if (unreadRes?.success) {
+          const n = Number((unreadRes as any)?.data?.notifications_unread_count ?? 0);
+          if (Number.isFinite(n)) updateUnreadCount(n);
         }
-        const types = Array.isArray(r?.data?.external_account_capabilities) ? r.data.external_account_capabilities : [];
-        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
-      } catch {
-        if (!cancelled && EXTERNAL_ACCOUNTS_LIVE) setExternalAccountTypes([]);
-      }
+      } catch { /* non-fatal */ }
     })();
     return () => { cancelled = true; };
-  }, [userId, accountType, refreshKey, updateUnreadCount]);
+  }, [userId, refreshKey, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
   // Reads user_subscriptions via the subscription-current edge function. If
@@ -541,8 +476,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // Pre-warm the chunk in case the user reached this state without a
     // hover preload (e.g. programmatic nav)
     prefetchScreen(target);
-    navPerfStartRoute(target, accountType);
-
     setCurrentScreen(target);
     setNavigationStack(prev => [...prev, target]);
     scrollToTop();
@@ -550,21 +483,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   React.useEffect(() => {
     (window as any).__borderpay_navigate = navigateTo;
-    (window as any).__borderpay_nav_perf_report = () => navPerfGetReport();
-    (window as any).__borderpay_nav_perf_reset = () => navPerfReset();
     return () => {
       delete (window as any).__borderpay_navigate;
-      delete (window as any).__borderpay_nav_perf_report;
-      delete (window as any).__borderpay_nav_perf_reset;
     };
   });
-
-  useEffect(() => {
-    navPerfStartRoute(currentScreen, accountType);
-    navPerfMarkRouteMounted(currentScreen);
-    const id = requestAnimationFrame(() => navPerfMarkFirstPaint(currentScreen));
-    return () => cancelAnimationFrame(id);
-  }, [currentScreen, accountType]);
 
   // Prefetch most-likely-next screens once the dashboard is mounted, so the
   // user's first navigation is instant. Runs once per session, in background.
@@ -600,38 +522,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     });
     return () => { cancelled = true; };
   }, []);
-
-  // Business first-open latency killer: warm route chunks likely to be opened
-  // from the burger menu so route switches don't wait on lazy imports.
-  React.useEffect(() => {
-    if (accountType !== 'business') return;
-    let cancelled = false;
-    const warm = [
-      'wallet-detail',
-      'receive-money',
-      'send-money',
-      'transactions',
-      'team',
-      'settings',
-      'profile',
-      'notifications',
-      'external-accounts',
-      'external-wallets',
-      'bulk-payout',
-    ];
-    if (PAYROLL_NAV_ENABLED) warm.push('payroll');
-    if (FX_NAV_ENABLED) warm.push('exchange');
-    if (RAMPS_NAV_ENABLED) warm.push('ramps');
-
-    const id = window.setTimeout(() => {
-      if (cancelled) return;
-      warm.forEach(prefetchScreen);
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(id);
-    };
-  }, [accountType]);
 
   const navigateBack = () => {
     if (navigationStack.length > 1) {
@@ -704,11 +594,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'receive-money':
         return <ReceiveMoneyScreen onBack={navigateBack} />;
 
-      // Bridge external accounts (payout destinations). Flag-gated: when
-      // EXTERNAL_ACCOUNTS_LIVE is false these route to the dashboard so the
-      // feature is fully inert until the table/edge/secret are in place.
       case 'external-accounts':
-        if (!externalAccountsEnabled) { navigateTo('dashboard'); return null; }
         return (
           <ExternalAccountsScreen
             onBack={navigateBack}
@@ -743,7 +629,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'add-external-account':
-        if (!externalAccountsEnabled) { navigateTo('dashboard'); return null; }
         return (
           <AddExternalAccountScreen
             onBack={navigateBack}
@@ -752,8 +637,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'exchange':
-        if (!FX_NAV_ENABLED) { navigateTo('dashboard'); return null; }
-        if (!FX_RUNTIME_ENABLED) { navigateTo('dashboard'); return null; }
         return <ExchangeScreen onBack={navigateBack} />;
 
       case 'converter':
@@ -808,7 +691,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <WalletScreen
             userId={userId}
             onBack={navigateBack}
-            isVerified={verificationStatus.isVerified}
+            isVerified={false}
             onNavigate={navigateTo}
           />
         );

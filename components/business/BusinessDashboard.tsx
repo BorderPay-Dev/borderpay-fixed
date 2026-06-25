@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, ArrowRight,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRightLeft, BriefcaseBusiness,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRightLeft, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -220,6 +220,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           <div className="grid grid-cols-4 gap-2">
             <BizChip label="Send"    Icon={Send}     onClick={() => onNavigate('send-money')}    tc={tc} />
             <BizChip label="Receive" Icon={Download} onClick={() => onNavigate('receive-money')} tc={tc} />
+            <BizChip label="Activity" Icon={FileText} onClick={() => onNavigate('transactions')} tc={tc} />
             <BizChip label="Payouts" Icon={Banknote} onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
             <BizChip label="Team"    Icon={Users}    onClick={() => onNavigate('team')}          tc={tc} />
             <BizChip
@@ -236,6 +237,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               tc={tc}
             />
             <BizChip label="Wallets" Icon={Wallet} onClick={() => onNavigate('wallet-detail')} tc={tc} />
+            <BizChip label="Banks" Icon={Building2} onClick={() => onNavigate('external-accounts')} tc={tc} />
+            <BizChip label="Withdraw" Icon={ArrowRight} onClick={() => onNavigate('external-wallets')} tc={tc} />
           </div>
         </section>
 

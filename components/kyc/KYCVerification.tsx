@@ -16,7 +16,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
@@ -36,8 +35,13 @@ function mapBridge(raw: string | null | undefined): KycView {
   switch ((raw || '').toLowerCase()) {
     case 'approved':
     case 'active':
+    case 'authorized':
+    case 'completed':
+    case 'complete':
+    case 'accepted':
     case 'verified':     return 'verified';
     case 'rejected':     return 'rejected';
+    case 'review_pending':
     case 'under_review': return 'under_review';
     case 'pending':
     case 'incomplete':   return 'pending';
@@ -45,16 +49,33 @@ function mapBridge(raw: string | null | undefined): KycView {
   }
 }
 
+function deriveStatus(input: {
+  accountType: AccountType;
+  bridgeKycStatus?: string | null;
+  bridgeKybStatus?: string | null;
+  bridgeAccountStatus?: string | null;
+}): KycView {
+  const accountStatus = (input.bridgeAccountStatus || '').toLowerCase();
+  if (['rejected', 'blocked', 'suspended'].includes(accountStatus)) return 'rejected';
+  if (['active', 'approved', 'authorized'].includes(accountStatus)) return 'verified';
+  const verificationRaw = input.accountType === 'business' ? input.bridgeKybStatus : input.bridgeKycStatus;
+  return mapBridge(verificationRaw);
+}
+
 /** Synchronous seed from the cached profile so the screen never flashes a loader. */
 function seedFromCache(): { accountType: AccountType; status: KycView } {
   try {
     const u = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
     const accountType: AccountType = u.account_type === 'business' ? 'business' : 'individual';
-    if (String(u.bridge_account_status || '').toLowerCase() === 'rejected') {
-      return { accountType, status: 'rejected' };
-    }
-    const raw = accountType === 'business' ? u.bridge_kyb_status : u.bridge_kyc_status;
-    return { accountType, status: mapBridge(raw) };
+    return {
+      accountType,
+      status: deriveStatus({
+        accountType,
+        bridgeKycStatus: u.bridge_kyc_status,
+        bridgeKybStatus: u.bridge_kyb_status,
+        bridgeAccountStatus: u.bridge_account_status,
+      }),
+    };
   } catch {
     return { accountType: 'individual', status: 'not_started' };
   }
@@ -73,26 +94,17 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const { data: prof } = await supabase
-        .from('user_profiles')
-        .select('account_type, bridge_kyc_status, bridge_account_status')
-        .eq('id', userId)
-        .maybeSingle();
+      const profileResult = await backendAPI.user.getProfile();
+      const prof = profileResult?.success ? profileResult?.data?.user : null;
       if (prof) {
         const at: AccountType = prof.account_type === 'business' ? 'business' : 'individual';
         setAccountType(at);
-        if (String(prof.bridge_account_status || '').toLowerCase() === 'rejected') {
-          setStatus('rejected');
-        } else if (at === 'business') {
-          const { data: biz } = await supabase
-            .from('business_profiles')
-            .select('bridge_kyb_status')
-            .eq('user_id', userId)
-            .maybeSingle();
-          setStatus(mapBridge(biz?.bridge_kyb_status));
-        } else {
-          setStatus(mapBridge(prof.bridge_kyc_status));
-        }
+        setStatus(deriveStatus({
+          accountType: at,
+          bridgeKycStatus: prof.bridge_kyc_status,
+          bridgeKybStatus: prof.bridge_kyb_status,
+          bridgeAccountStatus: prof.bridge_account_status,
+        }));
       }
     } catch { /* keep the cached status on any error */ }
     finally { setRefreshing(false); }
@@ -115,6 +127,14 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
       if (r?.success && r.data?.link_url) {
         window.location.href = r.data.link_url;   // secure hosted verification
+        return;
+      }
+      if (r?.code === 'funding_required' || r?.code === 'plan_required' || r?.code === 'payment_required') {
+        toast.error('Complete account activation funding first, then retry verification.');
+        return;
+      }
+      if (r?.code === 'bridge_onboarding_paused') {
+        toast.error('Verification is temporarily unavailable. Please try again shortly.');
         return;
       }
       if (r?.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); }
