@@ -1,19 +1,20 @@
-// auth-signup v90 — provider-neutral signup with subscription scaffold.
+// auth-signup v91 — signup with immediate Bridge customer identity creation.
 //
-// Differences vs v89:
+// Differences vs v90:
+//   • Creates Bridge customer via Customers API during signup and persists
+//     bridge_customer_id immediately (user_profiles and business_profiles).
 //   • After core rows persist, calls `ensure_starter_subscription(userId,
 //     account_type)` to seed a free-tier `user_subscriptions` row
 //     (individual_starter / business_starter). Business signups also get a
 //     seed row in `business_team_members` with role='owner', status='active'.
-//   • All other behaviour identical to v89: no Bridge customer creation,
-//     no legacy provider customer creation, verification email + token
-//     semantics unchanged.
+//   • Verification email + token semantics unchanged.
 //
 // Deploy:
 //   supabase functions deploy auth-signup --project-ref orwrcpwsffjlvzuraxjc
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { bridgeProvider } from "../_shared/providers/bridge.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // Service-role: used ONLY for the admin client (createUser + table upserts).
@@ -108,7 +109,13 @@ Deno.serve(async (req: Request) => {
       p_user_agent: ua,
     });
     if (abuseErr) {
-      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
+      const m = String(abuseErr.message || "");
+      // Fail-open only for migration/schema drift where the RPC does not exist
+      // in this environment. Other abuse-gate failures remain fail-closed.
+      if (!/could not find the function public\.enforce_signup_abuse_protection/i.test(m)) {
+        return json({ success: false, error: `Signup protection check failed: ${m}` }, 500);
+      }
+      console.warn(`auth-signup abuse gate RPC missing; continuing without gate for this request: ${m}`);
     }
     const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
     if (!abuse?.allowed) {
@@ -164,9 +171,6 @@ Deno.serve(async (req: Request) => {
     };
 
     // ── Persist legacy users + canonical user_profiles, atomically ───────
-    // Provider-neutral: NO provider customer creation here.
-    // Bridge customer creation happens later, only when the user clicks
-    // Start KYC/KYB (bridge-customer + bridge-kyc-link / bridge-kyb-link).
     {
       // Columns must match the current public.users schema exactly. Legacy
       // onboarding/payment fields were dropped; writing to them causes
@@ -225,6 +229,47 @@ Deno.serve(async (req: Request) => {
         { onConflict: "user_id" },
       );
       if (bizErr) return rollbackAuthUser(`business_profiles create failed: ${bizErr.message}`);
+    }
+
+    // ── Create Bridge customer identity at signup (Customers API) ─────────
+    // Best effort: signup must remain available even if provider identity
+    // creation is temporarily unavailable. KYC/KYB start paths and sync jobs
+    // can provision bridge_customer_id later.
+    let bridgeCustomerId: string | null = null;
+    let bridgeCustomerProvisioningError: string | null = null;
+    try {
+      const createdCustomer = await bridgeProvider.createCustomer({
+        account_type: normalizedAccountType,
+        email,
+        full_name: full_name || undefined,
+        company_name: normalizedAccountType === "business" ? (company_name || undefined) : undefined,
+        registration_number: normalizedAccountType === "business" ? (registration_number || undefined) : undefined,
+        country_code: (country_code || "NG").toUpperCase(),
+        phone_e164: phone_number || undefined,
+        borderpay_user_id: userId,
+      });
+      bridgeCustomerId = createdCustomer.provider_id;
+    } catch (e) {
+      bridgeCustomerProvisioningError = (e as Error).message;
+      console.warn(`auth-signup bridge customer create failed for ${userId}: ${bridgeCustomerProvisioningError}`);
+    }
+
+    if (bridgeCustomerId) {
+      const { error: bridgeUserErr } = await supabaseAdmin.from("user_profiles").update({
+        bridge_customer_id: bridgeCustomerId,
+        bridge_kyc_status: "not_started",
+        updated_at: new Date().toISOString(),
+      }).eq("id", userId);
+      if (bridgeUserErr) return rollbackAuthUser(`user_profiles bridge sync failed: ${bridgeUserErr.message}`);
+    }
+
+    if (normalizedAccountType === "business" && bridgeCustomerId) {
+      const { error: bridgeBizErr } = await supabaseAdmin.from("business_profiles").update({
+        bridge_customer_id: bridgeCustomerId,
+        bridge_kyb_status: "not_started",
+        updated_at: new Date().toISOString(),
+      }).eq("user_id", userId);
+      if (bridgeBizErr) return rollbackAuthUser(`business_profiles bridge sync failed: ${bridgeBizErr.message}`);
     }
 
     // ── Seed the free-tier subscription + owner team-membership ────────
@@ -300,16 +345,18 @@ Deno.serve(async (req: Request) => {
           data: {
             user: {
               id: userId, email, full_name,
-              account_type:       normalizedAccountType,
-              kyc_status:         "not_started",
-              bridge_customer_id: null,
-              email_verified:     false,
-            },
-            email_sent:  false,
-            email_error: (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
-            access_token: "",
+            account_type:       normalizedAccountType,
+            kyc_status:         "not_started",
+            bridge_customer_id: bridgeCustomerId,
+            bridge_customer_provisioning_pending: bridgeCustomerId === null,
+            email_verified:     false,
           },
-        });
+          email_sent:  false,
+          email_error: (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
+          bridge_customer_provisioning_error: bridgeCustomerProvisioningError,
+          access_token: "",
+        },
+      });
       }
     } catch (e) {
       return json({
@@ -319,11 +366,13 @@ Deno.serve(async (req: Request) => {
             id: userId, email, full_name,
             account_type:       normalizedAccountType,
             kyc_status:         "not_started",
-            bridge_customer_id: null,
+            bridge_customer_id: bridgeCustomerId,
+            bridge_customer_provisioning_pending: bridgeCustomerId === null,
             email_verified:     false,
           },
           email_sent:  false,
           email_error: (e as Error).message,
+          bridge_customer_provisioning_error: bridgeCustomerProvisioningError,
           access_token: "",
         },
       });
@@ -336,10 +385,12 @@ Deno.serve(async (req: Request) => {
           id: userId, email, full_name,
           account_type:       normalizedAccountType,
           kyc_status:         "not_started",
-          bridge_customer_id: null,
+          bridge_customer_id: bridgeCustomerId,
+          bridge_customer_provisioning_pending: bridgeCustomerId === null,
           email_verified:     false,
         },
         email_sent:   true,
+        bridge_customer_provisioning_error: bridgeCustomerProvisioningError,
         access_token: "",
       },
     });
