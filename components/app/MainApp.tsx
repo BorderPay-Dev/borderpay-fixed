@@ -175,11 +175,10 @@ function writeCachedUnreadCount(userId: string, count: number): void {
   } catch { /* ignore notification cache write */ }
 }
 
-function seedSnapshotCaches(userId: string, accountType: 'individual' | 'business', data: any): void {
+function seedSnapshotCaches(userId: string, _accountType: 'individual' | 'business', data: any): void {
   try {
     if (!data || typeof data !== 'object') return;
 
-    const scoped = { userId, accountType };
     const wallets = Array.isArray(data.wallets) ? data.wallets : [];
     const transactions = Array.isArray(data.transactions) ? data.transactions : [];
     const virtualAccounts = Array.isArray(data.virtual_accounts) ? data.virtual_accounts : [];
@@ -188,11 +187,16 @@ function seedSnapshotCaches(userId: string, accountType: 'individual' | 'busines
     const externalAccounts = Array.isArray(data.external_accounts) ? data.external_accounts : [];
     const capabilities = Array.isArray(data.external_account_capabilities) ? data.external_account_capabilities : [];
 
-    localStorage.setItem(financialCacheKey('borderpay_wallets_v1', scoped), JSON.stringify(wallets));
-    localStorage.setItem(financialCacheKey('borderpay_tx_history_v1', scoped), JSON.stringify(transactions));
-    localStorage.setItem(financialCacheKey('borderpay_va_v1', scoped), JSON.stringify(virtualAccounts));
-    localStorage.setItem(financialCacheKey('borderpay_send_wallets_v1', scoped), JSON.stringify(wallets));
-    localStorage.setItem(financialCacheKey('borderpay_send_caps_v1', scoped), JSON.stringify(capabilities));
+    // Shared-engine parity: write both account scopes so a late account-type
+    // resolution never forces an extra snapshot pass just to warm caches.
+    (['individual', 'business'] as const).forEach((type) => {
+      const scoped = { userId, accountType: type };
+      localStorage.setItem(financialCacheKey('borderpay_wallets_v1', scoped), JSON.stringify(wallets));
+      localStorage.setItem(financialCacheKey('borderpay_tx_history_v1', scoped), JSON.stringify(transactions));
+      localStorage.setItem(financialCacheKey('borderpay_va_v1', scoped), JSON.stringify(virtualAccounts));
+      localStorage.setItem(financialCacheKey('borderpay_send_wallets_v1', scoped), JSON.stringify(wallets));
+      localStorage.setItem(financialCacheKey('borderpay_send_caps_v1', scoped), JSON.stringify(capabilities));
+    });
     localStorage.setItem(financialCacheKey('borderpay_payout_accounts_v1', { userId }), JSON.stringify(externalAccounts));
     localStorage.setItem(
       financialCacheKey('borderpay_notifications_cache:', { userId }),
@@ -467,7 +471,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       }
     })();
     return () => { cancelled = true; };
-  }, [userId, accountType, refreshKey, updateUnreadCount]);
+  }, [userId, refreshKey, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
   // Reads user_subscriptions via the subscription-current edge function. If
