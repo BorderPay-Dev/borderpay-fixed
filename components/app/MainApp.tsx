@@ -140,12 +140,21 @@ if (typeof window !== 'undefined') {
 function getBusinessDisplayName(profile: any): string {
   if (profile?.account_type === 'business') {
     if (profile?.company_name) return profile.company_name;
-    if (profile?.full_name) return profile.full_name;
-    if (profile?.email) return String(profile.email).split('@')[0] || 'Business account';
+    try {
+      const uid = String(profile?.id || '').trim();
+      if (uid) {
+        const cachedBizName = String(localStorage.getItem(`borderpay_business_name_v1:${uid}`) || '').trim();
+        if (cachedBizName) return cachedBizName;
+      }
+    } catch { /* ignore */ }
     try {
       const authUser = authAPI.getStoredUser();
-      if (authUser?.full_name) return String(authUser.full_name);
-      if (authUser?.email) return String(authUser.email).split('@')[0] || 'Business account';
+      const authId = String(authUser?.id || '').trim();
+      if (authId) {
+        const cachedBizName = String(localStorage.getItem(`borderpay_business_name_v1:${authId}`) || '').trim();
+        if (cachedBizName) return cachedBizName;
+      }
+      if (authUser?.company_name) return String(authUser.company_name);
     } catch { /* ignore */ }
     return 'Business account';
   }
