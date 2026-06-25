@@ -44,14 +44,32 @@ export class ErrorBoundary extends Component<Props, State> {
     this.props.onError?.(error, errorInfo);
   }
 
+  purgeClientCaches = async () => {
+    try {
+      if (typeof window === 'undefined') return;
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k).catch(() => false)));
+      }
+    } catch {
+      // best-effort emergency recovery
+    }
+  };
+
   handleReload = () => {
-    window.location.reload();
+    void this.purgeClientCaches().finally(() => {
+      window.location.replace(`${window.location.origin}${window.location.pathname}?hard_refresh=${Date.now()}`);
+    });
   };
 
   handleGoHome = () => {
-    window.location.hash = '';
-    window.location.pathname = '/';
-    window.location.reload();
+    void this.purgeClientCaches().finally(() => {
+      window.location.replace(`${window.location.origin}/?hard_refresh=${Date.now()}`);
+    });
   };
 
   handleCopyError = () => {
