@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRightLeft, BriefcaseBusiness, FileText,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRightLeft, BriefcaseBusiness, FileText, ArrowRight,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
