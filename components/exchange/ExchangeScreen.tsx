@@ -1,36 +1,35 @@
-/**
- * ExchangeScreen — indicative FX rates + coming-soon convert.
- *
- * Currency convert (fiat ↔ fiat and fiat ↔ stablecoin) routes through the
- * partner's transfer endpoint in a future release; the previous screen
- * called a retired `fx` edge function and would have 404'd on every Swap.
- * Until the new convert path lands, this screen surfaces:
- *
- *   1. Live FX rates (indicative; sourced from `backendAPI.fx.getLiveRates`)
- *   2. A clear "Conversion launching soon" note so users don't expect to
- *      execute a swap that will fail.
- *
- * AppShell owns the top chrome; renders body-only.
- */
-
-import React, { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
-import { ArrowLeftRight, RefreshCw, Sparkles } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowRightLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExchangeScreenProps {
   onBack: () => void;
-  preSelectedWalletId?: string;
 }
 
 interface RateRow {
-  pair:    string;
-  base:    string;
-  quote:   string;
-  rate:    number;
-  source:  'live' | 'fallback';
+  pair: string;
+  base: string;
+  quote: string;
+  rate: number;
+  source: 'live' | 'fallback';
+}
+
+interface StableWallet {
+  id: string;
+  bridge_wallet_id: string;
+  currency: string;
+  chain: string;
+  address?: string | null;
+}
+
+interface ExternalAccount {
+  id: string;
+  bridge_external_account_id: string;
+  currency: string;
+  rail: 'ach' | 'wire' | 'sepa';
 }
 
 function fmtPair(pair: string): { base: string; quote: string } {
@@ -38,18 +37,75 @@ function fmtPair(pair: string): { base: string; quote: string } {
   return { base: base || '?', quote: quote || '?' };
 }
 
+function normalizeExternalRail(input: string): 'ach' | 'wire' | 'sepa' {
+  const v = String(input || '').toLowerCase();
+  if (v === 'sepa') return 'sepa';
+  if (v === 'wire') return 'wire';
+  return 'ach';
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [rates, setRates]       = useState<RateRow[]>([]);
-  const [source, setSource]     = useState<'live' | 'fallback'>('fallback');
+  const [rates, setRates] = useState<RateRow[]>([]);
+  const [rateSource, setRateSource] = useState<'live' | 'fallback'>('fallback');
   const [generated, setGenerated] = useState<string | null>(null);
-  const [loading, setLoading]   = useState(true);
+  const [loadingRates, setLoadingRates] = useState(true);
+
+  const [snapshotLoading, setSnapshotLoading] = useState(true);
+  const [stableWallets, setStableWallets] = useState<StableWallet[]>([]);
+  const [externalAccounts, setExternalAccounts] = useState<ExternalAccount[]>([]);
+  const [hasVirtualAccount, setHasVirtualAccount] = useState(false);
+
+  const [sourceWalletId, setSourceWalletId] = useState('');
+  const [destinationAccountId, setDestinationAccountId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitResult, setSubmitResult] = useState<{ transfer_id: string; state: string } | null>(null);
+
+  const FX_RATES_CACHE_KEY = 'borderpay_fx_rates_cache_v1';
+  const FX_ROUTE_CACHE_KEY = 'borderpay_fx_route_cache_v1';
+
+  const selectedWallet = useMemo(
+    () => stableWallets.find((w) => w.id === sourceWalletId) || null,
+    [stableWallets, sourceWalletId],
+  );
+  const selectedExternal = useMemo(
+    () => externalAccounts.find((a) => a.id === destinationAccountId) || null,
+    [externalAccounts, destinationAccountId],
+  );
+
+  const prerequisites = useMemo(() => ({
+    wallet: stableWallets.length > 0,
+    virtualAccount: hasVirtualAccount,
+    externalAccount: externalAccounts.length > 0,
+  }), [stableWallets.length, hasVirtualAccount, externalAccounts.length]);
+
+  const canExecute = Boolean(
+    selectedWallet &&
+    selectedExternal &&
+    Number(amount) > 0 &&
+    prerequisites.wallet &&
+    prerequisites.externalAccount,
+  );
 
   const loadRates = async () => {
-    setLoading(true);
+    setLoadingRates(true);
     try {
       const r: any = await backendAPI.fx.getLiveRates();
       if (r?.success && r.data) {
@@ -59,15 +115,139 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           return { pair, base, quote, rate: Number(rate), source: r.data.source ?? 'fallback' };
         });
         setRates(rows);
-        setSource(r.data.source ?? 'fallback');
+        setRateSource(r.data.source ?? 'fallback');
         setGenerated(r.data.generated_at ?? null);
+        try {
+          localStorage.setItem(FX_RATES_CACHE_KEY, JSON.stringify({
+            rates: rows,
+            source: r.data.source ?? 'fallback',
+            generated: r.data.generated_at ?? null,
+          }));
+        } catch { /* ignore cache write */ }
       }
     } finally {
-      setLoading(false);
+      setLoadingRates(false);
     }
   };
 
-  useEffect(() => { loadRates(); }, []);
+  const loadSnapshot = async () => {
+    setSnapshotLoading(true);
+    try {
+      const [routeRes, externalRes] = await Promise.all([
+        backendAPI.financial.getWalletRouteData(),
+        withTimeout(
+          backendAPI.bridge.externalAccount.list() as Promise<any>,
+          900,
+          { success: false, data: { external_accounts: [] } } as any,
+        ),
+      ]);
+      const stableRows = Array.isArray((routeRes as any)?.data?.stablecoin_wallets)
+        ? (routeRes as any).data.stablecoin_wallets
+        : [];
+      const externalRows = Array.isArray(externalRes?.data?.external_accounts) ? externalRes.data.external_accounts : [];
+      const vaRows = Array.isArray((routeRes as any)?.data?.virtual_accounts)
+        ? (routeRes as any).data.virtual_accounts
+        : [];
+
+      const wallets: StableWallet[] = stableRows
+        .map((r: any) => ({
+          id: String(r?.bridge_wallet_id || r?.id || ''),
+          bridge_wallet_id: String(r?.bridge_wallet_id || ''),
+          currency: String(r?.currency || '').toUpperCase(),
+          chain: String(r?.chain || '').toLowerCase(),
+          address: r?.address || null,
+        }))
+        .filter((r: StableWallet) => !!r.bridge_wallet_id && !!r.currency && !!r.chain);
+
+      const accounts: ExternalAccount[] = externalRows
+        .map((r: any) => ({
+          id: String(r?.bridge_external_account_id || r?.id || ''),
+          bridge_external_account_id: String(r?.bridge_external_account_id || ''),
+          currency: String(r?.currency || '').toUpperCase(),
+          rail: normalizeExternalRail(String(r?.rail || (String(r?.account_type || '').toLowerCase() === 'iban' ? 'sepa' : 'ach'))),
+        }))
+        .filter((r: ExternalAccount) => !!r.bridge_external_account_id && !!r.currency);
+
+      setStableWallets(wallets);
+      setExternalAccounts(accounts);
+      setHasVirtualAccount(vaRows.length > 0);
+      if (!sourceWalletId && wallets[0]) setSourceWalletId(wallets[0].id);
+      if (!destinationAccountId && accounts[0]) setDestinationAccountId(accounts[0].id);
+      try {
+        localStorage.setItem(FX_ROUTE_CACHE_KEY, JSON.stringify({
+          wallets,
+          externalAccounts: accounts,
+          hasVirtualAccount: vaRows.length > 0,
+        }));
+      } catch { /* ignore cache write */ }
+    } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let hasCachedRates = false;
+    let hasCachedRoute = false;
+    try {
+      const cached = JSON.parse(localStorage.getItem(FX_RATES_CACHE_KEY) || 'null');
+      if (cached && Array.isArray(cached.rates) && cached.rates.length > 0) {
+        hasCachedRates = true;
+        setRates(cached.rates);
+        setRateSource(cached.source ?? 'fallback');
+        setGenerated(cached.generated ?? null);
+        setLoadingRates(false);
+      }
+    } catch { /* ignore malformed cache */ }
+    try {
+      const cachedRoute = JSON.parse(localStorage.getItem(FX_ROUTE_CACHE_KEY) || 'null');
+      if (cachedRoute && Array.isArray(cachedRoute.wallets)) {
+        hasCachedRoute = true;
+        setStableWallets(cachedRoute.wallets);
+        setExternalAccounts(Array.isArray(cachedRoute.externalAccounts) ? cachedRoute.externalAccounts : []);
+        setHasVirtualAccount(Boolean(cachedRoute.hasVirtualAccount));
+        if (!sourceWalletId && cachedRoute.wallets[0]) setSourceWalletId(cachedRoute.wallets[0].id);
+        if (!destinationAccountId && cachedRoute.externalAccounts?.[0]) setDestinationAccountId(cachedRoute.externalAccounts[0].id);
+        setSnapshotLoading(false);
+      }
+    } catch { /* ignore malformed cache */ }
+    navPerfTrackCache('exchange', hasCachedRates || hasCachedRoute);
+    loadRates();
+    loadSnapshot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const executeFxTransfer = async () => {
+    if (!canExecute || !selectedWallet || !selectedExternal) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    setSubmitResult(null);
+    try {
+      const r: any = await backendAPI.fx.convert({
+        amount: Number(amount),
+        idempotency_key: crypto.randomUUID(),
+        source: {
+          payment_rail: 'bridge_wallet',
+          currency: selectedWallet.currency,
+          chain: selectedWallet.chain,
+          bridge_wallet_id: selectedWallet.bridge_wallet_id,
+        },
+        destination: {
+          payment_rail: selectedExternal.rail,
+          currency: selectedExternal.currency,
+          external_account_id: selectedExternal.bridge_external_account_id,
+        },
+      });
+      if (r?.success && r?.data?.transfer_id) {
+        setSubmitResult({ transfer_id: r.data.transfer_id, state: r.data.state || 'pending' });
+      } else {
+        setSubmitError(String(r?.error || 'Transfer failed'));
+      }
+    } catch (e: any) {
+      setSubmitError(String(e?.message || 'Transfer failed'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
@@ -78,42 +258,108 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             {tt('exchange.title', 'Exchange')}
           </p>
           <button
-            onClick={loadRates}
-            aria-label="Refresh rates"
+            onClick={() => { loadRates(); loadSnapshot(); }}
+            aria-label="Refresh"
             className={`p-1.5 rounded-full ${tc.hoverBg} transition-colors`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${tc.textMuted} ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${tc.textMuted} ${(loadingRates || snapshotLoading) ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
-        {/* Coming-soon convert hero — replaces the old Swap form that would
-            have called a retired `fx` edge function. */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#15191F] via-[#0F1216] to-[#0B0E11] px-5 py-6 mb-6"
-        >
+        <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#15191F] via-[#0F1216] to-[#0B0E11] px-5 py-6 mb-6">
           <div className="pointer-events-none absolute -top-20 -right-20 w-56 h-56 rounded-full bg-[#C7FF00] opacity-[0.08] blur-3xl" />
           <div className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C7FF00]/15 mb-3">
             <Sparkles className="w-3 h-3 text-[#C7FF00]" />
-            <span className="text-[10px] font-bold tracking-wider uppercase text-[#C7FF00]">In the works</span>
+            <span className="text-[10px] font-bold tracking-wider uppercase text-[#C7FF00]">Bridge orchestration</span>
           </div>
           <h1 className="relative text-white font-semibold tracking-tight text-2xl sm:text-3xl mb-2">
-            Convert your balances
+            FX / Stablecoin sandwich
           </h1>
-          <p className="relative text-sm text-white/60 max-w-md leading-relaxed">
-            One-tap convert across your USD / EUR / GBP accounts and stablecoin
-            wallets is launching with the next release. Today, you can move
-            funds via the Send and Receive flows.
+          <p className="relative text-sm text-white/60 max-w-xl leading-relaxed">
+            Execution path: Bridge Wallet source → Transfer orchestration → External Account destination.
+            Virtual Account is used for fiat intake when you need inbound funding before conversion.
           </p>
-        </motion.div>
+        </div>
 
-        {/* Live rates */}
+        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 mb-4`}>
+          <p className={`text-xs font-semibold ${tc.text} mb-2`}>Prerequisites</p>
+          <div className="space-y-1.5 text-xs">
+            <div className={`flex items-center gap-2 ${prerequisites.wallet ? 'text-emerald-400' : tc.textMuted}`}>
+              {prerequisites.wallet ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+              Bridge Wallet
+            </div>
+            <div className={`flex items-center gap-2 ${prerequisites.virtualAccount ? 'text-emerald-400' : tc.textMuted}`}>
+              {prerequisites.virtualAccount ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+              Virtual Account (for fiat onramp step)
+            </div>
+            <div className={`flex items-center gap-2 ${prerequisites.externalAccount ? 'text-emerald-400' : tc.textMuted}`}>
+              {prerequisites.externalAccount ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+              External Account
+            </div>
+          </div>
+        </div>
+
+        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 mb-6`}>
+          <p className={`text-xs font-semibold ${tc.text} mb-3`}>Execute transfer</p>
+
+          <label className={`block text-[11px] ${tc.textMuted} mb-1`}>Source wallet</label>
+          <select
+            value={sourceWalletId}
+            onChange={(e) => setSourceWalletId(e.target.value)}
+            className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} mb-3`}
+          >
+            {stableWallets.length === 0 ? <option value="">No wallets available</option> : null}
+            {stableWallets.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.currency} on {w.chain} ({w.bridge_wallet_id.slice(0, 8)}...)
+              </option>
+            ))}
+          </select>
+
+          <label className={`block text-[11px] ${tc.textMuted} mb-1`}>Destination external account</label>
+          <select
+            value={destinationAccountId}
+            onChange={(e) => setDestinationAccountId(e.target.value)}
+            className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} mb-3`}
+          >
+            {externalAccounts.length === 0 ? <option value="">No external accounts available</option> : null}
+            {externalAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.currency} via {a.rail.toUpperCase()} ({a.bridge_external_account_id.slice(0, 8)}...)
+              </option>
+            ))}
+          </select>
+
+          <label className={`block text-[11px] ${tc.textMuted} mb-1`}>Amount</label>
+          <input
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+            placeholder="0.00"
+            className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} mb-3`}
+          />
+
+          <button
+            onClick={executeFxTransfer}
+            disabled={!canExecute || submitting}
+            className="w-full py-3 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm disabled:opacity-50"
+          >
+            {submitting ? 'Submitting…' : 'Run FX transfer'}
+          </button>
+
+          {submitError && <p className="mt-2 text-xs text-red-400">{submitError}</p>}
+          {submitResult && (
+            <p className="mt-2 text-xs text-emerald-400">
+              Transfer {submitResult.transfer_id} created ({submitResult.state})
+            </p>
+          )}
+        </div>
+
         <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
-          {tt('exchange.rates', 'Rates')}
+          Indicative rates
         </h2>
         <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {loading ? (
+          {loadingRates ? (
             <div className="px-4 py-10 flex justify-center">
               <RefreshCw className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
             </div>
@@ -129,7 +375,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center`}>
-                    <ArrowLeftRight className={`w-4 h-4 ${tc.text}`} />
+                    <ArrowRightLeft className={`w-4 h-4 ${tc.text}`} />
                   </div>
                   <div>
                     <p className={`text-sm font-semibold ${tc.text}`}>{r.base} / {r.quote}</p>
@@ -145,19 +391,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         </div>
 
         <p className={`text-[10px] ${tc.textMuted} mt-3 px-1 leading-snug`}>
-          {source === 'fallback'
-            ? 'Indicative rates. A live rates feed will be wired in a future release.'
-            : 'Live indicative rates.'}
+          {rateSource === 'fallback' ? 'Indicative fallback rates.' : 'Live indicative rates.'}
           {generated && ' · '}
           {generated && new Date(generated).toLocaleString()}
         </p>
-
-        <button
-          onClick={onBack}
-          className={`mt-6 text-[11px] font-semibold ${tc.textMuted} hover:${tc.text}`}
-        >
-          Back
-        </button>
       </div>
     </div>
   );
