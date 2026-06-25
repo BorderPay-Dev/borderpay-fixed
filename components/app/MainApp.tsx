@@ -29,7 +29,6 @@ import {
   FX_RUNTIME_ENABLED,
   PAYROLL_NAV_ENABLED,
   PAYROLL_RUNTIME_ENABLED,
-  RAMPS_NAV_ENABLED,
 } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 import {
@@ -75,7 +74,6 @@ const ExternalAccountsScreen = lazyImport(() => import('../payouts/ExternalAccou
 const ExternalWalletsScreen = lazyImport(() => import('../wallets/ExternalWalletsScreen').then(m => ({ default: m.ExternalWalletsScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
-const RampsScreen = lazyImport(() => import('../business/RampsScreen').then(m => ({ default: m.RampsScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const ExchangeScreen = lazyImport(() => import('../exchange/ExchangeScreen').then(m => ({ default: m.ExchangeScreen })));
 const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
@@ -133,7 +131,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'external-wallets':    (ExternalWalletsScreen as any).preload,
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
-  ramps:                (RampsScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
   'admin-broadcast-business': (BusinessBroadcastScreen as any).preload,
   'admin-broadcast-individual': (IndividualBroadcastScreen as any).preload,
@@ -284,7 +281,6 @@ export type AppScreen =
   | 'external-wallets'
   | 'bulk-payout'
   | 'payroll'
-  | 'ramps'
   | 'add-external-account'
   | 'admin-broadcast-business'
   | 'admin-broadcast-individual';
@@ -439,8 +435,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>([]);
-  const externalAccountsEnabled = EXTERNAL_ACCOUNTS_LIVE && externalAccountTypes.length > 0;
+  const externalAccountsEnabled = EXTERNAL_ACCOUNTS_LIVE;
 
   // ─── Shell snapshot (unread + external-account capabilities) ───────────
   // Single snapshot request fan-outs into shell-level state to avoid duplicate
@@ -593,7 +588,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         'wallet-detail',
         'bulk-payout',
         'payroll',
-        'ramps',
         'team',
         'external-accounts',
         'notifications',
@@ -745,15 +739,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <PayrollScreen
             onBack={navigateBack}
             onOpenBulkPayout={() => navigateTo('bulk-payout')}
-          />
-        );
-
-      case 'ramps':
-        if (!RAMPS_NAV_ENABLED) { navigateTo('dashboard'); return null; }
-        return (
-          <RampsScreen
-            onBack={navigateBack}
-            onNavigate={navigateTo}
           />
         );
 
@@ -1005,7 +990,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 isBusinessAccount={accountType === 'business'}
                 onSignOut={onLogout}
                 onLock={onLock}
-                onOpenPayoutAccounts={externalAccountsEnabled ? () => navigateTo('external-accounts') : undefined}
+                onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
                 onOpenReferral={accountType === 'individual' ? () => navigateTo('referral') : undefined}
               >
