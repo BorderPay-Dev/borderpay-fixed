@@ -135,7 +135,7 @@ function BusinessTeamPanel({
   // Native-app pattern: seed the roster from the last-loaded cache so the panel
   // mounts INSTANTLY, then refresh in the background.
   const cachedRoster = readRosterCache();
-  const [loading, setLoading]   = useState(cachedRoster === null);
+  const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
   const [busyId, setBusyId]     = useState<string | null>(null);

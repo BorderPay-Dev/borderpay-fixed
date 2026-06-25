@@ -123,9 +123,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     } catch {}
     return defaults;
   });
-  const [loading, setLoading] = useState(() => {
-    try { return !localStorage.getItem('borderpay_user'); } catch { return true; }
-  });
+  const [loading, setLoading] = useState(false);
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
 
