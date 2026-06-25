@@ -422,7 +422,7 @@ function AppContent() {
           id: loginUser.id,
           email: loginUser.email,
           full_name: resolvedFullName,
-          account_type: cached?.account_type || accountType || 'individual',
+          account_type: accountType || cached?.account_type || 'individual',
         }));
       } catch { /* ignore cache write */ }
 
