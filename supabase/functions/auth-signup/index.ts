@@ -108,6 +108,7 @@ Deno.serve(async (req: Request) => {
       p_ip:         requestIp,
       p_user_agent: ua,
     });
+    let enforceAbuseDecision = true;
     if (abuseErr) {
       const m = String(abuseErr.message || "");
       // Fail-open only for migration/schema drift where the RPC does not exist
@@ -115,10 +116,11 @@ Deno.serve(async (req: Request) => {
       if (!/could not find the function public\.enforce_signup_abuse_protection/i.test(m)) {
         return json({ success: false, error: `Signup protection check failed: ${m}` }, 500);
       }
+      enforceAbuseDecision = false;
       console.warn(`auth-signup abuse gate RPC missing; continuing without gate for this request: ${m}`);
     }
     const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
-    if (!abuse?.allowed) {
+    if (enforceAbuseDecision && !abuse?.allowed) {
       const retryAfter = Number(abuse?.retry_after_seconds || 30);
       return new Response(
         JSON.stringify({
