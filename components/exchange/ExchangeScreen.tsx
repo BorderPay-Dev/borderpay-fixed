@@ -6,6 +6,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { resolveFinancialCacheScope } from '../../utils/financial/cacheScope';
+import { authAPI } from '../../utils/supabase/client';
 
 interface ExchangeScreenProps {
   onBack: () => void;
@@ -60,18 +61,48 @@ function inferChainFromCurrency(currency: string): string {
   return '';
 }
 
-function readCachedDashboardWallets(): Array<{ currency: string; balance: number; bridge_wallet_id?: string }> {
+type CachedWalletRow = { currency: string; balance: number; bridge_wallet_id?: string };
+
+function getKnownUserIdsForCache(): string[] {
+  const ids = new Set<string>();
   try {
     const scope = resolveFinancialCacheScope();
-    const keys = [
-      `borderpay_dash_wallets_v1:${scope.userId}`,
-      `borderpay_business_dash_wallets_v1:${scope.userId}`,
-    ];
+    if (scope.userId && scope.userId !== 'anon') ids.add(scope.userId);
+  } catch { /* ignore */ }
+  try {
+    const authUser = authAPI.getStoredUser();
+    const authUserId = String(authUser?.id || '').trim();
+    if (authUserId) ids.add(authUserId);
+  } catch { /* ignore */ }
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !/^sb-.+-auth-token$/.test(key)) continue;
+      const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+      const userId = String((parsed?.user || parsed?.currentSession?.user)?.id || '').trim();
+      if (userId) ids.add(userId);
+    }
+  } catch { /* ignore */ }
+  return Array.from(ids);
+}
+
+function readCachedDashboardWallets(): CachedWalletRow[] {
+  try {
+    const userIds = getKnownUserIdsForCache();
+    const keys: string[] = [];
+    for (const userId of userIds) {
+      keys.push(`borderpay_dash_wallets_v1:${userId}`);
+      keys.push(`borderpay_business_dash_wallets_v1:${userId}`);
+      keys.push(`borderpay_snapshot_cache_v1:${userId}`);
+    }
     for (const key of keys) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (parsed?.snapshot && Array.isArray(parsed.snapshot?.data?.wallets) && parsed.snapshot.data.wallets.length > 0) {
+        return parsed.snapshot.data.wallets;
+      }
     }
   } catch { /* ignore cache read failures */ }
   return [];
