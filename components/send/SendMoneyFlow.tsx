@@ -269,7 +269,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     let cancelled = false;
     const hydrateOnce = async () => {
       try {
-        const res: any = await backendAPI.financial.getSnapshot(100);
+        const res: any = await backendAPI.financial.getSendRouteData();
         if (cancelled || !res?.success || !res?.data) return;
         const list = ((res.data as any).wallets || []).map((w: any) => ({
           id: w.id,

@@ -595,37 +595,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     return () => { cancelled = true; };
   }, []);
 
-  // Business prefetch is staged and idle-only to avoid competing with first
-  // interaction/render on lower-end devices.
-  React.useEffect(() => {
-    if (accountType !== 'business') return;
-    let cancelled = false;
-    const warm: string[] = ['team', 'external-accounts', 'external-wallets', 'bulk-payout'];
-    if (PAYROLL_NAV_ENABLED) warm.push('payroll');
-    if (FX_NAV_ENABLED) warm.push('exchange');
-    if (RAMPS_NAV_ENABLED) warm.push('ramps');
-
-    let timerId: number | null = null;
-    const run = () => {
-      if (cancelled) return;
-      warm.forEach((name, idx) => {
-        window.setTimeout(() => {
-          if (!cancelled) prefetchScreen(name);
-        }, idx * 120);
-      });
-    };
-    const ric = (window as any).requestIdleCallback;
-    if (typeof ric === 'function') {
-      ric(run, { timeout: 3000 });
-    } else {
-      timerId = window.setTimeout(run, 1200);
-    }
-    return () => {
-      cancelled = true;
-      if (timerId != null) window.clearTimeout(timerId);
-    };
-  }, [accountType]);
-
   const navigateBack = () => {
     if (navigationStack.length > 1) {
       const newStack = [...navigationStack];

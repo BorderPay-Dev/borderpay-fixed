@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
-import { supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import {
@@ -36,6 +35,9 @@ import {
 } from '../dashboard/bridge/WalletVisuals';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { showToast } from '../common/StatusToast';
+import { SkeletonRows } from '../common/Skeleton';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface WalletScreenProps {
   userId:     string;
@@ -51,6 +53,7 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
+const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
 
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {
   const { t } = useThemeLanguage();
@@ -75,16 +78,27 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => bridgeVirtualAccountCurrenciesForCountry(country),
     [country],
   );
+  const stableWalletsCacheKey = useMemo(
+    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    [userId],
+  );
+  const vaCacheKey = useMemo(
+    () => financialCacheKey('borderpay_va_v1', { userId }),
+    [userId],
+  );
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const [stables, setStables] = useState<StableRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem('borderpay_wallets_ind_v1') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem('borderpay_va_ind_v1') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
   });
   const [totalUsd, setTotalUsd] = useState<number>(() => {
     try { const r = localStorage.getItem(`borderpay_wallet_total_${userId}`); return r ? Number(r) : 0; } catch { return 0; }
+  });
+  const [balanceByCurrency, setBalanceByCurrency] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_${userId}`) || '{}'); } catch { return {}; }
   });
   const [loading, setLoading] = useState(stables.length === 0 && vas.length === 0);
   const [refreshing, setRefreshing] = useState(false);
@@ -93,33 +107,72 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
 
+  useEffect(() => {
+    navPerfTrackCache('wallet-detail', stables.length > 0 || vas.length > 0);
+  }, [stables.length, vas.length]);
+
   const refresh = async () => {
     setRefreshing(true);
-    // Provision base stablecoins + mirror Bridge → local (both idempotent).
-    try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
-    try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
+    try {
+      const routeData: any = await backendAPI.financial.getWalletRouteData();
+      const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
+      const vList = (routeData?.data?.virtual_accounts as VaRow[]) ?? [];
+      setStables(sList);
+      setVas(vList);
+      try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
+      try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
 
-    const [{ data: bw }, { data: bv }, { data: bal }] = await Promise.all([
-      supabase.from('bridge_wallets').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('bridge_virtual_accounts').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('bridge_virtual_account_balances').select('available_balance_minor, currency').eq('user_id', userId),
-    ]);
-    const sList = (bw as StableRow[]) ?? [];
-    const vList = (bv as VaRow[]) ?? [];
-    setStables(sList);
-    setVas(vList);
-    try { localStorage.setItem('borderpay_wallets_ind_v1', JSON.stringify(sList)); } catch { /* noop */ }
-    try { localStorage.setItem('borderpay_va_ind_v1',      JSON.stringify(vList)); } catch { /* noop */ }
-
-    if (Array.isArray(bal)) {
-      const usdMinor = bal.filter((r: any) => r.currency === 'USD')
-        .reduce((s: number, r: any) => s + Number(r.available_balance_minor || 0), 0);
-      const tot = usdMinor / 100;
-      setTotalUsd(tot);
-      try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(tot)); } catch { /* noop */ }
+      const rows: any[] = Array.isArray(routeData?.data?.wallets) ? routeData.data.wallets : [];
+      if (rows.length > 0) {
+        const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
+          const c = String(w?.currency || '').toUpperCase();
+          if (!c) return acc;
+          acc[c] = Number(w?.balance || 0);
+          return acc;
+        }, {});
+        setBalanceByCurrency(mapped);
+        try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
+        const tot = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+        setTotalUsd(tot);
+        try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(tot)); } catch { /* noop */ }
+      }
+      // Provider provisioning/sync is background-only; never block first paint.
+      void Promise.allSettled([
+        backendAPI.bridge.provisionStablecoins(),
+        backendAPI.bridge.syncAccounts(),
+      ]).then(async () => {
+        try {
+          const next: any = await backendAPI.financial.getWalletRouteData();
+          const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
+          const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
+          setStables(nextStables);
+          setVas(nextVas);
+          try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
+          try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVas)); } catch { /* noop */ }
+          const nextRows: any[] = Array.isArray(next?.data?.wallets) ? next.data.wallets : [];
+          if (nextRows.length > 0) {
+            const mapped = nextRows.reduce((acc: Record<string, number>, w: any) => {
+              const c = String(w?.currency || '').toUpperCase();
+              if (!c) return acc;
+              acc[c] = Number(w?.balance || 0);
+              return acc;
+            }, {});
+            setBalanceByCurrency(mapped);
+            try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
+            const nextTot = nextRows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+            setTotalUsd(nextTot);
+            try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(nextTot)); } catch { /* noop */ }
+          }
+        } catch {
+          // keep first snapshot
+        }
+      });
+    } catch {
+      // Keep cached data visible; refresh is best-effort.
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
-    setRefreshing(false);
   };
 
   useEffect(() => { if (isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, isVerified]);
@@ -197,8 +250,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
           {loading ? (
-            <div className="px-4 py-8 text-center">
-              <Loader2 className={`w-5 h-5 ${tc.textMuted} animate-spin mx-auto`} />
+            <div className="px-4 py-4">
+              <SkeletonRows count={4} />
             </div>
           ) : vas.length === 0 && stables.length === 0 ? (
             <div className="px-4 py-8 text-center">
@@ -211,6 +264,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
               {/* Fiat virtual accounts first */}
               {vas.map((v, i) => {
                 const cur = String(v.currency).toUpperCase();
+                const curBalance = Number(balanceByCurrency[cur] || 0);
                 return (
                   <button key={v.id} onClick={() => setSelectedVa(v)}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 || stables.length > 0 ? `border-t ${tc.borderLight}` : ''}`}>
@@ -223,7 +277,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                     </div>
                     <div className="text-right">
                       <div className={`text-[15px] font-bold ${tc.text}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {cur === 'USD' ? '$0.00' : cur === 'EUR' ? '€0.00' : cur === 'GBP' ? '£0.00' : `0.00 ${cur}`}
+                        {`${CURRENCY_SYMBOL[cur] || ''}${curBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${CURRENCY_SYMBOL[cur] ? '' : ` ${cur}`}`}
                       </div>
                       <div className={`text-[10px] ${tc.textMuted} uppercase tracking-wider`}>View details</div>
                     </div>
@@ -233,11 +287,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
               })}
               {/* Stablecoins */}
               {stables.map((s, i) => {
-                // Defensive: a sync glitch once left rows with empty currency.
-                // Always recover something readable so the row never renders
-                // as just "(Tron)" / "(Base)".
-                const rawSym = String(s.currency || '').toUpperCase();
-                const sym = rawSym || (String(s.chain).toLowerCase() === 'tron' ? 'USDT' : 'USDC');
+                const sym = String(s.currency || '').toUpperCase();
+                const stableBalance = Number(balanceByCurrency[sym] || 0);
                 const showDivider = vas.length > 0 || i > 0;
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
@@ -251,10 +302,10 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                     </div>
                     <div className="text-right">
                       <div className={`text-[15px] font-bold ${tc.text}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        $0.00
+                        ${stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                       <div className={`text-[11px] ${tc.textMuted}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        0.00 {sym}
+                        {stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {sym}
                       </div>
                     </div>
                     <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />

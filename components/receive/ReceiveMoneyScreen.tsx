@@ -106,9 +106,9 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      const snapshot: any = await backendAPI.financial.getSnapshot(100);
-      const sList = (snapshot?.data?.stablecoin_wallets as StableRow[]) ?? [];
-      const vList = (snapshot?.data?.virtual_accounts as VaRow[]) ?? [];
+      const routeData: any = await backendAPI.financial.getReceiveRouteData();
+      const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
+      const vList = (routeData?.data?.virtual_accounts as VaRow[]) ?? [];
       setStables(sList);
       setVas(vList);
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
@@ -119,7 +119,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
         backendAPI.bridge.syncAccounts(),
       ]).then(async () => {
         try {
-          const next: any = await backendAPI.financial.getSnapshot(100);
+          const next: any = await backendAPI.financial.getReceiveRouteData();
           const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
           const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
           setStables(nextStables);
