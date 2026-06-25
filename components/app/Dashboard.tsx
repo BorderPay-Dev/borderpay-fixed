@@ -353,14 +353,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     handleNavigate(action);
   };
 
-  // ─── quick actions ────────────────────────────────────────────────────────
-  const quickActions = [
-    { id: 'add-money',           label: t('action.addMoney'), icon: Plus,           bg: '#C7FF00', color: '#000' },
-    { id: 'send-money',          label: t('action.send'),     icon: Send,           bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
-    { id: 'receive-money',       label: t('action.receive') || 'Receive', icon: ArrowDownLeft, bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
-    { id: 'exchange',            label: t('action.exchange'), icon: ArrowLeftRight,  bg: tc.isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)', color: tc.isLight ? '#000' : '#fff' },
-  ];
-
   // ─── transaction helpers ──────────────────────────────────────────────────
   const getTxIcon = (txn: any) => {
     const isCredit = txn.type === 'deposit' || txn.type === 'credit';
@@ -477,10 +469,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           {/* Circular action buttons (Revolut idiom) */}
           <div className="relative mt-6 grid grid-cols-4 gap-1">
             <HeroAction
-              label={tt('action.addMoney', 'Add money')}
-              Icon={Plus}
+              label={tt('nav.wallet', 'Wallet')}
+              Icon={Wallet}
               primary
-              onClick={() => setProvisioningOpen(true)}
+              onClick={() => handleNavigate('wallet-detail')}
+              onHover={() => prefetchScreen('wallet-detail')}
             />
             <HeroAction
               label={tt('action.send', 'Send')}

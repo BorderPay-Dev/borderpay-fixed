@@ -493,7 +493,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, []);
 
   const navigateTo = (screen: AppScreen | string) => {
-    const target = screen as AppScreen;
+    const normalized = screen === 'converter' ? 'exchange' : screen;
+    const target = normalized as AppScreen;
     const isAlreadyHere =
       currentScreen === target ||
       (target === 'home' && currentScreen === 'dashboard') ||
@@ -989,7 +990,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
-                onOpenReferral={accountType === 'individual' ? () => navigateTo('referral') : undefined}
               >
                 {renderScreen()}
               </AppShell>

@@ -22,6 +22,7 @@ import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { TreasuryCard } from './TreasuryCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
+import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
@@ -79,6 +80,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [registrationNumber, setRegistrationNumber] = useState<string | null>(null);
   const [country, setCountry]                       = useState<string | null>(initialCountry);
   const [profileError, setProfileError]             = useState<string | null>(null);
+  const [affiliateKycStatus, setAffiliateKycStatus] = useState<'verified' | 'pending'>(() => {
+    const k = String(stored?.bridge_kyb_status || stored?.kyc_status || '').toLowerCase();
+    return k === 'approved' || k === 'verified' ? 'verified' : 'pending';
+  });
+  const affiliateEmail = String(stored?.email || '');
 
   // Seed wallets from cache so the balance + treasury paint instantly.
   const bizWalletsCacheKey = useMemo(
@@ -112,10 +118,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     setWalletsError(null);
     try {
       const r: any = await backendAPI.financial.getSnapshot(20);
-      if (r?.success && r?.data) {
-        const raw = r.data?.wallets || [];
-        const tx = Array.isArray(r.data?.transactions) ? r.data.transactions : [];
-        const profile = r.data?.profile || {};
+        if (r?.success && r?.data) {
+          const raw = r.data?.wallets || [];
+          const tx = Array.isArray(r.data?.transactions) ? r.data.transactions : [];
+          const profile = r.data?.profile || {};
         const formatted = raw.map((w: any) => ({
           currency: w.currency,
           balance:  parseFloat(w.balance) || 0,
@@ -130,6 +136,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         if (snapshotCountry) setCountry(snapshotCountry);
         const snapshotReg = String(profile?.registration_number || '').trim();
         if (snapshotReg) setRegistrationNumber(snapshotReg);
+        const snapshotKyb = String(profile?.bridge_kyb_status || profile?.kyc_status || '').toLowerCase();
+        if (snapshotKyb === 'approved' || snapshotKyb === 'verified') {
+          setAffiliateKycStatus('verified');
+        }
         setProfileError(null);
         try {
           const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
@@ -347,6 +357,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         <section className="px-5 sm:px-6 pt-1 flex items-center justify-center gap-1.5">
           <ShieldCheck className="w-3 h-3 text-[#C7FF00]" />
           <span className={`text-[10px] ${tc.textMuted}`}>Secured by BorderPay Africa</span>
+        </section>
+
+        {/* ── 8. Affiliate banner (same visibility model as Individual) ─ */}
+        <section className="px-5 sm:px-6 mt-5 pb-2">
+          <AffiliateBanner kycStatus={affiliateKycStatus} userEmail={affiliateEmail} />
         </section>
       </div>
     </div>

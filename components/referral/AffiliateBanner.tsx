@@ -8,7 +8,7 @@ import { X } from 'lucide-react';
 import { supabase } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
-const AFFILIATE_URL = 'https://affiliates.borderpayafrica.com';
+const AFFILIATE_URL = 'https://affiliate.borderpayafrica.com/login';
 const DISMISSED_KEY = 'affiliate_banner_dismissed';
 
 interface AffiliateBannerProps {
