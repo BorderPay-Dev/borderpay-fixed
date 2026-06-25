@@ -13,6 +13,9 @@ import { txDirection } from '../../utils/transactions/direction';
 import { SkeletonRows } from '../common/Skeleton';
 import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -36,14 +39,15 @@ interface Transaction {
 }
 
 const TX_CACHE_KEY = 'borderpay_tx_history_v1';
-function readTxCache(): Transaction[] {
-  try { const raw = localStorage.getItem(TX_CACHE_KEY); return raw ? JSON.parse(raw) : []; }
+function readTxCache(cacheKey: string): Transaction[] {
+  try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
 }
 
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
+  const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
   // Seed from cache so the history paints instantly on open, then refreshes.
-  const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache());
+  const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache(cacheKey));
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
@@ -54,12 +58,18 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const tc = useThemeClasses();
 
   useEffect(() => {
+    navPerfTrackCache('transactions', transactions.length > 0);
+  }, [transactions.length]);
+
+  useEffect(() => {
     loadTransactions();
-  }, [filterType]);
+    // Filter is applied client-side below; avoid refetch on every toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadTransactions = async () => {
     setLoadError(false);
-    setLoading(true);
+    // Preserve cached rows during refresh; only show skeleton on cold start.
     try {
       // Phase 2 P1: read directly from `public.transactions` via the
       // canonical, RLS-safe getTransactions(). The previous "try
@@ -72,16 +82,16 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
       // (same idiom as `filteredTransactions` below).
       const result = await backendAPI.transactions.getTransactions(100, 0);
       if (result.success && result.data) {
-        const txns = (result.data as any).transactions || result.data;
+        const txns = (result.data as any).transactions || [];
         const list = Array.isArray(txns) ? txns : [];
         setTransactions(list);
-        try { localStorage.setItem(TX_CACHE_KEY, JSON.stringify(list)); } catch { /* noop */ }
+        try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch { /* noop */ }
       } else if (transactions.length === 0) {
         // Only surface an error if we have nothing cached to show.
         setLoadError(true);
       }
     } catch (error) {
-      setLoadError(true);
+      if (transactions.length === 0) setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -105,8 +115,9 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     if (filterType !== 'all' && txDirection(txn) !== filterType) return false;
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
+    const safeDescription = sanitizeCustomerFacingText(txn.description);
     return (
-      txn.description.toLowerCase().includes(q) ||
+      safeDescription.toLowerCase().includes(q) ||
       (txn.recipient?.toLowerCase() ?? '').includes(q) ||
       (txn.sender?.toLowerCase()    ?? '').includes(q)
     );
@@ -282,7 +293,9 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
                         </div>
 
                         <div className="flex-1">
-                          <p className={`bp-text-body font-semibold ${tc.text}`}>{txn.description}</p>
+                          <p className={`bp-text-body font-semibold ${tc.text}`}>
+                            {sanitizeCustomerFacingText(txn.description)}
+                          </p>
                           <p className={`bp-text-small ${tc.textSecondary}`}>
                             {new Date(txn.created_at).toLocaleTimeString(dateLocale, {
                               hour: '2-digit',

@@ -91,9 +91,19 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
+  const inferredBusiness = useMemo(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      return String(cached?.account_type || '').toLowerCase() === 'business';
+    } catch {
+      return false;
+    }
+  }, []);
+  const effectiveAccountType: 'individual' | 'business' =
+    accountType === 'business' || inferredBusiness ? 'business' : 'individual';
 
   // ── Individual-account placeholder ────────────────────────────────────
-  if (accountType !== 'business') {
+  if (effectiveAccountType !== 'business') {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
         <Header tc={tc} onBack={onBack} title="Team members" />

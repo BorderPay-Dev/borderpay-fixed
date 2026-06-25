@@ -11,7 +11,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Building2, Send, Download, RefreshCw, Loader2, Wallet, ArrowRight,
+  Building2, Send, Download, RefreshCw, Loader2, Wallet,
   AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRightLeft, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -237,8 +237,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               tc={tc}
             />
             <BizChip label="Wallets" Icon={Wallet} onClick={() => onNavigate('wallet-detail')} tc={tc} />
-            <BizChip label="Banks" Icon={Building2} onClick={() => onNavigate('external-accounts')} tc={tc} />
-            <BizChip label="Withdraw" Icon={ArrowRight} onClick={() => onNavigate('external-wallets')} tc={tc} />
           </div>
         </section>
 

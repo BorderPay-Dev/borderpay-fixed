@@ -50,7 +50,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const cached = readCache();
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   // Only show skeletons when we have nothing cached to render instantly.
-  const [loading, setLoading] = useState(cached.length === 0);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
@@ -107,7 +107,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         <FloatingBackButton onBack={onBack} />
         <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
-            Payout accounts
+            External Accounts
           </p>
           <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-8 text-center`}>
             <div className="w-14 h-14 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-4">
@@ -130,7 +130,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         className="flex items-center justify-between pl-16 pr-5 sm:pr-6 pb-3"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
       >
-        <h1 className={`text-base font-semibold ${tc.text}`}>Payout accounts</h1>
+        <h1 className={`text-base font-semibold ${tc.text}`}>External Accounts</h1>
         <button onClick={onAdd} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold">
           <Plus className="w-3.5 h-3.5" /> Add
         </button>
@@ -156,7 +156,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
             <div className="w-14 h-14 mx-auto rounded-2xl bg-[#C7FF00]/10 flex items-center justify-center mb-4">
               <Banknote className="w-6 h-6 text-[#C7FF00]" />
             </div>
-            <p className={`text-sm font-semibold ${tc.text} mb-1`}>No payout accounts yet</p>
+            <p className={`text-sm font-semibold ${tc.text} mb-1`}>No external accounts yet</p>
             <p className={`text-xs ${tc.textMuted} mb-5`}>Add a bank account to receive payouts through BorderPay.</p>
             <button onClick={onAdd} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold">
               <Plus className="w-4 h-4" /> Add payout account
