@@ -31,6 +31,7 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
+const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -67,17 +68,18 @@ function fmt(amount: number, currency: string): string {
 export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpgrade }: BusinessDashboardProps) {
   const tc = useThemeClasses();
   const stored = useMemo(() => authAPI.getStoredUser() || {}, []);
+  const businessNameCacheKey = useMemo(() => `${BIZ_NAME_KEY_PREFIX}${userId}`, [userId]);
+  const cachedBusinessName = useMemo(() => {
+    try { return String(localStorage.getItem(businessNameCacheKey) || '').trim(); } catch { return ''; }
+  }, [businessNameCacheKey]);
   const initialCompanyName = useMemo(
     () => {
       const company = String(stored?.company_name || '').trim();
       if (company) return company;
-      const fullName = String(stored?.full_name || '').trim();
-      if (fullName) return fullName;
-      const email = String(stored?.email || '').trim();
-      if (email.includes('@')) return email.split('@')[0];
+      if (cachedBusinessName) return cachedBusinessName;
       return 'Business account';
     },
-    [stored],
+    [stored, cachedBusinessName],
   );
   const initialCountry = useMemo(
     () => (stored?.country ? String(stored.country) : null),
@@ -204,6 +206,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               ...(nextCountry ? { country: nextCountry } : {}),
               ...(nextReg ? { registration_number: nextReg } : {}),
             }));
+            if (nextCompany) localStorage.setItem(businessNameCacheKey, nextCompany);
           } catch { /* ignore cache write */ }
         }
       });
