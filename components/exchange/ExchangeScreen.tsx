@@ -5,6 +5,7 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { resolveFinancialCacheScope } from '../../utils/financial/cacheScope';
 
 interface ExchangeScreenProps {
   onBack: () => void;
@@ -57,6 +58,23 @@ function inferChainFromCurrency(currency: string): string {
   if (c === 'USDT') return 'tron';
   if (c === 'USDC') return 'base';
   return '';
+}
+
+function readCachedDashboardWallets(): Array<{ currency: string; balance: number; bridge_wallet_id?: string }> {
+  try {
+    const scope = resolveFinancialCacheScope();
+    const keys = [
+      `borderpay_dash_wallets_v1:${scope.userId}`,
+      `borderpay_business_dash_wallets_v1:${scope.userId}`,
+    ];
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch { /* ignore cache read failures */ }
+  return [];
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -156,19 +174,17 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const loadSnapshot = async (foreground: boolean = false) => {
     if (foreground) setSnapshotLoading(true);
     try {
-      const [routeRes, externalRes, snapshotRes] = await Promise.all([
-        backendAPI.financial.getWalletRouteData(),
+      const [routeResSettled, externalRes, snapshotResSettled] = await Promise.all([
+        Promise.allSettled([backendAPI.financial.getWalletRouteData()]),
         withTimeout(
           backendAPI.bridge.externalAccount.list() as Promise<any>,
-          900,
+          1400,
           { success: false, data: { external_accounts: [] } } as any,
         ),
-        withTimeout(
-          backendAPI.financial.getSnapshot(20) as Promise<any>,
-          900,
-          { success: false, data: { wallets: [] } } as any,
-        ),
+        Promise.allSettled([backendAPI.financial.getSnapshot(20)]),
       ]);
+      const routeRes = routeResSettled[0].status === 'fulfilled' ? routeResSettled[0].value : null;
+      const snapshotRes = snapshotResSettled[0].status === 'fulfilled' ? snapshotResSettled[0].value : null;
       const routeData = (routeRes as any)?.success ? (routeRes as any).data : {};
       const snapshotData = (snapshotRes as any)?.success ? (snapshotRes as any).data : {};
       const stableRows = Array.isArray(routeData?.stablecoin_wallets)
@@ -178,9 +194,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       const vaRows = Array.isArray(routeData?.virtual_accounts)
         ? routeData.virtual_accounts
         : [];
+      const cachedDashWallets = readCachedDashboardWallets();
       const walletRows = Array.isArray(routeData?.wallets)
         ? routeData.wallets
-        : (Array.isArray(snapshotData?.wallets) ? snapshotData.wallets : []);
+        : (Array.isArray(snapshotData?.wallets) ? snapshotData.wallets : cachedDashWallets);
 
       const stableFromBridge: StableWallet[] = stableRows
         .map((r: any) => ({
@@ -232,7 +249,11 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         }))
         .filter((r: ExternalAccount) => !!r.bridge_external_account_id && !!r.currency);
 
-      setStableWallets(wallets);
+      if (wallets.length > 0) {
+        setStableWallets(wallets);
+      } else if (stableWallets.length === 0) {
+        setStableWallets([]);
+      }
       setExternalAccounts(accounts);
       setHasVirtualAccount(vaRows.length > 0);
       if (!sourceWalletId && wallets[0]) setSourceWalletId(wallets[0].id);
