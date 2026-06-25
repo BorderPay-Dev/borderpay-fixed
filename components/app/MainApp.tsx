@@ -139,7 +139,15 @@ if (typeof window !== 'undefined') {
 
 function getBusinessDisplayName(profile: any): string {
   if (profile?.account_type === 'business') {
-    return profile?.company_name || 'Business account';
+    if (profile?.company_name) return profile.company_name;
+    if (profile?.full_name) return profile.full_name;
+    if (profile?.email) return String(profile.email).split('@')[0] || 'Business account';
+    try {
+      const authUser = authAPI.getStoredUser();
+      if (authUser?.full_name) return String(authUser.full_name);
+      if (authUser?.email) return String(authUser.email).split('@')[0] || 'Business account';
+    } catch { /* ignore */ }
+    return 'Business account';
   }
   if (profile?.full_name) return profile.full_name;
   if (profile?.email) return String(profile.email).split('@')[0] || 'User';
@@ -160,6 +168,15 @@ function hasBusinessAccountCached(): boolean {
   try {
     const authUser = authAPI.getStoredUser();
     if (String(authUser?.account_type || '').toLowerCase() === 'business') return true;
+  } catch { /* noop */ }
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !/^sb-.+-auth-token$/.test(key)) continue;
+      const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+      const meta = (parsed?.user || parsed?.currentSession?.user)?.user_metadata || {};
+      if (String(meta?.account_type || '').toLowerCase() === 'business') return true;
+    }
   } catch { /* noop */ }
   return false;
 }
@@ -334,7 +351,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
   const [shellUserName, setShellUserName] = useState<string>(() => {
-    try { return getBusinessDisplayName(JSON.parse(localStorage.getItem('borderpay_user') || '{}')); } catch { return ''; }
+    try { return getBusinessDisplayName(JSON.parse(localStorage.getItem('borderpay_user') || '{}')); } catch { return 'User'; }
   });
   const [shellAvatarUrl, setShellAvatarUrl] = useState<string | null>(() => {
     try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.profile_picture_url || null; } catch { return null; }

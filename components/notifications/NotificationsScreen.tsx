@@ -130,7 +130,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 
   const initialRows = useMemo(() => readCachedNotifications(), []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
-  const [loading, setLoading] = useState(() => initialRows.length === 0);
+  const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const hasRowsRef = useRef(initialRows.length > 0);
@@ -141,8 +141,8 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   }, [rows.length]);
 
   const load = useCallback(async () => {
-    // Keep cached rows visible during background refresh.
-    if (!hasRowsRef.current) setLoading(true);
+    // Keep first paint instant; refresh in background.
+    setLoading(true);
     setError(null);
     try {
       const uid = currentUserId();
@@ -255,9 +255,11 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
           </div>
         )}
 
-        {loading ? (
-          <SkeletonRows count={5} />
-        ) : rows.length === 0 ? (
+        {loading && rows.length > 0 ? (
+          <div className={`mb-3 text-[11px] ${tc.textMuted}`}>Refreshing notifications…</div>
+        ) : null}
+
+        {rows.length === 0 ? (
           <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} px-6 py-12 text-center`}>
             <div className={`w-14 h-14 rounded-2xl ${tc.bgAlt} flex items-center justify-center mx-auto mb-4`}>
               <Bell className={`w-6 h-6 ${tc.textMuted}`} />
