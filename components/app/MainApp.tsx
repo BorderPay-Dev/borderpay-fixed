@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { authAPI } from '../../utils/supabase/client';
 import { Dashboard } from './Dashboard';
 import { BusinessDashboard } from '../business/BusinessDashboard';
 import { KYCVerification } from '../kyc/KYCVerification';
@@ -140,6 +141,18 @@ function getBusinessDisplayName(profile: any): string {
   return profile?.account_type === 'business'
     ? (profile?.company_name || 'Business account')
     : (profile?.full_name || '');
+}
+
+function hasBusinessAccountCached(): boolean {
+  try {
+    const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    if (String(cached?.account_type || '').toLowerCase() === 'business') return true;
+  } catch { /* noop */ }
+  try {
+    const authUser = authAPI.getStoredUser();
+    if (String(authUser?.account_type || '').toLowerCase() === 'business') return true;
+  } catch { /* noop */ }
+  return false;
 }
 
 function unreadCountCacheKey(userId: string): string {
@@ -334,6 +347,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
       if (cached?.account_type === 'business') return 'business';
       if (cached?.account_type === 'individual') return 'individual';
+      const authUser = authAPI.getStoredUser();
+      if (authUser?.account_type === 'business') return 'business';
+      if (authUser?.account_type === 'individual') return 'individual';
       // Fallback: the cached profile may not carry account_type yet (e.g. when
       // get-user-profile omitted it). Read it synchronously from the Supabase
       // auth-token metadata (set at signup) so business users don't first-paint
@@ -509,6 +525,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         'exchange',
         'add-money',
         'wallet-detail',
+        'external-wallets',
         'bulk-payout',
         'payroll',
         'team',
@@ -516,6 +533,13 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         'notifications',
         'profile',
         'settings',
+        'change-pin',
+        'change-password',
+        'two-factor-setup',
+        'biometric-setup',
+        'help-center',
+        'terms-of-service',
+        'privacy-policy',
         'preferences',
         'kyc',
         'pricing',
@@ -642,6 +666,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, []);
 
   const renderScreen = () => {
+    const isBusinessAccount = accountType === 'business' || hasBusinessAccountCached();
     switch (currentScreen) {
       case 'cards':
         return <CardsScreen onBack={navigateBack} />;
@@ -886,7 +911,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'team':
         return (
           <TeamScreen
-            accountType={accountType}
+            accountType={isBusinessAccount ? 'business' : 'individual'}
             onBack={navigateBack}
             onManagePlans={() => navigateTo('pricing')}
           />
@@ -904,7 +929,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'dashboard':
       case 'home':
       default:
-        if (accountType === 'business') {
+        if (isBusinessAccount) {
           return (
             <BusinessDashboard
               userId={userId}
@@ -948,7 +973,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                   display_name: getPlan(currentPlanKey).display_name,
                   is_paid:      getPlan(currentPlanKey).is_activated,
                 } as ShellSubscription) : null}
-                isBusinessAccount={accountType === 'business'}
+                isBusinessAccount={accountType === 'business' || hasBusinessAccountCached()}
                 onSignOut={onLogout}
                 onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
