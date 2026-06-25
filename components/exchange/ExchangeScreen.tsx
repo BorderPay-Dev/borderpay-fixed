@@ -23,6 +23,7 @@ interface StableWallet {
   bridge_wallet_id: string;
   currency: string;
   chain: string;
+  balance?: number;
   address?: string | null;
 }
 
@@ -49,6 +50,13 @@ function normalizeExternalRail(input: string): 'ach' | 'wire' | 'sepa' {
   if (v === 'sepa') return 'sepa';
   if (v === 'wire') return 'wire';
   return 'ach';
+}
+
+function inferChainFromCurrency(currency: string): string {
+  const c = String(currency || '').toUpperCase();
+  if (c === 'USDT') return 'tron';
+  if (c === 'USDC') return 'base';
+  return '';
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -148,31 +156,72 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const loadSnapshot = async (foreground: boolean = false) => {
     if (foreground) setSnapshotLoading(true);
     try {
-      const [routeRes, externalRes] = await Promise.all([
+      const [routeRes, externalRes, snapshotRes] = await Promise.all([
         backendAPI.financial.getWalletRouteData(),
         withTimeout(
           backendAPI.bridge.externalAccount.list() as Promise<any>,
           900,
           { success: false, data: { external_accounts: [] } } as any,
         ),
+        withTimeout(
+          backendAPI.financial.getSnapshot(20) as Promise<any>,
+          900,
+          { success: false, data: { wallets: [] } } as any,
+        ),
       ]);
-      const stableRows = Array.isArray((routeRes as any)?.data?.stablecoin_wallets)
-        ? (routeRes as any).data.stablecoin_wallets
+      const routeData = (routeRes as any)?.success ? (routeRes as any).data : {};
+      const snapshotData = (snapshotRes as any)?.success ? (snapshotRes as any).data : {};
+      const stableRows = Array.isArray(routeData?.stablecoin_wallets)
+        ? routeData.stablecoin_wallets
         : [];
       const externalRows = Array.isArray(externalRes?.data?.external_accounts) ? externalRes.data.external_accounts : [];
-      const vaRows = Array.isArray((routeRes as any)?.data?.virtual_accounts)
-        ? (routeRes as any).data.virtual_accounts
+      const vaRows = Array.isArray(routeData?.virtual_accounts)
+        ? routeData.virtual_accounts
         : [];
+      const walletRows = Array.isArray(routeData?.wallets)
+        ? routeData.wallets
+        : (Array.isArray(snapshotData?.wallets) ? snapshotData.wallets : []);
 
-      const wallets: StableWallet[] = stableRows
+      const stableFromBridge: StableWallet[] = stableRows
         .map((r: any) => ({
-          id: String(r?.bridge_wallet_id || r?.id || ''),
-          bridge_wallet_id: String(r?.bridge_wallet_id || ''),
+          id: String(r?.bridge_wallet_id || r?.wallet_id || r?.id || ''),
+          bridge_wallet_id: String(r?.bridge_wallet_id || r?.wallet_id || ''),
           currency: String(r?.currency || '').toUpperCase(),
           chain: String(r?.chain || '').toLowerCase(),
+          balance: Number(r?.balance || 0),
           address: r?.address || null,
         }))
-        .filter((r: StableWallet) => !!r.bridge_wallet_id && !!r.currency && !!r.chain);
+        .filter((r: StableWallet) => !!r.currency);
+
+      const byCurrency = new Map<string, StableWallet>();
+      for (const row of stableFromBridge) {
+        byCurrency.set(row.currency, row);
+      }
+      for (const w of walletRows) {
+        const currency = String((w as any)?.currency || '').toUpperCase();
+        if (!currency) continue;
+        const balance = Number((w as any)?.balance || 0);
+        if (!Number.isFinite(balance) || balance <= 0) continue;
+        const bridgeWalletId = String((w as any)?.bridge_wallet_id || '');
+        const existing = byCurrency.get(currency);
+        if (existing) {
+          if (!existing.bridge_wallet_id && bridgeWalletId) existing.bridge_wallet_id = bridgeWalletId;
+          if (!existing.chain) existing.chain = inferChainFromCurrency(currency);
+          if ((existing.balance || 0) <= 0) existing.balance = balance;
+          if (!existing.id) existing.id = existing.bridge_wallet_id || `wallet:${currency}`;
+          continue;
+        }
+        byCurrency.set(currency, {
+          id: bridgeWalletId || `wallet:${currency}`,
+          bridge_wallet_id: bridgeWalletId,
+          currency,
+          chain: inferChainFromCurrency(currency),
+          balance,
+          address: null,
+        });
+      }
+      const wallets: StableWallet[] = Array.from(byCurrency.values())
+        .filter((w) => !!w.currency && ((w.balance || 0) > 0 || !!w.bridge_wallet_id));
 
       const accounts: ExternalAccount[] = externalRows
         .map((r: any) => ({
@@ -326,7 +375,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             {stableWallets.length === 0 ? <option value="">No wallets available</option> : null}
             {stableWallets.map((w) => (
               <option key={w.id} value={w.id}>
-                {w.currency} on {w.chain} ({w.bridge_wallet_id.slice(0, 8)}...)
+                {w.currency}
+                {w.chain ? ` on ${w.chain}` : ''}
+                {Number.isFinite(w.balance) ? ` · ${Number(w.balance || 0).toFixed(2)}` : ''}
+                {w.bridge_wallet_id ? ` (${w.bridge_wallet_id.slice(0, 8)}...)` : ''}
               </option>
             ))}
           </select>
