@@ -1,5 +1,6 @@
-const CACHE_NAME = 'borderpay-app-v2.12.1-hotfix-20260625';
-const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.1-hotfix-20260625';
+// P0 emergency cache-bust: force stale PWA clients off old crashy bundles.
+const CACHE_NAME = 'borderpay-app-v2.12.2-p0-arrowright-20260625';
+const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.2-p0-arrowright-20260625';
 
 const PRECACHE_URLS = [
   '/',
