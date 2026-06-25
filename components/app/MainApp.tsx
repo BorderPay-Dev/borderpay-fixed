@@ -138,10 +138,18 @@ if (typeof window !== 'undefined') {
 }
 
 function getBusinessDisplayName(profile: any): string {
-  const emailLocal = typeof profile?.email === 'string' ? profile.email.split('@')[0] : '';
-  return profile?.account_type === 'business'
-    ? (profile?.company_name || profile?.full_name || emailLocal || 'Business account')
-    : (profile?.full_name || emailLocal || 'Account');
+  if (profile?.account_type === 'business') {
+    return profile?.company_name || 'Business account';
+  }
+  if (profile?.full_name) return profile.full_name;
+  if (profile?.email) return String(profile.email).split('@')[0] || 'User';
+  try {
+    const authUser = authAPI.getStoredUser();
+    const metaName = authUser?.user_metadata?.full_name || authUser?.full_name;
+    if (metaName) return String(metaName);
+    if (authUser?.email) return String(authUser.email).split('@')[0] || 'User';
+  } catch { /* ignore */ }
+  return 'User';
 }
 
 function hasBusinessAccountCached(): boolean {
@@ -326,20 +334,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
   const [shellUserName, setShellUserName] = useState<string>(() => {
-    try {
-      const cached = authAPI.getStoredUser() || JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-      return getBusinessDisplayName(cached);
-    } catch {
-      return '';
-    }
+    try { return getBusinessDisplayName(JSON.parse(localStorage.getItem('borderpay_user') || '{}')); } catch { return ''; }
   });
   const [shellAvatarUrl, setShellAvatarUrl] = useState<string | null>(() => {
-    try {
-      const cached = authAPI.getStoredUser() || JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-      return cached?.profile_picture_url || cached?.avatar_url || null;
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.profile_picture_url || null; } catch { return null; }
   });
   const [unreadCount, setUnreadCount] = useState<number>(() => readCachedUnreadCount(userId));
 
@@ -493,8 +491,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, []);
 
   const navigateTo = (screen: AppScreen | string) => {
-    const normalized = screen === 'converter' ? 'exchange' : screen;
-    const target = normalized as AppScreen;
+    const target = screen as AppScreen;
     const isAlreadyHere =
       currentScreen === target ||
       (target === 'home' && currentScreen === 'dashboard') ||
@@ -990,6 +987,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
+                onOpenReferral={accountType === 'individual' ? () => navigateTo('referral') : undefined}
               >
                 {renderScreen()}
               </AppShell>

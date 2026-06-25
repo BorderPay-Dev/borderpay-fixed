@@ -155,6 +155,92 @@ async function emailKycDecisionBestEffort(
   }
 }
 
+/**
+ * Best-effort transaction email for wallet activity credits/debits. NEVER
+ * throws and is idempotent per Bridge event id.
+ */
+async function emailTransactionBestEffort(input: {
+  userId: string;
+  accountType: "individual" | "business";
+  eventId: string;
+  direction: "credit" | "debit";
+  amount: number;
+  currency: string;
+  occurredAt?: string | null;
+  description?: string | null;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(input.userId);
+    if (!rcpt) return;
+
+    if (input.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", input.userId)
+        .maybeSingle();
+      const companyName = String(biz?.company_name || "Your business");
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+        },
+        body: JSON.stringify({
+          template: "business.transaction_notification",
+          to: rcpt.email,
+          user_id: input.userId,
+          idempotency_key: `wh:tx:${input.eventId}:business`,
+          props: {
+            company_name: companyName,
+            direction: input.direction,
+            amount: input.amount,
+            currency: input.currency,
+            reference: `bridge:${input.eventId}`,
+            description: input.description || "Wallet activity",
+            occurred_at: input.occurredAt ?? new Date().toISOString(),
+          },
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        console.log(`webhook-email transaction business send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+      }
+      return;
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: "individual.transaction_notification",
+        to: rcpt.email,
+        user_id: input.userId,
+        idempotency_key: `wh:tx:${input.eventId}:individual`,
+        props: {
+          full_name: rcpt.full_name,
+          direction: input.direction,
+          amount: input.amount,
+          currency: input.currency,
+          reference: `bridge:${input.eventId}`,
+          description: input.description || "Wallet activity",
+          occurred_at: input.occurredAt ?? new Date().toISOString(),
+        },
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email transaction individual send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email transaction best-effort error: ${(e as Error).message}`);
+  }
+}
+
 interface PendingEvent {
   id:           string;
   event_id:     string;
@@ -513,6 +599,10 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
              || (d?.account_type === "business" || d?.type === "business");
 
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
+  await syncCountryFromBridgeCustomer(String(customer), {
+    resolved,
+    account_type: isKyb || account_type === "business" ? "business" : "individual",
+  });
 
   if (isKyb || account_type === "business") {
     await supabase.from("business_profiles").update({
@@ -579,6 +669,7 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
 
     const update: Record<string, unknown> = {
       bridge_account_status: accountStatus,
+      bridge_verification_status: accountStatus || null,
       updated_at:            new Date().toISOString(),
     };
     if (canonicalKyc) update.kyc_status = canonicalKyc;
@@ -591,6 +682,17 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     if (phone) update.phone = String(phone);
     const street = addr?.street_line_1 ?? addr?.street_line1 ?? addr?.line1 ?? addr?.street ?? "";
     const street2 = addr?.street_line_2 ?? addr?.street_line2 ?? "";
+    const normalizedAddress = {
+      street_line_1: street || null,
+      street_line_2: street2 || null,
+      city: addr?.city ? String(addr.city) : null,
+      state: addr?.state ? String(addr.state) : null,
+      postal_code: (addr?.postal_code ?? addr?.postcode ?? addr?.zip) ? String(addr?.postal_code ?? addr?.postcode ?? addr?.zip) : null,
+      country: (addr?.country ?? d?.country) ? String(addr?.country ?? d?.country) : null,
+    };
+    if (Object.values(normalizedAddress).some((v) => v !== null && String(v).trim().length > 0)) {
+      update.bridge_address_object = normalizedAddress;
+    }
     if (street) update.address = street2 ? `${street}, ${street2}` : String(street);
     if (addr?.city) update.city = String(addr.city);
     const postal = addr?.postal_code ?? addr?.postcode ?? addr?.zip;
@@ -601,6 +703,13 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     await supabase.from("user_profiles")
       .update(update)
       .eq("bridge_customer_id", String(customer));
+
+    try {
+      const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+      await syncCountryFromBridgeCustomer(String(customer), owner);
+    } catch {
+      // Keep customer status processing resilient; owner mapping is handled by queue retries.
+    }
 
     // Terminal customer KYC decision → best-effort email. Individual only;
     // business KYB decisions are emailed from handleBridgeKycKyb. active→approved,
@@ -638,7 +747,23 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
 // Currency scale map. Minor-unit math is integer-only; no float drift.
 // Stablecoins are intentionally absent — wallet credit lives in a separate
 // chunk (drift #3 covers VA fiat; stablecoin balance is future work).
-const CURRENCY_SCALE: Record<string, number> = { USD: 2, EUR: 2, GBP: 2 };
+const CURRENCY_SCALE: Record<string, number> = {
+  USD: 2,
+  EUR: 2,
+  GBP: 2,
+  USDC: 6,
+  USDT: 6,
+  PYUSD: 6,
+  USDB: 6,
+  EURC: 6,
+};
+const DEFAULT_VA_DEVELOPER_FEE_PERCENT = 2.5;
+const BRIDGE_COUNTRY_CODE_RE = /^[A-Z]{2}$/;
+
+function normalizeCountryCode(value: unknown): string | null {
+  const s = String(value ?? "").trim().toUpperCase();
+  return BRIDGE_COUNTRY_CODE_RE.test(s) ? s : null;
+}
 
 /**
  * Convert a Bridge amount (number or decimal string) into bigint minor units.
@@ -659,32 +784,86 @@ function toMinorUnits(amount: unknown, currency: string): bigint | null {
   return negative ? -minor : minor;
 }
 
+function normalizeDeveloperFeePercent(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return Number(n.toFixed(4));
+}
+
+let cachedCanonicalVaDeveloperFeePercent: number | null = null;
+async function getCanonicalVaDeveloperFeePercent(): Promise<number> {
+  if (cachedCanonicalVaDeveloperFeePercent !== null) return cachedCanonicalVaDeveloperFeePercent;
+  const { data: setting } = await supabase
+    .from("provider_settings")
+    .select("value")
+    .eq("key", "bridge.virtual_account.developer_fee_percent")
+    .maybeSingle();
+  cachedCanonicalVaDeveloperFeePercent =
+    normalizeDeveloperFeePercent(setting?.value) ?? DEFAULT_VA_DEVELOPER_FEE_PERCENT;
+  return cachedCanonicalVaDeveloperFeePercent;
+}
+
+async function upsertBridgeVirtualAccountProjection(params: {
+  vaId: string;
+  customer: string;
+  payload: any;
+  currency: string;
+  existingFeePercent?: unknown;
+}) {
+  const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(params.customer);
+  const canonicalFee = await getCanonicalVaDeveloperFeePercent();
+  const payloadFee =
+    normalizeDeveloperFeePercent(params.payload?.developer_fee_percent) ??
+    normalizeDeveloperFeePercent(params.payload?.virtual_account?.developer_fee_percent);
+  const effectiveFee =
+    payloadFee ??
+    normalizeDeveloperFeePercent(params.existingFeePercent) ??
+    canonicalFee;
+
+  await supabase.from("bridge_virtual_accounts").upsert({
+    bridge_virtual_account_id: String(params.vaId),
+    bridge_customer_id:        String(params.customer),
+    user_id:                   account_type === "individual" ? resolved : null,
+    business_user_id:          account_type === "business"   ? resolved : null,
+    currency:                  params.currency,
+    rail:                      params.payload?.rail ?? params.payload?.payment_rail ?? null,
+    account_details:           params.payload?.source_deposit_instructions ?? params.payload?.account_details ?? {},
+    status:                    String(params.payload?.status ?? "active").toLowerCase(),
+    developer_fee_percent:     effectiveFee,
+    updated_at:                new Date().toISOString(),
+  }, { onConflict: "bridge_virtual_account_id" });
+
+  return { resolved, account_type, developer_fee_percent: effectiveFee };
+}
+
 async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the virtual_account; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const vaId   = d?.virtual_account_id ?? d?.id ?? ev.payload?.event_object_id;
-  const customer = d?.customer_id ?? d?.customer?.id;
-  if (!vaId || !customer) throw new Error("bridge virtual_account event missing ids");
+  if (!vaId) throw new Error("bridge virtual_account event missing virtual_account_id");
+
+  const payloadCustomer = d?.customer_id ?? d?.customer?.id;
+  const { data: existingVa } = await supabase
+    .from("bridge_virtual_accounts")
+    .select("bridge_customer_id,developer_fee_percent")
+    .eq("bridge_virtual_account_id", String(vaId))
+    .maybeSingle();
+  const customer = payloadCustomer ?? existingVa?.bridge_customer_id;
+  if (!customer) throw new Error("bridge virtual_account event missing customer_id and VA mapping");
 
   const t = ev.event_type.toLowerCase();
   const isActivity = t.includes("activity") || t.includes("deposit") || t.includes("credit");
   const currency   = String(d?.currency ?? "USD").toUpperCase();
+  const owner = await upsertBridgeVirtualAccountProjection({
+    vaId: String(vaId),
+    customer: String(customer),
+    payload: d,
+    currency,
+    existingFeePercent: existingVa?.developer_fee_percent,
+  });
 
-  // Lifecycle event (created/updated/etc): upsert the bridge_virtual_accounts row.
+  // Lifecycle event (created/updated/etc): projection already upserted above.
   if (!isActivity) {
-    const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
-    await supabase.from("bridge_virtual_accounts").upsert({
-      bridge_virtual_account_id: String(vaId),
-      bridge_customer_id:        String(customer),
-      user_id:                   account_type === "individual" ? resolved : null,
-      business_user_id:          account_type === "business"   ? resolved : null,
-      currency:                  currency,
-      rail:                      d?.rail ?? d?.payment_rail ?? null,
-      account_details:           d?.source_deposit_instructions ?? d?.account_details ?? {},
-      status:                    String(d?.status ?? "active").toLowerCase(),
-      updated_at:                new Date().toISOString(),
-    }, { onConflict: "bridge_virtual_account_id" });
-
     await supabase.from("bridge_webhook_events")
       .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
       .eq("event_id", ev.event_id);
@@ -718,7 +897,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     return;
   }
 
-  const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
+  const { resolved, account_type } = owner;
 
   // Canonical Bridge balance + auditable ledger. Idempotent on event_id.
   const { data: creditResult, error: creditErr } = await supabase.rpc("apply_bridge_va_credit", {
@@ -733,6 +912,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       source:           "bridge",
       virtual_account:  vaId,
       bridge_customer:  customer,
+      developer_fee_percent: owner.developer_fee_percent,
       reference:        d?.reference ?? null,
       raw:              d,
     },
@@ -795,6 +975,8 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   let customer = payloadCustomer ? String(payloadCustomer) : "";
   let resolved = "";
   let account_type: "individual" | "business" = "individual";
+  const t = ev.event_type.toLowerCase();
+  const isActivity = t.includes("activity") || t.includes("deposit") || t.includes("credit");
 
   if (customer) {
     const owner = await resolveOwnerFromBridgeCustomer(customer);
@@ -808,6 +990,11 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
       .maybeSingle();
 
     if (!mappedWallet?.bridge_customer_id) {
+      const rawAmount = Number(d?.amount);
+      const isFinancialActivity = isActivity && Number.isFinite(rawAmount) && rawAmount > 0;
+      if (isFinancialActivity) {
+        throw new Error("reconciliation_required:wallet_activity_missing_customer_mapping");
+      }
       await supabase.from("bridge_webhook_events")
         .update({ target_entity_type: "wallet", target_entity_id: String(walletId) })
         .eq("event_id", ev.event_id);
@@ -837,6 +1024,10 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     }
   }
 
+  const amountValue = Number(d?.amount);
+  const shouldProjectWalletActivityTx =
+    isActivity && Number.isFinite(amountValue) && amountValue > 0 && !!resolved;
+
   await supabase.from("bridge_wallets").upsert({
     bridge_wallet_id:    String(walletId),
     bridge_customer_id:  String(customer),
@@ -848,6 +1039,90 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     status:              String(d?.status ?? "active").toLowerCase(),
     updated_at:          new Date().toISOString(),
   }, { onConflict: "bridge_wallet_id" });
+
+  // Projection repair/prevention: wallet activity with amount should emit
+  // canonical Bridge transaction + user notification idempotently.
+  if (shouldProjectWalletActivityTx) {
+    const txReference = `bridge:${ev.event_id}`;
+    const currency = String(d?.currency ?? "USDC").toUpperCase();
+    await supabase.from("transactions").upsert({
+      user_id:     resolved,
+      type:        "deposit",
+      amount:      amountValue,
+      currency,
+      status:      "completed",
+      reference:   txReference,
+      metadata:    {
+        source: "bridge",
+        kind: "wallet_activity",
+        bridge_event_id: ev.event_id,
+        bridge_wallet_id: String(walletId),
+        bridge_customer_id: String(customer),
+        raw: d,
+      },
+      provider:    "bridge",
+      description: "Wallet deposit credit",
+      updated_at:  new Date().toISOString(),
+    }, { onConflict: "reference" });
+
+    const { data: existingNotification } = await supabase
+      .from("notifications")
+      .select("id")
+      .eq("user_id", resolved)
+      .eq("type", "transaction")
+      .contains("metadata", { bridge_event_id: ev.event_id })
+      .maybeSingle();
+    if (!existingNotification?.id) {
+      await supabase.from("notifications").insert({
+        user_id: resolved,
+        type: "transaction",
+        title: "Deposit received",
+        body: `Received ${amountValue} ${currency} via account activity.`,
+        metadata: {
+          bridge_event_id: ev.event_id,
+          bridge_wallet_id: String(walletId),
+          amount: amountValue,
+          currency,
+          source: "bridge",
+        },
+      });
+    }
+
+    const amountMinor = toMinorUnits(d?.amount, currency);
+    if (amountMinor !== null) {
+      await supabase.from("bridge_balance_ledger").upsert({
+        event_id: ev.event_id,
+        provider: "bridge",
+        entity_type: "wallet",
+        entity_id: String(walletId),
+        user_id: account_type === "individual" ? resolved : null,
+        business_user_id: account_type === "business" ? resolved : null,
+        currency,
+        amount_minor: amountMinor.toString(),
+        direction: amountMinor >= 0n ? "credit" : "debit",
+        metadata: {
+          source: "bridge",
+          kind: "wallet_activity",
+          bridge_event_id: ev.event_id,
+          bridge_wallet_id: String(walletId),
+          bridge_customer_id: String(customer),
+          raw: d,
+        },
+      }, { onConflict: "event_id", ignoreDuplicates: true });
+    }
+
+    const direction = amountValue >= 0 ? "credit" : "debit";
+    await emailTransactionBestEffort({
+      userId: resolved,
+      accountType: account_type === "business" ? "business" : "individual",
+      eventId: ev.event_id,
+      direction,
+      amount: Math.abs(amountValue),
+      currency,
+      occurredAt: String(d?.created_at ?? d?.occurred_at ?? d?.timestamp ?? ""),
+      description: "Wallet deposit credit",
+    });
+  }
 
   await supabase.from("bridge_webhook_events")
     .update({ target_entity_type: "wallet", target_entity_id: String(walletId) })
@@ -885,6 +1160,7 @@ async function handleBridgeExternalAccount(ev: PendingEvent): Promise<void> {
   }
 
   const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+  await syncCountryFromBridgeCustomer(String(customer), owner);
   const status =
     String(d?.status ?? "").toLowerCase()
     || (t.includes("deleted") || t.includes("deactivated") ? "deleted" : "active");
@@ -1018,6 +1294,8 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       p_status:             mappedState.transactionStatus,
       p_metadata: {
         source:           "bridge",
+        transaction_type: "fx_conversion",
+        flow:             "stablecoin_sandwich",
         account_type:     owner.account_type,
         source_type:      normSource,
         destination_type: normDest,
@@ -1052,6 +1330,18 @@ async function ensureStablecoinWalletsProvisioned(input: {
   bridgeCustomerId: string;
   accountType: "individual" | "business";
 }): Promise<void> {
+  const { data: operatorRow } = await supabase
+    .from("operator_bridge_accounts")
+    .select("bridge_customer_id")
+    .eq("bridge_customer_id", input.bridgeCustomerId)
+    .eq("active", true)
+    .maybeSingle();
+  if (operatorRow?.bridge_customer_id) {
+    // Imported Bridge operator/admin accounts are not BorderPay customer
+    // lifecycle subjects. Skip auto-provisioning entirely.
+    return;
+  }
+
   const profileTable = input.accountType === "business" ? "business_profiles" : "user_profiles";
   const idCol = input.accountType === "business" ? "user_id" : "id";
   const statusCol = input.accountType === "business" ? "bridge_kyb_status" : "bridge_kyc_status";
@@ -1061,7 +1351,15 @@ async function ensureStablecoinWalletsProvisioned(input: {
     .eq(idCol, input.userId)
     .maybeSingle();
 
-  const country = String(profile?.country || "");
+  let country = String(profile?.country || "");
+  if (!country && input.accountType === "business") {
+    const { data: userProfile } = await supabase
+      .from("user_profiles")
+      .select("country")
+      .eq("id", input.userId)
+      .maybeSingle();
+    country = String(userProfile?.country || "");
+  }
   if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
   if (String(profile?.[statusCol] || "").toLowerCase() !== "approved") return;
 
@@ -1107,6 +1405,75 @@ async function ensureStablecoinWalletsProvisioned(input: {
   }
 }
 
+async function syncCountryFromBridgeCustomer(
+  bridgeCustomerId: string,
+  owner: { resolved: string; account_type: "individual" | "business" },
+): Promise<void> {
+  const [{ data: userProfile }, { data: businessProfile }] = await Promise.all([
+    supabase
+      .from("user_profiles")
+      .select("country, phone, bridge_address_object")
+      .eq("id", owner.resolved)
+      .maybeSingle(),
+    owner.account_type === "business"
+      ? supabase
+          .from("business_profiles")
+          .select("country, company_phone, address, city, state, postal_code")
+          .eq("user_id", owner.resolved)
+          .maybeSingle()
+      : Promise.resolve({ data: null as any }),
+  ]);
+
+  const userCountry = normalizeCountryCode(userProfile?.country);
+  const businessCountry = normalizeCountryCode(businessProfile?.country);
+  if (userCountry && (owner.account_type !== "business" || businessCountry)) return;
+
+  let customer: Awaited<ReturnType<typeof bridgeProvider.getCustomerProfile>> | null = null;
+  try {
+    customer = await bridgeProvider.getCustomerProfile(bridgeCustomerId);
+  } catch (e) {
+    // Do not fail financial event processing if customer-profile read is
+    // unavailable in Bridge for an imported historical customer mapping.
+    console.warn(`country-sync skipped customer=${bridgeCustomerId}: ${(e as Error).message}`);
+    return;
+  }
+  const bridgeCountry = normalizeCountryCode(customer.country ?? customer.address_object?.country);
+  if (!bridgeCountry) return;
+
+  const userUpdate: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (!userCountry) userUpdate.country = bridgeCountry;
+  if (!userProfile?.phone && customer.phone) userUpdate.phone = customer.phone;
+  if (customer.address_object && Object.values(customer.address_object).some((v) => String(v ?? "").trim().length > 0)) {
+    userUpdate.bridge_address_object = customer.address_object;
+    if (!userProfile?.country) userUpdate.country = bridgeCountry;
+    const line1 = customer.address_object.street_line_1;
+    const line2 = customer.address_object.street_line_2;
+    if (line1) userUpdate.address = line2 ? `${line1}, ${line2}` : line1;
+    if (customer.address_object.city) userUpdate.city = customer.address_object.city;
+    if (customer.address_object.postal_code) userUpdate.postal_code = customer.address_object.postal_code;
+  }
+  await supabase.from("user_profiles").update(userUpdate).eq("id", owner.resolved);
+
+  if (owner.account_type === "business") {
+    const bizUpdate: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (!businessCountry) bizUpdate.country = bridgeCountry;
+    if (!businessProfile?.company_phone && customer.phone) bizUpdate.company_phone = customer.phone;
+    if (customer.address_object?.street_line_1 && !businessProfile?.address) {
+      const line1 = customer.address_object.street_line_1;
+      const line2 = customer.address_object.street_line_2;
+      bizUpdate.address = line2 ? `${line1}, ${line2}` : line1;
+    }
+    if (customer.address_object?.city && !businessProfile?.city) bizUpdate.city = customer.address_object.city;
+    if (customer.address_object?.state && !businessProfile?.state) bizUpdate.state = customer.address_object.state;
+    if (customer.address_object?.postal_code && !businessProfile?.postal_code) bizUpdate.postal_code = customer.address_object.postal_code;
+    await supabase.from("business_profiles").update(bizUpdate).eq("user_id", owner.resolved);
+  }
+}
+
 async function resolveOwnerFromBridgeCustomer(bridgeCustomerId: string): Promise<{ resolved: string; account_type: "individual" | "business" }> {
   const { data: bizRows } = await supabase
     .from("business_profiles")
@@ -1120,12 +1487,20 @@ async function resolveOwnerFromBridgeCustomer(bridgeCustomerId: string): Promise
     .eq("bridge_customer_id", String(bridgeCustomerId))
     .limit(2);
 
-  const bizOwners = (Array.isArray(bizRows) ? bizRows : []).map((r: any) => ({ resolved: String(r.user_id), account_type: "business" as const }));
-  const userOwners = (Array.isArray(userRows) ? userRows : []).map((r: any) => ({
-    resolved: String(r.id),
-    account_type: (r.account_type as any) === "business" ? "business" as const : "individual" as const,
-  }));
-  const owners = [...bizOwners, ...userOwners];
+  const ownerMap = new Map<string, "individual" | "business">();
+  for (const row of (Array.isArray(userRows) ? userRows : [])) {
+    const ownerId = String((row as any)?.id || "");
+    if (!ownerId) continue;
+    const type = (row as any)?.account_type === "business" ? "business" : "individual";
+    ownerMap.set(ownerId, type);
+  }
+  for (const row of (Array.isArray(bizRows) ? bizRows : [])) {
+    const ownerId = String((row as any)?.user_id || "");
+    if (!ownerId) continue;
+    // business_profiles row is canonical for business ownership; upgrade type.
+    ownerMap.set(ownerId, "business");
+  }
+  const owners = Array.from(ownerMap.entries()).map(([resolved, account_type]) => ({ resolved, account_type }));
 
   if (owners.length === 1) return owners[0];
   if (owners.length === 0) throw new Error(`no profile row for bridge_customer_id=${bridgeCustomerId}`);

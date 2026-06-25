@@ -121,6 +121,14 @@ export function navPerfTrackCache(route: string, hit: boolean): void {
   else a.cacheMisses += 1;
 }
 
+// Backward-compatible typo alias observed in prior bundles.
+export const navPerfTrackCashe = navPerfTrackCache;
+
+if (typeof window !== 'undefined') {
+  (window as any).navPerfTrackCache = navPerfTrackCache;
+  (window as any).navPerfTrackCashe = navPerfTrackCache;
+}
+
 function summarize(rows: VisitMetric[]) {
   const grouped = new Map<string, VisitMetric[]>();
   rows.forEach((r) => {
