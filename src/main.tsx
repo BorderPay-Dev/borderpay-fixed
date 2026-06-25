@@ -23,6 +23,27 @@ ReactDOM.createRoot(rootElement).render(
 // Register Service Worker for PWA (iOS + Android)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('/service-worker.js').then((registration) => {
+      // Force update check on launch so live users receive hotfixes quickly.
+      registration.update().catch(() => {});
+
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            newWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+    }).catch(() => {});
+
+    // Reload once when a new service worker takes control.
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshed) return;
+      refreshed = true;
+      window.location.reload();
+    });
   });
 }
