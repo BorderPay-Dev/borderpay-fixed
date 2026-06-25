@@ -5,6 +5,12 @@
   "installCommand": "npm install",
   "headers": [
     {
+      "source": "/service-worker.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate, max-age=0" }
+      ]
+    },
+    {
       "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
@@ -17,6 +23,14 @@
     }
   ],
   "rewrites": [
+    { "source": "/privacy-policy", "destination": "/legal/privacy-policy.html" },
+    { "source": "/privacy-policy/", "destination": "/legal/privacy-policy.html" },
+    { "source": "/terms", "destination": "/legal/terms-of-service.html" },
+    { "source": "/terms/", "destination": "/legal/terms-of-service.html" },
+    { "source": "/terms-of-service", "destination": "/legal/terms-of-service.html" },
+    { "source": "/terms-of-service/", "destination": "/legal/terms-of-service.html" },
+    { "source": "/aml-policy", "destination": "/legal/aml-policy.html" },
+    { "source": "/aml-policy/", "destination": "/legal/aml-policy.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

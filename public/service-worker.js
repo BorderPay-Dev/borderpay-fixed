@@ -1,5 +1,5 @@
-const CACHE_NAME = 'borderpay-app-v2.12.0';
-const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.0';
+const CACHE_NAME = 'borderpay-app-v2.12.1-hotfix-20260625';
+const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.1-hotfix-20260625';
 
 const PRECACHE_URLS = [
   '/',
