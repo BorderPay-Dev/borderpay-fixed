@@ -8,7 +8,7 @@
  * AppShell owns the top chrome on top-level routes; this renders body-only.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -43,6 +43,18 @@ interface NotificationsScreenProps {
 }
 
 const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 function currentNotificationCacheKey(): string | null {
   try {
@@ -116,29 +128,36 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [rows, setRows]       = useState<NotificationRow[]>(() => readCachedNotifications());
-  const [loading, setLoading] = useState(() => readCachedNotifications().length === 0);
+  const initialRows = useMemo(() => readCachedNotifications(), []);
+  const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
+  const [loading, setLoading] = useState(() => initialRows.length === 0);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
+  const hasRowsRef = useRef(initialRows.length > 0);
 
   useEffect(() => {
     navPerfTrackCache('notifications', rows.length > 0);
+    hasRowsRef.current = rows.length > 0;
   }, [rows.length]);
 
   const load = useCallback(async () => {
     // Keep cached rows visible during background refresh.
-    if (rows.length === 0) setLoading(true);
+    if (!hasRowsRef.current) setLoading(true);
     setError(null);
     try {
       const uid = currentUserId();
       let data: any[] = [];
       if (uid) {
-        const { data: rowsData, error } = await supabase
-          .from('notifications')
-          .select('*')
-          .eq('user_id', uid)
-          .order('created_at', { ascending: false })
-          .limit(50);
+        const { data: rowsData, error } = await withTimeout(
+          supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', uid)
+            .order('created_at', { ascending: false })
+            .limit(50),
+          2500,
+          { data: null, error: new Error('notifications query timeout') } as any,
+        );
         if (!error && Array.isArray(rowsData)) {
           data = rowsData;
         } else {
@@ -157,7 +176,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     } finally {
       setLoading(false);
     }
-  }, [rows.length]);
+  }, [onUnreadCountChange]);
 
   useEffect(() => { load(); }, [load]);
 

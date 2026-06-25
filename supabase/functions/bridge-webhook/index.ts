@@ -38,6 +38,15 @@ const CORS = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
+function webhookLog(stage: string, detail: Record<string, unknown> = {}) {
+  console.log(JSON.stringify({
+    service: "bridge-webhook",
+    stage,
+    at: new Date().toISOString(),
+    ...detail,
+  }));
+}
+
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -118,6 +127,10 @@ Deno.serve(async (req) => {
 
   const rawBody = await req.text();
   const sigHdr  = req.headers.get("x-webhook-signature") || req.headers.get("X-Webhook-Signature") || "";
+  webhookLog("request_received", {
+    content_length: rawBody.length,
+    has_signature_header: Boolean(sigHdr),
+  });
 
   const parsed = sigHdr ? parseSigHeader(sigHdr) : null;
   if (!parsed) {
@@ -177,9 +190,16 @@ Deno.serve(async (req) => {
   });
   assertBridgeIngressDecision(ingress);
   if (ingress.decision === "reject") {
+    webhookLog("signature_rejected", { event_type: ingress.derived_event_type, reason_code: ingress.reason_code });
     return json({ error: "invalid signature", reason_code: ingress.reason_code }, 401);
   }
   if (ingress.routing_target !== "queue") {
+    webhookLog("event_ignored", {
+      event_id: eventId,
+      event_type: ingress.derived_event_type,
+      reason_code: ingress.reason_code,
+      routing_target: ingress.routing_target,
+    });
     return json({
       status: "ignored",
       event_id: eventId,
@@ -198,11 +218,13 @@ Deno.serve(async (req) => {
     p_payload_hash: hash,
   });
   if (rpcErr) {
+    webhookLog("ingest_failed", { event_id: eventId, event_type: ingress.derived_event_type, error: rpcErr.message });
     return json({ error: "ingest failed", detail: rpcErr.message }, 500);
   }
   // RPC returns one row with shape { was_duplicate, was_rejected, queued, pending_id }
   const row = Array.isArray(ingest) ? ingest[0] : ingest;
   if (row?.was_rejected) {
+    webhookLog("ingest_rejected", { event_id: eventId, event_type: ingress.derived_event_type });
     return json({ error: "invalid signature" }, 401);
   }
   if (row?.was_duplicate) {
@@ -217,6 +239,11 @@ Deno.serve(async (req) => {
       knownDuplicate: true,
     });
     assertBridgeIngressDecision(duplicate);
+    webhookLog("duplicate_received", {
+      event_id: eventId,
+      event_type: ingress.derived_event_type,
+      reason_code: duplicate.reason_code,
+    });
     return json({
       status: "duplicate",
       event_id: eventId,
@@ -225,8 +252,15 @@ Deno.serve(async (req) => {
     }, 200);
   }
   if (!row?.queued) {
+    webhookLog("queue_missing", { event_id: eventId, event_type: ingress.derived_event_type });
     return json({ error: "ingest returned no queue confirmation" }, 500);
   }
+
+  webhookLog("webhook_received", {
+    event_id: eventId,
+    event_type: ingress.derived_event_type,
+    pending_id: row.pending_id,
+  });
 
   return json({ status: "queued", event_id: eventId, pending_id: row.pending_id }, 200);
 });

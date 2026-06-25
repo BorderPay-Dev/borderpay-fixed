@@ -138,9 +138,18 @@ if (typeof window !== 'undefined') {
 }
 
 function getBusinessDisplayName(profile: any): string {
-  return profile?.account_type === 'business'
-    ? (profile?.company_name || 'Business account')
-    : (profile?.full_name || '');
+  if (profile?.account_type === 'business') {
+    return profile?.company_name || 'Business account';
+  }
+  if (profile?.full_name) return profile.full_name;
+  if (profile?.email) return String(profile.email).split('@')[0] || 'User';
+  try {
+    const authUser = authAPI.getStoredUser();
+    const metaName = authUser?.user_metadata?.full_name || authUser?.full_name;
+    if (metaName) return String(metaName);
+    if (authUser?.email) return String(authUser.email).split('@')[0] || 'User';
+  } catch { /* ignore */ }
+  return 'User';
 }
 
 function hasBusinessAccountCached(): boolean {

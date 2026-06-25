@@ -31,7 +31,6 @@ import {
   Menu, X, Home, ArrowUpRight, ArrowDownLeft, User as UserIcon,
   Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2,
   Settings, FileText, ShieldCheck, LogOut, Banknote, Lock, Users,
-  Gift,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -411,16 +410,6 @@ export function AppShell({
                 <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
                 {isBusinessAccount && (
                   <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
-                )}
-                {onOpenReferral && !isBusinessAccount && (
-                  <DrawerItem
-                    icon={Gift}
-                    label={tt('nav.referral', 'Referral program')}
-                    description={tt('nav.referral.desc', 'Share BorderPay and earn rewards')}
-                    active={false}
-                    onClick={() => { setDrawerOpen(false); onOpenReferral(); }}
-                    tc={tc}
-                  />
                 )}
                 <div className={`my-2 border-t ${tc.borderLight}`} />
                 <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} description={isBusinessAccount ? tt('nav.kyb.desc', 'Verify your business') : tt('nav.kyc.desc', 'Verify your identity')} active={route === 'kyc'} onPrefetch={() => prefetchRoute('kyc')} onClick={() => go('kyc')} tc={tc} />

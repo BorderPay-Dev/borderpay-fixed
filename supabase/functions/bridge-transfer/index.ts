@@ -77,6 +77,15 @@ const CORS = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
+function fxLog(stage: string, detail: Record<string, unknown> = {}) {
+  console.log(JSON.stringify({
+    service: "bridge-transfer",
+    stage,
+    at: new Date().toISOString(),
+    ...detail,
+  }));
+}
+
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -128,6 +137,7 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  fxLog("request_received", { user_id: user.id, method: req.method });
 
   let body: any;
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
@@ -145,6 +155,13 @@ Deno.serve(async (req) => {
       error:   "A client-provided idempotency_key (8-128 printable ASCII chars) is required for transfers.",
     }, 400);
   }
+  fxLog("validation_passed", {
+    user_id: user.id,
+    source_currency: body?.source?.currency ?? null,
+    destination_currency: body?.destination?.currency ?? null,
+    source_payment_rail: body?.source?.payment_rail ?? "stablecoin",
+    destination_payment_rail: body?.destination?.payment_rail ?? null,
+  });
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
@@ -170,7 +187,7 @@ Deno.serve(async (req) => {
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
-    return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
+    return json({ success: false, error: "Complete account setup before sending transfers", code: "no_customer" }, 409);
   }
   if (profile.verification_status !== "approved") {
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
@@ -210,6 +227,11 @@ Deno.serve(async (req) => {
       .eq("metadata->>idempotency_key", idem)
       .maybeSingle();
     if (existing?.bridge_transfer_id) {
+      fxLog("idempotent_replay", {
+        user_id: user.id,
+        transfer_id: existing.bridge_transfer_id,
+        idempotency_key: idem,
+      });
       return json({
         success: true,
         data: {
@@ -233,7 +255,16 @@ Deno.serve(async (req) => {
   const devFeePercent = bridgeDeveloperFeePercent(sourceRail, body.source.currency);
 
   try {
+    fxLog("bridge_request_sent", {
+      user_id: user.id,
+      idempotency_key: idem,
+      source_payment_rail: sourceRail,
+      destination_payment_rail: body?.destination?.payment_rail ?? null,
+      amount: amount.raw,
+      currency: body.source.currency,
+    });
     const result = await bridgeProvider.createTransfer({
+      on_behalf_of: profile.bridge_customer_id,
       source: {
         customer_id:  profile.bridge_customer_id,
         payment_rail: sourceRail,
@@ -254,6 +285,13 @@ Deno.serve(async (req) => {
     // (which is `WHERE provider='bridge' AND bridge_transfer_id IS NOT NULL`);
     // the RPC expresses that predicate explicitly in its ON CONFLICT.
     const mapped = mapBridgeTransferState(result.state);
+    fxLog("bridge_response_received", {
+      user_id: user.id,
+      transfer_id: result.transfer_id,
+      provider_state: mapped.providerState,
+      internal_state: mapped.transactionStatus,
+      recognized_state: mapped.recognized,
+    });
     const { error: upsertErr } = await supa.rpc("upsert_bridge_transaction", {
       p_user_id:            user.id,
       p_bridge_transfer_id: result.transfer_id,
@@ -262,6 +300,8 @@ Deno.serve(async (req) => {
       p_status:             mapped.transactionStatus,
       p_metadata:           {
         idempotency_key: idem,
+        transaction_type: "fx_conversion",
+        flow: "stablecoin_sandwich",
         provider_state:  mapped.providerState,
         provider_state_recognized: mapped.recognized,
         raw: result.raw,
@@ -274,10 +314,21 @@ Deno.serve(async (req) => {
       return json({
         success: false,
         code:    "persistence_failed",
-        error:   `Bridge accepted transfer ${result.transfer_id} but local persistence failed: ${upsertErr.message}`,
+        error:   `Transfer accepted by provider (${result.transfer_id}) but local persistence failed: ${upsertErr.message}`,
         bridge_transfer_id: result.transfer_id,
       }, 500);
     }
+    fxLog("transfer_id_stored", {
+      user_id: user.id,
+      transfer_id: result.transfer_id,
+      internal_state: mapped.transactionStatus,
+      idempotency_key: idem,
+    });
+    fxLog("transaction_created", {
+      user_id: user.id,
+      transfer_id: result.transfer_id,
+      internal_status: mapped.transactionStatus,
+    });
 
     return json({
       success: true,
@@ -288,6 +339,11 @@ Deno.serve(async (req) => {
       },
     });
   } catch (e) {
+    fxLog("bridge_request_failed", {
+      user_id: user.id,
+      idempotency_key: idem,
+      error: (e as Error).message,
+    });
     return json({ success: false, error: (e as Error).message }, 502);
   }
 });

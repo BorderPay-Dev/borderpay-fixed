@@ -402,10 +402,22 @@ function AppContent() {
         } catch {}
       }
 
+      const resolvedFullName = fullName || loginUser.email?.split('@')[0] || 'User';
+      try {
+        const cached = readUserProfile() || {};
+        localStorage.setItem('borderpay_user', JSON.stringify({
+          ...cached,
+          id: loginUser.id,
+          email: loginUser.email,
+          full_name: resolvedFullName,
+          account_type: cached?.account_type || loginUser?.user_metadata?.account_type || 'individual',
+        }));
+      } catch { /* ignore cache write */ }
+
       await sessionAPI.create({
         id: loginUser.id,
         email: loginUser.email,
-        full_name: fullName || loginUser.email?.split('@')[0] || 'User',
+        full_name: resolvedFullName,
       });
       setAppState('dashboard');
     } catch {

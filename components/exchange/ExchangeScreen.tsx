@@ -3,6 +3,7 @@ import { ArrowRightLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle } from '
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExchangeScreenProps {
@@ -254,10 +255,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       if (r?.success && r?.data?.transfer_id) {
         setSubmitResult({ transfer_id: r.data.transfer_id, state: r.data.state || 'pending' });
       } else {
-        setSubmitError(String(r?.error || 'Transfer failed'));
+        setSubmitError(friendlyError(r?.error, 'Unable to run FX transfer right now. Please try again.'));
       }
     } catch (e: any) {
-      setSubmitError(String(e?.message || 'Transfer failed'));
+      setSubmitError(friendlyError(e, 'Unable to run FX transfer right now. Please try again.'));
     } finally {
       setSubmitting(false);
     }

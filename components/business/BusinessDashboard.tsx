@@ -22,6 +22,7 @@ import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { TreasuryCard } from './TreasuryCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
+import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
@@ -79,6 +80,15 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [registrationNumber, setRegistrationNumber] = useState<string | null>(null);
   const [country, setCountry]                       = useState<string | null>(initialCountry);
   const [profileError, setProfileError]             = useState<string | null>(null);
+  const [affiliateKycStatus, setAffiliateKycStatus] = useState<'verified' | 'pending'>(() => {
+    const raw = String(
+      stored?.bridge_kyb_status ||
+      stored?.bridge_verification_status ||
+      stored?.verification_status ||
+      '',
+    ).toLowerCase();
+    return (raw === 'approved' || raw === 'verified' || raw === 'active') ? 'verified' : 'pending';
+  });
 
   // Seed wallets from cache so the balance + treasury paint instantly.
   const bizWalletsCacheKey = useMemo(
@@ -149,6 +159,18 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           if (nextCompany) setCompanyName(nextCompany);
           if (nextCountry) setCountry(nextCountry);
           if (nextReg) setRegistrationNumber(nextReg);
+          const kybState = String(
+            profile?.bridge_kyb_status ||
+            profile?.bridge_verification_status ||
+            profile?.verification_status ||
+            profile?.bridge_account_status ||
+            '',
+          ).toLowerCase();
+          setAffiliateKycStatus(
+            (kybState === 'approved' || kybState === 'verified' || kybState === 'active')
+              ? 'verified'
+              : 'pending',
+          );
           setProfileError(null);
           try {
             const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
@@ -357,6 +379,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 
         {/* ── 6b. Exchange rates (shared with individual dashboard) ─ */}
         {FX_NAV_ENABLED && <ExchangeRateWidget onNavigate={onNavigate} />}
+
+        {/* ── 6c. Affiliate banner (footer position parity) ───────── */}
+        <section className="px-5 sm:px-6">
+          <AffiliateBanner kycStatus={affiliateKycStatus} />
+        </section>
 
         {/* ── 7. Trust line ────────────────────────────────────────── */}
         <section className="px-5 sm:px-6 pt-1 flex items-center justify-center gap-1.5">

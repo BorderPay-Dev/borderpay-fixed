@@ -51,7 +51,7 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 2_000;
+const TEAM_LOAD_TIMEOUT_MS = 8_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -99,8 +99,20 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
       return false;
     }
   }, []);
+  const inferredBusinessFromAuthToken = useMemo(() => {
+    try {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (!key || !/^sb-.+-auth-token$/.test(key)) continue;
+        const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+        const meta = (parsed?.user || parsed?.currentSession?.user)?.user_metadata || {};
+        if (String(meta?.account_type || '').toLowerCase() === 'business') return true;
+      }
+    } catch { /* ignore */ }
+    return false;
+  }, []);
   const effectiveAccountType: 'individual' | 'business' =
-    accountType === 'business' || inferredBusiness ? 'business' : 'individual';
+    accountType === 'business' || inferredBusiness || inferredBusinessFromAuthToken ? 'business' : 'individual';
 
   // ── Individual-account placeholder ────────────────────────────────────
   if (effectiveAccountType !== 'business') {
