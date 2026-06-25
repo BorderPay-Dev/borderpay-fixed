@@ -201,6 +201,12 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
 def stage2_runtime_contract() -> StageResult:
     stage = StageResult(name="Stage 2 - Runtime Contract", passed=True, started_at=now_utc())
     stage.checks.append(run_check_command(
+        "TypeScript compile check (no undefined JSX symbols)",
+        "npm run type-check",
+        severity="critical",
+        remediation="Fix type-check errors before deployment (prevents missing-import runtime crashes).",
+    ))
+    stage.checks.append(run_check_command(
         "compute_rc1_status.py --check",
         "python3 scripts/ci/compute_rc1_status.py --check",
         severity="critical",

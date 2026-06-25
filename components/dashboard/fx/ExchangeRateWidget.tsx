@@ -15,6 +15,7 @@ import { motion } from 'motion/react';
 import { RefreshCw, ChevronDown, ArrowUpDown, ArrowRight } from 'lucide-react';
 import { backendAPI } from '../../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
+import { FX_RUNTIME_ENABLED } from '../../../utils/featureFlags';
 
 interface ExchangeRateWidgetProps {
   onNavigate: (screen: string) => void;
@@ -59,6 +60,13 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
   };
 
   const load = async () => {
+    if (!FX_RUNTIME_ENABLED) {
+      setLoading(false);
+      setMid({});
+      setIsLive(false);
+      setUpdatedAt(null);
+      return;
+    }
     setLoading(true);
     try {
       const r: any = await backendAPI.fx.getLiveRates();
@@ -111,8 +119,9 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
         <button
           type="button"
           onClick={load}
+          disabled={!FX_RUNTIME_ENABLED}
           aria-label="Refresh rates"
-          className={`p-1 rounded-full ${tc.hoverBg}`}
+          className={`p-1 rounded-full ${tc.hoverBg} disabled:opacity-40 disabled:cursor-not-allowed`}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${tc.textMuted} ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -135,15 +144,17 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
           onPick={(c) => { setFrom(c); setOpenMenu(null); }}
           disabledCode={to}
           tc={tc}
+          disabled={!FX_RUNTIME_ENABLED}
         />
 
         {/* Rate divider + swap */}
         <div className={`relative flex items-center px-4 py-2 border-y ${tc.borderLight}`}>
           <button
             type="button"
+            disabled={!FX_RUNTIME_ENABLED}
             onClick={swap}
             aria-label="Swap currencies"
-            className="absolute -top-4 left-4 w-8 h-8 rounded-full bg-[#C7FF00] text-black flex items-center justify-center shadow-lg hover:brightness-95 active:scale-95 transition"
+            className="absolute -top-4 left-4 w-8 h-8 rounded-full bg-[#C7FF00] text-black flex items-center justify-center shadow-lg hover:brightness-95 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ArrowUpDown className="w-4 h-4" />
           </button>
@@ -165,22 +176,26 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
           disabledCode={from}
           tc={tc}
           emphasis
+          disabled={!FX_RUNTIME_ENABLED}
         />
 
         {/* Rate provenance */}
         <p className={`px-4 pb-3 -mt-1 text-[10px] ${tc.textMuted}`}>
-          {isLive ? tt('fx.live', 'Live mid-market rate · no FX markup') : tt('fx.indicative', 'Indicative rate · live feed unavailable')}
-          {updatedAt && ' · ' + new Date(updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          {FX_RUNTIME_ENABLED
+            ? (isLive ? tt('fx.live', 'Live mid-market rate · no FX markup') : tt('fx.indicative', 'Indicative rate · live feed unavailable'))
+            : 'Foreign Exchange coming soon'}
+          {FX_RUNTIME_ENABLED && updatedAt && ' · ' + new Date(updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
         </p>
 
         {/* CTA */}
         <button
+          disabled={!FX_RUNTIME_ENABLED}
           onPointerDown={prefetchExchange}
           onMouseEnter={prefetchExchange}
           onClick={() => onNavigate('exchange')}
-          className="w-full px-4 py-3 border-t border-transparent flex items-center justify-center gap-2 bg-[#C7FF00] text-black text-[13px] font-bold hover:brightness-95 transition"
+          className="w-full px-4 py-3 border-t border-transparent flex items-center justify-center gap-2 bg-[#C7FF00] text-black text-[13px] font-bold hover:brightness-95 transition disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {tt('dashboard.convertCurrencies', 'Convert')}
+          {FX_RUNTIME_ENABLED ? tt('dashboard.convertCurrencies', 'Convert') : 'Coming Soon'}
           <ArrowRight className="w-4 h-4" />
         </button>
       </motion.div>
@@ -190,7 +205,7 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
 
 // ── Convert row (amount + currency selector) ──────────────────────────────
 function ConvertRow({
-  label, value, editable, onChange, ccy, menuOpen, onToggleMenu, onPick, disabledCode, tc, emphasis,
+  label, value, editable, onChange, ccy, menuOpen, onToggleMenu, onPick, disabledCode, tc, emphasis, disabled,
 }: {
   label: string;
   value: string;
@@ -203,6 +218,7 @@ function ConvertRow({
   disabledCode: string;
   tc: ReturnType<typeof useThemeClasses>;
   emphasis?: boolean;
+  disabled?: boolean;
 }) {
   const m = META(ccy);
   return (
@@ -213,8 +229,9 @@ function ConvertRow({
           <input
             inputMode="decimal"
             value={value}
+            disabled={disabled}
             onChange={(e) => onChange?.(e.target.value)}
-            className={`flex-1 min-w-0 bg-transparent outline-none tabular-nums ${emphasis ? 'text-[26px]' : 'text-[26px]'} font-semibold ${tc.text}`}
+            className={`flex-1 min-w-0 bg-transparent outline-none tabular-nums ${emphasis ? 'text-[26px]' : 'text-[26px]'} font-semibold ${tc.text} disabled:opacity-60`}
             placeholder="0.00"
           />
         ) : (
@@ -226,8 +243,9 @@ function ConvertRow({
         {/* Currency selector */}
         <button
           type="button"
+          disabled={disabled}
           onClick={onToggleMenu}
-          className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border ${tc.cardBorder} ${tc.bgAlt} ${tc.hoverBg} transition`}
+          className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border ${tc.cardBorder} ${tc.bgAlt} ${tc.hoverBg} transition disabled:opacity-60 disabled:cursor-not-allowed`}
         >
           <span className="text-base leading-none">{m.flag}</span>
           <span className={`text-sm font-bold ${tc.text}`}>{m.code}</span>
