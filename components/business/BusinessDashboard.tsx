@@ -116,6 +116,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     [wallets],
   );
 
+  const toWalletRows = (raw: any[]): WalletRow[] => raw.map((w: any) => ({
+    currency: String(w?.currency || '').toUpperCase(),
+    balance: parseFloat(w?.balance) || 0,
+  })).filter((w: WalletRow) => !!w.currency);
+
   const loadWallets = async () => {
     // Do not blank a cached dashboard on refresh; only skeleton on cold start.
     if (wallets.length === 0) setWalletsLoading(true);
@@ -126,14 +131,24 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       if (walletOk) {
         const walletData = walletRouteRes?.data || {};
         const raw = Array.isArray(walletData?.wallets) ? walletData.wallets : [];
-        const formatted = raw.map((w: any) => ({
-          currency: w.currency,
-          balance:  parseFloat(w.balance) || 0,
-        }));
+        const formatted = toWalletRows(raw);
         setWallets(formatted);
         try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
-      } else if (wallets.length === 0) {
-        setWalletsError(friendlyError(walletRouteRes?.error, 'Could not load wallets'));
+      } else {
+        // Fallback path: if wallet route data fails, try canonical snapshot so
+        // Accounts can still render without a hard error on dashboard.
+        const snapshotRes: any = await backendAPI.financial.getSnapshot(12);
+        const snapshotOk = snapshotRes?.success;
+        if (snapshotOk) {
+          const raw = Array.isArray(snapshotRes?.data?.wallets) ? snapshotRes.data.wallets : [];
+          const formatted = toWalletRows(raw);
+          if (formatted.length > 0 || wallets.length === 0) {
+            setWallets(formatted);
+            try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
+          }
+        } else if (wallets.length === 0) {
+          setWalletsError(friendlyError(walletRouteRes?.error || snapshotRes?.error, 'Could not load wallets'));
+        }
       }
 
       // Never block first paint on profile/transaction enrichment.
