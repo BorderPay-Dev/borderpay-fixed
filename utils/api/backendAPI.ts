@@ -57,7 +57,15 @@ async function apiCall<T = any>(
       headers,
     });
 
-    const data = await response.json();
+    const raw = await response.text();
+    let data: any = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { message: raw };
+      }
+    }
 
     // Funding gate: when an edge function returns 402 funding_required (new
     // minimum-balance model), surface it as a DOM event so any screen pops the
@@ -132,7 +140,15 @@ async function apiCallPublic<T = any>(
     };
 
     const response = await fetch(`${BASE_URL}/${endpoint}`, { ...options, headers });
-    const data = await response.json();
+    const raw = await response.text();
+    let data: any = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { message: raw };
+      }
+    }
     if (!response.ok) {
       navPerfTrackApi(endpoint, 'end', false);
       // Preserve structured server codes (cooldown / rate_limit / expired /
@@ -846,8 +862,6 @@ export const financialReadModelAPI = (() => {
       ]);
 
       if (!walletsRes?.success) return walletsRes as any;
-      if (stableRes?.error) return { success: false, error: stableRes.error.message };
-      if (vaRes?.error) return { success: false, error: vaRes.error.message };
 
       const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
       const balanceByCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
@@ -865,6 +879,8 @@ export const financialReadModelAPI = (() => {
           virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data : [],
           balance_by_currency: balanceByCurrency,
           total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
+          stablecoin_wallets_partial: Boolean(stableRes?.error),
+          virtual_accounts_partial: Boolean(vaRes?.error),
         },
       };
     },

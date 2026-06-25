@@ -116,6 +116,12 @@ function extractLink(parsed: any): { link_url: string; link_id: string; customer
   return null;
 }
 
+function isVerifiedStatus(value: string | null | undefined): boolean {
+  return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(
+    String(value || "").toLowerCase(),
+  );
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -139,11 +145,46 @@ Deno.serve(async (req: Request) => {
   let body: { redirect_url?: string; endorsements?: string[] } = {};
   try { body = await req.json(); } catch { /* tolerant */ }
 
-  const { data: profile } = await supa
+  let { data: profile } = await supa
     .from("user_profiles")
-    .select("id, email, full_name, account_type, country, phone, bridge_customer_id, bridge_kyc_link_id, bridge_kyc_link_url, bridge_kyc_status")
+    .select("id, email, full_name, account_type, country, phone, bridge_customer_id, bridge_kyc_link_id, bridge_kyc_link_url, bridge_kyc_status, bridge_account_status")
     .eq("id", user.id)
     .maybeSingle();
+
+  // Legacy compatibility: some pre-Bridge users can authenticate without a
+  // normalized user_profiles row. Bootstrap the minimum row so they can start
+  // Bridge KYC instead of failing hard.
+  if (!profile) {
+    const fallbackAccountType = String(user.user_metadata?.account_type || "individual").toLowerCase() === "business"
+      ? "business"
+      : "individual";
+    const fallbackEmail = user.email || null;
+    if (!fallbackEmail) {
+      return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
+    }
+    const upsertPayload: Record<string, unknown> = {
+      id: user.id,
+      email: fallbackEmail,
+      full_name: String(user.user_metadata?.full_name || user.user_metadata?.name || "User"),
+      account_type: fallbackAccountType,
+      country: String(user.user_metadata?.country || user.user_metadata?.country_code || "KE").toUpperCase(),
+      phone: user.phone || null,
+      kyc_status: "pending",
+      bridge_kyc_status: "pending",
+      bridge_account_status: "pending",
+      updated_at: new Date().toISOString(),
+    };
+    const { data: seeded, error: seedErr } = await supa
+      .from("user_profiles")
+      .upsert(upsertPayload, { onConflict: "id" })
+      .select("id, email, full_name, account_type, country, phone, bridge_customer_id, bridge_kyc_link_id, bridge_kyc_link_url, bridge_kyc_status, bridge_account_status")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (seedErr) {
+      return json({ success: false, error: `user_profiles bootstrap failed: ${seedErr.message}` }, 500);
+    }
+    profile = seeded as any;
+  }
   if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
   if (profile.account_type === "business") {
     return json({ success: false, error: "KYC is only for individual accounts. Use bridge-kyb-link.", code: "wrong_account_type" }, 403);
@@ -156,15 +197,11 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
   }
 
-  if ((profile.bridge_kyc_status || "").toLowerCase() === "approved") {
+  if (isVerifiedStatus(profile.bridge_kyc_status) || isVerifiedStatus(profile.bridge_account_status)) {
     return json({ success: true, data: { already_approved: true, bridge_kyc_status: "approved" } });
   }
-  if (profile.bridge_kyc_link_url) {
-    return json({
-      success: true,
-      data: { link_id: profile.bridge_kyc_link_id, link_url: profile.bridge_kyc_link_url, reused: true },
-    });
-  }
+  // Do not short-circuit to cached link_url: old links can expire and trap users
+  // in repeated verification errors. Always ask Bridge for the current link state.
 
   // Build the /v0/kyc_links body. email + full_name are unconditional.
   // customer_id is attached only when we have one from a prior attempt.
@@ -191,7 +228,7 @@ Deno.serve(async (req: Request) => {
     console.error(`bridge-kyc-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
     return json({
       success: false,
-      error:   `Bridge createKycLink failed [${r.status}]: ${r.error || detail || "unknown"}`,
+      error:   `Verification link request failed [${r.status}]: ${r.error || detail || "unknown"}`,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
       bridge_body:       detail,
@@ -202,7 +239,7 @@ Deno.serve(async (req: Request) => {
     console.error(`bridge-kyc-link: missing link/url in success body=${(r.raw_text || "").slice(0, 800)}`);
     return json({
       success: false,
-      error:   `Bridge createKycLink: missing link/url in response`,
+      error:   `Verification link response missing link URL`,
       bridge_request_id: r.request_id,
     }, 502);
   }

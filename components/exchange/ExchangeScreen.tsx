@@ -54,6 +54,16 @@ function normalizeExternalRail(input: string): 'ach' | 'wire' | 'sepa' {
   return 'ach';
 }
 
+function normalizeExternalCurrency(row: any): string {
+  const direct = String(row?.currency || '').toUpperCase();
+  if (direct) return direct;
+  const accountType = String(row?.account_type || '').toLowerCase();
+  if (accountType === 'iban') return 'EUR';
+  if (accountType === 'clabe') return 'MXN';
+  if (accountType === 'pix') return 'BRL';
+  return 'USD';
+}
+
 function inferChainFromCurrency(currency: string): string {
   const c = String(currency || '').toUpperCase();
   if (c === 'USDT') return 'tron';
@@ -249,11 +259,14 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
       const cachedDashWallets = readCachedDashboardWallets();
       const cachedBalanceRows = readCachedBalanceByCurrencyRows();
-      const walletRows = Array.isArray(routeData?.wallets)
-        ? routeData.wallets
-        : (Array.isArray(snapshotData?.wallets)
-          ? snapshotData.wallets
-          : (cachedDashWallets.length > 0 ? cachedDashWallets : cachedBalanceRows));
+      const walletsRes: any = await backendAPI.wallets.getWallets();
+      const walletRows = (walletsRes?.success && Array.isArray(walletsRes?.data?.wallets))
+        ? walletsRes.data.wallets
+        : (Array.isArray(routeData?.wallets)
+          ? routeData.wallets
+          : (Array.isArray(snapshotData?.wallets)
+            ? snapshotData.wallets
+            : (cachedDashWallets.length > 0 ? cachedDashWallets : cachedBalanceRows)));
 
       // Destination list must come from the same live source as ExternalAccountsScreen.
       const externalRes: any = await backendAPI.bridge.externalAccount.list();
@@ -301,13 +314,13 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         });
       }
       const wallets: StableWallet[] = Array.from(byCurrency.values())
-        .filter((w) => !!w.currency && ((w.balance || 0) > 0 || !!w.bridge_wallet_id));
+        .filter((w) => !!w.currency);
 
       const accounts: ExternalAccount[] = externalRows
         .map((r: any) => ({
           id: String(r?.bridge_external_account_id || r?.id || ''),
           bridge_external_account_id: String(r?.bridge_external_account_id || ''),
-          currency: String(r?.currency || '').toUpperCase(),
+          currency: normalizeExternalCurrency(r),
           rail: normalizeExternalRail(String(r?.rail || (String(r?.account_type || '').toLowerCase() === 'iban' ? 'sepa' : 'ach'))),
         }))
         .filter((r: ExternalAccount) => !!r.bridge_external_account_id && !!r.currency);
