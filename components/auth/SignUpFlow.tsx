@@ -38,7 +38,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { getSignupEligibleCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
 import { isBridgeBlocked, isBridgeControlled } from '../../utils/compliance/partnerCountryPolicy';
-import { friendlyError } from '../../utils/errors/friendlyError';
+import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
@@ -244,7 +244,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       }
       setCurrentStep('confirm-email');
     } catch (error: any) {
-      const msg = friendlyError(error, 'Failed to create account. Please try again.');
+      const msg = friendlyErrorFor(error, 'signup', "We couldn't create your account right now. Please try again in a few moments.");
       setFormError(msg);
       toast.error(msg);
     } finally {
@@ -296,7 +296,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       toast.success('Proof of address submitted!');
       setCurrentStep('review');
     } catch (error: any) {
-      toast.error(friendlyError(error, 'Upload failed'));
+      toast.error(friendlyErrorFor(error, 'signup', 'Upload failed. Please try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -545,7 +545,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                       setCurrentStep('identity');
                     }
                   } catch (err: any) {
-                    toast.error(friendlyError(err, 'Sign in failed. Please try logging in.'));
+                    toast.error(friendlyErrorFor(err, 'signin', 'Sign in failed. Please try logging in.'));
                   } finally {
                     setIsLoading(false);
                   }
@@ -572,7 +572,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                       toast.error(r?.error || 'Failed to resend. Please try again.');
                     }
                   } catch (e: any) {
-                    toast.error(friendlyError(e, 'Failed to resend. Please try again.'));
+                    toast.error(friendlyErrorFor(e, 'signup', 'Failed to resend. Please try again.'));
                   }
                 }}
                 isLoading={isLoading}

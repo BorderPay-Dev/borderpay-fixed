@@ -9,7 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { friendlyError } from '../../utils/errors/friendlyError';
+import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Bell, CheckCheck, Trash2, AlertCircle, Loader2, ChevronLeft,
@@ -171,7 +171,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       writeCachedNotifications(data);
       onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
     } catch (e: any) {
-      setError(friendlyError(e, 'Could not load notifications'));
+      setError(friendlyErrorFor(e, 'notifications', "Notifications couldn't be loaded right now."));
     } finally {
       setLoading(false);
     }

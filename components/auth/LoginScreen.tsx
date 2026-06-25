@@ -28,7 +28,7 @@ import { TOTPManager, BiometricManager } from '../../utils/security/SecurityMana
 import { TwoFactorVerify } from './TwoFactorVerify';
 import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, isAppLocked, setAppLocked, clearAppLocked } from '../../utils/supabase/client';
 import { ENV_CONFIG, isKycVerified } from '../../utils/config/environment';
-import { friendlyError } from '../../utils/errors/friendlyError';
+import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -154,7 +154,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         onLoginSuccess(userProfile);
       }
     } catch (error: any) {
-      const message = friendlyError(error, 'Login failed. Please check your credentials and try again.');
+      const message = friendlyErrorFor(error, 'signin', 'Incorrect email or password.');
       setInlineError(message);
       toast.error(message);
     } finally {

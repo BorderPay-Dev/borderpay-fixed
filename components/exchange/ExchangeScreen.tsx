@@ -3,7 +3,7 @@ import { ArrowRightLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle } from '
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { friendlyError } from '../../utils/errors/friendlyError';
+import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { resolveFinancialCacheScope } from '../../utils/financial/cacheScope';
 import { authAPI } from '../../utils/supabase/client';
@@ -509,10 +509,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       if (r?.success && r?.data?.transfer_id) {
         setSubmitResult({ transfer_id: r.data.transfer_id, state: r.data.state || 'pending' });
       } else {
-        setSubmitError(friendlyError(r?.error, 'Unable to run FX transfer right now. Please try again.'));
+        setSubmitError(friendlyErrorFor(r?.error, 'fx', 'Unable to run FX transfer right now. Please try again.'));
       }
     } catch (e: any) {
-      setSubmitError(friendlyError(e, 'Unable to run FX transfer right now. Please try again.'));
+      setSubmitError(friendlyErrorFor(e, 'fx', 'Unable to run FX transfer right now. Please try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -577,7 +577,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             onChange={(e) => setSourceWalletId(e.target.value)}
             className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} mb-3`}
           >
-            {stableWallets.length === 0 ? <option value="">No wallets available</option> : null}
+            {stableWallets.length === 0 ? <option value="">You don't have any wallets with available balances to convert.</option> : null}
             {stableWallets.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.currency} — {fmtCurrencyAmount(w.currency, Number(w.balance || 0))}
@@ -591,7 +591,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             onChange={(e) => setDestinationAccountId(e.target.value)}
             className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} mb-3`}
           >
-            {externalAccounts.length === 0 ? <option value="">No external accounts available</option> : null}
+            {externalAccounts.length === 0 ? <option value="">You haven't added an external account yet. Add one to send funds.</option> : null}
             {externalAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.currency} via {a.rail.toUpperCase()}

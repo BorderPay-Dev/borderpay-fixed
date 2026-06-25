@@ -73,3 +73,64 @@ export function friendlyError(error: unknown, fallback = 'Something went wrong. 
   // 5. Otherwise the error is probably already user-friendly.
   return raw;
 }
+
+export type ErrorContext =
+  | 'signup'
+  | 'signin'
+  | 'kyc'
+  | 'fx'
+  | 'wallet'
+  | 'notifications'
+  | 'default';
+
+const CONTEXTUAL_PATTERNS: Record<ErrorContext, Array<{ pattern: RegExp; message: string }>> = {
+  signup: [
+    { pattern: /email.*already|duplicate.*email|already.*registered|user already registered/i, message: 'An account with this email already exists. Please sign in instead.' },
+    { pattern: /password.*short|password.*least|weak password|password should/i, message: 'Your password does not meet the security requirements. Please choose a stronger password.' },
+    { pattern: /invalid.*email|email.*invalid/i, message: 'Please enter a valid email address.' },
+    { pattern: /verify.*email|email.*confirm|email not confirmed/i, message: "We've sent a verification email. Please check your inbox before signing in." },
+    { pattern: /timeout|timed out|failed to fetch|networkerror|net::err|unable to connect/i, message: "We couldn't reach our servers. Please check your internet connection and try again." },
+  ],
+  signin: [
+    { pattern: /invalid login credentials|wrong.*password|incorrect.*password|invalid.*password/i, message: 'Incorrect email or password.' },
+    { pattern: /email not confirmed|not confirmed|verify.*email/i, message: 'Please verify your email before signing in.' },
+    { pattern: /disabled|suspended|blocked|restricted/i, message: 'Your account has been temporarily restricted. Please contact support.' },
+  ],
+  kyc: [
+    { pattern: /expired|kyc.*link.*expired|session.*expired/i, message: 'Your identity verification session has expired. Tap below to generate a new verification link.' },
+    { pattern: /not_started|onboarding|creating customer|customer.*not found/i, message: "We're preparing your identity verification. Please try again in a few moments." },
+    { pattern: /failed to fetch|networkerror|net::err|unable to connect|timeout|timed out/i, message: "We're unable to start verification at the moment. Please try again later." },
+  ],
+  fx: [
+    { pattern: /no wallets available|no wallet|wallet.*not found/i, message: "You don't have any wallets with available balances to convert. Add funds to a wallet before starting an FX conversion." },
+    { pattern: /no external accounts available|external account.*not found/i, message: "You haven't added an external account yet. Add an external account to send funds." },
+  ],
+  wallet: [
+    { pattern: /failed to load wallets|wallet.*load/i, message: "We're having trouble loading your wallets. Pull to refresh or try again." },
+  ],
+  notifications: [
+    { pattern: /failed|load|timeout|network|fetch/i, message: "Notifications couldn't be loaded right now." },
+  ],
+  default: [],
+};
+
+export function friendlyErrorFor(
+  error: unknown,
+  context: ErrorContext,
+  fallback = 'Something went wrong. Please try again.',
+): string {
+  const raw = typeof error === 'string'
+    ? error
+    : error instanceof Error
+      ? error.message
+      : (error as any)?.error || (error as any)?.message || '';
+
+  if (raw) {
+    const rules = CONTEXTUAL_PATTERNS[context] || [];
+    for (const { pattern, message } of rules) {
+      if (pattern.test(raw)) return message;
+    }
+  }
+
+  return friendlyError(error, fallback);
+}

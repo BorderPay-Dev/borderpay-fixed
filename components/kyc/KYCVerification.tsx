@@ -17,7 +17,7 @@ import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { friendlyError } from '../../utils/errors/friendlyError';
+import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -138,9 +138,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       if (r?.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); }
-      else toast.error(friendlyError(r?.error, 'Could not start verification. Please try again.'));
+      else toast.error(friendlyErrorFor(r?.error, 'kyc', "We're unable to start verification at the moment. Please try again later."));
     } catch (e) {
-      toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
+      toast.error(friendlyErrorFor(e, 'kyc', "We're unable to start verification at the moment. Please try again later."));
     } finally { setVerifying(false); }
   };
 
