@@ -379,8 +379,10 @@ function AppContent() {
 
   const handleLoginSuccess = async (loginUser: any) => {
     try {
-      // Try to get the real name from profile DB first, then user_metadata, then email prefix
-      let fullName = loginUser.user_metadata?.full_name;
+      // Never block dashboard first paint on remote profile/session calls.
+      // Resolve from local/auth hints immediately, then enrich in background.
+      let fullName = loginUser.user_metadata?.full_name || loginUser.user_metadata?.name;
+      let accountType = loginUser?.user_metadata?.account_type;
 
       if (!fullName || fullName === 'User') {
         // Check cached profile
@@ -389,17 +391,26 @@ function AppContent() {
           if (cachedUser?.full_name && cachedUser.full_name !== 'User') {
             fullName = cachedUser.full_name;
           }
+          if (!accountType && cachedUser?.account_type) {
+            accountType = cachedUser.account_type;
+          }
         } catch {}
       }
 
-      if (!fullName || fullName === 'User') {
-        // Fetch from DB profile
+      // Read account type from Supabase auth-token payload when metadata is sparse.
+      if (!accountType) {
         try {
-          const profileResult = await backendAPI.user.getProfile();
-          if (profileResult.success && profileResult.data?.user?.full_name) {
-            fullName = profileResult.data.user.full_name;
+          for (let i = 0; i < localStorage.length; i += 1) {
+            const k = localStorage.key(i);
+            if (!k || !/^sb-.+-auth-token$/.test(k)) continue;
+            const p = JSON.parse(localStorage.getItem(k) || 'null');
+            const meta = (p?.user || p?.currentSession?.user)?.user_metadata || {};
+            if (meta.account_type === 'business' || meta.account_type === 'individual') {
+              accountType = meta.account_type;
+              break;
+            }
           }
-        } catch {}
+        } catch { /* ignore */ }
       }
 
       const resolvedFullName = fullName || loginUser.email?.split('@')[0] || 'User';
@@ -410,16 +421,38 @@ function AppContent() {
           id: loginUser.id,
           email: loginUser.email,
           full_name: resolvedFullName,
-          account_type: cached?.account_type || loginUser?.user_metadata?.account_type || 'individual',
+          account_type: cached?.account_type || accountType || 'individual',
         }));
       } catch { /* ignore cache write */ }
 
-      await sessionAPI.create({
+      setAppState('dashboard');
+
+      // Background-only enrich (no UI blocking).
+      void (async () => {
+        try {
+          const profileResult = await backendAPI.user.getProfile();
+          if (profileResult?.success && profileResult.data?.user) {
+            const p = profileResult.data.user;
+            const nextName = p.full_name || resolvedFullName;
+            const nextType = p.account_type || accountType || 'individual';
+            const cached = readUserProfile() || {};
+            localStorage.setItem('borderpay_user', JSON.stringify({
+              ...cached,
+              ...p,
+              id: loginUser.id,
+              email: loginUser.email,
+              full_name: nextName,
+              account_type: nextType,
+            }));
+          }
+        } catch { /* non-fatal */ }
+      })();
+
+      void sessionAPI.create({
         id: loginUser.id,
         email: loginUser.email,
         full_name: resolvedFullName,
       });
-      setAppState('dashboard');
     } catch {
       // Non-critical — Supabase auth already succeeded
       setAppState('dashboard');
