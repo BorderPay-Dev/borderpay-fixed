@@ -32,6 +32,12 @@ interface ExternalAccount {
   rail: 'ach' | 'wire' | 'sepa';
 }
 
+const DEFAULT_RATE_ROWS: RateRow[] = [
+  { pair: 'USD_NGN', base: 'USD', quote: 'NGN', rate: 1500, source: 'fallback' },
+  { pair: 'USD_KES', base: 'USD', quote: 'KES', rate: 129, source: 'fallback' },
+  { pair: 'EUR_USD', base: 'EUR', quote: 'USD', rate: 1.08, source: 'fallback' },
+];
+
 function fmtPair(pair: string): { base: string; quote: string } {
   const [base, quote] = pair.split('_');
   return { base: base || '?', quote: quote || '?' };
@@ -61,12 +67,20 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [rates, setRates] = useState<RateRow[]>([]);
+  const [rates, setRates] = useState<RateRow[]>(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('borderpay_fx_rates_cache_v1') || 'null');
+      if (cached && Array.isArray(cached.rates) && cached.rates.length > 0) {
+        return cached.rates as RateRow[];
+      }
+    } catch { /* ignore malformed cache */ }
+    return DEFAULT_RATE_ROWS;
+  });
   const [rateSource, setRateSource] = useState<'live' | 'fallback'>('fallback');
   const [generated, setGenerated] = useState<string | null>(null);
-  const [loadingRates, setLoadingRates] = useState(true);
+  const [loadingRates, setLoadingRates] = useState(false);
 
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [stableWallets, setStableWallets] = useState<StableWallet[]>([]);
   const [externalAccounts, setExternalAccounts] = useState<ExternalAccount[]>([]);
   const [hasVirtualAccount, setHasVirtualAccount] = useState(false);
@@ -104,8 +118,8 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     prerequisites.externalAccount,
   );
 
-  const loadRates = async () => {
-    setLoadingRates(true);
+  const loadRates = async (foreground: boolean = false) => {
+    if (foreground) setLoadingRates(true);
     try {
       const r: any = await backendAPI.fx.getLiveRates();
       if (r?.success && r.data) {
@@ -126,12 +140,12 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         } catch { /* ignore cache write */ }
       }
     } finally {
-      setLoadingRates(false);
+      if (foreground) setLoadingRates(false);
     }
   };
 
-  const loadSnapshot = async () => {
-    setSnapshotLoading(true);
+  const loadSnapshot = async (foreground: boolean = false) => {
+    if (foreground) setSnapshotLoading(true);
     try {
       const [routeRes, externalRes] = await Promise.all([
         backendAPI.financial.getWalletRouteData(),
@@ -181,7 +195,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         }));
       } catch { /* ignore cache write */ }
     } finally {
-      setSnapshotLoading(false);
+      if (foreground) setSnapshotLoading(false);
     }
   };
 
@@ -211,8 +225,8 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       }
     } catch { /* ignore malformed cache */ }
     navPerfTrackCache('exchange', hasCachedRates || hasCachedRoute);
-    loadRates();
-    loadSnapshot();
+    loadRates(false);
+    loadSnapshot(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -258,7 +272,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             {tt('exchange.title', 'Exchange')}
           </p>
           <button
-            onClick={() => { loadRates(); loadSnapshot(); }}
+            onClick={() => { loadRates(true); loadSnapshot(true); }}
             aria-label="Refresh"
             className={`p-1.5 rounded-full ${tc.hoverBg} transition-colors`}
           >
@@ -359,11 +373,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           Indicative rates
         </h2>
         <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {loadingRates ? (
-            <div className="px-4 py-10 flex justify-center">
-              <RefreshCw className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-            </div>
-          ) : rates.length === 0 ? (
+          {rates.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <p className={`text-sm ${tc.textMuted}`}>No rates available right now.</p>
             </div>
