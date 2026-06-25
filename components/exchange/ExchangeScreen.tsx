@@ -27,6 +27,7 @@ interface StableWallet {
   chain: string;
   balance?: number;
   address?: string | null;
+  source?: 'wallet' | 'virtual_account';
 }
 
 interface ExternalAccount {
@@ -69,6 +70,15 @@ function inferChainFromCurrency(currency: string): string {
   if (c === 'USDT') return 'tron';
   if (c === 'USDC') return 'base';
   return '';
+}
+
+function fmtCurrencyAmount(currency: string, amount: number): string {
+  const c = String(currency || '').toUpperCase();
+  const n = Number(amount || 0);
+  if (c === 'USD') return `$${n.toFixed(2)}`;
+  if (c === 'EUR') return `€${n.toFixed(2)}`;
+  if (c === 'GBP') return `£${n.toFixed(2)}`;
+  return `${n.toFixed(2)}`;
 }
 
 type CachedWalletRow = { currency: string; balance: number; bridge_wallet_id?: string };
@@ -152,6 +162,28 @@ function readCachedExternalAccounts(): CachedExternalAccountRow[] {
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         if (Array.isArray(parsed?.snapshot?.data?.external_accounts) && parsed.snapshot.data.external_accounts.length > 0) {
           return parsed.snapshot.data.external_accounts;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return [];
+}
+
+function readCachedVirtualAccounts(): Array<{ currency?: string; bridge_virtual_account_id?: string; id?: string }> {
+  try {
+    const userIds = getKnownUserIdsForCache();
+    for (const userId of userIds) {
+      const keys = [
+        `borderpay_va_v1:${userId}`,
+        `borderpay_snapshot_cache_v1:${userId}`,
+      ];
+      for (const key of keys) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed?.snapshot?.data?.virtual_accounts) && parsed.snapshot.data.virtual_accounts.length > 0) {
+          return parsed.snapshot.data.virtual_accounts;
         }
       }
     }
@@ -288,20 +320,21 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
       const byCurrency = new Map<string, StableWallet>();
       for (const row of stableFromBridge) {
-        byCurrency.set(row.currency, row);
+        byCurrency.set(row.currency, { ...row, source: 'wallet' });
       }
       for (const w of walletRows) {
         const currency = String((w as any)?.currency || '').toUpperCase();
         if (!currency) continue;
         const balance = Number((w as any)?.balance || 0);
-        if (!Number.isFinite(balance) || balance <= 0) continue;
+        if (!Number.isFinite(balance)) continue;
         const bridgeWalletId = String((w as any)?.bridge_wallet_id || '');
         const existing = byCurrency.get(currency);
         if (existing) {
           if (!existing.bridge_wallet_id && bridgeWalletId) existing.bridge_wallet_id = bridgeWalletId;
           if (!existing.chain) existing.chain = inferChainFromCurrency(currency);
-          if ((existing.balance || 0) <= 0) existing.balance = balance;
+          existing.balance = balance;
           if (!existing.id) existing.id = existing.bridge_wallet_id || `wallet:${currency}`;
+          existing.source = 'wallet';
           continue;
         }
         byCurrency.set(currency, {
@@ -311,6 +344,29 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           chain: inferChainFromCurrency(currency),
           balance,
           address: null,
+          source: 'wallet',
+        });
+      }
+      // Include fiat wallet universe from Virtual Accounts so FX selector
+      // matches Wallet/Receive even when a fiat balance is currently zero.
+      for (const va of vaRows) {
+        const currency = String((va as any)?.currency || '').toUpperCase();
+        if (!currency) continue;
+        const existing = byCurrency.get(currency);
+        if (existing) {
+          if (!existing.id) existing.id = String((va as any)?.bridge_virtual_account_id || (va as any)?.id || `va:${currency}`);
+          if (!existing.source) existing.source = 'virtual_account';
+          continue;
+        }
+        const mappedBal = Number((walletRows as any[]).find((w: any) => String(w?.currency || '').toUpperCase() === currency)?.balance || 0);
+        byCurrency.set(currency, {
+          id: String((va as any)?.bridge_virtual_account_id || (va as any)?.id || `va:${currency}`),
+          bridge_wallet_id: '',
+          currency,
+          chain: '',
+          balance: Number.isFinite(mappedBal) ? mappedBal : 0,
+          address: null,
+          source: 'virtual_account',
         });
       }
       const wallets: StableWallet[] = Array.from(byCurrency.values())
@@ -367,6 +423,52 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         setSnapshotLoading(false);
       }
     } catch { /* ignore malformed cache */ }
+    // First-open fast path: hydrate selector from wallet caches even when FX
+    // route cache does not exist yet.
+    if (!hasCachedRoute) {
+      try {
+        const walletRows = readCachedDashboardWallets();
+        const balanceRows = readCachedBalanceByCurrencyRows();
+        const vaRows = readCachedVirtualAccounts();
+        const walletSource = walletRows.length > 0 ? walletRows : balanceRows;
+        const seen = new Set<string>();
+        const quickWallets: StableWallet[] = [];
+        for (const row of walletSource) {
+          const currency = String((row as any)?.currency || '').toUpperCase();
+          if (!currency || seen.has(currency)) continue;
+          seen.add(currency);
+          quickWallets.push({
+            id: String((row as any)?.bridge_wallet_id || `wallet:${currency}`),
+            bridge_wallet_id: String((row as any)?.bridge_wallet_id || ''),
+            currency,
+            chain: inferChainFromCurrency(currency),
+            balance: Number((row as any)?.balance || 0),
+            address: null,
+            source: 'wallet',
+          });
+        }
+        for (const va of vaRows) {
+          const currency = String((va as any)?.currency || '').toUpperCase();
+          if (!currency || seen.has(currency)) continue;
+          seen.add(currency);
+          quickWallets.push({
+            id: String((va as any)?.bridge_virtual_account_id || (va as any)?.id || `va:${currency}`),
+            bridge_wallet_id: '',
+            currency,
+            chain: '',
+            balance: 0,
+            address: null,
+            source: 'virtual_account',
+          });
+        }
+        if (quickWallets.length > 0) {
+          setStableWallets(quickWallets);
+          if (!sourceWalletId && quickWallets[0]) setSourceWalletId(quickWallets[0].id);
+          setSnapshotLoading(false);
+          hasCachedRoute = true;
+        }
+      } catch { /* noop */ }
+    }
     navPerfTrackCache('exchange', hasCachedRates || hasCachedRoute);
     loadRates(false);
     loadSnapshot(false);
@@ -468,10 +570,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             {stableWallets.length === 0 ? <option value="">No wallets available</option> : null}
             {stableWallets.map((w) => (
               <option key={w.id} value={w.id}>
-                {w.currency}
-                {w.chain ? ` on ${w.chain}` : ''}
-                {Number.isFinite(w.balance) ? ` · ${Number(w.balance || 0).toFixed(2)}` : ''}
-                {w.bridge_wallet_id ? ` (${w.bridge_wallet_id.slice(0, 8)}...)` : ''}
+                {w.currency} — {fmtCurrencyAmount(w.currency, Number(w.balance || 0))}
               </option>
             ))}
           </select>
@@ -485,7 +584,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             {externalAccounts.length === 0 ? <option value="">No external accounts available</option> : null}
             {externalAccounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.currency} via {a.rail.toUpperCase()} ({a.bridge_external_account_id.slice(0, 8)}...)
+                {a.currency} via {a.rail.toUpperCase()}
               </option>
             ))}
           </select>
