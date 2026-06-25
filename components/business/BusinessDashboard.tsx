@@ -68,7 +68,15 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const tc = useThemeClasses();
   const stored = useMemo(() => authAPI.getStoredUser() || {}, []);
   const initialCompanyName = useMemo(
-    () => stored?.company_name || '',
+    () => {
+      const company = String(stored?.company_name || '').trim();
+      if (company) return company;
+      const fullName = String(stored?.full_name || '').trim();
+      if (fullName) return fullName;
+      const email = String(stored?.email || '').trim();
+      if (email.includes('@')) return email.split('@')[0];
+      return 'Business account';
+    },
     [stored],
   );
   const initialCountry = useMemo(
@@ -201,7 +209,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       });
     } catch (e: any) {
       if (wallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
-      if (companyName.length === 0) setProfileError('Your business profile is being set up. Add company details from Profile.');
+      // Never block or scare users with profile-setup errors on transient
+      // dashboard/network failures. Keep the identity header populated from
+      // cached auth data and refresh profile in the background.
+      setProfileError(null);
     } finally {
       setWalletsLoading(false);
     }
