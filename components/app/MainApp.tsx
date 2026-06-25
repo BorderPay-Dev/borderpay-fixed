@@ -582,8 +582,27 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     };
     idle(() => {
       if (cancelled) return;
-      ['transactions', 'send-money', 'receive-money', 'add-money', 'profile', 'settings', 'preferences', 'wallet-detail', 'kyc', 'pricing', 'notifications']
-        .forEach(prefetchScreen);
+      // Warm all primary dashboard quick actions so first tap does not wait on
+      // lazy chunk fetch.
+      [
+        'transactions',
+        'send-money',
+        'receive-money',
+        'exchange',
+        'add-money',
+        'wallet-detail',
+        'bulk-payout',
+        'payroll',
+        'ramps',
+        'team',
+        'external-accounts',
+        'notifications',
+        'profile',
+        'settings',
+        'preferences',
+        'kyc',
+        'pricing',
+      ].forEach(prefetchScreen);
     });
     return () => { cancelled = true; };
   }, []);
