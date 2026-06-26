@@ -113,54 +113,9 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   }, []);
   const effectiveAccountType: 'individual' | 'business' =
     accountType === 'business' || inferredBusiness || inferredBusinessFromAuthToken ? 'business' : 'individual';
-  const [resolvedAccountType, setResolvedAccountType] = useState<'individual' | 'business'>(effectiveAccountType);
-  const [resolvingAccountType, setResolvingAccountType] = useState<boolean>(effectiveAccountType !== 'business');
-
-  useEffect(() => {
-    let cancelled = false;
-    if (effectiveAccountType === 'business') {
-      setResolvedAccountType('business');
-      setResolvingAccountType(false);
-      return () => { cancelled = true; };
-    }
-    (async () => {
-      try {
-        const r: any = await backendAPI.user.getProfile();
-        if (cancelled) return;
-        const profileType = String(r?.data?.user?.account_type || '').toLowerCase();
-        if (r?.success && profileType === 'business') {
-          setResolvedAccountType('business');
-          try {
-            const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-            localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, account_type: 'business' }));
-          } catch { /* ignore cache write */ }
-          return;
-        }
-        setResolvedAccountType('individual');
-      } catch {
-        setResolvedAccountType(effectiveAccountType);
-      } finally {
-        if (!cancelled) setResolvingAccountType(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [effectiveAccountType]);
-
-  if (resolvingAccountType) {
-    return (
-      <div className={`min-h-screen ${tc.bg}`}>
-        <Header tc={tc} onBack={onBack} title="Team members" />
-        <div className="max-w-2xl mx-auto px-5 py-10">
-          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-5`}>
-            <p className={`text-sm ${tc.textMuted}`}>Loading team access…</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ── Individual-account placeholder ────────────────────────────────────
-  if (resolvedAccountType !== 'business') {
+  if (effectiveAccountType !== 'business') {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
         <Header tc={tc} onBack={onBack} title="Team members" />
