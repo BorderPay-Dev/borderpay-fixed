@@ -17,7 +17,7 @@ import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { friendlyErrorFor } from '../../utils/errors/friendlyError';
+import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
@@ -142,48 +142,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     setVerifying(true);
     try {
       const redirect_url = `${window.location.origin}/?screen=kyc`;
-      // Resolve account type from backend right before launch. Cached account
-      // type can be stale for legacy users and route to the wrong endpoint.
-      let runtimeIsBusiness = isBusiness;
-      try {
-        const p: any = await backendAPI.user.getProfile();
-        const liveType = String(p?.data?.user?.account_type || '').toLowerCase();
-        if (liveType === 'business') {
-          runtimeIsBusiness = true;
-          setAccountType('business');
-        } else if (liveType === 'individual') {
-          runtimeIsBusiness = false;
-          setAccountType('individual');
-        }
-      } catch { /* keep current state-derived type */ }
-
-      // Individual hardening: pre-create/reuse Bridge customer before KYC link.
-      // This is idempotent and avoids edge states where legacy/new users have
-      // no attached Bridge customer at CTA time.
-      if (!runtimeIsBusiness) {
-        try { await backendAPI.bridge.customer.createOrGet(); } catch { /* best-effort */ }
-      }
-
-      const start = (useBusiness: boolean) => (useBusiness
-        ? backendAPI.bridge.kyb.startBusiness({ redirect_url })
-        : backendAPI.bridge.kyc.startIndividual({ redirect_url }));
-
-      let r: any = await start(runtimeIsBusiness);
-      const transient = /unable to connect|failed to fetch|network|timeout|timed out/i.test(String(r?.error || ''));
-      if (!r?.success && transient) {
-        // One bounded retry for mobile/PWA network jitter.
-        await new Promise(res => setTimeout(res, 350));
-        r = await start(runtimeIsBusiness);
-      }
-      if (!r?.success && r?.code === 'wrong_account_type') {
-        // Fallback once in case account-type state drifted between cache and API.
-        runtimeIsBusiness = !runtimeIsBusiness;
-        r = await start(runtimeIsBusiness);
-        setAccountType(runtimeIsBusiness ? 'business' : 'individual');
-      }
+      const r: any = isBusiness
+        ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
+        : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
       if (r?.success && (r.data?.link_url || r.data?.tos_link_url)) {
-        // Product contract: route users to hosted KYC/KYB verification URL first.
-        // ToS URL is fallback-only when the provider does not return link_url.
+        // Product contract: route users directly to hosted verification URL.
         const hostedUrl = r.data?.link_url || r.data?.tos_link_url;
         openHostedVerificationUrl(hostedUrl);
         return;
@@ -197,22 +160,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verification is temporarily unavailable. Please try again shortly.');
         return;
       }
-      // If a link was already created in a prior attempt, reopen it instead of
-      // trapping the user on a generic failure.
-      try {
-        const p: any = await backendAPI.user.getProfile();
-        const u = p?.data?.user || {};
-        const fallbackLink = runtimeIsBusiness
-          ? (u?.bridge_kyb_link_url || null)
-          : (u?.bridge_kyc_link_url || null);
-        if (fallbackLink) {
-          openHostedVerificationUrl(String(fallbackLink));
-          return;
-        }
-      } catch { /* keep generic error below */ }
-      toast.error(friendlyErrorFor(r?.error, 'kyc', "We're unable to start verification at the moment. Please try again later."));
+      toast.error(friendlyError(r?.error, 'Could not start verification. Please try again.'));
     } catch (e) {
-      toast.error(friendlyErrorFor(e, 'kyc', "We're unable to start verification at the moment. Please try again later."));
+      toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
     } finally { setVerifying(false); }
   };
 
