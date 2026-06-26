@@ -4,7 +4,7 @@
  * Fetches live rates from FX Quote API via backend
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { ArrowDownUp, Info, TrendingUp, Zap, Loader2 } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
@@ -53,6 +53,8 @@ export function CurrencyConverter({ userId, onConvert, standalone, onBack }: Cur
   const [showToDropdown, setShowToDropdown] = useState(false);
   const [rateSource, setRateSource] = useState<'live' | 'mock' | 'identity' | ''>('');
   const [fee, setFee] = useState(0);
+  const quoteCacheRef = useRef<Record<string, { ts: number; rate: number; converted: number; source: 'live' | 'mock' | 'identity' | ''; fee: number }>>({});
+  const requestSeqRef = useRef(0);
 
   // Debounced rate fetch
   useEffect(() => {
@@ -78,21 +80,52 @@ export function CurrencyConverter({ userId, onConvert, standalone, onBack }: Cur
     }
 
     const amount = parseFloat(fromAmount) || 100;
+    const quoteKey = `${fromCurrency.code}_${toCurrency.code}_${amount.toFixed(2)}`;
+    const cached = quoteCacheRef.current[quoteKey];
+    if (cached && Date.now() - cached.ts < 30_000) {
+      setExchangeRate(cached.rate);
+      setRateSource(cached.source);
+      setFee(cached.fee);
+      setToAmount(cached.converted.toFixed(2));
+      return;
+    }
+    const seq = ++requestSeqRef.current;
     setLoading(true);
 
     try {
       // Use the single FX Edge Function via backendAPI.fx.getQuote
       const result = await backendAPI.fx.getQuote(fromCurrency.code, toCurrency.code, amount);
+      if (seq !== requestSeqRef.current) return;
 
       if (result.success && result.data) {
         const data = result.data;
-        setExchangeRate(data.rate || 0);
-        setRateSource(data.source ?? 'live');
-        setFee(data.fee || 0);
+        const rate = data.rate || 0;
+        const source = (data.source ?? 'live') as 'live' | 'mock' | 'identity' | '';
+        const nextFee = data.fee || 0;
+        setExchangeRate(rate);
+        setRateSource(source);
+        setFee(nextFee);
 
         // Use converted_amount if available, otherwise calculate from rate
         if (data.converted_amount) {
-          setToAmount(Number(data.converted_amount).toFixed(2));
+          const converted = Number(data.converted_amount);
+          setToAmount(converted.toFixed(2));
+          quoteCacheRef.current[quoteKey] = {
+            ts: Date.now(),
+            rate: Number(rate || 0),
+            converted: Number.isFinite(converted) ? converted : 0,
+            source,
+            fee: Number(nextFee || 0),
+          };
+        } else {
+          const converted = amount * Number(rate || 0);
+          quoteCacheRef.current[quoteKey] = {
+            ts: Date.now(),
+            rate: Number(rate || 0),
+            converted: Number.isFinite(converted) ? converted : 0,
+            source,
+            fee: Number(nextFee || 0),
+          };
         }
       } else {
         setExchangeRate(0);
