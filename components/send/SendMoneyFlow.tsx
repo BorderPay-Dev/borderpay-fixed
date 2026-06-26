@@ -9,7 +9,7 @@
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Building2, Smartphone, Users, Search,
@@ -172,6 +172,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Currency & wallet
   const [wallets, setWallets] = useState<Wallet[]>(cachedSendWallets);
+  const walletsRef = useRef<Wallet[]>(cachedSendWallets);
   const [selectedCurrency, setSelectedCurrency] = useState('NGN');
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
@@ -188,6 +189,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // External bank payout state (Bridge external accounts)
   const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>(cachedExternalAccounts);
+  const externalAccountsRef = useRef<ExternalAccountOption[]>(cachedExternalAccounts);
   const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>(
     String(cachedExternalAccounts?.[0]?.bridge_external_account_id || ''),
   );
@@ -284,7 +286,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     let cancelled = false;
     const hydrateOnce = async (force = false) => {
       try {
-        const hasCached = cachedSendWallets.length > 0 || cachedExternalAccounts.length > 0;
+        const hasCached = walletsRef.current.length > 0 || externalAccountsRef.current.length > 0;
         const last = Number(localStorage.getItem(sendRefreshTsKey) || '0');
         if (!force && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
         const res: any = await backendAPI.financial.getSendRouteData();
@@ -351,7 +353,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey, cachedSendWallets.length, cachedExternalAccounts.length]);
+  }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey]);
 
   // Select wallet when currency changes
   useEffect(() => {
@@ -1531,3 +1533,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     </div>
   );
 }
+  useEffect(() => {
+    walletsRef.current = wallets;
+  }, [wallets]);
+
+  useEffect(() => {
+    externalAccountsRef.current = externalAccounts;
+  }, [externalAccounts]);
