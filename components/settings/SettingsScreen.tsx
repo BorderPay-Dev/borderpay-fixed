@@ -39,6 +39,7 @@ interface SettingsScreenProps {
 }
 
 export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }: SettingsScreenProps) {
+  const SHOW_ADMIN_EMAIL_OPS = false;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [suspending, setSuspending] = useState(false);
   const [has2FA, setHas2FA] = useState(false);
@@ -162,7 +163,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         { icon: LogOut, label: t('settings.logOut'), action: 'logout', color: 'text-red-500' },
       ]
     },
-    ...(isAdminUser ? [{
+    ...(isAdminUser && SHOW_ADMIN_EMAIL_OPS ? [{
       title: 'Admin broadcasts',
       items: [
         { icon: Users, label: 'Business broadcast', screen: 'admin-broadcast-business', color: 'text-[#C7FF00]' },

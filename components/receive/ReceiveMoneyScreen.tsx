@@ -99,6 +99,19 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
 
+  const shouldRunProviderSync = () => {
+    try {
+      const key = `borderpay_provider_sync_receive:${userId}`;
+      const now = Date.now();
+      const last = Number(localStorage.getItem(key) || '0');
+      if (Number.isFinite(last) && now - last < 5 * 60 * 1000) return false;
+      localStorage.setItem(key, String(now));
+      return true;
+    } catch {
+      return true;
+    }
+  };
+
   useEffect(() => {
     navPerfTrackCache('receive-money', stables.length > 0 || vas.length > 0);
   }, [stables.length, vas.length]);
@@ -114,22 +127,24 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
       // Heavy provider sync/provision runs after first paint; never blocks route render.
-      void Promise.allSettled([
-        backendAPI.bridge.provisionStablecoins(),
-        backendAPI.bridge.syncAccounts(),
-      ]).then(async () => {
-        try {
-          const next: any = await backendAPI.financial.getReceiveRouteData();
-          const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
-          const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
-          setStables(nextStables);
-          setVas(nextVas);
-          try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
-          try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVas)); } catch { /* noop */ }
-        } catch {
-          // keep first snapshot
-        }
-      });
+      if (shouldRunProviderSync()) {
+        void Promise.allSettled([
+          backendAPI.bridge.provisionStablecoins(),
+          backendAPI.bridge.syncAccounts(),
+        ]).then(async () => {
+          try {
+            const next: any = await backendAPI.financial.getReceiveRouteData();
+            const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
+            const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
+            setStables(nextStables);
+            setVas(nextVas);
+            try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
+            try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVas)); } catch { /* noop */ }
+          } catch {
+            // keep first snapshot
+          }
+        });
+      }
     } catch {
       // Keep cached data visible; refresh is best-effort.
     } finally {
