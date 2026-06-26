@@ -123,13 +123,13 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     // Keep first paint instant; refresh in background and throttle fast re-entry.
     setError(null);
     try {
       const hasCachedRows = rows.length > 0;
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
       const uid = currentUserId();
@@ -227,7 +227,16 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         {error && (
           <div className="mb-4 rounded-2xl bg-red-500/10 border border-red-500/30 px-4 py-3 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-            <p className={`text-xs ${tc.text}`}>{error}</p>
+            <div className="min-w-0 flex-1">
+              <p className={`text-xs ${tc.text}`}>{error}</p>
+              <button
+                type="button"
+                onClick={() => load(true)}
+                className="mt-2 text-[11px] font-semibold text-[#C7FF00]"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         )}
 
