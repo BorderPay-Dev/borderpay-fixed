@@ -122,21 +122,17 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const openHostedVerificationUrl = useCallback((url: string) => {
     setLastHostedUrl(url);
+    try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
     try {
       // On return from hosted Bridge verification, resume app directly
       // without replaying the branded splash animation.
       sessionStorage.setItem('borderpay_skip_splash_once', '1');
     } catch { /* noop */ }
-    try {
-      const popup = window.open(url, '_blank', 'noopener,noreferrer');
-      if (popup) {
-        popup.focus();
-        return;
-      }
-    } catch { /* noop */ }
-    // Fallback for PWA/webviews where popup open can be blocked.
-    window.location.assign(url);
-  }, []);
+    // Android/PWA-safe path: always use direct navigation.
+    // Popups are frequently blocked in embedded webviews and can surface
+    // generic "unable to connect" failures.
+    window.location.href = url;
+  }, [userId]);
 
   const startVerification = async () => {
     setVerifying(true);
@@ -168,7 +164,19 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verification is temporarily unavailable. Please try again shortly.');
         return;
       }
-      toast.error(friendlyError(r?.error || 'Could not open verification link. Please try again.', 'Could not start verification. Please try again.'));
+      const safe = friendlyError(r?.error || 'Could not open verification link. Please try again.', 'Could not start verification. Please try again.');
+      // Network fallback: reuse the last successful hosted link for this user.
+      if (/unable to connect|timed out|network|fetch/i.test(String(safe || ''))) {
+        try {
+          const fallback = localStorage.getItem(`borderpay_last_verify_url:${userId}`);
+          if (fallback) {
+            toast.info('Opening your previous verification link.');
+            openHostedVerificationUrl(fallback);
+            return;
+          }
+        } catch { /* noop */ }
+      }
+      toast.error(safe);
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
     } finally { setVerifying(false); }
