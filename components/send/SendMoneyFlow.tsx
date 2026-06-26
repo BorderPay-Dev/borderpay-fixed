@@ -289,8 +289,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
     };
     hydrateOnce();
+    // Revalidate with throttle on app focus/visibility so quick route hops
+    // do not trigger duplicate route-data fetches.
+    const onFocus = () => { void hydrateOnce(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void hydrateOnce();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [userId, sendWalletsCacheKey, sendCapsCacheKey]);
 
