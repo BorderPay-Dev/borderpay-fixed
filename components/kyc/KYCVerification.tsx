@@ -92,11 +92,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshTsKey = useMemo(() => `borderpay_kyc_refresh_ts_v1:${userId}`, [userId]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     setRefreshing(true);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (Number.isFinite(last) && Date.now() - last < 45_000) return;
+      if (!force && Number.isFinite(last) && Date.now() - last < 45_000) return;
       const profileResult = await backendAPI.user.getProfile();
       const prof = profileResult?.success ? profileResult?.data?.user : null;
       if (prof) {
@@ -243,7 +243,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       >
         <h1 className={`text-base font-semibold ${tc.text}`}>{title}</h1>
         <button
-          onClick={refresh}
+          onClick={() => refresh(true)}
           aria-label="Refresh status"
           className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center ${tc.hoverBg}`}
         >

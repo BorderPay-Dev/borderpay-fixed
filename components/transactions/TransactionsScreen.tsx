@@ -93,7 +93,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadTransactions = async () => {
+  const loadTransactions = async (force = false) => {
     const hasCachedRows = transactions.length > 0;
     if (!hasCachedRows) setLoading(true);
     setLoadError(false);
@@ -101,7 +101,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     // Keep cache hot and refresh at most every 45s per user/session.
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
         setLoading(false);
         return;
       }
@@ -295,7 +295,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
             variant="server"
             title={t('transactions.title')}
             message="Could not load your transactions. Please try again."
-            onRetry={loadTransactions}
+            onRetry={() => loadTransactions(true)}
             compact
           />
         ) : loading && transactions.length === 0 ? (
