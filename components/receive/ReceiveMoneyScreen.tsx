@@ -84,6 +84,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
+  const receiveRefreshTsKey = useMemo(
+    () => financialCacheKey('borderpay_receive_refresh_ts_v1', { userId }),
+    [userId],
+  );
 
   // ── Data (seeded from cache so the screen mounts instantly) ──────────────
   const [stables, setStables] = useState<StableRow[]>(() => {
@@ -92,7 +96,8 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [vas, setVas] = useState<VaRow[]>(() => {
     try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
   });
-  const [loading, setLoading] = useState(false);
+  const hasCachedReceiveRows = stables.length > 0 || vas.length > 0;
+  const [loading, setLoading] = useState(!hasCachedReceiveRows);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
 
@@ -117,8 +122,14 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   }, [stables.length, vas.length]);
 
   const refresh = async () => {
+    const isColdStart = stables.length === 0 && vas.length === 0;
+    if (isColdStart) setLoading(true);
     setRefreshing(true);
     try {
+      const last = Number(localStorage.getItem(receiveRefreshTsKey) || '0');
+      if (!isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const routeData: any = await backendAPI.financial.getReceiveRouteData();
       const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
       const vList = (routeData?.data?.virtual_accounts as VaRow[]) ?? [];
@@ -126,6 +137,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       setVas(vList);
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
+      try { localStorage.setItem(receiveRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       // Heavy provider sync/provision runs after first paint; never blocks route render.
       if (shouldRunProviderSync()) {
         void Promise.allSettled([
@@ -154,7 +166,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
-  useEffect(() => { if (isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, isVerified]);
+  useEffect(() => { if (isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
 
   // Missing VA currencies (the inline "Open X account" rows)
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);

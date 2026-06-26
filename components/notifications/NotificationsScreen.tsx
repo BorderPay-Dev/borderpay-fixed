@@ -116,6 +116,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const initialRows = useMemo(() => readCachedNotifications(), []);
+  const refreshTsKey = useMemo(() => {
+    const uid = currentUserId() || 'anon';
+    return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
+  }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState<string | null>(null);
@@ -128,9 +132,14 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   }, [rows.length]);
 
   const load = useCallback(async () => {
-    // Keep first paint instant; refresh in background.
+    // Keep first paint instant; refresh in background and throttle fast re-entry.
     setError(null);
     try {
+      const hasCachedRows = rows.length > 0;
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const uid = currentUserId();
       if (!uid) {
         setRows([]);
@@ -144,13 +153,14 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         : (Array.isArray((r as any)?.data) ? (r as any).data : []);
       setRows(data);
       writeCachedNotifications(data);
+      try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
     } catch (e: any) {
       setError(friendlyErrorFor(e, 'notifications', "Notifications couldn't be loaded right now."));
     } finally {
       setLoading(false);
     }
-  }, [onUnreadCountChange]);
+  }, [onUnreadCountChange, refreshTsKey, rows.length]);
 
   useEffect(() => { load(); }, [load]);
 

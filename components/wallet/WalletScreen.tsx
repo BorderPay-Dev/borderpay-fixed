@@ -86,6 +86,10 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
+  const walletRefreshTsKey = useMemo(
+    () => financialCacheKey('borderpay_wallet_refresh_ts_v1', { userId }),
+    [userId],
+  );
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const [stables, setStables] = useState<StableRow[]>(() => {
@@ -94,13 +98,14 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [vas, setVas] = useState<VaRow[]>(() => {
     try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
   });
+  const hasCachedWalletRows = stables.length > 0 || vas.length > 0;
   const [totalUsd, setTotalUsd] = useState<number>(() => {
     try { const r = localStorage.getItem(`borderpay_wallet_total_${userId}`); return r ? Number(r) : 0; } catch { return 0; }
   });
   const [balanceByCurrency, setBalanceByCurrency] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_${userId}`) || '{}'); } catch { return {}; }
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!hasCachedWalletRows);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
 
@@ -125,8 +130,14 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   }, [stables.length, vas.length]);
 
   const refresh = async () => {
+    const isColdStart = stables.length === 0 && vas.length === 0;
+    if (isColdStart) setLoading(true);
     setRefreshing(true);
     try {
+      const last = Number(localStorage.getItem(walletRefreshTsKey) || '0');
+      if (!isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const routeData: any = await backendAPI.financial.getWalletRouteData();
       const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
       const vList = (routeData?.data?.virtual_accounts as VaRow[]) ?? [];
@@ -134,6 +145,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       setVas(vList);
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
+      try { localStorage.setItem(walletRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
       const rows: any[] = Array.isArray(routeData?.data?.wallets) ? routeData.data.wallets : [];
       if (rows.length > 0) {
@@ -190,7 +202,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     }
   };
 
-  useEffect(() => { if (isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, isVerified]);
+  useEffect(() => { if (isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
 
   // ── Missing VA currencies (the "deposit chooser") ────────────────────────
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);

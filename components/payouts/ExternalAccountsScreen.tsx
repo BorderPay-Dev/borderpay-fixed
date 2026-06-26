@@ -99,10 +99,11 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
+  const refreshTsKey = financialCacheKey('borderpay_external_accounts_refresh_ts_v1', { userId });
   const cached = readCache(cacheKey);
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   // Only show skeletons when we have nothing cached to render instantly.
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
@@ -112,13 +113,20 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
 
   // Background refresh — never blanks the cached view; no setLoading(true) here.
   const load = async () => {
+    const isColdStart = rows.length === 0;
+    if (isColdStart) setLoading(true);
     setError(null);
     try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (!isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const r: any = await backendAPI.bridge.externalAccount.list();
       if (r?.success) {
         const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
         setRows(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else if (rows.length === 0) {
         setError(friendlyError(r?.error, 'Could not load payout accounts'));
       }

@@ -51,7 +51,8 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 2_000;
+const TEAM_LOAD_TIMEOUT_MS = 6_000;
+const TEAM_REFRESH_TS_KEY_PREFIX = 'borderpay_team_refresh_ts_v1';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -114,15 +115,14 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   const effectiveAccountType: 'individual' | 'business' =
     accountType === 'business' || inferredBusiness || inferredBusinessFromAuthToken ? 'business' : 'individual';
   const [resolvedAccountType, setResolvedAccountType] = useState<'individual' | 'business'>(effectiveAccountType);
-  const [resolvingAccountType, setResolvingAccountType] = useState<boolean>(effectiveAccountType !== 'business');
 
   useEffect(() => {
-    let cancelled = false;
     if (effectiveAccountType === 'business') {
       setResolvedAccountType('business');
-      setResolvingAccountType(false);
-      return () => { cancelled = true; };
+      return;
     }
+    let cancelled = false;
+    // Do not block first paint for account-type correction; run in background.
     (async () => {
       try {
         const r: any = await backendAPI.user.getProfile();
@@ -139,25 +139,10 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
         setResolvedAccountType('individual');
       } catch {
         setResolvedAccountType(effectiveAccountType);
-      } finally {
-        if (!cancelled) setResolvingAccountType(false);
       }
     })();
     return () => { cancelled = true; };
   }, [effectiveAccountType]);
-
-  if (resolvingAccountType) {
-    return (
-      <div className={`min-h-screen ${tc.bg}`}>
-        <Header tc={tc} onBack={onBack} title="Team members" />
-        <div className="max-w-2xl mx-auto px-5 py-10">
-          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-5`}>
-            <p className={`text-sm ${tc.textMuted}`}>Loading team access…</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ── Individual-account placeholder ────────────────────────────────────
   if (resolvedAccountType !== 'business') {
@@ -209,6 +194,11 @@ function BusinessTeamPanel({
 
   // Background refresh — does not blank the cached roster (no setLoading(true)).
   const load = useCallback(async () => {
+    const refreshTsKey = `${TEAM_REFRESH_TS_KEY_PREFIX}:${currentTeamCacheKey()}`;
+    try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (roster && Number.isFinite(last) && Date.now() - last < 45_000) return;
+    } catch { /* noop */ }
     setError(null);
     try {
       const r = await withTimeout(
@@ -219,6 +209,7 @@ function BusinessTeamPanel({
       if (r.success && r.data) {
         setRoster(r.data);
         writeRosterCache(r.data);
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else if (!roster) {
         setError(friendlyError(r.error, 'Could not load team'));
       }
