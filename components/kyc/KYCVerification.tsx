@@ -197,6 +197,19 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verification is temporarily unavailable. Please try again shortly.');
         return;
       }
+      // If a link was already created in a prior attempt, reopen it instead of
+      // trapping the user on a generic failure.
+      try {
+        const p: any = await backendAPI.user.getProfile();
+        const u = p?.data?.user || {};
+        const fallbackLink = runtimeIsBusiness
+          ? (u?.bridge_kyb_link_url || null)
+          : (u?.bridge_kyc_link_url || null);
+        if (fallbackLink) {
+          openHostedVerificationUrl(String(fallbackLink));
+          return;
+        }
+      } catch { /* keep generic error below */ }
       toast.error(friendlyErrorFor(r?.error, 'kyc', "We're unable to start verification at the moment. Please try again later."));
     } catch (e) {
       toast.error(friendlyErrorFor(e, 'kyc', "We're unable to start verification at the moment. Please try again later."));
