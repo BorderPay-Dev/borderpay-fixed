@@ -610,76 +610,103 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Wallet / Receive / Transactions / External Accounts render from cache.
   React.useEffect(() => {
     let cancelled = false;
+    const warmTsKey = financialCacheKey('borderpay_financial_warm_ts_v1', { userId });
+    const walletsKey = financialCacheKey('borderpay_wallets_v1', { userId });
+    const vaKey = financialCacheKey('borderpay_va_v1', { userId });
+    const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
+    const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
     const warm = async () => {
+      // Avoid re-running heavy warm fan-out on every app resume / quick session
+      // re-entry. Route screens now own their own revalidation throttles.
       try {
-        const walletRoute: any = await backendAPI.financial.getWalletRouteData();
-        if (!cancelled && walletRoute?.success) {
-          const data = walletRoute?.data || {};
-          const walletsKey = financialCacheKey('borderpay_wallets_v1', { userId });
-          const vaKey = financialCacheKey('borderpay_va_v1', { userId });
-          try { localStorage.setItem(walletsKey, JSON.stringify(Array.isArray(data?.stablecoin_wallets) ? data.stablecoin_wallets : [])); } catch {}
-          try { localStorage.setItem(vaKey, JSON.stringify(Array.isArray(data?.virtual_accounts) ? data.virtual_accounts : [])); } catch {}
-          const rows: any[] = Array.isArray(data?.wallets) ? data.wallets : [];
-          if (rows.length > 0) {
-            const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
-              const c = String(w?.currency || '').toUpperCase();
-              if (!c) return acc;
-              acc[c] = Number(w?.balance || 0);
-              return acc;
-            }, {});
-            try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch {}
-            try {
-              const total = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
-              localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total));
-            } catch {}
+        const last = Number(localStorage.getItem(warmTsKey) || '0');
+        if (Number.isFinite(last) && Date.now() - last < 60_000) return;
+      } catch { /* noop */ }
+
+      try {
+        const hasWalletCache = (() => {
+          try {
+            return !!localStorage.getItem(walletsKey) || !!localStorage.getItem(vaKey);
+          } catch { return false; }
+        })();
+        if (!hasWalletCache) {
+          const walletRoute: any = await backendAPI.financial.getWalletRouteData();
+          if (!cancelled && walletRoute?.success) {
+            const data = walletRoute?.data || {};
+            try { localStorage.setItem(walletsKey, JSON.stringify(Array.isArray(data?.stablecoin_wallets) ? data.stablecoin_wallets : [])); } catch {}
+            try { localStorage.setItem(vaKey, JSON.stringify(Array.isArray(data?.virtual_accounts) ? data.virtual_accounts : [])); } catch {}
+            const rows: any[] = Array.isArray(data?.wallets) ? data.wallets : [];
+            if (rows.length > 0) {
+              const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
+                const c = String(w?.currency || '').toUpperCase();
+                if (!c) return acc;
+                acc[c] = Number(w?.balance || 0);
+                return acc;
+              }, {});
+              try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch {}
+              try {
+                const total = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+                localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total));
+              } catch {}
+            }
           }
         }
       } catch {}
 
       try {
-        const txRes: any = await backendAPI.transactions.getTransactions(100, 0);
-        if (!cancelled && txRes?.success) {
-          const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
-          const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
-          try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
+        const hasTxCache = (() => {
+          try { return !!localStorage.getItem(txKey); } catch { return false; }
+        })();
+        if (!hasTxCache) {
+          const txRes: any = await backendAPI.transactions.getTransactions(100, 0);
+          if (!cancelled && txRes?.success) {
+            const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
+            try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
+          }
         }
       } catch {}
 
       try {
-        const extRes: any = await backendAPI.bridge.externalAccount.list();
-        if (!cancelled && extRes?.success) {
-          const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
-          const extRows = Array.isArray(extRes?.data?.external_accounts) ? extRes.data.external_accounts : [];
-          const normalized = extRows.map((row: any, idx: number) => {
-            const rawType = String(row?.account_type || '').toLowerCase();
-            const accountType =
-              rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
-            const rawCurrency = String(row?.currency || '');
-            const currency = rawCurrency
-              ? rawCurrency.toUpperCase()
-              : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
-            const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
-            const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
-            return {
-              id: String(row?.id || externalId || `ext_${idx}`),
-              bridge_external_account_id: externalId,
-              account_type: accountType,
-              currency,
-              account_owner_name: row?.account_owner_name ?? null,
-              bank_name: row?.bank_name ?? null,
-              last_4: last4 ? String(last4) : null,
-              rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
-              status: String(row?.status || 'active'),
-            };
-          }).filter((r: any) => !!r.bridge_external_account_id);
-          try { localStorage.setItem(extKey, JSON.stringify(normalized)); } catch {}
+        const hasExternalCache = (() => {
+          try { return !!localStorage.getItem(extKey); } catch { return false; }
+        })();
+        if (!hasExternalCache) {
+          const extRes: any = await backendAPI.bridge.externalAccount.list();
+          if (!cancelled && extRes?.success) {
+            const extRows = Array.isArray(extRes?.data?.external_accounts) ? extRes.data.external_accounts : [];
+            const normalized = extRows.map((row: any, idx: number) => {
+              const rawType = String(row?.account_type || '').toLowerCase();
+              const accountType =
+                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+              const rawCurrency = String(row?.currency || '');
+              const currency = rawCurrency
+                ? rawCurrency.toUpperCase()
+                : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+              const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
+              const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
+              return {
+                id: String(row?.id || externalId || `ext_${idx}`),
+                bridge_external_account_id: externalId,
+                account_type: accountType,
+                currency,
+                account_owner_name: row?.account_owner_name ?? null,
+                bank_name: row?.bank_name ?? null,
+                last_4: last4 ? String(last4) : null,
+                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+                status: String(row?.status || 'active'),
+              };
+            }).filter((r: any) => !!r.bridge_external_account_id);
+            try { localStorage.setItem(extKey, JSON.stringify(normalized)); } catch {}
+          }
         }
       } catch {}
+
+      try { localStorage.setItem(warmTsKey, String(Date.now())); } catch { /* noop */ }
     };
 
     const ric = (window as any).requestIdleCallback;
-    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1200 });
-    else setTimeout(() => { void warm(); }, 500);
+    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1800 });
+    else setTimeout(() => { void warm(); }, 900);
     return () => { cancelled = true; };
   }, [userId]);
 
