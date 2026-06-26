@@ -72,7 +72,6 @@ const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
-const ReferralScreen = lazyImport(() => import('../referral/ReferralScreen').then(m => ({ default: m.ReferralScreen })));
 const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
 const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
 const IndividualBroadcastScreen = lazyImport(() => import('../admin/IndividualBroadcastScreen').then(m => ({ default: m.IndividualBroadcastScreen })));
@@ -105,7 +104,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   preferences: eagerPreload,
   'help-center': eagerPreload,
   'proof-of-address': eagerPreload,
-  referral: (ReferralScreen as any).preload,
   pricing:       (PricingScreen as any).preload,
   team:          eagerPreload,
   notifications: eagerPreload,
@@ -263,7 +261,6 @@ export type AppScreen =
   | 'terms-of-service'
   | 'privacy-policy'
   | 'preferences'
-  | 'referral'
   | 'biometric-setup'
   | 'help-center'
   | 'proof-of-address'
@@ -909,9 +906,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'proof-of-address':
         return <ProofOfAddressScreen onBack={navigateBack} />;
-
-      case 'referral':
-        return <ReferralScreen onBack={navigateBack} />;
 
       case 'pricing':
         return (
