@@ -169,9 +169,9 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       if (typeof ric === 'function') ric(warm, { timeout: 900 });
       else setTimeout(warm, 180);
     }
-    const onFocus = () => { void load(true); };
+    const onFocus = () => { void load(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void load(true);
+      if (document.visibilityState === 'visible') void load();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
