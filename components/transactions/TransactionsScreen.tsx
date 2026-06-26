@@ -102,9 +102,9 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
       if (typeof ric === 'function') ric(warm, { timeout: 900 });
       else setTimeout(warm, 180);
     }
-    const onFocus = () => { void loadTransactions(true); };
+    const onFocus = () => { void loadTransactions(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void loadTransactions(true);
+      if (document.visibilityState === 'visible') void loadTransactions();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
