@@ -544,7 +544,6 @@ Deno.serve(async (req: Request) => {
   const { error: updateErr } = await supa.from("user_profiles").update({
     bridge_kyc_link_id:  links.kyc_link_id,
     bridge_kyc_link_url: links.kyc_link_url,
-    bridge_kyc_status:   "pending",
     ...(links.customer_id ? { bridge_customer_id: links.customer_id } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("id", user.id);
