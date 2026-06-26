@@ -30,13 +30,6 @@ interface StableWallet {
   source?: 'wallet' | 'virtual_account';
 }
 
-interface ExternalAccount {
-  id: string;
-  bridge_external_account_id: string;
-  currency: string;
-  rail: 'ach' | 'wire' | 'sepa';
-}
-
 const DEFAULT_RATE_ROWS: RateRow[] = [
   { pair: 'USD_NGN', base: 'USD', quote: 'NGN', rate: 1500, source: 'fallback' },
   { pair: 'USD_KES', base: 'USD', quote: 'KES', rate: 129, source: 'fallback' },
@@ -46,23 +39,6 @@ const DEFAULT_RATE_ROWS: RateRow[] = [
 function fmtPair(pair: string): { base: string; quote: string } {
   const [base, quote] = pair.split('_');
   return { base: base || '?', quote: quote || '?' };
-}
-
-function normalizeExternalRail(input: string): 'ach' | 'wire' | 'sepa' {
-  const v = String(input || '').toLowerCase();
-  if (v === 'sepa') return 'sepa';
-  if (v === 'wire') return 'wire';
-  return 'ach';
-}
-
-function normalizeExternalCurrency(row: any): string {
-  const direct = String(row?.currency || '').toUpperCase();
-  if (direct) return direct;
-  const accountType = String(row?.account_type || '').toLowerCase();
-  if (accountType === 'iban') return 'EUR';
-  if (accountType === 'clabe') return 'MXN';
-  if (accountType === 'pix') return 'BRL';
-  return 'USD';
 }
 
 function inferChainFromCurrency(currency: string): string {
@@ -82,8 +58,6 @@ function fmtCurrencyAmount(currency: string, amount: number): string {
 }
 
 type CachedWalletRow = { currency: string; balance: number; bridge_wallet_id?: string };
-type CachedExternalAccountRow = { bridge_external_account_id?: string; id?: string; currency?: string; rail?: string; account_type?: string };
-
 function getKnownUserIdsForCache(): string[] {
   const ids = new Set<string>();
   try {
@@ -147,28 +121,6 @@ function readCachedBalanceByCurrencyRows(): CachedWalletRow[] {
   return [];
 }
 
-function readCachedExternalAccounts(): CachedExternalAccountRow[] {
-  try {
-    const userIds = getKnownUserIdsForCache();
-    for (const userId of userIds) {
-      const keys = [
-        `borderpay_payout_accounts_v1:${userId}`,
-        `borderpay_snapshot_cache_v1:${userId}`,
-      ];
-      for (const key of keys) {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        if (Array.isArray(parsed?.snapshot?.data?.external_accounts) && parsed.snapshot.data.external_accounts.length > 0) {
-          return parsed.snapshot.data.external_accounts;
-        }
-      }
-    }
-  } catch { /* ignore */ }
-  return [];
-}
-
 function readCachedVirtualAccounts(): Array<{ currency?: string; bridge_virtual_account_id?: string; id?: string }> {
   try {
     const userIds = getKnownUserIdsForCache();
@@ -211,11 +163,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [stableWallets, setStableWallets] = useState<StableWallet[]>([]);
-  const [externalAccounts, setExternalAccounts] = useState<ExternalAccount[]>([]);
   const [hasVirtualAccount, setHasVirtualAccount] = useState(false);
 
   const [sourceWalletId, setSourceWalletId] = useState('');
-  const [destinationAccountId, setDestinationAccountId] = useState('');
+  const [destinationWalletId, setDestinationWalletId] = useState('');
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -228,23 +179,37 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     () => stableWallets.find((w) => w.id === sourceWalletId) || null,
     [stableWallets, sourceWalletId],
   );
-  const selectedExternal = useMemo(
-    () => externalAccounts.find((a) => a.id === destinationAccountId) || null,
-    [externalAccounts, destinationAccountId],
+  const destinationWallets = useMemo(
+    () => stableWallets.filter((w) => w.id !== sourceWalletId),
+    [stableWallets, sourceWalletId],
   );
+  const selectedDestinationWallet = useMemo(
+    () => destinationWallets.find((w) => w.id === destinationWalletId) || null,
+    [destinationWalletId, destinationWallets],
+  );
+
+  useEffect(() => {
+    if (destinationWallets.length === 0) {
+      if (destinationWalletId) setDestinationWalletId('');
+      return;
+    }
+    if (!destinationWallets.some((w) => w.id === destinationWalletId)) {
+      setDestinationWalletId(destinationWallets[0].id);
+    }
+  }, [destinationWalletId, destinationWallets]);
 
   const prerequisites = useMemo(() => ({
     wallet: stableWallets.length > 0,
     virtualAccount: hasVirtualAccount,
-    externalAccount: externalAccounts.length > 0,
-  }), [stableWallets.length, hasVirtualAccount, externalAccounts.length]);
+  }), [stableWallets.length, hasVirtualAccount]);
 
   const canExecute = Boolean(
     selectedWallet &&
-    selectedExternal &&
+    selectedDestinationWallet &&
+    selectedWallet.id !== selectedDestinationWallet.id &&
     Number(amount) > 0 &&
+    Number(amount) <= Number(selectedWallet.balance || 0) &&
     prerequisites.wallet &&
-    prerequisites.externalAccount,
   );
 
   const loadRates = async (foreground: boolean = false) => {
@@ -276,9 +241,6 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const loadSnapshot = async (foreground: boolean = false) => {
     if (foreground) setSnapshotLoading(true);
     try {
-      const externalListPromise: Promise<any> = backendAPI.bridge.externalAccount.list()
-        .catch(() => ({ success: false, data: { external_accounts: [] } } as any));
-
       // Use the exact same live route source as WalletScreen first.
       const routeRes: any = await backendAPI.financial.getWalletRouteData();
       const routeData = routeRes?.success ? routeRes.data : null;
@@ -368,38 +330,14 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       const wallets: StableWallet[] = Array.from(byCurrency.values())
         .filter((w) => !!w.currency);
 
-      // Paint wallets first; external accounts hydrate independently.
+      // Paint wallets first from route/snapshot data.
       setStableWallets(wallets);
       setHasVirtualAccount(vaRows.length > 0);
       if (!sourceWalletId && wallets[0]) setSourceWalletId(wallets[0].id);
+      if (!destinationWalletId && wallets.length > 1) setDestinationWalletId(wallets[1].id);
       try {
         localStorage.setItem(FX_ROUTE_CACHE_KEY, JSON.stringify({
           wallets,
-          externalAccounts: Array.isArray(externalAccounts) ? externalAccounts : [],
-          hasVirtualAccount: vaRows.length > 0,
-        }));
-      } catch { /* ignore cache write */ }
-
-      const externalRes: any = await externalListPromise;
-      const cachedExternalRows = readCachedExternalAccounts();
-      const externalRows = Array.isArray(externalRes?.data?.external_accounts)
-        ? externalRes.data.external_accounts
-        : cachedExternalRows;
-      const accounts: ExternalAccount[] = externalRows
-        .map((r: any) => ({
-          id: String(r?.bridge_external_account_id || r?.id || ''),
-          bridge_external_account_id: String(r?.bridge_external_account_id || ''),
-          currency: normalizeExternalCurrency(r),
-          rail: normalizeExternalRail(String(r?.rail || (String(r?.account_type || '').toLowerCase() === 'iban' ? 'sepa' : 'ach'))),
-        }))
-        .filter((r: ExternalAccount) => !!r.bridge_external_account_id && !!r.currency);
-
-      setExternalAccounts(accounts);
-      if (!destinationAccountId && accounts[0]) setDestinationAccountId(accounts[0].id);
-      try {
-        localStorage.setItem(FX_ROUTE_CACHE_KEY, JSON.stringify({
-          wallets,
-          externalAccounts: accounts,
           hasVirtualAccount: vaRows.length > 0,
         }));
       } catch { /* ignore cache write */ }
@@ -426,10 +364,9 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       if (cachedRoute && Array.isArray(cachedRoute.wallets)) {
         hasCachedRoute = true;
         setStableWallets(cachedRoute.wallets);
-        setExternalAccounts(Array.isArray(cachedRoute.externalAccounts) ? cachedRoute.externalAccounts : []);
         setHasVirtualAccount(Boolean(cachedRoute.hasVirtualAccount));
         if (!sourceWalletId && cachedRoute.wallets[0]) setSourceWalletId(cachedRoute.wallets[0].id);
-        if (!destinationAccountId && cachedRoute.externalAccounts?.[0]) setDestinationAccountId(cachedRoute.externalAccounts[0].id);
+        if (!destinationWalletId && cachedRoute.wallets[1]) setDestinationWalletId(cachedRoute.wallets[1].id);
         setSnapshotLoading(false);
       }
     } catch { /* ignore malformed cache */ }
@@ -474,6 +411,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         if (quickWallets.length > 0) {
           setStableWallets(quickWallets);
           if (!sourceWalletId && quickWallets[0]) setSourceWalletId(quickWallets[0].id);
+          if (!destinationWalletId && quickWallets[1]) setDestinationWalletId(quickWallets[1].id);
           setSnapshotLoading(false);
           hasCachedRoute = true;
         }
@@ -486,7 +424,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   }, []);
 
   const executeFxTransfer = async () => {
-    if (!canExecute || !selectedWallet || !selectedExternal) return;
+    if (!canExecute || !selectedWallet || !selectedDestinationWallet) return;
     setSubmitting(true);
     setSubmitError(null);
     setSubmitResult(null);
@@ -501,9 +439,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           bridge_wallet_id: selectedWallet.bridge_wallet_id,
         },
         destination: {
-          payment_rail: selectedExternal.rail,
-          currency: selectedExternal.currency,
-          external_account_id: selectedExternal.bridge_external_account_id,
+          payment_rail: 'bridge_wallet',
+          currency: selectedDestinationWallet.currency,
+          chain: selectedDestinationWallet.chain,
+          bridge_wallet_id: selectedDestinationWallet.bridge_wallet_id,
         },
       });
       if (r?.success && r?.data?.transfer_id) {
@@ -542,11 +481,11 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             <span className="text-[10px] font-bold tracking-wider uppercase text-[#C7FF00]">FX orchestration</span>
           </div>
           <h1 className="relative text-white font-semibold tracking-tight text-2xl sm:text-3xl mb-2">
-            FX / Stablecoin sandwich
+            FX conversion
           </h1>
           <p className="relative text-sm text-white/60 max-w-xl leading-relaxed">
-            Execution path: Wallet source → Transfer orchestration → External account destination.
-            Virtual account is used for fiat intake when you need inbound funding before conversion.
+            Execution path: Source wallet → Bridge transfer orchestration → Destination wallet.
+            Virtual accounts handle inbound fiat funding; conversion happens wallet-to-wallet.
           </p>
         </div>
 
@@ -561,15 +500,11 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
               {prerequisites.virtualAccount ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
               Virtual Account (for fiat onramp step)
             </div>
-            <div className={`flex items-center gap-2 ${prerequisites.externalAccount ? 'text-emerald-400' : tc.textMuted}`}>
-              {prerequisites.externalAccount ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-              External Account
-            </div>
           </div>
         </div>
 
         <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 mb-6`}>
-          <p className={`text-xs font-semibold ${tc.text} mb-3`}>Execute transfer</p>
+          <p className={`text-xs font-semibold ${tc.text} mb-3`}>Execute conversion</p>
 
           <label className={`block text-[11px] ${tc.textMuted} mb-1`}>Source wallet</label>
           <select
@@ -585,16 +520,16 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             ))}
           </select>
 
-          <label className={`block text-[11px] ${tc.textMuted} mb-1`}>Destination external account</label>
+          <label className={`block text-[11px] ${tc.textMuted} mb-1`}>Destination wallet</label>
           <select
-            value={destinationAccountId}
-            onChange={(e) => setDestinationAccountId(e.target.value)}
+            value={destinationWalletId}
+            onChange={(e) => setDestinationWalletId(e.target.value)}
             className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} mb-3`}
           >
-            {externalAccounts.length === 0 ? <option value="">You haven't added an external account yet. Add one to send funds.</option> : null}
-            {externalAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.currency} via {a.rail.toUpperCase()}
+            {destinationWallets.length === 0 ? <option value="">Choose a different source wallet first.</option> : null}
+            {destinationWallets.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.currency} — {fmtCurrencyAmount(w.currency, Number(w.balance || 0))}
               </option>
             ))}
           </select>
@@ -613,8 +548,14 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             disabled={!canExecute || submitting}
             className="w-full py-3 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm disabled:opacity-50"
           >
-            {submitting ? 'Submitting…' : 'Run FX transfer'}
+            {submitting ? 'Submitting…' : 'Run conversion'}
           </button>
+
+          {selectedWallet && Number(amount || 0) > Number(selectedWallet.balance || 0) && (
+            <p className="mt-2 text-xs text-amber-400">
+              Insufficient {selectedWallet.currency} balance for this conversion amount.
+            </p>
+          )}
 
           {submitError && <p className="mt-2 text-xs text-red-400">{submitError}</p>}
           {submitResult && (
