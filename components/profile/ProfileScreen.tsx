@@ -128,11 +128,17 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
   const profileRefreshTsKey = `borderpay_profile_refreshed_at:${userId}`;
+  const profilePrewarmTsKey = `borderpay_profile_prewarm_at:${userId}`;
   const hasSeedIdentity = Boolean(
     (profile.full_name && String(profile.full_name).trim().length > 0) ||
     (profile.company_name && String(profile.company_name).trim().length > 0) ||
     (profile.email && String(profile.email).trim().length > 0),
   );
+  const hasSeedIdentityRef = useRef<boolean>(hasSeedIdentity);
+
+  useEffect(() => {
+    hasSeedIdentityRef.current = hasSeedIdentity;
+  }, [hasSeedIdentity]);
 
   const mergeProfileCache = (next: Record<string, unknown>) => {
     try {
@@ -154,17 +160,23 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   };
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['settings', 'kyc', 'wallet-detail'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    try {
+      const last = Number(sessionStorage.getItem(profilePrewarmTsKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        sessionStorage.setItem(profilePrewarmTsKey, String(Date.now()));
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['settings', 'kyc', 'wallet-detail'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+      }
+    } catch { /* noop */ }
 
     loadProfile();
     // Keep route transitions instant: focus/visibility should revalidate
@@ -179,14 +191,14 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [userId]);
+  }, [userId, profilePrewarmTsKey]);
 
   const loadProfile = async (force = false) => {
     // Route parity: keep profile first paint from cache and avoid repeating the
     // same profile request on every quick nav open/close.
     try {
       const last = Number(localStorage.getItem(profileRefreshTsKey) || '0');
-      if (!force && hasSeedIdentity && Number.isFinite(last) && Date.now() - last < 60_000) {
+      if (!force && hasSeedIdentityRef.current && Number.isFinite(last) && Date.now() - last < 60_000) {
         return;
       }
     } catch { /* noop */ }
