@@ -169,8 +169,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           return '';
         }
       })();
-      const snapshot: any = await backendAPI.financial.getSnapshot(50);
-      const result = snapshot?.success ? { success: true, data: { user: snapshot.data?.profile } } : await backendAPI.user.getProfile();
+      const result = await backendAPI.user.getProfile();
 
       if (result.success && result.data?.user) {
         const u = result.data.user as any;
@@ -195,7 +194,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
             bridge_kyb_status: u.bridge_kyb_status,
             bridge_account_status: u.bridge_account_status,
             is_unlocked: u.is_unlocked,
-            has_funding_surface: Boolean(snapshot?.data?.has_funding_surface),
+            has_funding_surface: Boolean(u.has_funding_surface),
           }),
           verification_status: u.verification_status || 'not_started',
           account_type: u.account_type || 'individual',
