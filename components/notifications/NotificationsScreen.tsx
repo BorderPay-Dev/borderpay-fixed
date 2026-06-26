@@ -158,6 +158,17 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 
   useEffect(() => {
     load();
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['transactions', 'settings', 'profile', 'dashboard'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 900 });
+      else setTimeout(warm, 180);
+    }
     const onFocus = () => { void load(true); };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void load(true);
