@@ -118,6 +118,21 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   // KYC/KYB is FREE now — the user can start verification right here. Opens the
   // secure hosted verification flow; Bridge returns them to /?screen=kyc.
   const [verifying, setVerifying] = useState(false);
+  const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
+
+  const openHostedVerificationUrl = useCallback((url: string) => {
+    setLastHostedUrl(url);
+    try {
+      const popup = window.open(url, '_blank', 'noopener,noreferrer');
+      if (popup) {
+        popup.focus();
+        return;
+      }
+    } catch { /* noop */ }
+    // Fallback for PWA/webviews where popup open can be blocked.
+    window.location.assign(url);
+  }, []);
+
   const startVerification = async () => {
     setVerifying(true);
     try {
@@ -126,9 +141,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
         : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
       if (r?.success && (r.data?.tos_link_url || r.data?.link_url)) {
-        window.location.href = r.data?.tos_link_url || r.data?.link_url;   // Bridge hosted flow (ToS first when required)
+        const hostedUrl = r.data?.tos_link_url || r.data?.link_url;
+        openHostedVerificationUrl(hostedUrl);   // Bridge hosted flow (ToS first when required)
         return;
       }
+      if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
       if (r?.code === 'funding_required' || r?.code === 'plan_required' || r?.code === 'payment_required') {
         toast.error('Complete account activation funding first, then retry verification.');
         return;
@@ -137,8 +154,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verification is temporarily unavailable. Please try again shortly.');
         return;
       }
-      if (r?.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); }
-      else toast.error(friendlyErrorFor(r?.error, 'kyc', "We're unable to start verification at the moment. Please try again later."));
+      toast.error(friendlyErrorFor(r?.error, 'kyc', "We're unable to start verification at the moment. Please try again later."));
     } catch (e) {
       toast.error(friendlyErrorFor(e, 'kyc', "We're unable to start verification at the moment. Please try again later."));
     } finally { setVerifying(false); }
@@ -241,6 +257,16 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
                 {tt('kyc.pendingNote', 'We’ll update this automatically once your verification is processed.')}
               </p>
             </div>
+          )}
+
+          {lastHostedUrl && (status === 'not_started' || status === 'pending') && (
+            <button
+              type="button"
+              onClick={() => openHostedVerificationUrl(lastHostedUrl)}
+              className={`mt-3 w-full inline-flex items-center justify-center gap-2 py-3 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg}`}
+            >
+              Open verification link
+            </button>
           )}
 
           {/* Support entry for the failed state (no developer reasons shown) */}
