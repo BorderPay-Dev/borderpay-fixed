@@ -410,11 +410,20 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         if (cancelled) return;
         if (r?.success && r.data?.user) {
           const u: any = r.data.user;
-          const t = u.account_type === 'business' ? 'business' : 'individual';
           let cached: any = {};
           try { cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}'); } catch { cached = {}; }
+          const cachedBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
+          const hasBusinessSignal =
+            u.account_type === 'business' ||
+            String(cached?.account_type || '').toLowerCase() === 'business' ||
+            String(cached?.company_name || '').trim().length > 0 ||
+            cachedBusinessName.length > 0;
+          const t: 'individual' | 'business' = hasBusinessSignal ? 'business' : 'individual';
           if (t === 'business' && !u.company_name && cached?.company_name) {
             u.company_name = cached.company_name;
+          }
+          if (t === 'business' && !u.company_name && cachedBusinessName) {
+            u.company_name = cachedBusinessName;
           }
           if (t !== accountType) setAccountType(t);
           // Shell display props — kept in MainApp so AppShell stays presentational.
