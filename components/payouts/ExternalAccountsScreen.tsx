@@ -225,6 +225,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         <button
           onPointerDown={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
           onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+          onTouchStart={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
           onClick={() => {
             try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
             onAdd();
@@ -268,6 +269,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
             <button
               onPointerDown={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
               onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+              onTouchStart={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
               onClick={() => {
                 try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
                 onAdd();

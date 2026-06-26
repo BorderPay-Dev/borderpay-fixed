@@ -192,6 +192,7 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
           disabled={!FX_RUNTIME_ENABLED}
           onPointerDown={prefetchExchange}
           onMouseEnter={prefetchExchange}
+          onTouchStart={prefetchExchange}
           onClick={() => onNavigate('exchange')}
           className="w-full px-4 py-3 border-t border-transparent flex items-center justify-center gap-2 bg-[#C7FF00] text-black text-[13px] font-bold hover:brightness-95 transition disabled:opacity-60 disabled:cursor-not-allowed"
         >

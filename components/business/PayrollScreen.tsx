@@ -169,6 +169,7 @@ export function PayrollScreen({
           <button
             onPointerDown={() => prefetch('bulk-payout')}
             onMouseEnter={() => prefetch('bulk-payout')}
+            onTouchStart={() => prefetch('bulk-payout')}
             onClick={openBulkPayout}
             disabled={valid.length === 0}
             className="px-5 py-3 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-50 inline-flex items-center gap-2"
