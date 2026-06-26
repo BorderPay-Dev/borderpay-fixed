@@ -1,9 +1,9 @@
 /**
  * NotificationsScreen — full-page notification inbox.
  *
- * Reads via canonical `backendAPI.financial.getSnapshot`. Each row supports
- * mark-as-read on tap and per-row delete. A "Mark all as read" header
- * action calls `mark-all-notifications-read`.
+ * Reads via canonical notifications endpoints (`get-notifications`,
+ * `mark-notification-read`, `mark-all-notifications-read`, `delete-notification`)
+ * so the screen is isolated from financial snapshot latency.
  *
  * AppShell owns the top chrome on top-level routes; this renders body-only.
  */
@@ -16,7 +16,6 @@ import {
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Sparkles, Info,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { supabase } from '../../utils/supabase/client';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
@@ -43,18 +42,6 @@ interface NotificationsScreenProps {
 }
 
 const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
-
-async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<T>((resolve) => {
-    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
 
 function currentNotificationCacheKey(): string | null {
   try {
@@ -145,28 +132,16 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     setError(null);
     try {
       const uid = currentUserId();
-      let data: any[] = [];
-      if (uid) {
-        const { data: rowsData, error } = await withTimeout(
-          supabase
-            .from('notifications')
-            .select('*')
-            .eq('user_id', uid)
-            .order('created_at', { ascending: false })
-            .limit(50),
-          1200,
-          { data: null, error: new Error('notifications query timeout') } as any,
-        );
-        if (!error && Array.isArray(rowsData)) {
-          data = rowsData;
-        } else {
-          // Fallback path if direct table read is unavailable.
-          const r: any = await backendAPI.notifications.getNotifications(50);
-          data = Array.isArray((r as any)?.data?.notifications)
-            ? (r as any).data.notifications
-            : (Array.isArray((r as any)?.data) ? (r as any).data : []);
-        }
+      if (!uid) {
+        setRows([]);
+        writeCachedNotifications([]);
+        onUnreadCountChange?.(0);
+        return;
       }
+      const r: any = await backendAPI.notifications.getNotifications(50);
+      const data = Array.isArray((r as any)?.data?.notifications)
+        ? (r as any).data.notifications
+        : (Array.isArray((r as any)?.data) ? (r as any).data : []);
       setRows(data);
       writeCachedNotifications(data);
       onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
