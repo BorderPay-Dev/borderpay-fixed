@@ -596,6 +596,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // user's first navigation is instant. Runs once per session, in background.
   React.useEffect(() => {
     let cancelled = false;
+    const prewarmKey = `borderpay_mainapp_route_prewarm_v1:${userId}:${accountType}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return () => { cancelled = true; };
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
     const idle = (cb: () => void) => {
       const ric = (window as any).requestIdleCallback;
       if (typeof ric === 'function') ric(cb, { timeout: 1500 });
