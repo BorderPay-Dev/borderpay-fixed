@@ -298,14 +298,20 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
       const cachedDashWallets = readCachedDashboardWallets();
       const cachedBalanceRows = readCachedBalanceByCurrencyRows();
-      const walletsRes: any = await backendAPI.wallets.getWallets();
-      const walletRows = (walletsRes?.success && Array.isArray(walletsRes?.data?.wallets))
-        ? walletsRes.data.wallets
-        : (Array.isArray(routeData?.wallets)
-          ? routeData.wallets
-          : (Array.isArray(snapshotData?.wallets)
-            ? snapshotData.wallets
-            : (cachedDashWallets.length > 0 ? cachedDashWallets : cachedBalanceRows)));
+      const routeWalletRows = Array.isArray(routeData?.wallets)
+        ? routeData.wallets
+        : (Array.isArray(snapshotData?.wallets) ? snapshotData.wallets : []);
+      // Keep FX first paint instant: only hit wallets API when route/snapshot
+      // did not provide wallet rows and cache is empty.
+      let walletRows: any[] = routeWalletRows.length > 0
+        ? routeWalletRows
+        : (cachedDashWallets.length > 0 ? cachedDashWallets : cachedBalanceRows);
+      if (walletRows.length === 0) {
+        const walletsRes: any = await backendAPI.wallets.getWallets();
+        if (walletsRes?.success && Array.isArray(walletsRes?.data?.wallets)) {
+          walletRows = walletsRes.data.wallets;
+        }
+      }
 
       const stableFromBridge: StableWallet[] = stableRows
         .map((r: any) => ({

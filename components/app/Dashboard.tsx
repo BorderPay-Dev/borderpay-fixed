@@ -185,6 +185,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // first-paints $0.00 or an empty activity list, then refreshes silently.
   const dashWalletsKey = useMemo(() => financialCacheKey(DASH_WALLETS_KEY, { userId }), [userId]);
   const dashRecentKey = useMemo(() => financialCacheKey(DASH_RECENT_KEY, { userId }), [userId]);
+  const dashRefreshTsKey = useMemo(
+    () => financialCacheKey('borderpay_dashboard_refresh_ts_v1', { userId }),
+    [userId],
+  );
   const cachedWallets = useMemo(
     () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(dashWalletsKey, []),
     [dashWalletsKey],
@@ -247,6 +251,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     if (storedUser?.profile_picture_url) setProfilePicUrl(storedUser.profile_picture_url);
 
     try {
+      // Prevent repeated network churn on fast route hops. Keep cache-first UX.
+      try {
+        const hasCached =
+          readJSON<any[]>(dashWalletsKey, []).length > 0 ||
+          readJSON<any[]>(dashRecentKey, []).length > 0;
+        const last = Number(localStorage.getItem(dashRefreshTsKey) || '0');
+        if (hasCached && Number.isFinite(last) && Date.now() - last < 30_000) {
+          setLoading(false);
+          return;
+        }
+      } catch { /* noop */ }
+
       // Fire all five requests in parallel via canonical backendAPI. The
       // legacy `wallets` table is empty for Bridge-only users like the COO —
       // their assets live in bridge_wallets + bridge_virtual_accounts. We
@@ -340,6 +356,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       }
       // On failure keep cached recent activity rather than blanking it.
       setTxLoaded(true);
+      try { localStorage.setItem(dashRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
     } catch (error) {
       // silent — synchronous cache already populated the UI
@@ -350,7 +367,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       setTxLoaded(true);
       setLoading(false);
     }
-  }, []);
+  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey]);
 
   useEffect(() => {
     loadDashboardData();
