@@ -160,9 +160,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         await new Promise(res => setTimeout(res, 350));
         r = await start();
       }
-      if (r?.success && (r.data?.tos_link_url || r.data?.link_url)) {
-        const hostedUrl = r.data?.tos_link_url || r.data?.link_url;
-        openHostedVerificationUrl(hostedUrl);   // Bridge hosted flow (ToS first when required)
+      if (r?.success && (r.data?.link_url || r.data?.tos_link_url)) {
+        // Product contract: route users to hosted KYC/KYB verification URL first.
+        // ToS URL is fallback-only when the provider does not return link_url.
+        const hostedUrl = r.data?.link_url || r.data?.tos_link_url;
+        openHostedVerificationUrl(hostedUrl);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
