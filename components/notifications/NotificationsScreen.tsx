@@ -151,7 +151,31 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     }
   }, [onUnreadCountChange]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['transactions', 'settings', 'profile', 'dashboard'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 900 });
+      else setTimeout(warm, 180);
+    }
+    const onFocus = () => { void load(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [load]);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
 
   const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
 
