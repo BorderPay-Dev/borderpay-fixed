@@ -262,8 +262,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   // Snapshot hydration:
   // - first paint comes from cache
-  // - one immediate snapshot refresh + one delayed follow-up
-  // - no polling loops that can contend with route navigation
+  // - one immediate background refresh only
+  // - no delayed retry loop that contends with route navigation
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
@@ -289,10 +289,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
     };
     hydrateOnce();
-    const retryId = window.setTimeout(() => { void hydrateOnce(); }, 1200);
     return () => {
       cancelled = true;
-      window.clearTimeout(retryId);
     };
   }, [userId, sendWalletsCacheKey, sendCapsCacheKey]);
 
