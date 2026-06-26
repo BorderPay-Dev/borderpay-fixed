@@ -241,10 +241,9 @@ Deno.serve(async (req: Request) => {
     console.error(`bridge-kyb-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
     return json({
       success: false,
-      error:   `Business verification link request failed [${r.status}]: ${r.error || detail || "unknown"}`,
+      error:   `Business verification link request failed [${r.status}]: ${r.error || "unknown"}`,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
-      bridge_body:       detail,
     }, 502);
   }
 

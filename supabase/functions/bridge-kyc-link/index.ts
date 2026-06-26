@@ -515,10 +515,9 @@ Deno.serve(async (req: Request) => {
     });
     return json({
       success: false,
-      error:   `Verification link request failed [${r.status}]: ${r.error || detail || "unknown"}`,
+      error:   `Verification link request failed [${r.status}]: ${r.error || "unknown"}`,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
-      bridge_body:       detail,
     }, 502);
   }
 
