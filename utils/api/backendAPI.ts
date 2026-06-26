@@ -1039,13 +1039,9 @@ export const cardAPI = {
 // FX / EXCHANGE
 // ============================================================================
 
-// QUARANTINED — `getQuote` and `convert` previously called the `fx` edge
-// function, which has been retired. Currency convert (fiat ↔ fiat and
-// fiat ↔ stablecoin) is routed through the partner's transfer endpoint
-// in a future release; until then both methods short-circuit so the
-// Exchange screen can render a clear "coming soon" state instead of a 404.
-// `getHistory` returns whatever audit rows exist; `getLiveRates` is
-// client-side indicative fallback.
+// FX API surface. Execution is routed through `bridge-transfer` using
+// Bridge orchestration (wallet source → wallet destination), while rates
+// remain indicative unless a quote endpoint is wired.
 export const fxAPI = {
   async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
     const from = String(sourceCurrency || '').toUpperCase();
