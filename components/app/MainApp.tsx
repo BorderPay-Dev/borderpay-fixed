@@ -347,7 +347,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // get-profile + notifications calls below.
   const [shellUserName, setShellUserName] = useState<string>(() => {
     try {
+      const directBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      if (directBusinessName) {
+        return directBusinessName;
+      }
       const inferredBusiness =
         String(cached?.account_type || '').toLowerCase() === 'business' || hasBusinessAccountCached();
       return getBusinessDisplayName({
@@ -375,6 +379,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // user_profiles to flip to 'business' if the user is a business account.
   const [accountType, setAccountType] = useState<'individual' | 'business'>(() => {
     try {
+      const directBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
+      if (directBusinessName) return 'business';
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
       if (cached?.account_type === 'business') return 'business';
       if (cached?.account_type === 'individual') return 'individual';
