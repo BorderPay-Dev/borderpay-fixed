@@ -15,7 +15,6 @@ import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -58,10 +57,6 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const [loadError, setLoadError] = useState(false);
   const { t, language } = useThemeLanguage();
   const tc = useThemeClasses();
-
-  useEffect(() => {
-    navPerfTrackCache('transactions', transactions.length > 0);
-  }, [transactions.length]);
 
   useEffect(() => {
     loadTransactions();

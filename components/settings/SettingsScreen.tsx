@@ -28,7 +28,6 @@ import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { SecurityStatus, PINManager, TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface SettingsScreenProps {
   userId: string;
@@ -50,10 +49,6 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const isBusinessAccount = storedUser?.account_type === 'business';
   const [isAdminUser, setIsAdminUser] = useState<boolean>(storedUser?.is_admin === true);
   const settingsSecurityCacheKey = `borderpay_settings_security_v1:${userId}`;
-
-  useEffect(() => {
-    navPerfTrackCache('settings', !!storedUser);
-  }, [storedUser]);
 
   // Avoid mount-time prefetch fan-out; row-level pointer/hover prefetch below
   // keeps taps snappy without flooding route/chunk requests on entry.

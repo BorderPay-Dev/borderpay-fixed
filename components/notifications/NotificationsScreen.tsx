@@ -8,7 +8,7 @@
  * AppShell owns the top chrome on top-level routes; this renders body-only.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -20,7 +20,6 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface NotificationRow {
   id:           string;
@@ -124,13 +123,6 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
-  const hasRowsRef = useRef(initialRows.length > 0);
-
-  useEffect(() => {
-    navPerfTrackCache('notifications', rows.length > 0);
-    hasRowsRef.current = rows.length > 0;
-  }, [rows.length]);
-
   const load = useCallback(async () => {
     // Keep first paint instant; refresh in background and throttle fast re-entry.
     setError(null);
