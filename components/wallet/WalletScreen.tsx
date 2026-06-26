@@ -214,7 +214,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
+  /* eslint-disable-next-line */ }, [userId, isVerified]);
 
   // ── Missing VA currencies (the "deposit chooser") ────────────────────────
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);

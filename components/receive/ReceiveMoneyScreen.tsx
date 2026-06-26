@@ -178,7 +178,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
+  /* eslint-disable-next-line */ }, [userId, isVerified]);
 
   // Missing VA currencies (the inline "Open X account" rows)
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);

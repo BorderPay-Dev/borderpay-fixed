@@ -175,7 +175,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [load]);
-  useEffect(() => { rowsRef.current = rows; }, [rows]);
+  useEffect(() => { hasRowsRef.current = rows.length > 0; }, [rows.length]);
 
   const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
 

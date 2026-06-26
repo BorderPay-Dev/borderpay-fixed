@@ -98,8 +98,6 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
-  useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
-
   const remove = async (extId: string) => {
     setRemoving(extId);
     try {

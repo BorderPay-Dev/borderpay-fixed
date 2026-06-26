@@ -86,7 +86,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
     }
 
     const loadCapabilities = async (force = false) => {
-      const seeded = supportedAccountTypes.length > 0 ? supportedAccountTypes : readCachedCapabilities();
+      const seeded = supportedAccountTypes;
       if (seeded.length === 0) setCapabilityLoading(true);
       if (!force && seeded.length > 0) return;
       try {
@@ -94,10 +94,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (r?.success) {
           const types = Array.isArray(r?.data?.supported_account_types) ? r.data.supported_account_types : [];
           const filtered = types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix');
-          setSupportedAccountTypes(filtered.length > 0 ? filtered : cachedCapabilities);
-          if (filtered.length > 0) {
-            try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(filtered)); } catch { /* noop */ }
-          }
+          setSupportedAccountTypes(filtered);
           if (filtered.length > 0) setAccountType(filtered[0] as AccountType);
         }
       } catch {
