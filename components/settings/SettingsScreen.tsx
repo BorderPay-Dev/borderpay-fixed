@@ -59,6 +59,13 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
 
   // Keep Settings mount light. We prefetch on user intent (pointer/tap) only.
   useEffect(() => {
+    const prewarmKey = `borderpay_settings_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return;
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
+
     // P0 runtime parity: users usually navigate Settings subpages in sequence.
     // Warm the most-used children on idle so taps open without first-load lag.
     const prefetch = (window as any).__borderpay_prefetch;
