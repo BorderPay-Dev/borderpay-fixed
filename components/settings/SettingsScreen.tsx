@@ -46,6 +46,26 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const storedUser = authAPI.getStoredUser();
   const isBusinessAccount = storedUser?.account_type === 'business';
 
+  // Warm settings child screens in background so subpage taps are instant.
+  useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch !== 'function') return;
+    [
+      'profile',
+      'change-pin',
+      'change-password',
+      'two-factor-setup',
+      'biometric-setup',
+      'preferences',
+      'help-center',
+      'terms-of-service',
+      'privacy-policy',
+      'country-eligibility',
+    ].forEach((route) => {
+      try { prefetch(route); } catch { /* no-op */ }
+    });
+  }, []);
+
   // Load security status from backend (persists across login/logout)
   useEffect(() => {
     const loadStatus = async () => {
