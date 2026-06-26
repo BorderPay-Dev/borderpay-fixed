@@ -618,7 +618,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       }
     });
     return () => { cancelled = true; };
-  }, [accountType]);
+  }, [accountType, userId]);
 
   // Warm shared financial route data in the background so first opens of
   // Wallet / Receive / Transactions / External Accounts render from cache.
