@@ -404,7 +404,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const syncProfile = async () => {
       try {
         const r = await backendAPI.user.getProfile();
         if (cancelled) return;
@@ -429,8 +429,19 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           } catch { /* ignore */ }
         }
       } catch { /* keep cached */ }
-    })();
-    return () => { cancelled = true; };
+    };
+    void syncProfile();
+    const onFocus = () => { void syncProfile(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void syncProfile();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
@@ -439,7 +450,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // tiny values it actually needs for first-navigation responsiveness.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const syncUnread = async () => {
       try {
         const unreadRes = await backendAPI.notifications.getUnreadCount();
         if (cancelled) return;
@@ -449,8 +460,19 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           if (Number.isFinite(n)) updateUnreadCount(n);
         }
       } catch { /* non-fatal */ }
-    })();
-    return () => { cancelled = true; };
+    };
+    void syncUnread();
+    const onFocus = () => { void syncUnread(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void syncUnread();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [userId, refreshKey, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
