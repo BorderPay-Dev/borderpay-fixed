@@ -200,6 +200,18 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   };
 
   useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['receive-money', 'send-money', 'transactions', 'exchange', 'external-wallets', 'external-accounts'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+    }
+
     if (isVerified) refresh();
     const onFocus = () => { if (isVerified) void refresh(true); };
     const onVisibility = () => {
