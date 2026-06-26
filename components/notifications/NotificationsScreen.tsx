@@ -8,7 +8,7 @@
  * AppShell owns the top chrome on top-level routes; this renders body-only.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -120,6 +120,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
   }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
+  const rowsRef = useRef<NotificationRow[]>(initialRows);
   const [loading, setLoading] = useState(initialRows.length === 0);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
@@ -127,7 +128,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     // Keep first paint instant; refresh in background and throttle fast re-entry.
     setError(null);
     try {
-      const hasCachedRows = rows.length > 0;
+      const hasCachedRows = rowsRef.current.length > 0;
       if (!hasCachedRows) setLoading(true);
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
       if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
@@ -153,9 +154,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     } finally {
       setLoading(false);
     }
-  }, [onUnreadCountChange, refreshTsKey, rows.length]);
+  }, [onUnreadCountChange, refreshTsKey]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
 
   const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
 
