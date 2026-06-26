@@ -205,6 +205,23 @@ function writeCachedUnreadCount(userId: string, count: number): void {
   } catch { /* ignore notification cache write */ }
 }
 
+const SHELL_SYNC_COOLDOWN_MS = 45_000;
+
+function shouldRunShellSync(userId: string, channel: 'profile' | 'unread'): boolean {
+  try {
+    const key = `borderpay_shell_sync_v1:${channel}:${userId}`;
+    const now = Date.now();
+    const last = Number(sessionStorage.getItem(key) || 0);
+    if (Number.isFinite(last) && now - last < SHELL_SYNC_COOLDOWN_MS) {
+      return false;
+    }
+    sessionStorage.setItem(key, String(now));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 // ─── Skeleton Fallback (no spinner!) ───────────────────────────────────
 // Shown only on the first navigation to a screen, while its chunk loads.
 // Subsequent navigations to the same screen render instantly.
@@ -404,7 +421,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   useEffect(() => {
     let cancelled = false;
-    const syncProfile = async () => {
+    const syncProfile = async (force = false) => {
+      if (!force && !shouldRunShellSync(userId, 'profile')) return;
       try {
         const r = await backendAPI.user.getProfile();
         if (cancelled) return;
@@ -439,10 +457,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         }
       } catch { /* keep cached */ }
     };
-    void syncProfile();
-    const onFocus = () => { void syncProfile(); };
+    void syncProfile(true);
+    const onFocus = () => { void syncProfile(false); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void syncProfile();
+      if (document.visibilityState === 'visible') void syncProfile(false);
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
@@ -459,7 +477,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // tiny values it actually needs for first-navigation responsiveness.
   useEffect(() => {
     let cancelled = false;
-    const syncUnread = async () => {
+    const syncUnread = async (force = false) => {
+      if (!force && !shouldRunShellSync(userId, 'unread')) return;
       try {
         const unreadRes = await backendAPI.notifications.getUnreadCount();
         if (cancelled) return;
@@ -470,10 +489,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         }
       } catch { /* non-fatal */ }
     };
-    void syncUnread();
-    const onFocus = () => { void syncUnread(); };
+    void syncUnread(true);
+    const onFocus = () => { void syncUnread(false); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void syncUnread();
+      if (document.visibilityState === 'visible') void syncUnread(false);
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
@@ -482,7 +501,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [userId, refreshKey, updateUnreadCount]);
+  }, [userId, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
   // Reads user_subscriptions via the subscription-current edge function. If
