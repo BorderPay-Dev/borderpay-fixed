@@ -115,7 +115,19 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [refreshTsKey]);
 
   // Background refresh on mount — no loading gate; the seed already rendered.
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    const onFocus = () => { void refresh(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refresh(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [refresh]);
 
   const isBusiness = accountType === 'business';
 
