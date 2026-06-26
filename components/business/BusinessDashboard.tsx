@@ -28,6 +28,7 @@ import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
@@ -115,6 +116,12 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
+  const [hasPIN, setHasPIN] = useState<boolean>(() => {
+    try { return !!SecurityStatus.get(userId).hasPIN; } catch { return false; }
+  });
+  const [has2FA, setHas2FA] = useState<boolean>(() => {
+    try { return !!SecurityStatus.get(userId).has2FA || TOTPManager.isEnabled(userId); } catch { return false; }
+  });
 
   useEffect(() => {
     navPerfTrackCache('dashboard', cachedBizWallets.length > 0);
@@ -165,7 +172,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       void Promise.allSettled([
         backendAPI.transactions.getTransactions(12, 0),
         backendAPI.user.getProfile(),
-      ]).then(([txRes, profileRes]) => {
+        backendAPI.auth.getSecurityStatus(userId),
+      ]).then(([txRes, profileRes, secRes]) => {
         const txOk = txRes.status === 'fulfilled' && (txRes.value as any)?.success;
         if (txOk) {
           const tx = Array.isArray((txRes as PromiseFulfilledResult<any>).value?.data?.transactions)
@@ -209,6 +217,15 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             if (nextCompany) localStorage.setItem(businessNameCacheKey, nextCompany);
           } catch { /* ignore cache write */ }
         }
+
+        const secOk = secRes.status === 'fulfilled' && (secRes.value as any)?.success;
+        const secValue = secOk ? (secRes as PromiseFulfilledResult<any>).value?.data : null;
+        if (secValue) {
+          const pin = !!secValue?.pin_set;
+          const twofa = !!secValue?.two_factor_enabled || TOTPManager.isEnabled(userId);
+          setHasPIN(pin);
+          setHas2FA(twofa);
+        }
       });
     } catch (e: any) {
       if (wallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
@@ -227,6 +244,13 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   }, [userId]);
 
   const refreshAll = () => { loadWallets(); };
+  const kybVerified = affiliateKycStatus === 'verified';
+  const setupSteps = [
+    { id: '2fa', label: 'Enable 2FA', completed: has2FA, screen: 'two-factor-setup' },
+    { id: 'pin', label: 'Set transaction PIN', completed: hasPIN, screen: 'change-pin' },
+    { id: 'kyb', label: 'Complete business verification', completed: kybVerified, screen: 'kyc' },
+  ];
+  const showSetupBanner = !setupSteps.every((s) => s.completed);
 
   const initials = (companyName || 'B').slice(0, 2).toUpperCase();
 
@@ -280,6 +304,31 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             </p>
           )}
         </section>
+
+        {showSetupBanner && (
+          <section className="px-5 sm:px-6">
+            <div className={`rounded-2xl border border-amber-500/20 bg-amber-500/[0.05] px-4 py-3.5`}>
+              <div className="flex items-center gap-2 mb-2.5">
+                <ShieldAlert className="w-4 h-4 text-amber-300" />
+                <p className={`text-sm font-semibold ${tc.text}`}>Complete your setup</p>
+              </div>
+              <div className="space-y-2">
+                {setupSteps.map((step) => (
+                  <button
+                    key={step.id}
+                    onClick={() => { if (!step.completed) onNavigate(step.screen); }}
+                    className={`w-full flex items-center justify-between rounded-lg px-2 py-1.5 ${!step.completed ? tc.hoverBg : ''}`}
+                  >
+                    <span className={`text-xs ${step.completed ? tc.textMuted : tc.text}`}>{step.label}</span>
+                    <span className={`text-[11px] font-semibold ${step.completed ? 'text-[#C7FF00]' : 'text-amber-300'}`}>
+                      {step.completed ? 'Done' : 'Complete'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* ── 3. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
