@@ -32,6 +32,8 @@ import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManage
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
+const WALLET_LIST_CACHE_KEY = 'borderpay_wallets_v1';
+const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v1';
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -39,6 +41,21 @@ function readBizWallets(cacheKey: string): WalletRow[] {
 function readBizTx(cacheKey: string): any[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
+}
+function readSharedWalletCache(userId: string): WalletRow[] {
+  try {
+    const raw = localStorage.getItem(financialCacheKey(WALLET_LIST_CACHE_KEY, { userId }));
+    const rows = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .map((w: any) => ({
+        currency: String(w?.currency || '').toUpperCase(),
+        balance: parseFloat(w?.balance) || 0,
+      }))
+      .filter((w: WalletRow) => !!w.currency);
+  } catch {
+    return [];
+  }
 }
 
 interface BusinessDashboardProps {
@@ -105,7 +122,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     () => financialCacheKey(BIZ_WALLETS_KEY, { userId, accountType: 'business' }),
     [userId],
   );
-  const cachedBizWallets = useMemo(() => readBizWallets(bizWalletsCacheKey), [bizWalletsCacheKey]);
+  const cachedBizWallets = useMemo(() => {
+    const scoped = readBizWallets(bizWalletsCacheKey);
+    return scoped.length > 0 ? scoped : readSharedWalletCache(userId);
+  }, [bizWalletsCacheKey, userId]);
   const bizTxCacheKey = useMemo(
     () => financialCacheKey(BIZ_TX_KEY, { userId, accountType: 'business' }),
     [userId],
@@ -138,6 +158,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     if (wallets.length === 0) setWalletsLoading(true);
     setWalletsError(null);
     try {
+      const refreshTsKey = financialCacheKey(BIZ_DASH_REFRESH_TS_KEY, { userId, accountType: 'business' });
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (wallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const walletRouteRes: any = await backendAPI.financial.getWalletRouteData();
       const walletOk = walletRouteRes?.success;
       if (walletOk) {
@@ -146,6 +171,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         const formatted = toWalletRows(raw);
         setWallets(formatted);
         try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else {
         // Fallback path: if wallet route data fails, try canonical snapshot so
         // Accounts can still render without a hard error on dashboard.
