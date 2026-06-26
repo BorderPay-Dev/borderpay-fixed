@@ -588,9 +588,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       // prefetched on intent (tap/hover) via AppShell/route controls.
       ['wallet-detail', 'receive-money', 'send-money', 'transactions', 'notifications', 'profile']
         .forEach(prefetchScreen);
+      if (hasBusinessAccountCached() || accountType === 'business') {
+        ['team', 'external-accounts', 'bulk-payout', 'payroll'].forEach(prefetchScreen);
+      }
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [accountType]);
 
   // Warm shared financial route data in the background so first opens of
   // Wallet / Receive / Transactions / External Accounts render from cache.
