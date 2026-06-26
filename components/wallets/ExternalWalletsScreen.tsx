@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2, Sparkles } from 'lucide-react';
+import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2, Sparkles, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI, type ExternalWallet } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -70,11 +70,11 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const [asset, setAsset]     = useState('USDC');
   const [address, setAddress] = useState('');
 
-  const load = async () => {
+  const load = async (force = false) => {
     const isColdStart = wallets.length === 0;
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (!isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) return;
+      if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) return;
       const r: any = await backendAPI.externalWallets.list();
       if (r?.success) {
         const next: ExternalWallet[] = Array.isArray(r.data?.external_wallets) ? r.data.external_wallets : [];
@@ -186,9 +186,18 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
       >
         <h1 className={`text-base font-semibold ${tc.text}`}>Withdrawal wallets</h1>
-        <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold">
-          <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => load(true)}
+            aria-label="Refresh wallets"
+            className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center ${tc.hoverBg}`}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${tc.textMuted} ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold">
+            <Plus className="w-3.5 h-3.5" /> Add
+          </button>
+        </div>
       </header>
 
       <main className="px-5 sm:px-6 pb-10 max-w-md mx-auto">
