@@ -15,7 +15,7 @@
  * the "where do I tap?" friction.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Shield, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, Plus, RefreshCw,
@@ -97,6 +97,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [vas, setVas] = useState<VaRow[]>(() => {
     try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
   });
+  const stablesRef = useRef<StableRow[]>(stables);
+  const vasRef = useRef<VaRow[]>(vas);
   const hasCachedWalletRows = stables.length > 0 || vas.length > 0;
   const [totalUsd, setTotalUsd] = useState<number>(() => {
     try { const r = localStorage.getItem(`borderpay_wallet_total_${userId}`); return r ? Number(r) : 0; } catch { return 0; }
@@ -110,6 +112,9 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
+
+  useEffect(() => { stablesRef.current = stables; }, [stables]);
+  useEffect(() => { vasRef.current = vas; }, [vas]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -125,8 +130,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   };
 
   const refresh = async (force = false) => {
-    const seededStables = stables.length > 0 ? stables : (() => { try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; } })();
-    const seededVas = vas.length > 0 ? vas : (() => { try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; } })();
+    const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => { try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; } })();
+    const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => { try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; } })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
     if (isColdStart) setLoading(true);
     setRefreshing(true);
@@ -200,17 +205,24 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   };
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['receive-money', 'send-money', 'transactions', 'exchange', 'external-wallets', 'external-accounts'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    const prewarmKey = `borderpay_wallet_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['receive-money', 'send-money', 'transactions', 'exchange', 'external-wallets', 'external-accounts'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
 
     if (isVerified) refresh();
     const onFocus = () => { if (isVerified) void refresh(); };
