@@ -354,6 +354,16 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   useEffect(() => {
     loadDashboardData();
+    const onFocus = () => { void loadDashboardData(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadDashboardData();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [loadDashboardData]);
 
   // ─── setup steps ─────────────────────────────────────────────────────
