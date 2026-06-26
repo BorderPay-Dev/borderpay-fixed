@@ -88,6 +88,12 @@ function extractLink(parsed: any): { link_url: string; link_id: string; customer
   return null;
 }
 
+function isVerifiedStatus(value: string | null | undefined): boolean {
+  return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(
+    String(value || "").toLowerCase(),
+  );
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -141,15 +147,11 @@ Deno.serve(async (req: Request) => {
     .maybeSingle();
   if (!biz?.company_name) return json({ success: false, error: "business_profiles missing company_name" }, 404);
 
-  if ((biz.bridge_kyb_status || "").toLowerCase() === "approved") {
+  if (isVerifiedStatus(biz.bridge_kyb_status)) {
     return json({ success: true, data: { already_approved: true, bridge_kyb_status: "approved" } });
   }
-  if (biz.bridge_kyb_link_url) {
-    return json({
-      success: true,
-      data: { link_id: biz.bridge_kyb_link_id, link_url: biz.bridge_kyb_link_url, reused: true },
-    });
-  }
+  // Do not short-circuit to cached link_url: old links can expire and trap users
+  // in repeated verification errors. Always ask Bridge for the current link state.
 
   const reqBody: Record<string, unknown> = {
     type:                 "business",
@@ -161,20 +163,33 @@ Deno.serve(async (req: Request) => {
   if (biz.bridge_customer_id) reqBody.customer_id = biz.bridge_customer_id;
 
   const idemSource = biz.bridge_customer_id || user.id;
-  const r = await bridgePost(
+  let r = await bridgePost(
     "/v0/kyc_links",
     reqBody,
     `borderpay:kyb:business:${idemSource}`,
   );
 
-  const link = extractLink(r.data);
+  let link = extractLink(r.data);
+
+  // Legacy safety: stale/invalid stored bridge_customer_id can block KYB.
+  // Retry once without customer_id so Bridge hosted flow can create/recover.
+  if (!r.ok && !link && biz.bridge_customer_id) {
+    const fallbackBody = { ...reqBody };
+    delete fallbackBody.customer_id;
+    r = await bridgePost(
+      "/v0/kyc_links",
+      fallbackBody,
+      `borderpay:kyb:business:fallback:${user.id}`,
+    );
+    link = extractLink(r.data);
+  }
 
   if (!r.ok && !link) {
     const detail = (r.raw_text || "").slice(0, 800);
     console.error(`bridge-kyb-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
     return json({
       success: false,
-      error:   `Bridge createKybLink failed [${r.status}]: ${r.error || detail || "unknown"}`,
+      error:   `Business verification link request failed [${r.status}]: ${r.error || detail || "unknown"}`,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
       bridge_body:       detail,
@@ -185,7 +200,7 @@ Deno.serve(async (req: Request) => {
     console.error(`bridge-kyb-link: missing link/url body=${(r.raw_text || "").slice(0, 800)}`);
     return json({
       success: false,
-      error:   `Bridge createKybLink: missing link/url in response`,
+      error:   `Business verification link response missing link URL`,
       bridge_request_id: r.request_id,
     }, 502);
   }

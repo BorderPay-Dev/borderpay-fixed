@@ -69,7 +69,107 @@ interface BridgeFetchResult {
   request_id?: string;
 }
 
-async function bridgePost(path: string, body: unknown, idemKey: string): Promise<BridgeFetchResult> {
+type TraceStage =
+  | "invoked"
+  | "profile_loaded"
+  | "profile_bootstrap_failed"
+  | "bridge_request_sent"
+  | "bridge_response_received"
+  | "bridge_response_rejected"
+  | "bridge_response_missing_link"
+  | "db_update_success"
+  | "db_update_failed"
+  | "returned_success";
+
+function sanitizeTracePayload(body: { redirect_url?: string; endorsements?: string[] }, hasCustomerId: boolean): Record<string, unknown> {
+  return {
+    has_redirect_url: Boolean(body?.redirect_url),
+    endorsements: Array.isArray(body?.endorsements) ? body.endorsements.slice(0, 10) : ["base"],
+    has_customer_id: hasCustomerId,
+  };
+}
+
+function sanitizeResponseBody(data: any): Record<string, unknown> {
+  return {
+    has_data: Boolean(data),
+    has_link: Boolean(data?.kyc_link?.url || data?.data?.kyc_link?.url || data?.existing_kyc_link?.url || data?.url || data?.data?.url),
+    has_customer_id: Boolean(data?.customer_id || data?.data?.customer_id || data?.existing_kyc_link?.customer_id),
+    code: data?.code ?? null,
+    message: data?.message ?? null,
+  };
+}
+
+function maskEmail(email?: string | null): string | null {
+  if (!email) return null;
+  const [local, domain] = String(email).split("@");
+  if (!domain) return null;
+  const localMasked =
+    local.length <= 2 ? `${local[0] || "*"}*` : `${local.slice(0, 2)}***`;
+  return `${localMasked}@${domain}`;
+}
+
+function sanitizeErrorBody(value?: string | null): string | null {
+  if (!value) return null;
+  let out = String(value);
+  // redact emails
+  out = out.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted_email]");
+  // redact bearer/api-key style tokens
+  out = out.replace(/bearer\s+[a-z0-9._-]+/gi, "bearer [redacted_token]");
+  out = out.replace(/(api[-_ ]?key["'\s:=]+)[a-z0-9._-]+/gi, "$1[redacted_key]");
+  out = out.replace(/(authorization["'\s:=]+)[^\s,"'}]+/gi, "$1[redacted_auth]");
+  // redact very long opaque tokens/ids
+  out = out.replace(/\b[a-z0-9]{24,}\b/gi, "[redacted_opaque]");
+  return out.slice(0, 600);
+}
+
+async function writeTrace(
+  correlationId: string,
+  stage: TraceStage,
+  fields: {
+    executionTimestamp?: string;
+    userId?: string | null;
+    email?: string | null;
+    bridgeEndpoint?: string | null;
+    httpStatus?: number | null;
+    bridgeRequestId?: string | null;
+    requestPayload?: Record<string, unknown> | null;
+    responseBody?: Record<string, unknown> | null;
+    errorBody?: string | null;
+    dbUpdateOk?: boolean | null;
+    dbUpdateError?: string | null;
+    elapsedMs?: number | null;
+  } = {},
+): Promise<void> {
+  try {
+    await supa.from("bridge_kyc_traces").insert({
+      correlation_id: correlationId,
+      execution_timestamp: fields.executionTimestamp || new Date().toISOString(),
+      user_id: fields.userId || null,
+      email: maskEmail(fields.email || null),
+      stage,
+      bridge_endpoint: fields.bridgeEndpoint || null,
+      http_status: fields.httpStatus ?? null,
+      bridge_request_id: fields.bridgeRequestId || null,
+      request_payload: fields.requestPayload || null,
+      response_body: fields.responseBody || null,
+      error_body: sanitizeErrorBody(fields.errorBody || null),
+      db_update_ok: fields.dbUpdateOk ?? null,
+      db_update_error: sanitizeErrorBody(fields.dbUpdateError || null),
+      elapsed_ms: fields.elapsedMs ?? null,
+    });
+  } catch (traceErr) {
+    console.error(
+      "bridge-kyc-link trace insert failed",
+      JSON.stringify({
+        correlation_id: correlationId,
+        stage,
+        error: traceErr instanceof Error ? traceErr.message : String(traceErr),
+      }),
+    );
+  }
+}
+
+async function bridgePost(path: string, body: unknown, idemKey: string, correlationId?: string): Promise<BridgeFetchResult> {
   if (!BRIDGE_API_KEY) {
     return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
   }
@@ -80,6 +180,7 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
       "Accept":          "application/json",
       "Content-Type":    "application/json",
       "Idempotency-Key": idemKey,
+      ...(correlationId ? { "X-Correlation-Id": correlationId } : {}),
       "User-Agent":      "borderpay-edge/1.0",
     },
     body: JSON.stringify(body),
@@ -127,12 +228,22 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
 
+  const correlationId = crypto.randomUUID();
+  const executionTimestamp = new Date().toISOString();
+  const startedAtMs = Date.now();
+  const elapsed = () => Date.now() - startedAtMs;
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  await writeTrace(correlationId, "invoked", {
+    executionTimestamp,
+    userId: user.id,
+    email: user.email ?? null,
+    elapsedMs: elapsed(),
+  });
 
   // Stepped verification gate (#4 + #5): require a PAID plan + admin
   // authorization before any billable Bridge call. The env pause remains the
@@ -150,6 +261,18 @@ Deno.serve(async (req: Request) => {
     .select("id, email, full_name, account_type, country, phone, bridge_customer_id, bridge_kyc_link_id, bridge_kyc_link_url, bridge_kyc_status, bridge_account_status")
     .eq("id", user.id)
     .maybeSingle();
+  await writeTrace(correlationId, "profile_loaded", {
+    executionTimestamp,
+    userId: user.id,
+    email: user.email ?? null,
+    responseBody: {
+      has_profile: Boolean(profile),
+      account_type: profile?.account_type ?? null,
+      has_bridge_customer_id: Boolean(profile?.bridge_customer_id),
+      bridge_kyc_status: profile?.bridge_kyc_status ?? null,
+    },
+    elapsedMs: elapsed(),
+  });
 
   // Legacy compatibility: some pre-Bridge users can authenticate without a
   // normalized user_profiles row. Bootstrap the minimum row so they can start
@@ -181,6 +304,13 @@ Deno.serve(async (req: Request) => {
       .eq("id", user.id)
       .maybeSingle();
     if (seedErr) {
+      await writeTrace(correlationId, "profile_bootstrap_failed", {
+        executionTimestamp,
+        userId: user.id,
+        email: user.email ?? null,
+        errorBody: seedErr.message,
+        elapsedMs: elapsed(),
+      });
       return json({ success: false, error: `user_profiles bootstrap failed: ${seedErr.message}` }, 500);
     }
     profile = seeded as any;
@@ -213,19 +343,90 @@ Deno.serve(async (req: Request) => {
     redirect_uri: body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
   };
   if (profile.bridge_customer_id) reqBody.customer_id = profile.bridge_customer_id;
+  await writeTrace(correlationId, "bridge_request_sent", {
+    executionTimestamp,
+    userId: user.id,
+    email: profile.email,
+    bridgeEndpoint: "/v0/kyc_links",
+    requestPayload: sanitizeTracePayload(body, Boolean(profile.bridge_customer_id)),
+    elapsedMs: elapsed(),
+  });
 
   const idemSource = profile.bridge_customer_id || user.id;
-  const r = await bridgePost(
+  let r = await bridgePost(
     "/v0/kyc_links",
     reqBody,
     `borderpay:kyc:individual:${idemSource}`,
+    correlationId,
   );
 
-  const link = extractLink(r.data);
+  let link = extractLink(r.data);
+
+  // Legacy safety: if a stale/invalid bridge_customer_id is stored locally,
+  // Bridge can reject the request. Retry once without customer_id using the
+  // embedded-customer hosted KYC flow (Bridge-supported) to unblock users.
+  if (!r.ok && !link && profile.bridge_customer_id) {
+    const fallbackBody = { ...reqBody };
+    delete fallbackBody.customer_id;
+    await writeTrace(correlationId, "bridge_request_sent", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      bridgeEndpoint: "/v0/kyc_links",
+      requestPayload: {
+        ...sanitizeTracePayload(body, false),
+        retry_without_customer_id: true,
+      },
+      elapsedMs: elapsed(),
+    });
+    r = await bridgePost(
+      "/v0/kyc_links",
+      fallbackBody,
+      `borderpay:kyc:individual:fallback:${user.id}`,
+      correlationId,
+    );
+    link = extractLink(r.data);
+    await writeTrace(correlationId, "bridge_response_received", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      bridgeEndpoint: "/v0/kyc_links",
+      httpStatus: r.status,
+      bridgeRequestId: r.request_id ?? null,
+      responseBody: {
+        ...sanitizeResponseBody(r.data),
+        retry_without_customer_id: true,
+      },
+      errorBody: r.ok ? null : (r.raw_text || "").slice(0, 1200),
+      elapsedMs: elapsed(),
+    });
+  }
+  await writeTrace(correlationId, "bridge_response_received", {
+    executionTimestamp,
+    userId: user.id,
+    email: profile.email,
+    bridgeEndpoint: "/v0/kyc_links",
+    httpStatus: r.status,
+    bridgeRequestId: r.request_id ?? null,
+    responseBody: sanitizeResponseBody(r.data),
+    errorBody: r.ok ? null : (r.raw_text || "").slice(0, 1200),
+    elapsedMs: elapsed(),
+  });
 
   if (!r.ok && !link) {
     const detail = (r.raw_text || "").slice(0, 800);
     console.error(`bridge-kyc-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
+    await writeTrace(correlationId, "bridge_response_rejected", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      bridgeEndpoint: "/v0/kyc_links",
+      httpStatus: r.status,
+      bridgeRequestId: r.request_id ?? null,
+      responseBody: sanitizeResponseBody(r.data),
+      errorBody: detail,
+      elapsedMs: elapsed(),
+    });
     return json({
       success: false,
       error:   `Verification link request failed [${r.status}]: ${r.error || detail || "unknown"}`,
@@ -237,6 +438,17 @@ Deno.serve(async (req: Request) => {
 
   if (!link) {
     console.error(`bridge-kyc-link: missing link/url in success body=${(r.raw_text || "").slice(0, 800)}`);
+    await writeTrace(correlationId, "bridge_response_missing_link", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      bridgeEndpoint: "/v0/kyc_links",
+      httpStatus: r.status,
+      bridgeRequestId: r.request_id ?? null,
+      responseBody: sanitizeResponseBody(r.data),
+      errorBody: (r.raw_text || "").slice(0, 1200),
+      elapsedMs: elapsed(),
+    });
     return json({
       success: false,
       error:   `Verification link response missing link URL`,
@@ -244,17 +456,52 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  await supa.from("user_profiles").update({
+  const { error: updateErr } = await supa.from("user_profiles").update({
     bridge_kyc_link_id:  link.link_id,
     bridge_kyc_link_url: link.link_url,
     bridge_kyc_status:   "pending",
     ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("id", user.id);
+  if (updateErr) {
+    await writeTrace(correlationId, "db_update_failed", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      dbUpdateOk: false,
+      dbUpdateError: updateErr.message,
+      responseBody: { link_id_present: Boolean(link.link_id), link_url_present: Boolean(link.link_url), customer_id_present: Boolean(link.customer_id) },
+      elapsedMs: elapsed(),
+    });
+  } else {
+    await writeTrace(correlationId, "db_update_success", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      dbUpdateOk: true,
+      responseBody: { link_id_present: Boolean(link.link_id), link_url_present: Boolean(link.link_url), customer_id_present: Boolean(link.customer_id) },
+      elapsedMs: elapsed(),
+    });
+  }
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
+  await writeTrace(correlationId, "returned_success", {
+    executionTimestamp,
+    userId: user.id,
+    email: profile.email,
+    bridgeEndpoint: "/v0/kyc_links",
+    httpStatus: r.status,
+    bridgeRequestId: r.request_id ?? null,
+    responseBody: {
+      link_id: link.link_id,
+      link_url_present: Boolean(link.link_url),
+      expires_at: expires_at ?? null,
+      reused: !r.ok ? true : false,
+    },
+    elapsedMs: elapsed(),
+  });
   return json({
     success: true,
-    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined },
+    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined, correlation_id: correlationId },
   });
 });
