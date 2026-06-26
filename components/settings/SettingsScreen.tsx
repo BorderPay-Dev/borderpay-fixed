@@ -21,12 +21,14 @@ import {
   MapPin,
   Fingerprint,
   Mail,
+  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { SecurityStatus, PINManager, TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface SettingsScreenProps {
   userId: string;
@@ -37,6 +39,7 @@ interface SettingsScreenProps {
 }
 
 export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }: SettingsScreenProps) {
+  const SHOW_ADMIN_EMAIL_OPS = false;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [suspending, setSuspending] = useState(false);
   const [has2FA, setHas2FA] = useState(false);
@@ -45,6 +48,11 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const tc = useThemeClasses();
   const storedUser = authAPI.getStoredUser();
   const isBusinessAccount = storedUser?.account_type === 'business';
+  const [isAdminUser, setIsAdminUser] = useState<boolean>(storedUser?.is_admin === true);
+
+  useEffect(() => {
+    navPerfTrackCache('settings', !!storedUser);
+  }, [storedUser]);
 
   // Warm settings child screens in background so subpage taps are instant.
   useEffect(() => {
@@ -74,17 +82,9 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         // user_profiles). Read both in parallel and OR with TOTPManager so the
         // toggle never flickers ON-then-OFF for a user who actually has 2FA.
         const totpOn = TOTPManager.isEnabled(userId);
-        const [profileRes, secRes] = await Promise.all([
-          backendAPI.user.getProfile(),
-          backendAPI.auth.getSecurityStatus(userId),
-        ]);
+        const secRes = await backendAPI.auth.getSecurityStatus(userId);
         let hasPin = totpOn ? false : false;
         let has2fa = totpOn;
-        if (profileRes.success && profileRes.data?.user) {
-          const p = profileRes.data.user;
-          hasPin = !!p.pin_set || hasPin;
-          has2fa = !!p.two_factor_enabled || has2fa;
-        }
         if (secRes.success) {
           const s: any = secRes.data;
           hasPin = !!s?.pin_set || hasPin;
@@ -162,7 +162,14 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         ...(onLock ? [{ icon: Lock, label: t('settings.lockApp') || 'Lock app', action: 'lock', color: 'text-gray-300' }] : []),
         { icon: LogOut, label: t('settings.logOut'), action: 'logout', color: 'text-red-500' },
       ]
-    }
+    },
+    ...(isAdminUser && SHOW_ADMIN_EMAIL_OPS ? [{
+      title: 'Admin broadcasts',
+      items: [
+        { icon: Users, label: 'Business broadcast', screen: 'admin-broadcast-business', color: 'text-[#C7FF00]' },
+        { icon: Users, label: 'Individual broadcast', screen: 'admin-broadcast-individual', color: 'text-blue-400' },
+      ],
+    }] : [])
   ];
 
   const handleSuspendAccount = async () => {

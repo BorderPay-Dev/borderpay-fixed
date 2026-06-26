@@ -330,9 +330,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Load institutions when method/currency changes
   // ---------------------------------------------------------------------------
   useEffect(() => {
+    // Keep route first-paint instant: only fetch rails once the user actually
+    // enters details, not while still on method selection.
+    if (step === 'method') return;
     if (method === 'us_ach_wire' || method === 'stablecoin') return;
     loadInstitutions();
-  }, [method, selectedCurrency]);
+  }, [step, method, selectedCurrency]);
 
   const loadInstitutions = async () => {
     setLoadingInstitutions(true);

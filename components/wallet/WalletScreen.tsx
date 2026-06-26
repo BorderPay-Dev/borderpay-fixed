@@ -107,6 +107,19 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
 
+  const shouldRunProviderSync = () => {
+    try {
+      const key = `borderpay_provider_sync_wallet:${userId}`;
+      const now = Date.now();
+      const last = Number(localStorage.getItem(key) || '0');
+      if (Number.isFinite(last) && now - last < 5 * 60 * 1000) return false;
+      localStorage.setItem(key, String(now));
+      return true;
+    } catch {
+      return true;
+    }
+  };
+
   useEffect(() => {
     navPerfTrackCache('wallet-detail', stables.length > 0 || vas.length > 0);
   }, [stables.length, vas.length]);
@@ -137,36 +150,38 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(tot)); } catch { /* noop */ }
       }
       // Provider provisioning/sync is background-only; never block first paint.
-      void Promise.allSettled([
-        backendAPI.bridge.provisionStablecoins(),
-        backendAPI.bridge.syncAccounts(),
-      ]).then(async () => {
-        try {
-          const next: any = await backendAPI.financial.getWalletRouteData();
-          const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
-          const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
-          setStables(nextStables);
-          setVas(nextVas);
-          try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
-          try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVas)); } catch { /* noop */ }
-          const nextRows: any[] = Array.isArray(next?.data?.wallets) ? next.data.wallets : [];
-          if (nextRows.length > 0) {
-            const mapped = nextRows.reduce((acc: Record<string, number>, w: any) => {
-              const c = String(w?.currency || '').toUpperCase();
-              if (!c) return acc;
-              acc[c] = Number(w?.balance || 0);
-              return acc;
-            }, {});
-            setBalanceByCurrency(mapped);
-            try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
-            const nextTot = nextRows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
-            setTotalUsd(nextTot);
-            try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(nextTot)); } catch { /* noop */ }
+      if (shouldRunProviderSync()) {
+        void Promise.allSettled([
+          backendAPI.bridge.provisionStablecoins(),
+          backendAPI.bridge.syncAccounts(),
+        ]).then(async () => {
+          try {
+            const next: any = await backendAPI.financial.getWalletRouteData();
+            const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
+            const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
+            setStables(nextStables);
+            setVas(nextVas);
+            try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
+            try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVas)); } catch { /* noop */ }
+            const nextRows: any[] = Array.isArray(next?.data?.wallets) ? next.data.wallets : [];
+            if (nextRows.length > 0) {
+              const mapped = nextRows.reduce((acc: Record<string, number>, w: any) => {
+                const c = String(w?.currency || '').toUpperCase();
+                if (!c) return acc;
+                acc[c] = Number(w?.balance || 0);
+                return acc;
+              }, {});
+              setBalanceByCurrency(mapped);
+              try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
+              const nextTot = nextRows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+              setTotalUsd(nextTot);
+              try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(nextTot)); } catch { /* noop */ }
+            }
+          } catch {
+            // keep first snapshot
           }
-        } catch {
-          // keep first snapshot
-        }
-      });
+        });
+      }
     } catch {
       // Keep cached data visible; refresh is best-effort.
     } finally {
