@@ -201,11 +201,11 @@ export function AppShell({
   }, [onRoute]);
   const goFromDrawer = useCallback((next: AppRoute) => {
     setDrawerOpen(false);
-    window.setTimeout(() => onRoute(next), 0);
+    onRoute(next);
   }, [onRoute]);
   const closeDrawerThen = useCallback((fn: () => void) => {
     setDrawerOpen(false);
-    window.setTimeout(fn, 0);
+    fn();
   }, []);
 
   const prefetchRoute = useCallback((next: AppRoute) => {
