@@ -52,10 +52,22 @@ async function apiCall<T = any>(
       ...options.headers,
     } as Record<string, string>;
 
-    const response = await fetch(`${BASE_URL}/${endpoint}`, {
-      ...options,
-      headers,
-    });
+    const shouldAddTimeout = !options.signal;
+    const timeoutController = shouldAddTimeout ? new AbortController() : null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    if (timeoutController) {
+      timeoutId = setTimeout(() => timeoutController.abort(), 8000);
+    }
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/${endpoint}`, {
+        ...options,
+        signal: options.signal ?? timeoutController?.signal,
+        headers,
+      });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
 
     const raw = await response.text();
     let data: any = null;
@@ -139,7 +151,22 @@ async function apiCallPublic<T = any>(
       ...options.headers,
     };
 
-    const response = await fetch(`${BASE_URL}/${endpoint}`, { ...options, headers });
+    const shouldAddTimeout = !options.signal;
+    const timeoutController = shouldAddTimeout ? new AbortController() : null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    if (timeoutController) {
+      timeoutId = setTimeout(() => timeoutController.abort(), 8000);
+    }
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/${endpoint}`, {
+        ...options,
+        signal: options.signal ?? timeoutController?.signal,
+        headers,
+      });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
     const raw = await response.text();
     let data: any = null;
     if (raw) {
