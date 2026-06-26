@@ -219,6 +219,11 @@ export function AppShell({
 
   useEffect(() => {
     if (!drawerOpen) return;
+    const prewarmKey = `borderpay_drawer_prewarm_v1:${isBusinessAccount ? 'business' : 'individual'}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 120_000) return;
+    } catch { /* noop */ }
     // P0 runtime parity: burger navigation must feel instant. Warm common
     // drawer targets at open-time (idle) so first tap is chunk-hot.
     const warm = () => {
@@ -243,6 +248,7 @@ export function AppShell({
       };
     }
     const t = window.setTimeout(warm, 180);
+    try { sessionStorage.setItem(prewarmKey, String(Date.now())); } catch { /* noop */ }
     return () => { window.clearTimeout(t); };
   }, [drawerOpen, isBusinessAccount, onOpenPayoutAccounts, onOpenWithdrawalWallets, prefetchRoute, prefetchScreen]);
 

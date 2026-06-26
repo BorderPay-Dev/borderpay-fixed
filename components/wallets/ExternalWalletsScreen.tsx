@@ -7,7 +7,7 @@
  * loading), skeleton only on a cold first load.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2, Sparkles, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI, type ExternalWallet } from '../../utils/api/backendAPI';
@@ -59,6 +59,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
 
   const cached = readCache(cacheKey);
   const [wallets, setWallets] = useState<ExternalWallet[]>(cached);
+  const walletsRef = useRef<ExternalWallet[]>(cached);
   const [loading, setLoading] = useState(cached.length === 0);
   const [adding, setAdding]   = useState(false);
   const [saving, setSaving]   = useState(false);
@@ -70,8 +71,12 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const [asset, setAsset]     = useState('USDC');
   const [address, setAddress] = useState('');
 
+  useEffect(() => {
+    walletsRef.current = wallets;
+  }, [wallets]);
+
   const load = async (force = false) => {
-    const seededWallets = wallets.length > 0 ? wallets : readCache(cacheKey);
+    const seededWallets = walletsRef.current.length > 0 ? walletsRef.current : readCache(cacheKey);
     const isColdStart = seededWallets.length === 0;
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
@@ -90,17 +95,24 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     finally { setLoading(false); }
   };
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['send-money', 'wallet-detail', 'external-accounts', 'transactions', 'settings'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    const prewarmKey = `borderpay_external_wallets_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['send-money', 'wallet-detail', 'external-accounts', 'transactions', 'settings'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
 
     load();
     const onFocus = () => { void load(); };
@@ -113,7 +125,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  /* eslint-disable-next-line */ }, []);
+  /* eslint-disable-next-line */ }, [userId]);
 
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }
