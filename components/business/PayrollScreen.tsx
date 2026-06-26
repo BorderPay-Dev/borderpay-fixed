@@ -68,7 +68,7 @@ export function PayrollScreen({
     }));
     prefetch('bulk-payout');
     try { localStorage.setItem(prefillKey, JSON.stringify({ asset, items })); } catch { /* ignore */ }
-    window.setTimeout(onOpenBulkPayout, 0);
+    onOpenBulkPayout();
   };
 
   return (

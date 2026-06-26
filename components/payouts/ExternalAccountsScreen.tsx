@@ -202,7 +202,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
           onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
           onClick={() => {
             try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
-            window.setTimeout(onAdd, 0);
+            onAdd();
           }}
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold"
         >
@@ -245,7 +245,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
               onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
               onClick={() => {
                 try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
-                window.setTimeout(onAdd, 0);
+                onAdd();
               }}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold"
             >
