@@ -89,10 +89,10 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       // Skip if signal already aborted (e.g. rapid unmount/remount)
       if (controller.signal.aborted) return;
 
-      const result = await backendAPI.notifications.getUnreadCount(controller.signal);
+      const result: any = await backendAPI.notifications.getUnreadCount(controller.signal);
       if (controller.signal.aborted) return;
       if (result.success && result.data) {
-        setUnreadCount(result.data.unread_count ?? 0);
+        setUnreadCount(Number((result.data as any).notifications_unread_count || 0));
       }
     } catch (error: any) {
       // Silently ignore abort and network errors for polling
@@ -102,11 +102,13 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   const loadNotifications = async () => {
     setLoading(true);
     try {
-      const result = await backendAPI.notifications.getNotifications(20);
+      const result: any = await backendAPI.notifications.getNotifications(50);
       if (result.success && result.data) {
-        const items = result.data.notifications;
+        const items = Array.isArray((result.data as any)?.notifications)
+          ? (result.data as any).notifications
+          : (Array.isArray(result.data) ? result.data : []);
         setNotifications(Array.isArray(items) ? items : []);
-        setUnreadCount(result.data.unread_count ?? 0);
+        setUnreadCount(items.filter((n: any) => !n?.read).length);
       }
     } catch (_) {
       // Silent — notifications panel shows empty state
