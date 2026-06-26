@@ -117,7 +117,9 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   const refresh = async (force = false) => {
-    const isColdStart = stables.length === 0 && vas.length === 0;
+    const seededStables = stables.length > 0 ? stables : (() => { try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; } })();
+    const seededVas = vas.length > 0 ? vas : (() => { try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; } })();
+    const isColdStart = seededStables.length === 0 && seededVas.length === 0;
     if (isColdStart) setLoading(true);
     setRefreshing(true);
     try {
@@ -161,7 +163,19 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
-  useEffect(() => { if (isVerified) refresh(); /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
+  useEffect(() => {
+    if (isVerified) refresh();
+    const onFocus = () => { if (isVerified) void refresh(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && isVerified) void refresh(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
 
   // Missing VA currencies (the inline "Open X account" rows)
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
