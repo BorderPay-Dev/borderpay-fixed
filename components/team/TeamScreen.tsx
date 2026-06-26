@@ -51,7 +51,7 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 8_000;
+const TEAM_LOAD_TIMEOUT_MS = 2_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;

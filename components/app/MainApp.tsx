@@ -360,7 +360,17 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
   const [shellUserName, setShellUserName] = useState<string>(() => {
-    try { return getBusinessDisplayName(JSON.parse(localStorage.getItem('borderpay_user') || '{}')); } catch { return 'User'; }
+    try {
+      const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      const inferredBusiness =
+        String(cached?.account_type || '').toLowerCase() === 'business' || hasBusinessAccountCached();
+      return getBusinessDisplayName({
+        ...cached,
+        account_type: inferredBusiness ? 'business' : (cached?.account_type || 'individual'),
+      });
+    } catch {
+      return hasBusinessAccountCached() ? 'Business account' : 'User';
+    }
   });
   const [shellAvatarUrl, setShellAvatarUrl] = useState<string | null>(() => {
     try { return JSON.parse(localStorage.getItem('borderpay_user') || '{}')?.profile_picture_url || null; } catch { return null; }
