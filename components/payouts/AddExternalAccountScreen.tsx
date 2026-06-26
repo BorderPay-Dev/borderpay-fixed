@@ -90,7 +90,20 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
       } finally {
         setCapabilityLoading(false);
       }
-    })();
+    };
+
+    void loadCapabilities();
+    const onFocus = () => { void loadCapabilities(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadCapabilities();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async () => {
