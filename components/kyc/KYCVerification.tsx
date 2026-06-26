@@ -137,6 +137,25 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const startVerification = async () => {
     setVerifying(true);
     try {
+      // Fast-path for mobile/PWA clients: if we already have a hosted link
+      // cached for this user, open it immediately to avoid extra network
+      // dependency on slower Android WebViews.
+      try {
+        const profileResult = await backendAPI.user.getProfile();
+        const prof = profileResult?.success ? profileResult?.data?.user : null;
+        const existing =
+          (accountType === 'business'
+            ? (prof?.bridge_kyb_link_url || prof?.kyb_link_url)
+            : (prof?.bridge_kyc_link_url || prof?.kyc_link_url)) ||
+          localStorage.getItem(`borderpay_last_verify_url:${userId}`);
+        if (existing && typeof existing === 'string') {
+          openHostedVerificationUrl(existing);
+          return;
+        }
+      } catch {
+        // continue with fresh hosted-link generation
+      }
+
       // Always resolve account type from fresh profile before routing to KYC/KYB.
       let currentAccountType: AccountType = accountType;
       try {
