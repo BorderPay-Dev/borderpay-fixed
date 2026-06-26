@@ -71,7 +71,8 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const [address, setAddress] = useState('');
 
   const load = async (force = false) => {
-    const isColdStart = wallets.length === 0;
+    const seededWallets = wallets.length > 0 ? wallets : readCache(cacheKey);
+    const isColdStart = seededWallets.length === 0;
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
       if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) return;
@@ -88,7 +89,19 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     } catch { /* keep cache */ }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    load();
+    const onFocus = () => { void load(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  /* eslint-disable-next-line */ }, []);
 
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }
