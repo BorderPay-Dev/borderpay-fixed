@@ -108,11 +108,13 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'terms-of-service': eagerPreload,
   'privacy-policy': eagerPreload,
   preferences: eagerPreload,
-  'usd-account': (USDAccountScreen as any).preload,
-  'momo-collect': (MomoCollectionScreen as any).preload,
-  'create-counterparty': (CreateCounterpartyScreen as any).preload,
-  'stablecoin-deposit': (StablecoinDepositScreen as any).preload,
-  'stablecoin-confirm': (StablecoinConfirmScreen as any).preload,
+  // Legacy provider-specific funding/counterparty forms are intentionally
+  // not preloaded in live runtime. Bridge-backed receive/send flows remain.
+  'usd-account': eagerPreload,
+  'momo-collect': eagerPreload,
+  'create-counterparty': eagerPreload,
+  'stablecoin-deposit': eagerPreload,
+  'stablecoin-confirm': eagerPreload,
   'help-center': eagerPreload,
   'proof-of-address': eagerPreload,
   referral: (ReferralScreen as any).preload,
@@ -920,58 +922,24 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         return <PreferencesScreen onBack={navigateBack} />;
 
       case 'usd-account':
-        return (
-          <USDAccountScreen
-            onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
-          />
-        );
+        navigateTo('receive-money');
+        return null;
 
       case 'momo-collect':
-        return (
-          <MomoCollectionScreen
-            onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
-          />
-        );
+        navigateTo('receive-money');
+        return null;
 
       case 'create-counterparty':
-        return (
-          <CreateCounterpartyScreen
-            userId={userId}
-            onBack={navigateBack}
-            onSuccess={() => { navigateBack(); handleRefresh(); }}
-          />
-        );
+        navigateTo('send-money');
+        return null;
 
       case 'stablecoin-deposit':
-        return (
-          <StablecoinDepositScreen
-            onBack={navigateBack}
-            onConfirm={(data: StablecoinConfirmData) => {
-              setStablecoinConfirmData(data);
-              navigateTo('stablecoin-confirm');
-            }}
-          />
-        );
+        navigateTo('receive-money');
+        return null;
 
       case 'stablecoin-confirm':
-        return stablecoinConfirmData ? (
-          <StablecoinConfirmScreen
-            onBack={navigateBack}
-            onDone={() => {
-              setStablecoinConfirmData(null);
-              navigateTo('dashboard');
-              handleRefresh();
-            }}
-            txType={stablecoinConfirmData.txType}
-            currency={stablecoinConfirmData.currency}
-            amount={stablecoinConfirmData.amount}
-            network={stablecoinConfirmData.network}
-            address={stablecoinConfirmData.address}
-            txHash={stablecoinConfirmData.txHash}
-          />
-        ) : null;
+        navigateTo('receive-money');
+        return null;
 
       case 'help-center':
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;

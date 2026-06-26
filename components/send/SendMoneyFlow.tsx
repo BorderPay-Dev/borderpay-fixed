@@ -942,7 +942,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 creatingCounterparty={creatingCounterparty}
                 setCreatingCounterparty={setCreatingCounterparty}
                 wallets={wallets}
-                onNavigateToFullForm={onNavigate ? () => onNavigate('create-counterparty') : undefined}
+                onNavigateToFullForm={undefined}
               />
             )}
 
