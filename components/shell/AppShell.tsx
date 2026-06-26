@@ -217,6 +217,35 @@ export function AppShell({
     (window as any).__borderpay_prefetch?.(screen);
   }, []);
 
+  useEffect(() => {
+    if (!drawerOpen) return;
+    // P0 runtime parity: burger navigation must feel instant. Warm common
+    // drawer targets at open-time (idle) so first tap is chunk-hot.
+    const warm = () => {
+      try {
+        prefetchRoute('dashboard');
+        prefetchRoute('wallet');
+        prefetchRoute('send');
+        prefetchRoute('receive');
+        prefetchRoute('transactions');
+        prefetchRoute('settings');
+        prefetchRoute('kyc');
+        if (isBusinessAccount) prefetchRoute('team');
+        if (onOpenPayoutAccounts) prefetchScreen('external-accounts');
+        if (onOpenWithdrawalWallets) prefetchScreen('external-wallets');
+      } catch { /* noop */ }
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') {
+      const id = ric(warm, { timeout: 900 });
+      return () => {
+        try { (window as any).cancelIdleCallback?.(id); } catch { /* noop */ }
+      };
+    }
+    const t = window.setTimeout(warm, 180);
+    return () => { window.clearTimeout(t); };
+  }, [drawerOpen, isBusinessAccount, onOpenPayoutAccounts, onOpenWithdrawalWallets, prefetchRoute, prefetchScreen]);
+
   const primaryTabs = useMemo(() => {
     const shared = [
       { route: 'dashboard' as AppRoute, icon: Home, label: tt('nav.home', 'Home') },
