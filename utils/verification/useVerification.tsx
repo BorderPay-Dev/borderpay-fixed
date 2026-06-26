@@ -118,7 +118,7 @@ export function useVerification(userId: string): VerificationStatus {
  * Updated to use kycTier for gating.
  */
 export function canAccessFeature(
-  feature: 'wallet' | 'cards' | 'transfers' | 'bills' | 'usd-account',
+  feature: 'wallet' | 'cards' | 'transfers' | 'bills',
   verificationStatus: VerificationStatus
 ): { canAccess: boolean; reason?: string } {
 

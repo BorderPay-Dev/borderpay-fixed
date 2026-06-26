@@ -72,11 +72,6 @@ const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
-const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
-const MomoCollectionScreen = lazyImport(() => import('../momo/MomoCollectionScreen').then(m => ({ default: m.MomoCollectionScreen })));
-const CreateCounterpartyScreen = lazyImport(() => import('../counterparty/CreateCounterpartyScreen').then(m => ({ default: m.CreateCounterpartyScreen })));
-const StablecoinDepositScreen = lazyImport(() => import('../wallets/StablecoinDepositScreen').then(m => ({ default: m.StablecoinDepositScreen })));
-const StablecoinConfirmScreen = lazyImport(() => import('../wallets/StablecoinConfirmScreen').then(m => ({ default: m.StablecoinConfirmScreen })));
 const ReferralScreen = lazyImport(() => import('../referral/ReferralScreen').then(m => ({ default: m.ReferralScreen })));
 const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
 const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
@@ -108,13 +103,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'terms-of-service': eagerPreload,
   'privacy-policy': eagerPreload,
   preferences: eagerPreload,
-  // Legacy provider-specific funding/counterparty forms are intentionally
-  // not preloaded in live runtime. Bridge-backed receive/send flows remain.
-  'usd-account': eagerPreload,
-  'momo-collect': eagerPreload,
-  'create-counterparty': eagerPreload,
-  'stablecoin-deposit': eagerPreload,
-  'stablecoin-confirm': eagerPreload,
   'help-center': eagerPreload,
   'proof-of-address': eagerPreload,
   referral: (ReferralScreen as any).preload,
@@ -275,11 +263,6 @@ export type AppScreen =
   | 'terms-of-service'
   | 'privacy-policy'
   | 'preferences'
-  | 'usd-account'
-  | 'momo-collect'
-  | 'create-counterparty'
-  | 'stablecoin-deposit'
-  | 'stablecoin-confirm'
   | 'referral'
   | 'biometric-setup'
   | 'help-center'
@@ -920,26 +903,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'preferences':
         return <PreferencesScreen onBack={navigateBack} />;
-
-      case 'usd-account':
-        navigateTo('receive-money');
-        return null;
-
-      case 'momo-collect':
-        navigateTo('receive-money');
-        return null;
-
-      case 'create-counterparty':
-        navigateTo('send-money');
-        return null;
-
-      case 'stablecoin-deposit':
-        navigateTo('receive-money');
-        return null;
-
-      case 'stablecoin-confirm':
-        navigateTo('receive-money');
-        return null;
 
       case 'help-center':
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
