@@ -50,6 +50,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const isBusinessAccount = storedUser?.account_type === 'business';
   const [isAdminUser, setIsAdminUser] = useState<boolean>(storedUser?.is_admin === true);
   const settingsSecurityCacheKey = `borderpay_settings_security_v1:${userId}`;
+  const settingsSecurityRefreshTsKey = `borderpay_settings_security_refresh_ts_v1:${userId}`;
 
   useEffect(() => {
     navPerfTrackCache('settings', !!storedUser);
@@ -87,7 +88,15 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       }
     } catch { /* noop */ }
 
-    const loadStatus = async () => {
+    const loadStatus = async (force = false) => {
+      try {
+        const last = Number(localStorage.getItem(settingsSecurityRefreshTsKey) || '0');
+        const hasSeed = !!localStorage.getItem(settingsSecurityCacheKey);
+        if (!force && hasSeed && Number.isFinite(last) && Date.now() - last < 60_000) {
+          return;
+        }
+      } catch { /* noop */ }
+
       try {
         // 2FA truth lives in `user_security` (not always denormalised onto
         // user_profiles). Read both in parallel and OR with TOTPManager so the
@@ -104,15 +113,17 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         setHasPIN(hasPin);
         setHas2FA(has2fa);
         try { localStorage.setItem(settingsSecurityCacheKey, JSON.stringify({ hasPIN: hasPin, has2FA: has2fa, ts: Date.now() })); } catch { /* noop */ }
+        try { localStorage.setItem(settingsSecurityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       } catch (e) {
         // Fallback to client-side SecurityManager if backend fails
         const secStatus = SecurityStatus.get(userId);
         setHasPIN(secStatus.hasPIN);
         setHas2FA(secStatus.has2FA);
         try { localStorage.setItem(settingsSecurityCacheKey, JSON.stringify({ hasPIN: secStatus.hasPIN, has2FA: secStatus.has2FA, ts: Date.now() })); } catch { /* noop */ }
+        try { localStorage.setItem(settingsSecurityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       }
     };
-    loadStatus();
+    loadStatus(true);
 
     const onFocus = () => { void loadStatus(); };
     const onVisibility = () => {
@@ -125,7 +136,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [settingsSecurityCacheKey, userId]);
+  }, [settingsSecurityCacheKey, settingsSecurityRefreshTsKey, userId]);
 
   const settingsSections = [
     {
