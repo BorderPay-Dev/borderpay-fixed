@@ -44,7 +44,16 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const storedUser = authAPI.getStoredUser();
-  const isBusinessAccount = storedUser?.account_type === 'business';
+  const isBusinessAccount = (() => {
+    if (storedUser?.account_type === 'business') return true;
+    try {
+      const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      if (String(cached?.account_type || '').toLowerCase() === 'business') return true;
+      const hasCachedBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
+      if (hasCachedBusinessName) return true;
+    } catch { /* noop */ }
+    return false;
+  })();
   const settingsSecurityCacheKey = `borderpay_settings_security_v1:${userId}`;
   const settingsSecurityRefreshTsKey = `borderpay_settings_security_refreshed_at:${userId}`;
 

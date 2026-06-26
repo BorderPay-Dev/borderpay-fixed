@@ -76,9 +76,10 @@ function readTxCache(cacheKey: string, userId: string): Transaction[] {
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
   const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey(TX_REFRESH_TS_KEY, { userId });
+  const seededRows = readTxCache(cacheKey, userId);
   // Seed from cache so the history paints instantly on open, then refreshes.
-  const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache(cacheKey, userId));
-  const [loading, setLoading] = useState(false);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => seededRows);
+  const [loading, setLoading] = useState(seededRows.length === 0);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
   const [showFilters, setShowFilters] = useState(false);

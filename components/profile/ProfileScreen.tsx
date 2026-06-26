@@ -167,9 +167,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     }
 
     loadProfile();
-    const onFocus = () => { void loadProfile(true); };
+    // Keep route transitions instant: focus/visibility should revalidate
+    // through the same refresh throttle, not force a blocking fetch each hop.
+    const onFocus = () => { void loadProfile(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void loadProfile(true);
+      if (document.visibilityState === 'visible') void loadProfile();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
