@@ -292,7 +292,10 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
                       key={itemIndex}
                       onPointerDown={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
                       onMouseEnter={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
-                      onClick={() => handleItemClick(item)}
+                      onClick={() => {
+                        if (item.screen) (window as any).__borderpay_prefetch?.(item.screen);
+                        handleItemClick(item);
+                      }}
                       disabled={suspending}
                       className={`w-full flex items-center gap-3 px-4 py-3 ${tc.hoverBg} transition-colors ${
                         itemIndex !== section.items.length - 1 ? `border-b ${tc.borderLight}` : ''

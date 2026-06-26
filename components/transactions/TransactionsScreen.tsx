@@ -39,16 +39,45 @@ interface Transaction {
 
 const TX_CACHE_KEY = 'borderpay_tx_history_v1';
 const TX_REFRESH_TS_KEY = 'borderpay_tx_refresh_ts_v1';
-function readTxCache(cacheKey: string): Transaction[] {
-  try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
-  catch { return []; }
+const DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1';
+const BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1';
+function normalizeTxRows(rows: any[]): Transaction[] {
+  return rows
+    .map((r: any) => ({
+      id: String(r?.id || ''),
+      type: String(r?.type || r?.transaction_type || ''),
+      amount: Number(r?.amount || 0),
+      currency: String(r?.currency || '').toUpperCase(),
+      description: String(r?.description || r?.memo || 'Transaction'),
+      status: (String(r?.status || 'pending').toLowerCase() as Transaction['status']),
+      created_at: String(r?.created_at || new Date().toISOString()),
+      recipient: r?.recipient || undefined,
+      sender: r?.sender || undefined,
+      metadata: r?.metadata || undefined,
+    }))
+    .filter((r: Transaction) => !!r.id);
+}
+function readTxCache(cacheKey: string, userId: string): Transaction[] {
+  try {
+    const raw = localStorage.getItem(cacheKey);
+    const primary = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(primary) && primary.length > 0) return primary;
+  } catch { /* continue to fallback */ }
+  try {
+    const recent = JSON.parse(localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');
+    if (Array.isArray(recent) && recent.length > 0) return normalizeTxRows(recent);
+    const bizKey = financialCacheKey(BIZ_DASH_TX_KEY, { userId, accountType: 'business' });
+    const biz = JSON.parse(localStorage.getItem(bizKey) || '[]');
+    if (Array.isArray(biz) && biz.length > 0) return normalizeTxRows(biz);
+  } catch { /* noop */ }
+  return [];
 }
 
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
   const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey(TX_REFRESH_TS_KEY, { userId });
   // Seed from cache so the history paints instantly on open, then refreshes.
-  const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache(cacheKey));
+  const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache(cacheKey, userId));
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
