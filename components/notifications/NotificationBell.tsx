@@ -100,7 +100,8 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   };
 
   const loadNotifications = async () => {
-    setLoading(true);
+    // Keep existing rows visible; only show spinner on a cold open.
+    if (notifications.length === 0) setLoading(true);
     try {
       const result: any = await backendAPI.notifications.getNotifications(50);
       if (result.success && result.data) {
