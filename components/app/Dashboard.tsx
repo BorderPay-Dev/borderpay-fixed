@@ -138,6 +138,20 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   }, [userId]);
   const cachedKycStatus = deriveBridgeOnboardingStatus(cachedProfile);
   const isCachedVerified = cachedKycStatus === 'verified';
+  const cachedIdentity = useMemo(() => {
+    const stored = authAPI.getStoredUser() as any;
+    const meta = stored?.user_metadata || {};
+    const fullName =
+      cachedProfile?.full_name ||
+      stored?.full_name ||
+      meta?.full_name ||
+      '';
+    const email =
+      cachedProfile?.email ||
+      stored?.email ||
+      '';
+    return { fullName: String(fullName || ''), email: String(email || '') };
+  }, [cachedProfile]);
   // Canonical 2FA signal (LoginScreen uses TOTPManager) so the dashboard agrees.
   const cached2FA = useMemo(() => {
     try { return !!cachedSecurity.has2FA || TOTPManager.isEnabled(userId); } catch { return !!cachedSecurity.has2FA; }
@@ -149,7 +163,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
   const [profilePicLoaded, setProfilePicLoaded] = useState(false);
-  const [userFullName, setUserFullName]   = useState<string>(cachedProfile?.full_name || '');
+  const [userFullName, setUserFullName]   = useState<string>(cachedIdentity.fullName);
   // Derive an initial account status from the cached profile so we never
   // first-paint "starter" on a verified user.
   const [accountStatus, setAccountStatus] = useState<AccountStatus>(() => {
@@ -165,7 +179,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // (the COO on a fresh browser).
   const [securityLoaded, setSecurityLoaded] = useState<boolean>(false);
   // Legacy provider status state removed — AffiliateBanner now gates on Bridge KYC only.
-  const [userEmail, setUserEmail]         = useState<string>(cachedProfile?.email || '');
+  const [userEmail, setUserEmail]         = useState<string>(cachedIdentity.email);
   const [hasPIN, setHasPIN]               = useState<boolean>(!!cachedSecurity.hasPIN);
   // Seed wallets / balance / recent activity from cache so the dashboard never
   // first-paints $0.00 or an empty activity list, then refreshes silently.
