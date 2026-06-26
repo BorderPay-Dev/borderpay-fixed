@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -165,6 +165,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [stableWallets, setStableWallets] = useState<StableWallet[]>([]);
+  const stableWalletsRef = useRef<StableWallet[]>([]);
   const [hasVirtualAccount, setHasVirtualAccount] = useState(false);
 
   const [sourceWalletId, setSourceWalletId] = useState('');
@@ -190,6 +191,10 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     () => destinationWallets.find((w) => w.id === destinationWalletId) || null,
     [destinationWalletId, destinationWallets],
   );
+
+  useEffect(() => {
+    stableWalletsRef.current = stableWallets;
+  }, [stableWallets]);
 
   useEffect(() => {
     if (destinationWallets.length === 0) {
@@ -285,7 +290,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     if (foreground) setSnapshotLoading(true);
     try {
       try {
-        const hasCachedRoute = Array.isArray(stableWallets) && stableWallets.length > 0;
+        const hasCachedRoute = Array.isArray(stableWalletsRef.current) && stableWalletsRef.current.length > 0;
         const last = Number(localStorage.getItem(FX_ROUTE_REFRESH_TS_KEY) || '0');
         if (!foreground && hasCachedRoute && Number.isFinite(last) && Date.now() - last < 30_000) {
           return;
@@ -406,17 +411,24 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   useEffect(() => {
     let hasCachedRates = false;
     let hasCachedRoute = false;
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['wallet-detail', 'send-money', 'transactions', 'settings', 'profile'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    const prewarmKey = 'borderpay_fx_prewarm_v1';
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['wallet-detail', 'send-money', 'transactions', 'settings', 'profile'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
     try {
       const cached = JSON.parse(localStorage.getItem(FX_RATES_CACHE_KEY) || 'null');
       if (cached && Array.isArray(cached.rates) && cached.rates.length > 0) {
