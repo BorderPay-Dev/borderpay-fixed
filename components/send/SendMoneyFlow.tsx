@@ -25,7 +25,6 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from '../ui/input-otp';
-import { USPaymentDetails } from './USPaymentDetails';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
@@ -54,6 +53,19 @@ interface Wallet {
   currency: string;
   balance: number;
   symbol?: string;
+  bridge_wallet_id?: string | null;
+}
+
+interface ExternalAccountOption {
+  id: string;
+  bridge_external_account_id: string;
+  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  currency: string;
+  account_owner_name: string | null;
+  bank_name: string | null;
+  last_4: string | null;
+  rail: string | null;
+  status: string;
 }
 
 interface SendMoneyFlowProps {
@@ -156,29 +168,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
 
-
-  // US Payments (ACH/Wire) state
-  const [usCounterparties, setUsCounterparties] = useState<any[]>([]);
-  const [selectedCounterparty, setSelectedCounterparty] = useState<any>(null);
-  const [loadingCounterparties, setLoadingCounterparties] = useState(false);
-  const [showCounterpartyList, setShowCounterpartyList] = useState(false);
-  const [paymentRail, setPaymentRail] = useState<'ACH' | 'ACH-ACCELERATED' | 'FEDWIRE'>('ACH');
+  // External bank payout state (Bridge external accounts)
+  const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>([]);
+  const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>('');
   const [usMemo, setUsMemo] = useState('');
-  const [showNewCounterparty, setShowNewCounterparty] = useState(false);
-  // New counterparty form fields
-  const [cpFirstName, setCpFirstName] = useState('');
-  const [cpLastName, setCpLastName] = useState('');
-  const [cpIsCorporate, setCpIsCorporate] = useState(false);
-  const [cpBusinessName, setCpBusinessName] = useState('');
-  const [cpAccountNumber, setCpAccountNumber] = useState('');
-  const [cpRoutingNumber, setCpRoutingNumber] = useState('');
-  const [cpInstitutionName, setCpInstitutionName] = useState('');
-  const [cpAccountType, setCpAccountType] = useState<'CHECKING' | 'SAVINGS'>('CHECKING');
-  const [cpStreet, setCpStreet] = useState('');
-  const [cpCity, setCpCity] = useState('');
-  const [cpState, setCpState] = useState('');
-  const [cpPostalCode, setCpPostalCode] = useState('');
-  const [creatingCounterparty, setCreatingCounterparty] = useState(false);
 
   // External stablecoin withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'tron', token: 'USDT', address: '' });
@@ -226,6 +219,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
     cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
   );
+  const selectedExternalAccount = useMemo(
+    () => externalAccounts.find((x) => x.bridge_external_account_id === selectedExternalAccountId) || null,
+    [externalAccounts, selectedExternalAccountId],
+  );
 
   // BorderPay Network Fee — corridor-aware, via the revenue fee engine.
   // Provider stays invisible; the total is fully disclosed to the user.
@@ -271,12 +268,41 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           currency: w.currency,
           balance: parseFloat(w.balance) || 0,
           symbol: getCurrencySymbol(w.currency),
+          bridge_wallet_id: w.bridge_wallet_id ?? null,
         }));
         const types = Array.isArray(res?.data?.external_account_capabilities)
           ? res.data.external_account_capabilities
           : [];
+        const ext = Array.isArray(res?.data?.external_accounts)
+          ? res.data.external_accounts.map((row: any, idx: number) => {
+              const rawType = String(row?.account_type || '').toLowerCase();
+              const accountType: ExternalAccountOption['account_type'] =
+                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+              const rawCurrency = String(row?.currency || '');
+              const currency = rawCurrency
+                ? rawCurrency.toUpperCase()
+                : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+              const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
+              return {
+                id: String(row?.id || externalId || `ext_${idx}`),
+                bridge_external_account_id: externalId,
+                account_type: accountType,
+                currency,
+                account_owner_name: row?.account_owner_name ?? null,
+                bank_name: row?.bank_name ?? null,
+                last_4: row?.last_4 ? String(row.last_4) : null,
+                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+                status: String(row?.status || 'active'),
+              } as ExternalAccountOption;
+            }).filter((x: ExternalAccountOption) => !!x.bridge_external_account_id)
+          : [];
         setWallets(list);
         setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+        setExternalAccounts(ext);
+        if (!selectedExternalAccountId && ext.length > 0) {
+          setSelectedExternalAccountId(ext[0].bridge_external_account_id);
+          if (ext[0]?.currency) setSelectedCurrency(ext[0].currency);
+        }
         try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
       } catch {
@@ -287,13 +313,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return () => {
       cancelled = true;
     };
-  }, [userId, sendWalletsCacheKey, sendCapsCacheKey]);
+  }, [userId, sendWalletsCacheKey, sendCapsCacheKey, selectedExternalAccountId]);
 
   // Select wallet when currency changes
   useEffect(() => {
     const w = wallets.find(w => w.currency === selectedCurrency);
     setSelectedWallet(w || null);
   }, [selectedCurrency, wallets]);
+
+  useEffect(() => {
+    if (method !== 'us_ach_wire') return;
+    if (selectedExternalAccount?.currency && selectedExternalAccount.currency !== selectedCurrency) {
+      setSelectedCurrency(selectedExternalAccount.currency);
+    }
+  }, [method, selectedExternalAccount, selectedCurrency]);
 
   // Stablecoin sends must always use the selected stablecoin asset as source.
   useEffect(() => {
@@ -395,7 +428,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   };
 
   const canProceedDetails = () => {
-    if (method === 'us_ach_wire') return !!selectedCounterparty;
+    if (method === 'us_ach_wire') return !!selectedExternalAccount;
     if (method === 'stablecoin') return isValidCryptoAddress(crypto.network, crypto.address);
     return !!selectedBank && accountNumber.length >= 6;
   };
@@ -404,7 +437,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (limitError) return false;
     const num = parseFloat(amount);
     if (method === 'us_ach_wire') {
-      return num > 0 && selectedWallet && num <= selectedWallet.balance && usMemo.trim().length > 0 && reason.trim().length > 0;
+      return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
     }
     if (method === 'stablecoin') {
       return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
@@ -436,13 +469,27 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           idempotency_key: transferIdempotencyKey,
         });
       } else if (method === 'us_ach_wire') {
-        result = await backendAPI.usPayments.transfer({
-          counterparty_id: selectedCounterparty.id,
-          amount: parseFloat(amount),
-          payment_rail: paymentRail,
-          memo: usMemo || 'invoice #1',
-          reason: reason || 'payment for goods and services',
-          transaction_pin: verifiedPin,
+        if (!selectedExternalAccount) {
+          throw new Error('Select an external account');
+        }
+        const destinationRail =
+          selectedExternalAccount.account_type === 'iban' ? 'sepa'
+          : selectedExternalAccount.account_type === 'clabe' ? 'spei'
+          : selectedExternalAccount.account_type === 'pix' ? 'pix'
+          : 'ach';
+        result = await backendAPI.bridge.transfer.create({
+          idempotency_key: transferIdempotencyKey,
+          source: {
+            payment_rail: 'bridge_wallet',
+            currency: selectedCurrency,
+            amount: String(parseFloat(amount)),
+            ...(selectedWallet?.bridge_wallet_id ? { bridge_wallet_id: selectedWallet.bridge_wallet_id } : {}),
+          },
+          destination: {
+            payment_rail: destinationRail,
+            currency: selectedExternalAccount.currency,
+            external_account_id: selectedExternalAccount.bridge_external_account_id,
+          },
         });
       } else {
         const meta = method === 'mobile_money' ? { scheme: 'MOBILEMONEY' } : undefined;
@@ -905,40 +952,48 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
             {/* US Payment (ACH/Wire) Details */}
             {method === 'us_ach_wire' && (
-              <USPaymentDetails
-                tc={tc}
-                t={t}
-                usCounterparties={usCounterparties}
-                selectedCounterparty={selectedCounterparty}
-                setSelectedCounterparty={setSelectedCounterparty}
-                loadingCounterparties={loadingCounterparties}
-                setLoadingCounterparties={setLoadingCounterparties}
-                showCounterpartyList={showCounterpartyList}
-                setShowCounterpartyList={setShowCounterpartyList}
-                showNewCounterparty={showNewCounterparty}
-                setShowNewCounterparty={setShowNewCounterparty}
-                paymentRail={paymentRail}
-                setPaymentRail={setPaymentRail}
-                setUsCounterparties={setUsCounterparties}
-                setSelectedCurrency={setSelectedCurrency}
-                selectedWallet={selectedWallet}
-                cpFirstName={cpFirstName} setCpFirstName={setCpFirstName}
-                cpLastName={cpLastName} setCpLastName={setCpLastName}
-                cpIsCorporate={cpIsCorporate} setCpIsCorporate={setCpIsCorporate}
-                cpBusinessName={cpBusinessName} setCpBusinessName={setCpBusinessName}
-                cpAccountNumber={cpAccountNumber} setCpAccountNumber={setCpAccountNumber}
-                cpRoutingNumber={cpRoutingNumber} setCpRoutingNumber={setCpRoutingNumber}
-                cpInstitutionName={cpInstitutionName} setCpInstitutionName={setCpInstitutionName}
-                cpAccountType={cpAccountType} setCpAccountType={setCpAccountType}
-                cpStreet={cpStreet} setCpStreet={setCpStreet}
-                cpCity={cpCity} setCpCity={setCpCity}
-                cpState={cpState} setCpState={setCpState}
-                cpPostalCode={cpPostalCode} setCpPostalCode={setCpPostalCode}
-                creatingCounterparty={creatingCounterparty}
-                setCreatingCounterparty={setCreatingCounterparty}
-                wallets={wallets}
-                onNavigateToFullForm={undefined}
-              />
+              <div className="space-y-4">
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Destination external account</label>
+                  {externalAccounts.length === 0 ? (
+                    <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
+                      <p className={`text-sm ${tc.textSecondary} mb-3`}>No external accounts available.</p>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate?.('external-accounts')}
+                        className="text-sm font-semibold text-[#C7FF00]"
+                      >
+                        Open External Accounts
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {externalAccounts.map((acc) => (
+                        <button
+                          key={acc.bridge_external_account_id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedExternalAccountId(acc.bridge_external_account_id);
+                            if (acc.currency) setSelectedCurrency(acc.currency);
+                          }}
+                          className={`w-full text-left ${tc.card} border rounded-2xl p-3.5 transition-colors ${
+                            selectedExternalAccountId === acc.bridge_external_account_id
+                              ? 'border-[#C7FF00]/60 bg-[#C7FF00]/10'
+                              : tc.cardBorder
+                          }`}
+                        >
+                          <p className={`text-sm font-semibold ${tc.text}`}>
+                            {acc.account_owner_name || 'External account'} • {acc.currency}
+                          </p>
+                          <p className={`text-xs ${tc.textMuted} mt-1`}>
+                            {(acc.bank_name || acc.account_type.toUpperCase())}{acc.last_4 ? ` • ****${acc.last_4}` : ''}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {/* Continue Button */}
@@ -978,14 +1033,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </>
               ) : method === 'us_ach_wire' ? (
                 <>
-                  <p className={`text-sm font-semibold ${tc.text}`}>{selectedCounterparty?.account_name || selectedCounterparty?.business_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`}</p>
-                  <p className={`text-xs ${tc.textMuted}`}>{selectedCounterparty?.institution_name} • ****{selectedCounterparty?.account_number_last4}</p>
+                  <p className={`text-sm font-semibold ${tc.text}`}>{selectedExternalAccount?.account_owner_name || 'External account'}</p>
+                  <p className={`text-xs ${tc.textMuted}`}>
+                    {(selectedExternalAccount?.bank_name || selectedExternalAccount?.account_type?.toUpperCase() || 'Account')}
+                    {selectedExternalAccount?.last_4 ? ` • ****${selectedExternalAccount.last_4}` : ''}
+                  </p>
                   <div className="flex items-center gap-1.5 mt-1.5">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                      paymentRail === 'FEDWIRE' ? 'bg-orange-500/15 text-orange-400' :
-                      paymentRail === 'ACH-ACCELERATED' ? 'bg-yellow-500/15 text-yellow-400' :
-                      'bg-blue-500/15 text-blue-400'
-                    }`}>{paymentRail}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-400 uppercase">
+                      {selectedExternalAccount?.rail || selectedExternalAccount?.account_type || 'bank'}
+                    </span>
                   </div>
                 </>
               ) : (
@@ -1126,24 +1182,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 {method === 'us_ach_wire' && (
                   <>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usCounterparty')}</span>
-                      <span className={`text-sm font-medium ${tc.text} text-right max-w-[180px]`}>{selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>External account</span>
+                      <span className={`text-sm font-medium ${tc.text} text-right max-w-[180px]`}>{selectedExternalAccount?.account_owner_name || 'External account'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usInstitution')}</span>
-                      <span className={`text-sm font-medium ${tc.text}`}>{selectedCounterparty?.institution_name}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>Institution</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{selectedExternalAccount?.bank_name || selectedExternalAccount?.account_type?.toUpperCase()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usAccountLast4')}</span>
-                      <span className={`text-sm font-mono ${tc.text}`}>****{selectedCounterparty?.account_number_last4}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>Account</span>
+                      <span className={`text-sm font-mono ${tc.text}`}>{selectedExternalAccount?.last_4 ? `****${selectedExternalAccount.last_4}` : '—'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usPaymentRail')}</span>
-                      <span className={`text-sm font-semibold ${
-                        paymentRail === 'FEDWIRE' ? 'text-orange-400' :
-                        paymentRail === 'ACH-ACCELERATED' ? 'text-yellow-400' :
-                        'text-blue-400'
-                      }`}>{paymentRail}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>Rail</span>
+                      <span className="text-sm font-semibold text-blue-400 uppercase">{selectedExternalAccount?.rail || selectedExternalAccount?.account_type || 'bank'}</span>
                     </div>
                     {usMemo && (
                       <div className="flex justify-between">
@@ -1258,7 +1310,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
               <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
               <p className={`text-sm ${tc.textSecondary}`}>
-                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : resolvedName || accountNumber}
+                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedExternalAccount?.account_owner_name || 'External account') : resolvedName || accountNumber}
               </p>
             </div>
 
@@ -1350,7 +1402,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
             <p className={`text-sm ${tc.textMuted} mb-6`}>
-              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : resolvedName || accountNumber}
+              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedExternalAccount?.account_owner_name || 'External account') : resolvedName || accountNumber}
             </p>
 
             {/* Transaction details */}

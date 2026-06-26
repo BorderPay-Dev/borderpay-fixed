@@ -938,19 +938,30 @@ export const financialReadModelAPI = (() => {
     async getSendRouteData() {
       const walletsRes = await walletAPI.getWallets();
       if (!walletsRes?.success) return walletsRes as any;
-      const capsRes: any = await withTimeout(
-        bridgeAPI.externalAccount.capabilities() as Promise<any>,
-        EXTERNAL_FETCH_TIMEOUT_MS,
-        { success: false, error: 'timeout' } as any,
-      );
+      const [capsRes, externalListRes]: any[] = await Promise.all([
+        withTimeout(
+          bridgeAPI.externalAccount.capabilities() as Promise<any>,
+          EXTERNAL_FETCH_TIMEOUT_MS,
+          { success: false, error: 'timeout' } as any,
+        ),
+        withTimeout(
+          bridgeAPI.externalAccount.list() as Promise<any>,
+          EXTERNAL_FETCH_TIMEOUT_MS,
+          { success: false, error: 'timeout' } as any,
+        ),
+      ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
         ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+        : [];
+      const externalAccounts = (externalListRes?.success && Array.isArray(externalListRes?.data?.external_accounts))
+        ? externalListRes.data.external_accounts
         : [];
       return {
         success: true,
         data: {
           wallets: Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
           external_account_capabilities: caps,
+          external_accounts: externalAccounts,
           external_accounts_partial: !capsRes?.success,
         },
       };

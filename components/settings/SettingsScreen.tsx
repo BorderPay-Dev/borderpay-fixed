@@ -49,6 +49,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const isBusinessAccount = storedUser?.account_type === 'business';
   const [isAdminUser, setIsAdminUser] = useState<boolean>(storedUser?.is_admin === true);
   const settingsSecurityCacheKey = `borderpay_settings_security_v1:${userId}`;
+  const settingsSecurityRefreshTsKey = `borderpay_settings_security_refreshed_at:${userId}`;
 
   // Avoid mount-time prefetch fan-out; row-level pointer/hover prefetch below
   // keeps taps snappy without flooding route/chunk requests on entry.
@@ -67,6 +68,10 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
 
     const loadStatus = async () => {
       try {
+        const last = Number(localStorage.getItem(settingsSecurityRefreshTsKey) || '0');
+        if (Number.isFinite(last) && Date.now() - last < 60_000) return;
+      } catch { /* noop */ }
+      try {
         // 2FA truth lives in `user_security` (not always denormalised onto
         // user_profiles). Read both in parallel and OR with TOTPManager so the
         // toggle never flickers ON-then-OFF for a user who actually has 2FA.
@@ -82,16 +87,18 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         setHasPIN(hasPin);
         setHas2FA(has2fa);
         try { localStorage.setItem(settingsSecurityCacheKey, JSON.stringify({ hasPIN: hasPin, has2FA: has2fa, ts: Date.now() })); } catch { /* noop */ }
+        try { localStorage.setItem(settingsSecurityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       } catch (e) {
         // Fallback to client-side SecurityManager if backend fails
         const secStatus = SecurityStatus.get(userId);
         setHasPIN(secStatus.hasPIN);
         setHas2FA(secStatus.has2FA);
         try { localStorage.setItem(settingsSecurityCacheKey, JSON.stringify({ hasPIN: secStatus.hasPIN, has2FA: secStatus.has2FA, ts: Date.now() })); } catch { /* noop */ }
+        try { localStorage.setItem(settingsSecurityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       }
     };
     loadStatus();
-  }, [settingsSecurityCacheKey, userId]);
+  }, [settingsSecurityCacheKey, settingsSecurityRefreshTsKey, userId]);
 
   const settingsSections = [
     {
