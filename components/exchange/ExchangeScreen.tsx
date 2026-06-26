@@ -484,7 +484,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             FX conversion
           </h1>
           <p className="relative text-sm text-white/60 max-w-xl leading-relaxed">
-            Execution path: Source wallet → Bridge transfer orchestration → Destination wallet.
+            Execution path: Source wallet → transfer orchestration → Destination wallet.
             Virtual accounts handle inbound fiat funding; conversion happens wallet-to-wallet.
           </p>
         </div>
