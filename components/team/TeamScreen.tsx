@@ -230,7 +230,19 @@ function BusinessTeamPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const onFocus = () => { void load(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [load]);
 
   const canManage = roster?.caller_role === 'owner' || roster?.caller_role === 'admin';
   const seatsLeft = useMemo(() => {
