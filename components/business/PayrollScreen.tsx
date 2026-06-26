@@ -17,6 +17,9 @@ const CHAINS_BY_ASSET: Record<PayrollAsset, string[]> = {
 };
 
 const prefillKey = 'borderpay_bulk_prefill_v1';
+const prefetch = (screen: string) => {
+  try { (window as any).__borderpay_prefetch?.(screen); } catch { /* noop */ }
+};
 
 function blank(asset: PayrollAsset): EmployeeRow {
   return { name: '', chain: CHAINS_BY_ASSET[asset][0], address: '', amount: '' };
@@ -63,8 +66,9 @@ export function PayrollScreen({
       address: r.address.trim(),
       amount: r.amount,
     }));
+    prefetch('bulk-payout');
     try { localStorage.setItem(prefillKey, JSON.stringify({ asset, items })); } catch { /* ignore */ }
-    onOpenBulkPayout();
+    window.setTimeout(onOpenBulkPayout, 0);
   };
 
   return (
@@ -154,6 +158,8 @@ export function PayrollScreen({
             </div>
           </div>
           <button
+            onPointerDown={() => prefetch('bulk-payout')}
+            onMouseEnter={() => prefetch('bulk-payout')}
             onClick={openBulkPayout}
             disabled={valid.length === 0}
             className="px-5 py-3 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-50 inline-flex items-center gap-2"

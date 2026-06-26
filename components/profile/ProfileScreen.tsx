@@ -128,6 +128,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
   const profileRefreshTsKey = `borderpay_profile_refreshed_at:${userId}`;
+  const hasSeedIdentity = Boolean(
+    (profile.full_name && String(profile.full_name).trim().length > 0) ||
+    (profile.company_name && String(profile.company_name).trim().length > 0) ||
+    (profile.email && String(profile.email).trim().length > 0),
+  );
 
   const mergeProfileCache = (next: Record<string, unknown>) => {
     try {
@@ -157,7 +162,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     // same profile request on every quick nav open/close.
     try {
       const last = Number(localStorage.getItem(profileRefreshTsKey) || '0');
-      if (Number.isFinite(last) && Date.now() - last < 60_000) {
+      if (hasSeedIdentity && Number.isFinite(last) && Date.now() - last < 60_000) {
         return;
       }
     } catch { /* noop */ }
