@@ -82,6 +82,10 @@ function fmt(amount: number, currency: string): string {
   return `${sym}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function prefetchScreen(screen: string): void {
+  try { (window as any).__borderpay_prefetch?.(screen); } catch { /* noop */ }
+}
+
 export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpgrade }: BusinessDashboardProps) {
   const tc = useThemeClasses();
   const stored = useMemo(() => authAPI.getStoredUser() || {}, []);
@@ -354,14 +358,15 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         {/* ── 3. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
           <div className="grid grid-cols-4 gap-2">
-            <BizChip label="Send"    Icon={Send}     onClick={() => onNavigate('send-money')}    tc={tc} />
-            <BizChip label="Receive" Icon={Download} onClick={() => onNavigate('receive-money')} tc={tc} />
-            <BizChip label="Activity" Icon={FileText} onClick={() => onNavigate('transactions')} tc={tc} />
-            <BizChip label="Payouts" Icon={Banknote} onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
-            <BizChip label="Team"    Icon={Users}    onClick={() => onNavigate('team')}          tc={tc} />
+            <BizChip label="Send"    Icon={Send}     onPrefetch={() => prefetchScreen('send-money')}       onClick={() => onNavigate('send-money')}    tc={tc} />
+            <BizChip label="Receive" Icon={Download} onPrefetch={() => prefetchScreen('receive-money')}    onClick={() => onNavigate('receive-money')} tc={tc} />
+            <BizChip label="Activity" Icon={FileText} onPrefetch={() => prefetchScreen('transactions')}    onClick={() => onNavigate('transactions')} tc={tc} />
+            <BizChip label="Payouts" Icon={Banknote} onPrefetch={() => prefetchScreen('bulk-payout')}      onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
+            <BizChip label="Team"    Icon={Users}    onPrefetch={() => prefetchScreen('team')}             onClick={() => onNavigate('team')}          tc={tc} />
             <BizChip
               label={PAYROLL_RUNTIME_ENABLED ? 'Payroll' : 'Payroll Soon'}
               Icon={BriefcaseBusiness}
+              onPrefetch={() => prefetchScreen('payroll')}
               onClick={() => onNavigate('payroll')}
               tc={tc}
               disabled={!PAYROLL_RUNTIME_ENABLED}
@@ -369,10 +374,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             <BizChip
               label="FX"
               Icon={ArrowRightLeft}
+              onPrefetch={() => prefetchScreen('exchange')}
               onClick={() => onNavigate('exchange')}
               tc={tc}
             />
-            <BizChip label="Wallets" Icon={Wallet} onClick={() => onNavigate('wallet-detail')} tc={tc} />
+            <BizChip label="Wallets" Icon={Wallet} onPrefetch={() => prefetchScreen('wallet-detail')} onClick={() => onNavigate('wallet-detail')} tc={tc} />
           </div>
         </section>
 
@@ -433,6 +439,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             ) : wallets.length === 0 ? (
               <button
                 onClick={() => onNavigate('receive-money')}
+                onPointerDown={() => prefetchScreen('receive-money')}
+                onMouseEnter={() => prefetchScreen('receive-money')}
                 className={`w-full px-4 py-5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
               >
                 <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
@@ -448,6 +456,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               wallets.map((w, i) => (
                 <button
                   key={w.currency}
+                  onPointerDown={() => prefetchScreen('wallet-detail')}
+                  onMouseEnter={() => prefetchScreen('wallet-detail')}
                   onClick={() => onNavigate('wallet-detail')}
                   className={`w-full px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} transition-colors text-left ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
                 >
@@ -499,11 +509,12 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 // `primary` swaps the background to lime (used for "Team" so the team-mgmt
 // surface gets visual priority for business owners).
 function BizChip({
-  label, Icon, onClick, primary, tc, disabled,
+  label, Icon, onClick, onPrefetch, primary, tc, disabled,
 }: {
   label:    string;
   Icon:     React.ComponentType<{ className?: string }>;
   onClick:  () => void;
+  onPrefetch?: () => void;
   primary?: boolean;
   tc:       ReturnType<typeof useThemeClasses>;
   disabled?: boolean;
@@ -511,6 +522,8 @@ function BizChip({
   return (
     <button
       disabled={disabled}
+      onPointerDown={onPrefetch}
+      onMouseEnter={onPrefetch}
       onClick={onClick}
       className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl py-3.5 transition-colors active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed ${
         primary
