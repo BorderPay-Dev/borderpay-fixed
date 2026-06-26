@@ -130,6 +130,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const [loading, setLoading] = useState(false);
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
+  const profileRefreshTsKey = `borderpay_profile_refreshed_at:${userId}`;
 
   useEffect(() => {
     navPerfTrackCache('profile', !loading);
@@ -147,6 +148,15 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   }, [userId]);
 
   const loadProfile = async () => {
+    // Route parity: keep profile first paint from cache and avoid repeating the
+    // same profile request on every quick nav open/close.
+    try {
+      const last = Number(localStorage.getItem(profileRefreshTsKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 60_000) {
+        return;
+      }
+    } catch { /* noop */ }
+
     // Fetch fresh data from backend (cached data already loaded synchronously in useState)
     try {
       const cachedCompanyName = (() => {
@@ -200,6 +210,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         setEditedProfile(profileData);
         setWalletStatus(profileData.wallet_status);
         mergeProfileCache({ ...u, company_name: profileData.company_name });
+        try { localStorage.setItem(profileRefreshTsKey, String(Date.now())); } catch { /* noop */ }
         if (profileData.account_type === 'business' && profileData.company_name) {
           try { localStorage.setItem(`borderpay_business_name_v1:${userId}`, profileData.company_name); } catch { /* ignore */ }
         }
