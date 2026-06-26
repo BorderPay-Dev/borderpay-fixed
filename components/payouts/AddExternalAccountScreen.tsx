@@ -124,9 +124,9 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
     };
 
     void loadCapabilities();
-    const onFocus = () => { void loadCapabilities(true); };
+    const onFocus = () => { void loadCapabilities(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void loadCapabilities(true);
+      if (document.visibilityState === 'visible') void loadCapabilities();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);

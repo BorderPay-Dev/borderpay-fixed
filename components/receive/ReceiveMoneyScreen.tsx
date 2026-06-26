@@ -177,9 +177,9 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     }
 
     if (isVerified) refresh();
-    const onFocus = () => { if (isVerified) void refresh(true); };
+    const onFocus = () => { if (isVerified) void refresh(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible' && isVerified) void refresh(true);
+      if (document.visibilityState === 'visible' && isVerified) void refresh();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);

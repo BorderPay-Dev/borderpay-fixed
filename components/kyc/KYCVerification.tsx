@@ -129,9 +129,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     }
 
     refresh();
-    const onFocus = () => { void refresh(true); };
+    const onFocus = () => { void refresh(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void refresh(true);
+      if (document.visibilityState === 'visible') void refresh();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
