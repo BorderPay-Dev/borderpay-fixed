@@ -49,6 +49,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const storedUser = authAPI.getStoredUser();
   const isBusinessAccount = storedUser?.account_type === 'business';
   const [isAdminUser, setIsAdminUser] = useState<boolean>(storedUser?.is_admin === true);
+  const settingsSecurityCacheKey = `borderpay_settings_security_v1:${userId}`;
 
   useEffect(() => {
     navPerfTrackCache('settings', !!storedUser);
@@ -76,6 +77,16 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
 
   // Load security status from backend (persists across login/logout)
   useEffect(() => {
+    // Fast paint: hydrate from local cache immediately.
+    try {
+      const raw = localStorage.getItem(settingsSecurityCacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (typeof cached?.hasPIN === 'boolean') setHasPIN(cached.hasPIN);
+        if (typeof cached?.has2FA === 'boolean') setHas2FA(cached.has2FA);
+      }
+    } catch { /* noop */ }
+
     const loadStatus = async () => {
       try {
         // 2FA truth lives in `user_security` (not always denormalised onto
@@ -92,15 +103,17 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         }
         setHasPIN(hasPin);
         setHas2FA(has2fa);
+        try { localStorage.setItem(settingsSecurityCacheKey, JSON.stringify({ hasPIN: hasPin, has2FA: has2fa, ts: Date.now() })); } catch { /* noop */ }
       } catch (e) {
         // Fallback to client-side SecurityManager if backend fails
         const secStatus = SecurityStatus.get(userId);
         setHasPIN(secStatus.hasPIN);
         setHas2FA(secStatus.has2FA);
+        try { localStorage.setItem(settingsSecurityCacheKey, JSON.stringify({ hasPIN: secStatus.hasPIN, has2FA: secStatus.has2FA, ts: Date.now() })); } catch { /* noop */ }
       }
     };
     loadStatus();
-  }, []);
+  }, [settingsSecurityCacheKey, userId]);
 
   const settingsSections = [
     {

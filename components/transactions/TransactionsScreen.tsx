@@ -39,6 +39,7 @@ interface Transaction {
 }
 
 const TX_CACHE_KEY = 'borderpay_tx_history_v1';
+const TX_REFRESH_TS_KEY = 'borderpay_tx_refresh_ts_v1';
 function readTxCache(cacheKey: string): Transaction[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -46,6 +47,7 @@ function readTxCache(cacheKey: string): Transaction[] {
 
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
   const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
+  const refreshTsKey = financialCacheKey(TX_REFRESH_TS_KEY, { userId });
   // Seed from cache so the history paints instantly on open, then refreshes.
   const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache(cacheKey));
   const [loading, setLoading] = useState(false);
@@ -68,7 +70,18 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   }, []);
 
   const loadTransactions = async () => {
+    const hasCachedRows = transactions.length > 0;
+    if (!hasCachedRows) setLoading(true);
     setLoadError(false);
+    // Re-open optimization: avoid hitting the API on every fast route hop.
+    // Keep cache hot and refresh at most every 45s per user/session.
+    try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+        setLoading(false);
+        return;
+      }
+    } catch { /* noop */ }
     // Preserve cached rows during refresh; only show skeleton on cold start.
     try {
       // Phase 2 P1: read directly from `public.transactions` via the
@@ -86,6 +99,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
         const list = Array.isArray(txns) ? txns : [];
         setTransactions(list);
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch { /* noop */ }
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else if (transactions.length === 0) {
         // Only surface an error if we have nothing cached to show.
         setLoadError(true);
