@@ -69,6 +69,13 @@ interface BridgeFetchResult {
   request_id?: string;
 }
 
+interface ExtractedLinks {
+  kyc_link_url: string | null;
+  kyc_link_id: string | null;
+  customer_id?: string;
+  tos_link_url: string | null;
+}
+
 type TraceStage =
   | "invoked"
   | "profile_loaded"
@@ -198,23 +205,67 @@ async function bridgePost(path: string, body: unknown, idemKey: string, correlat
   };
 }
 
+async function bridgeGet(path: string, correlationId?: string): Promise<BridgeFetchResult> {
+  if (!BRIDGE_API_KEY) {
+    return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
+  }
+  const res = await fetch(`${BRIDGE_BASE_URL}${path}`, {
+    method: "GET",
+    headers: {
+      "Api-Key":      BRIDGE_API_KEY,
+      "Accept":       "application/json",
+      ...(correlationId ? { "X-Correlation-Id": correlationId } : {}),
+      "User-Agent":   "borderpay-edge/1.0",
+    },
+  });
+  const text = await res.text();
+  let parsed: any = null;
+  if (text) { try { parsed = JSON.parse(text); } catch { /* keep null */ } }
+  return {
+    ok:         res.ok,
+    status:     res.status,
+    data:       parsed,
+    raw_text:   text,
+    error:      res.ok ? undefined : (parsed?.message || `HTTP ${res.status}`),
+    request_id: res.headers.get("x-request-id") || undefined,
+  };
+}
+
 // Extract a kyc_link from Bridge's response body in any of the three
 // shapes we have seen: top-level success, embedded data wrapper, or 400
 // with existing_kyc_link. Returns null if no link is present anywhere.
-function extractLink(parsed: any): { link_url: string; link_id: string; customer_id?: string } | null {
+function extractLinks(parsed: any): ExtractedLinks | null {
   if (!parsed) return null;
   const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
   for (const c of candidates) {
-    const link_url: string | null =
+    const kycLinkUrl: string | null =
       c?.kyc_link?.url ||
       (typeof c?.kyc_link === "string" ? c.kyc_link : null) ||
       c?.url ||
       c?.link;
-    const link_id: string | null  = c?.kyc_link?.id || c?.id;
+    const linkId: string | null  = c?.kyc_link?.id || c?.id;
     const customer_id: string | undefined = c?.customer_id || c?.kyc_link?.customer_id;
-    if (link_url && link_id) return { link_url, link_id, customer_id };
+    const tosLinkUrl: string | null = c?.tos_link?.url || c?.tos_link || c?.data?.tos_link?.url || null;
+    if (kycLinkUrl || tosLinkUrl) {
+      return {
+        kyc_link_url: kycLinkUrl || null,
+        kyc_link_id: linkId || null,
+        customer_id,
+        tos_link_url: tosLinkUrl || null,
+      };
+    }
   }
   return null;
+}
+
+function bridgeErrorLooksLikeTosRequirement(raw: string): boolean {
+  const t = String(raw || "").toLowerCase();
+  return (
+    t.includes("signed_agreement_id")
+    || t.includes("tos")
+    || t.includes("terms of service")
+    || t.includes("agreement")
+  );
 }
 
 function isVerifiedStatus(value: string | null | undefined): boolean {
@@ -360,12 +411,12 @@ Deno.serve(async (req: Request) => {
     correlationId,
   );
 
-  let link = extractLink(r.data);
+  let links = extractLinks(r.data);
 
   // Legacy safety: if a stale/invalid bridge_customer_id is stored locally,
   // Bridge can reject the request. Retry once without customer_id using the
   // embedded-customer hosted KYC flow (Bridge-supported) to unblock users.
-  if (!r.ok && !link && profile.bridge_customer_id) {
+  if (!r.ok && !links && profile.bridge_customer_id) {
     const fallbackBody = { ...reqBody };
     delete fallbackBody.customer_id;
     await writeTrace(correlationId, "bridge_request_sent", {
@@ -385,7 +436,7 @@ Deno.serve(async (req: Request) => {
       `borderpay:kyc:individual:fallback:${user.id}`,
       correlationId,
     );
-    link = extractLink(r.data);
+    links = extractLinks(r.data);
     await writeTrace(correlationId, "bridge_response_received", {
       executionTimestamp,
       userId: user.id,
@@ -413,7 +464,40 @@ Deno.serve(async (req: Request) => {
     elapsedMs: elapsed(),
   });
 
-  if (!r.ok && !link) {
+  if (!r.ok && !links && profile.bridge_customer_id && bridgeErrorLooksLikeTosRequirement(r.raw_text || r.error || "")) {
+    const tosRes = await bridgeGet(
+      `/v0/customers/${encodeURIComponent(profile.bridge_customer_id)}/tos_acceptance_link`,
+      correlationId,
+    );
+    const tosUrl =
+      tosRes?.data?.url ||
+      tosRes?.data?.data?.url ||
+      null;
+    if (tosRes.ok && tosUrl) {
+      await writeTrace(correlationId, "returned_success", {
+        executionTimestamp,
+        userId: user.id,
+        email: profile.email,
+        bridgeEndpoint: `/v0/customers/${profile.bridge_customer_id}/tos_acceptance_link`,
+        httpStatus: tosRes.status,
+        bridgeRequestId: tosRes.request_id ?? null,
+        responseBody: { tos_link_only: true, tos_link_url_present: true },
+        elapsedMs: elapsed(),
+      });
+      return json({
+        success: true,
+        data: {
+          link_id: null,
+          link_url: null,
+          tos_link_url: String(tosUrl),
+          tos_required: true,
+          correlation_id: correlationId,
+        },
+      });
+    }
+  }
+
+  if (!r.ok && !links) {
     const detail = (r.raw_text || "").slice(0, 800);
     console.error(`bridge-kyc-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
     await writeTrace(correlationId, "bridge_response_rejected", {
@@ -436,7 +520,7 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  if (!link) {
+  if (!links) {
     console.error(`bridge-kyc-link: missing link/url in success body=${(r.raw_text || "").slice(0, 800)}`);
     await writeTrace(correlationId, "bridge_response_missing_link", {
       executionTimestamp,
@@ -457,10 +541,10 @@ Deno.serve(async (req: Request) => {
   }
 
   const { error: updateErr } = await supa.from("user_profiles").update({
-    bridge_kyc_link_id:  link.link_id,
-    bridge_kyc_link_url: link.link_url,
+    bridge_kyc_link_id:  links.kyc_link_id,
+    bridge_kyc_link_url: links.kyc_link_url,
     bridge_kyc_status:   "pending",
-    ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}),
+    ...(links.customer_id ? { bridge_customer_id: links.customer_id } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("id", user.id);
   if (updateErr) {
@@ -470,7 +554,7 @@ Deno.serve(async (req: Request) => {
       email: profile.email,
       dbUpdateOk: false,
       dbUpdateError: updateErr.message,
-      responseBody: { link_id_present: Boolean(link.link_id), link_url_present: Boolean(link.link_url), customer_id_present: Boolean(link.customer_id) },
+      responseBody: { link_id_present: Boolean(links.kyc_link_id), link_url_present: Boolean(links.kyc_link_url), customer_id_present: Boolean(links.customer_id), tos_link_present: Boolean(links.tos_link_url) },
       elapsedMs: elapsed(),
     });
   } else {
@@ -479,7 +563,7 @@ Deno.serve(async (req: Request) => {
       userId: user.id,
       email: profile.email,
       dbUpdateOk: true,
-      responseBody: { link_id_present: Boolean(link.link_id), link_url_present: Boolean(link.link_url), customer_id_present: Boolean(link.customer_id) },
+      responseBody: { link_id_present: Boolean(links.kyc_link_id), link_url_present: Boolean(links.kyc_link_url), customer_id_present: Boolean(links.customer_id), tos_link_present: Boolean(links.tos_link_url) },
       elapsedMs: elapsed(),
     });
   }
@@ -493,8 +577,9 @@ Deno.serve(async (req: Request) => {
     httpStatus: r.status,
     bridgeRequestId: r.request_id ?? null,
     responseBody: {
-      link_id: link.link_id,
-      link_url_present: Boolean(link.link_url),
+      link_id: links.kyc_link_id,
+      link_url_present: Boolean(links.kyc_link_url),
+      tos_link_present: Boolean(links.tos_link_url),
       expires_at: expires_at ?? null,
       reused: !r.ok ? true : false,
     },
@@ -502,6 +587,13 @@ Deno.serve(async (req: Request) => {
   });
   return json({
     success: true,
-    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined, correlation_id: correlationId },
+    data: {
+      link_id: links.kyc_link_id,
+      link_url: links.kyc_link_url,
+      tos_link_url: links.tos_link_url,
+      expires_at,
+      reused: !r.ok ? true : undefined,
+      correlation_id: correlationId,
+    },
   });
 });

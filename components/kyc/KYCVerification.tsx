@@ -125,8 +125,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       const r: any = isBusiness
         ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
         : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
-      if (r?.success && r.data?.link_url) {
-        window.location.href = r.data.link_url;   // secure hosted verification
+      if (r?.success && (r.data?.tos_link_url || r.data?.link_url)) {
+        window.location.href = r.data?.tos_link_url || r.data?.link_url;   // Bridge hosted flow (ToS first when required)
         return;
       }
       if (r?.code === 'funding_required' || r?.code === 'plan_required' || r?.code === 'payment_required') {

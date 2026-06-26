@@ -44,6 +44,16 @@ interface BridgeFetchResult {
   request_id?: string;
 }
 
+function bridgeErrorLooksLikeTosRequirement(raw: string): boolean {
+  const t = String(raw || "").toLowerCase();
+  return (
+    t.includes("signed_agreement_id")
+    || t.includes("tos")
+    || t.includes("terms of service")
+    || t.includes("agreement")
+  );
+}
+
 async function bridgePost(path: string, body: unknown, idemKey: string): Promise<BridgeFetchResult> {
   if (!BRIDGE_API_KEY) {
     return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
@@ -58,6 +68,31 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
       "User-Agent":      "borderpay-edge/1.0",
     },
     body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: any = null;
+  if (text) { try { parsed = JSON.parse(text); } catch { /* keep null */ } }
+  return {
+    ok:         res.ok,
+    status:     res.status,
+    data:       parsed,
+    raw_text:   text,
+    error:      res.ok ? undefined : (parsed?.message || `HTTP ${res.status}`),
+    request_id: res.headers.get("x-request-id") || undefined,
+  };
+}
+
+async function bridgeGet(path: string): Promise<BridgeFetchResult> {
+  if (!BRIDGE_API_KEY) {
+    return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
+  }
+  const res = await fetch(`${BRIDGE_BASE_URL}${path}`, {
+    method: "GET",
+    headers: {
+      "Api-Key":      BRIDGE_API_KEY,
+      "Accept":       "application/json",
+      "User-Agent":   "borderpay-edge/1.0",
+    },
   });
   const text = await res.text();
   let parsed: any = null;
@@ -185,6 +220,23 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!r.ok && !link) {
+    if (biz.bridge_customer_id && bridgeErrorLooksLikeTosRequirement(r.raw_text || r.error || "")) {
+      const tosRes = await bridgeGet(
+        `/v0/customers/${encodeURIComponent(biz.bridge_customer_id)}/tos_acceptance_link`,
+      );
+      const tosUrl = tosRes?.data?.url || tosRes?.data?.data?.url || null;
+      if (tosRes.ok && tosUrl) {
+        return json({
+          success: true,
+          data: {
+            link_id: null,
+            link_url: null,
+            tos_link_url: String(tosUrl),
+            tos_required: true,
+          },
+        });
+      }
+    }
     const detail = (r.raw_text || "").slice(0, 800);
     console.error(`bridge-kyb-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
     return json({
