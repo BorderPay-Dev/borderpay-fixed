@@ -19,7 +19,7 @@ const faqItems = [
   },
   {
     question: 'How long do transfers take?',
-    answer: 'Domestic transfers are instant. International transfers typically take 1-3 business days depending on the destination.',
+    answer: 'Transfer timing depends on the payout rail and destination country. BorderPay shows the current transfer status in your transaction history.',
   },
   {
     question: 'What are the transfer fees?',
@@ -35,7 +35,7 @@ const faqItems = [
   },
   {
     question: 'How do I verify my identity (KYC)?',
-    answer: 'Go to Settings → KYC Documents. You\'ll need a valid government ID and a selfie for verification.',
+    answer: 'Open the Verify Identity action in your account, then continue in the hosted verification flow. You\'ll need a valid government ID and may be asked for a selfie.',
   },
 ];
 
