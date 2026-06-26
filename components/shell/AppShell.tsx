@@ -27,6 +27,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { createPortal } from 'react-dom';
 import {
   Menu, X, Home, ArrowUpRight, ArrowDownLeft, User as UserIcon,
   Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2,
@@ -122,6 +123,7 @@ export function AppShell({
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
 
   // Esc closes the drawer.
   useEffect(() => {
@@ -130,6 +132,10 @@ export function AppShell({
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [drawerOpen]);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') setPortalRoot(document.body);
+  }, []);
 
   // Body scroll lock while drawer is open (mobile).
   useEffect(() => {
@@ -324,29 +330,34 @@ export function AppShell({
       </header>
 
       {/* ── Floating primary tab bar ─────────────────────────────────────── */}
-      <nav
-        className="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 10px)' }}
-        aria-label={tt('shell.bottomNav', 'Primary navigation')}
-      >
-        <div className="max-w-screen-sm mx-auto">
-          <div
-            className={`pointer-events-auto h-[66px] grid grid-cols-5 items-stretch rounded-[28px] border ${tc.borderLight} ${tc.headerBg} px-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.34)] backdrop-blur-2xl`}
+      {(() => {
+        const tabBar = (
+          <nav
+            className="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 10px)' }}
+            aria-label={tt('shell.bottomNav', 'Primary navigation')}
           >
-            {primaryTabs.map(tab => (
-              <BottomButton
-                key={tab.route}
-                active={route === tab.route}
-                icon={tab.icon}
-                label={tab.label}
-                onPrefetch={() => prefetchRoute(tab.route)}
-                onClick={() => go(tab.route)}
-                tc={tc}
-              />
-            ))}
-          </div>
-        </div>
-      </nav>
+            <div className="max-w-screen-sm mx-auto">
+              <div
+                className={`pointer-events-auto h-[66px] grid grid-cols-5 items-stretch rounded-[28px] border ${tc.borderLight} ${tc.headerBg} px-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.34)] backdrop-blur-2xl`}
+              >
+                {primaryTabs.map(tab => (
+                  <BottomButton
+                    key={tab.route}
+                    active={route === tab.route}
+                    icon={tab.icon}
+                    label={tab.label}
+                    onPrefetch={() => prefetchRoute(tab.route)}
+                    onClick={() => go(tab.route)}
+                    tc={tc}
+                  />
+                ))}
+              </div>
+            </div>
+          </nav>
+        );
+        return portalRoot ? createPortal(tabBar, portalRoot) : tabBar;
+      })()}
 
       {/* ── Side drawer overlay ──────────────────────────────────────────── */}
       <AnimatePresence>
