@@ -19,6 +19,7 @@ import { authAPI } from '../../../utils/supabase/client';
 import { isBridgeCustodialWalletSupported } from '../../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
+import { financialCacheKey } from '../../../utils/financial/cacheScope';
 
 interface WalletRow {
   id:                 string;
@@ -42,7 +43,10 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const walletCacheKey = `borderpay_wallets_${isBusiness ? 'biz' : 'ind'}_v1`;
+  const walletCacheKey = financialCacheKey('borderpay_wallets_v1', {
+    userId,
+    accountType: isBusiness ? 'business' : 'individual',
+  });
   const cachedRows = React.useMemo<WalletRow[]>(() => {
     try { const raw = localStorage.getItem(walletCacheKey); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -57,12 +61,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const isApproved = kycApproved ?? derivedApproved;
   const walletsSupported = isBridgeCustodialWalletSupported(country);
 
-  const refresh = async () => {
-    // Activated users get their base stablecoins (USDC/USDT) auto-provisioned,
-    // then we mirror everything Bridge has into bridge_wallets so the list
-    // matches Bridge. Both are idempotent + no-op when nothing's needed.
-    try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
-    try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
+  const refresh = async (forceSync = false) => {
     const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
     const { data } = isBusiness
       ? await q.eq('business_user_id', userId)
@@ -71,6 +70,20 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     setRows(next);
     try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
     setLoading(false);
+
+    // Local-first paint. Provision/sync in background, then requery so newly
+    // created wallets appear without blocking initial render.
+    if (forceSync || next.length === 0) {
+      try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
+      try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
+      const q2 = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
+      const { data: synced } = isBusiness
+        ? await q2.eq('business_user_id', userId)
+        : await q2.eq('user_id', userId);
+      const merged = (synced as WalletRow[]) ?? [];
+      setRows(merged);
+      try { localStorage.setItem(walletCacheKey, JSON.stringify(merged)); } catch { /* noop */ }
+    }
   };
 
   useEffect(() => { refresh(); }, [userId, isBusiness]);
@@ -117,7 +130,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
       return;
     }
     showToast.success(tt('dash.wallet.create.success', `${DEFAULT_STABLECOIN.label} wallet created`));
-    refresh();
+    refresh(true);
   };
 
   const hasDefault = rows.some(r => r.currency.toLowerCase() === DEFAULT_STABLECOIN.symbol && r.chain.toLowerCase() === DEFAULT_STABLECOIN.chain);
