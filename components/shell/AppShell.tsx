@@ -199,10 +199,18 @@ export function AppShell({
     setDrawerOpen(false);
     onRoute(next);
   }, [onRoute]);
+  const closeDrawerThen = useCallback((fn: () => void) => {
+    setDrawerOpen(false);
+    window.setTimeout(fn, 0);
+  }, []);
 
   const prefetchRoute = useCallback((next: AppRoute) => {
     if (typeof window === 'undefined') return;
     (window as any).__borderpay_prefetch?.(PREFETCH_BY_ROUTE[next]);
+  }, []);
+  const prefetchScreen = useCallback((screen: string) => {
+    if (typeof window === 'undefined') return;
+    (window as any).__borderpay_prefetch?.(screen);
   }, []);
 
   const primaryTabs = useMemo(() => {
@@ -410,10 +418,10 @@ export function AppShell({
                 <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  description={tt('nav.receive.desc',      'Get paid into your accounts')}     active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => go('receive')}      tc={tc} />
                 <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
                 {onOpenPayoutAccounts && (
-                  <DrawerItem icon={Banknote}  label={tt('nav.external_accounts', 'External Accounts')} description={tt('nav.external_accounts.desc', 'Manage withdrawal destinations')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
+                  <DrawerItem icon={Banknote}  label={tt('nav.external_accounts', 'External Accounts')} description={tt('nav.external_accounts.desc', 'Manage withdrawal destinations')} active={false} onPrefetch={() => prefetchScreen('external-accounts')} onClick={() => closeDrawerThen(onOpenPayoutAccounts)} tc={tc} />
                 )}
                 {onOpenWithdrawalWallets && (
-                  <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onClick={() => { setDrawerOpen(false); onOpenWithdrawalWallets(); }} tc={tc} />
+                  <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onPrefetch={() => prefetchScreen('external-wallets')} onClick={() => closeDrawerThen(onOpenWithdrawalWallets)} tc={tc} />
                 )}
                 <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
                 {isBusinessAccount && (
@@ -423,10 +431,10 @@ export function AppShell({
                 <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} description={isBusinessAccount ? tt('nav.kyb.desc', 'Verify your business') : tt('nav.kyc.desc', 'Verify your identity')} active={route === 'kyc'} onPrefetch={() => prefetchRoute('kyc')} onClick={() => go('kyc')} tc={tc} />
                 <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       description={tt('nav.settings.desc',     'App, security & preferences')}     active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
                 {onLock && (
-                  <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       description={tt('nav.lockApp.desc',      'Lock now, return with biometrics')} onClick={onLock}                   tc={tc} />
+                  <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       description={tt('nav.lockApp.desc',      'Lock now, return with biometrics')} onClick={() => closeDrawerThen(onLock)}                   tc={tc} />
                 )}
                 {onSignOut && (
-                  <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       description={tt('nav.signOut.desc',      'Log out of BorderPay')}            onClick={onSignOut}                tc={tc} danger />
+                  <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       description={tt('nav.signOut.desc',      'Log out of BorderPay')}            onClick={() => closeDrawerThen(onSignOut)}                tc={tc} danger />
                 )}
               </ul>
             </motion.aside>

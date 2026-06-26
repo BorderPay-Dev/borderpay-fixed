@@ -50,6 +50,24 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
 
   // Avoid mount-time prefetch fan-out; row-level pointer/hover prefetch below
   // keeps taps snappy without flooding route/chunk requests on entry.
+  useEffect(() => {
+    const prefetch = (window as any)?.__borderpay_prefetch;
+    if (typeof prefetch !== 'function') return;
+    const targets = [
+      'profile',
+      'change-pin',
+      'change-password',
+      'two-factor-setup',
+      'biometric-setup',
+      'preferences',
+      'help-center',
+      'country-eligibility',
+      'terms-of-service',
+      'privacy-policy',
+    ];
+    const timers = targets.map((screen, index) => window.setTimeout(() => prefetch(screen), 120 * (index + 1)));
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, []);
 
   // Load security status from backend (persists across login/logout)
   useEffect(() => {
