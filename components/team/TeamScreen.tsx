@@ -196,9 +196,9 @@ function BusinessTeamPanel({
 
   useEffect(() => {
     load();
-    const onFocus = () => { void load(true); };
+    const onFocus = () => { void load(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void load(true);
+      if (document.visibilityState === 'visible') void load();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
