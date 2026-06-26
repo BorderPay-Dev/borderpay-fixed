@@ -119,6 +119,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     const uid = currentUserId() || 'anon';
     return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
   }, []);
+  const prewarmTsKey = useMemo(() => {
+    const uid = currentUserId() || 'anon';
+    return financialCacheKey('borderpay_notifications_prewarm_ts_v1', { userId: uid });
+  }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
   const rowsRef = useRef<NotificationRow[]>(initialRows);
   const [loading, setLoading] = useState(initialRows.length === 0);
@@ -158,17 +162,23 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 
   useEffect(() => {
     load();
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['transactions', 'settings', 'profile', 'dashboard'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 900 });
-      else setTimeout(warm, 180);
-    }
+    try {
+      const last = Number(localStorage.getItem(prewarmTsKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['transactions', 'settings', 'profile', 'dashboard'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 900 });
+          else setTimeout(warm, 180);
+        }
+        localStorage.setItem(prewarmTsKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
     const onFocus = () => { void load(); };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void load();
@@ -179,7 +189,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [load]);
+  }, [load, prewarmTsKey]);
   useEffect(() => { rowsRef.current = rows; }, [rows]);
 
   const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
