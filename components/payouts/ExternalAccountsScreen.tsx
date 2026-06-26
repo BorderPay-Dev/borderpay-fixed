@@ -107,13 +107,13 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const [removing, setRemoving] = useState<string | null>(null);
 
   // Background refresh — never blanks the cached view; no setLoading(true) here.
-  const load = async () => {
+  const load = async (force = false) => {
     const isColdStart = rows.length === 0;
     if (isColdStart) setLoading(true);
     setError(null);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (!isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
       const r: any = await backendAPI.bridge.externalAccount.list();
@@ -224,7 +224,15 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
             ))}
           </div>
         ) : error ? (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-300">{error}</div>
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
+            <p className="text-sm text-red-300">{error}</p>
+            <button
+              onClick={() => load(true)}
+              className="mt-3 inline-flex items-center gap-2 text-[12px] font-semibold text-[#C7FF00]"
+            >
+              Retry
+            </button>
+          </div>
         ) : rows.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-[#C7FF00]/10 flex items-center justify-center mb-4">

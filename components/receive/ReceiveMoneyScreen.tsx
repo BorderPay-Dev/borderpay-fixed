@@ -116,13 +116,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     }
   };
 
-  const refresh = async () => {
+  const refresh = async (force = false) => {
     const isColdStart = stables.length === 0 && vas.length === 0;
     if (isColdStart) setLoading(true);
     setRefreshing(true);
     try {
       const last = Number(localStorage.getItem(receiveRefreshTsKey) || '0');
-      if (!isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
       const routeData: any = await backendAPI.financial.getReceiveRouteData();
@@ -213,7 +213,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
             {tt('receive.title', 'Receive funds')}
           </p>
-          <button onClick={refresh} aria-label="Refresh"
+          <button onClick={() => refresh(true)} aria-label="Refresh"
             className={`p-2 rounded-full ${tc.hoverBg} ${refreshing ? 'opacity-60' : ''}`}>
             <RefreshCw className={`w-4 h-4 ${tc.textMuted} ${refreshing ? 'animate-spin' : ''}`} />
           </button>
