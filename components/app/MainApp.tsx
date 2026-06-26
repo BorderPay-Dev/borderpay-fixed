@@ -173,10 +173,22 @@ function hasBusinessAccountCached(): boolean {
   try {
     const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
     if (String(cached?.account_type || '').toLowerCase() === 'business') return true;
+    const cachedId = String(cached?.id || '').trim();
+    if (cachedId) {
+      const bizName = String(localStorage.getItem(`borderpay_business_name_v1:${cachedId}`) || '').trim();
+      if (bizName) return true;
+    }
   } catch { /* noop */ }
   try {
     const authUser = authAPI.getStoredUser();
     if (String(authUser?.account_type || '').toLowerCase() === 'business') return true;
+    const authId = String(authUser?.id || '').trim();
+    if (authId) {
+      const bizName = String(localStorage.getItem(`borderpay_business_name_v1:${authId}`) || '').trim();
+      if (bizName) return true;
+    }
+    const metaCompany = String(authUser?.user_metadata?.company_name || '').trim();
+    if (metaCompany) return true;
   } catch { /* noop */ }
   try {
     for (let i = 0; i < localStorage.length; i += 1) {
@@ -185,6 +197,7 @@ function hasBusinessAccountCached(): boolean {
       const parsed = JSON.parse(localStorage.getItem(key) || 'null');
       const meta = (parsed?.user || parsed?.currentSession?.user)?.user_metadata || {};
       if (String(meta?.account_type || '').toLowerCase() === 'business') return true;
+      if (String(meta?.company_name || '').trim()) return true;
     }
   } catch { /* noop */ }
   return false;
