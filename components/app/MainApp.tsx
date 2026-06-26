@@ -67,14 +67,11 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
 const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
-const PaymentMethods = lazyImport(() => import('../settings/PaymentMethods').then(m => ({ default: m.PaymentMethods })));
 const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
-const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
-const IndividualBroadcastScreen = lazyImport(() => import('../admin/IndividualBroadcastScreen').then(m => ({ default: m.IndividualBroadcastScreen })));
 const eagerPreload = () => Promise.resolve();
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
@@ -97,7 +94,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   profile: eagerPreload,
   'change-pin': eagerPreload,
   'change-password': eagerPreload,
-  'payment-methods': (PaymentMethods as any).preload,
   'country-eligibility': eagerPreload,
   'terms-of-service': eagerPreload,
   'privacy-policy': eagerPreload,
@@ -112,8 +108,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
-  'admin-broadcast-business': (BusinessBroadcastScreen as any).preload,
-  'admin-broadcast-individual': (IndividualBroadcastScreen as any).preload,
 };
 
 export function prefetchScreen(name: string) {
@@ -253,7 +247,6 @@ export type AppScreen =
   | 'pin-setup'
   | 'change-pin'
   | 'change-password'
-  | 'payment-methods'
   | 'country-eligibility'
   | 'kyc'
   | 'settings'
@@ -271,9 +264,7 @@ export type AppScreen =
   | 'external-wallets'
   | 'bulk-payout'
   | 'payroll'
-  | 'add-external-account'
-  | 'admin-broadcast-business'
-  | 'admin-broadcast-individual';
+  | 'add-external-account';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
 // The shell speaks `AppRoute` (Home/Send/Receive/Account + drawer items).
@@ -886,9 +877,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'change-password':
         return <ChangePassword onBack={navigateBack} />;
 
-      case 'payment-methods':
-        return <PaymentMethods onBack={navigateBack} />;
-
       case 'country-eligibility':
         return <CountryEligibilityScreen onBack={navigateBack} />;
 
@@ -929,12 +917,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'notifications':
         return <NotificationsScreen onBack={navigateBack} onUnreadCountChange={updateUnreadCount} />;
-
-      case 'admin-broadcast-business':
-        return <BusinessBroadcastScreen onBack={navigateBack} />;
-
-      case 'admin-broadcast-individual':
-        return <IndividualBroadcastScreen onBack={navigateBack} />;
 
       case 'dashboard':
       case 'home':
