@@ -13,9 +13,6 @@ import { ownerOrFilter } from '../financial/ownership';
 import { deriveWalletStatus } from '../financial/walletStatus';
 import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../performance/navigationPerf';
 
-// ── CSRF token (per-session, rotated on page load) ───────────────────────────
-const CSRF_TOKEN = crypto.randomUUID();
-
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
   // provider-side orchestration and/or email delivery.
@@ -52,7 +49,6 @@ async function apiCall<T = any>(
     const baseHeaders: Record<string, string> = {
       'apikey': ANON_KEY,
       'Authorization': `Bearer ${token || ANON_KEY}`,
-      'X-CSRF-Token': CSRF_TOKEN,
     };
     if (!isFormData) {
       baseHeaders['Content-Type'] = 'application/json';
