@@ -4,7 +4,7 @@
  * i18n + theme-aware
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Filter, Download, Search, ArrowUpRight, ArrowDownLeft, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
@@ -79,6 +79,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const seededRows = readTxCache(cacheKey, userId);
   // Seed from cache so the history paints instantly on open, then refreshes.
   const [transactions, setTransactions] = useState<Transaction[]>(() => seededRows);
+  const transactionsRef = useRef<Transaction[]>(seededRows);
   const [loading, setLoading] = useState(seededRows.length === 0);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
@@ -117,7 +118,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   }, []);
 
   const loadTransactions = async (force = false) => {
-    const hasCachedRows = transactions.length > 0;
+    const hasCachedRows = transactionsRef.current.length > 0;
     if (!hasCachedRows) setLoading(true);
     setLoadError(false);
     // Re-open optimization: avoid hitting the API on every fast route hop.
@@ -147,12 +148,12 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
         setTransactions(list);
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (transactions.length === 0) {
+      } else if (transactionsRef.current.length === 0) {
         // Only surface an error if we have nothing cached to show.
         setLoadError(true);
       }
     } catch (error) {
-      if (transactions.length === 0) setLoadError(true);
+      if (transactionsRef.current.length === 0) setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -391,3 +392,6 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     </div>
   );
 }
+  useEffect(() => {
+    transactionsRef.current = transactions;
+  }, [transactions]);
