@@ -36,8 +36,28 @@ interface AddExternalAccountScreenProps {
 
 export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccountScreenProps) {
   const tc = useThemeClasses();
-  const [supportedAccountTypes, setSupportedAccountTypes] = useState<Array<AccountType>>([]);
-  const [capabilityLoading, setCapabilityLoading] = useState(true);
+  const readCachedCapabilities = (): Array<AccountType> => {
+    try {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith('borderpay_snapshot_cache_v1')) continue;
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const types = Array.isArray(parsed?.snapshot?.data?.external_account_capabilities)
+          ? parsed.snapshot.data.external_account_capabilities
+          : [];
+        const filtered = types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix');
+        if (filtered.length > 0) return filtered;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  };
+  const cachedCapabilities = readCachedCapabilities();
+  const [supportedAccountTypes, setSupportedAccountTypes] = useState<Array<AccountType>>(cachedCapabilities);
+  const [capabilityLoading, setCapabilityLoading] = useState(cachedCapabilities.length === 0);
   const defaultType: AccountType = supportedAccountTypes[0] || 'us';
   const [accountType, setAccountType] = useState<AccountType>(defaultType);
   const [submitting, setSubmitting] = useState(false);
@@ -74,7 +94,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
 
   useEffect(() => {
     (async () => {
-      setCapabilityLoading(true);
+      if (supportedAccountTypes.length === 0) setCapabilityLoading(true);
       try {
         const r: any = await backendAPI.financial.getSnapshot(20);
         if (r?.success) {
@@ -91,6 +111,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         setCapabilityLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async () => {

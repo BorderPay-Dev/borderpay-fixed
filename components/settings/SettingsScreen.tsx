@@ -55,25 +55,8 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     navPerfTrackCache('settings', !!storedUser);
   }, [storedUser]);
 
-  // Warm settings child screens in background so subpage taps are instant.
-  useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch !== 'function') return;
-    [
-      'profile',
-      'change-pin',
-      'change-password',
-      'two-factor-setup',
-      'biometric-setup',
-      'preferences',
-      'help-center',
-      'terms-of-service',
-      'privacy-policy',
-      'country-eligibility',
-    ].forEach((route) => {
-      try { prefetch(route); } catch { /* no-op */ }
-    });
-  }, []);
+  // Avoid mount-time prefetch fan-out; row-level pointer/hover prefetch below
+  // keeps taps snappy without flooding route/chunk requests on entry.
 
   // Load security status from backend (persists across login/logout)
   useEffect(() => {

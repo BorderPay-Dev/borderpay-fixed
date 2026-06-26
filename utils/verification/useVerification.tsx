@@ -18,6 +18,9 @@ import { authAPI } from '../supabase/client';
 import { backendAPI } from '../api/backendAPI';
 import { ENV_CONFIG } from '../config/environment';
 
+const VERIFICATION_REFRESH_COOLDOWN_MS = 5 * 60_000;
+let inflightProfileRefresh: Promise<any> | null = null;
+
 export interface VerificationStatus {
   isVerified:       boolean;
   kycTier:          number;
@@ -72,7 +75,7 @@ export function useVerification(userId: string): VerificationStatus {
     const recentlyRefreshed = (() => {
       try {
         const ts = Number(localStorage.getItem(cacheKey) || 0);
-        return Number.isFinite(ts) && ts > 0 && (Date.now() - ts) < 60_000;
+        return Number.isFinite(ts) && ts > 0 && (Date.now() - ts) < VERIFICATION_REFRESH_COOLDOWN_MS;
       } catch {
         return false;
       }
@@ -81,7 +84,11 @@ export function useVerification(userId: string): VerificationStatus {
 
     (async () => {
       try {
-        const profileResult = await backendAPI.user.getProfile();
+        if (!inflightProfileRefresh) {
+          inflightProfileRefresh = backendAPI.user.getProfile()
+            .finally(() => { inflightProfileRefresh = null; });
+        }
+        const profileResult = await inflightProfileRefresh;
         if (cancelled) return;
         if (profileResult.success && profileResult.data?.user) {
           const p = profileResult.data.user;
