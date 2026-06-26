@@ -17,11 +17,12 @@ import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../per
 const CSRF_TOKEN = crypto.randomUUID();
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
-  // Hosted KYC/KYB link generation can take longer on provider side.
-  // Avoid premature client aborts that surface timeout-first errors to users.
-  if (endpoint === 'bridge-kyc-link' || endpoint === 'bridge-kyb-link' || endpoint === 'bridge-customer') {
-    return 20000;
-  }
+  // Endpoints that can legitimately take longer because they trigger
+  // provider-side orchestration and/or email delivery.
+  if (endpoint === 'auth-signup') return 45000;
+  if (endpoint === 'auth-resend-verification') return 20000;
+  if (endpoint === 'bridge-kyc-link' || endpoint === 'bridge-kyb-link') return 45000;
+  if (endpoint === 'bridge-customer') return 30000;
   return 8000;
 }
 
@@ -133,7 +134,7 @@ async function apiCall<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
-      return { success: false, error: 'Request aborted' };
+      return { success: false, error: 'Request timed out. Please try again.' };
     }
     // Retry once on network failure for critical calls
     if (retries < 1 && !options.signal?.aborted) {
@@ -209,6 +210,9 @@ async function apiCallPublic<T = any>(
     return { success: true, data };
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
+    if (error?.name === 'AbortError') {
+      return { success: false, error: 'Request timed out. Please try again.' };
+    }
     return { success: false, error: error.message || 'Unable to connect to our servers.' };
   }
 }

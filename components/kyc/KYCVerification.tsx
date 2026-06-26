@@ -141,14 +141,22 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const startVerification = async () => {
     setVerifying(true);
     try {
+      // Always resolve account type from fresh profile before routing to KYC/KYB.
+      let currentAccountType: AccountType = accountType;
+      try {
+        const freshProfile = await backendAPI.user.getProfile();
+        const fresh = freshProfile?.success ? freshProfile?.data?.user : null;
+        if (fresh) currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
+      } catch {
+        // keep cached account type as fallback
+      }
       const redirect_url = `${window.location.origin}/?screen=kyc`;
-      const r: any = isBusiness
+      const r: any = currentAccountType === 'business'
         ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
         : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
-      if (r?.success && (r.data?.link_url || r.data?.tos_link_url)) {
+      if (r?.success && r.data?.link_url) {
         // Product contract: route users directly to hosted verification URL.
-        const hostedUrl = r.data?.link_url || r.data?.tos_link_url;
-        openHostedVerificationUrl(hostedUrl);
+        openHostedVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -160,7 +168,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verification is temporarily unavailable. Please try again shortly.');
         return;
       }
-      toast.error(friendlyError(r?.error, 'Could not start verification. Please try again.'));
+      toast.error(friendlyError(r?.error || 'Could not open verification link. Please try again.', 'Could not start verification. Please try again.'));
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
     } finally { setVerifying(false); }

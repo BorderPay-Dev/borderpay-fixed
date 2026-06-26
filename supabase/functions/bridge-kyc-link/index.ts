@@ -205,32 +205,6 @@ async function bridgePost(path: string, body: unknown, idemKey: string, correlat
   };
 }
 
-async function bridgeGet(path: string, correlationId?: string): Promise<BridgeFetchResult> {
-  if (!BRIDGE_API_KEY) {
-    return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
-  }
-  const res = await fetch(`${BRIDGE_BASE_URL}${path}`, {
-    method: "GET",
-    headers: {
-      "Api-Key":      BRIDGE_API_KEY,
-      "Accept":       "application/json",
-      ...(correlationId ? { "X-Correlation-Id": correlationId } : {}),
-      "User-Agent":   "borderpay-edge/1.0",
-    },
-  });
-  const text = await res.text();
-  let parsed: any = null;
-  if (text) { try { parsed = JSON.parse(text); } catch { /* keep null */ } }
-  return {
-    ok:         res.ok,
-    status:     res.status,
-    data:       parsed,
-    raw_text:   text,
-    error:      res.ok ? undefined : (parsed?.message || `HTTP ${res.status}`),
-    request_id: res.headers.get("x-request-id") || undefined,
-  };
-}
-
 // Extract a kyc_link from Bridge's response body in any of the three
 // shapes we have seen: top-level success, embedded data wrapper, or 400
 // with existing_kyc_link. Returns null if no link is present anywhere.
@@ -256,16 +230,6 @@ function extractLinks(parsed: any): ExtractedLinks | null {
     }
   }
   return null;
-}
-
-function bridgeErrorLooksLikeTosRequirement(raw: string): boolean {
-  const t = String(raw || "").toLowerCase();
-  return (
-    t.includes("signed_agreement_id")
-    || t.includes("tos")
-    || t.includes("terms of service")
-    || t.includes("agreement")
-  );
 }
 
 function isVerifiedStatus(value: string | null | undefined): boolean {
@@ -465,39 +429,6 @@ Deno.serve(async (req: Request) => {
     errorBody: r.ok ? null : (r.raw_text || "").slice(0, 1200),
     elapsedMs: elapsed(),
   });
-
-  if (!r.ok && !links && profile.bridge_customer_id && bridgeErrorLooksLikeTosRequirement(r.raw_text || r.error || "")) {
-    const tosRes = await bridgeGet(
-      `/v0/customers/${encodeURIComponent(profile.bridge_customer_id)}/tos_acceptance_link`,
-      correlationId,
-    );
-    const tosUrl =
-      tosRes?.data?.url ||
-      tosRes?.data?.data?.url ||
-      null;
-    if (tosRes.ok && tosUrl) {
-      await writeTrace(correlationId, "returned_success", {
-        executionTimestamp,
-        userId: user.id,
-        email: profile.email,
-        bridgeEndpoint: `/v0/customers/${profile.bridge_customer_id}/tos_acceptance_link`,
-        httpStatus: tosRes.status,
-        bridgeRequestId: tosRes.request_id ?? null,
-        responseBody: { tos_link_only: true, tos_link_url_present: true },
-        elapsedMs: elapsed(),
-      });
-      return json({
-        success: true,
-        data: {
-          link_id: null,
-          link_url: null,
-          tos_link_url: String(tosUrl),
-          tos_required: true,
-          correlation_id: correlationId,
-        },
-      });
-    }
-  }
 
   if (!r.ok && !links) {
     const detail = (r.raw_text || "").slice(0, 800);
