@@ -49,6 +49,34 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const settingsSecurityRefreshTsKey = `borderpay_settings_security_refreshed_at:${userId}`;
 
   // Keep Settings mount light. We prefetch on user intent (pointer/tap) only.
+  useEffect(() => {
+    // P0 runtime parity: users usually navigate Settings subpages in sequence.
+    // Warm the most-used children on idle so taps open without first-load lag.
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch !== 'function') return;
+    const keys = [
+      'profile',
+      'change-pin',
+      'two-factor-setup',
+      'biometric-setup',
+      'change-password',
+      'preferences',
+      'country-eligibility',
+      'help-center',
+      'terms-of-service',
+      'privacy-policy',
+    ];
+    const run = () => keys.forEach((k) => { try { prefetch(k); } catch { /* noop */ } });
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') {
+      const id = ric(run, { timeout: 1200 });
+      return () => {
+        try { (window as any).cancelIdleCallback?.(id); } catch { /* noop */ }
+      };
+    }
+    const t = window.setTimeout(run, 450);
+    return () => { window.clearTimeout(t); };
+  }, []);
 
   // Load security status from backend (persists across login/logout)
   useEffect(() => {
