@@ -84,7 +84,16 @@ function trustCurrentDevice() {
 
 function AppContent() {
   const [appState, setAppState] = useState<AppState>('loading');
-  const [showSplash, setShowSplash] = useState(true);
+  const [skipSplashOnce] = useState(() => {
+    try {
+      const skip = sessionStorage.getItem('borderpay_skip_splash_once') === '1';
+      if (skip) sessionStorage.removeItem('borderpay_skip_splash_once');
+      return skip;
+    } catch {
+      return false;
+    }
+  });
+  const [showSplash, setShowSplash] = useState(() => !skipSplashOnce);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
     return localStorage.getItem('borderpay_onboarding_done') === 'true';
   });
@@ -560,7 +569,7 @@ function AppContent() {
 
   // Show splash screen on first load (covers auth initialization too)
   // Keep splash visible until both auth check AND splash animation are complete
-  const showSplashScreen = showSplash || authLoading || appState === 'loading';
+  const showSplashScreen = !skipSplashOnce && (showSplash || authLoading || appState === 'loading');
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />

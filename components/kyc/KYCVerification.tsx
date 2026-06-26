@@ -123,6 +123,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const openHostedVerificationUrl = useCallback((url: string) => {
     setLastHostedUrl(url);
     try {
+      // On return from hosted Bridge verification, resume app directly
+      // without replaying the branded splash animation.
+      sessionStorage.setItem('borderpay_skip_splash_once', '1');
+    } catch { /* noop */ }
+    try {
       const popup = window.open(url, '_blank', 'noopener,noreferrer');
       if (popup) {
         popup.focus();
