@@ -55,6 +55,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const verification = useVerification(userId);
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
+  const refreshTsKey = financialCacheKey('borderpay_external_wallets_refresh_ts_v1', { userId });
 
   const cached = readCache(cacheKey);
   const [wallets, setWallets] = useState<ExternalWallet[]>(cached);
@@ -70,12 +71,19 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const [address, setAddress] = useState('');
 
   const load = async () => {
+    const isColdStart = wallets.length === 0;
     try {
-      const r: any = await backendAPI.financial.getSnapshot(20);
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (!isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) return;
+      const r: any = await backendAPI.externalWallets.list();
       if (r?.success) {
         const next: ExternalWallet[] = Array.isArray(r.data?.external_wallets) ? r.data.external_wallets : [];
-        setWallets(next);
-        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
+        const normalized: ExternalWallet[] = next.length > 0
+          ? next
+          : (Array.isArray(r.data?.wallets) ? r.data.wallets : []);
+        setWallets(normalized);
+        try { localStorage.setItem(cacheKey, JSON.stringify(normalized)); } catch { /* quota */ }
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       }
     } catch { /* keep cache */ }
     finally { setLoading(false); }

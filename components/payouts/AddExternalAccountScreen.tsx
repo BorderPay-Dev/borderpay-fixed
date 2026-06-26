@@ -24,8 +24,10 @@ import { Banknote, Loader2, Building2, User as UserIcon } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { SkeletonRows } from '../common/Skeleton';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 type AccountType = 'us' | 'iban' | 'clabe' | 'pix';
 
@@ -36,21 +38,15 @@ interface AddExternalAccountScreenProps {
 
 export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccountScreenProps) {
   const tc = useThemeClasses();
+  const userId = (authAPI.getStoredUser()?.id as string) || '';
+  const sendCapsCacheKey = financialCacheKey('borderpay_send_caps_v1', { userId });
   const readCachedCapabilities = (): Array<AccountType> => {
     try {
-      for (let i = 0; i < localStorage.length; i += 1) {
-        const key = localStorage.key(i);
-        if (!key || !key.startsWith('borderpay_snapshot_cache_v1')) continue;
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw);
-        const types = Array.isArray(parsed?.snapshot?.data?.external_account_capabilities)
-          ? parsed.snapshot.data.external_account_capabilities
-          : [];
-        const filtered = types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix');
-        if (filtered.length > 0) return filtered;
-      }
-      return [];
+      const raw = localStorage.getItem(sendCapsCacheKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      const types = Array.isArray(parsed) ? parsed : [];
+      return types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix');
     } catch {
       return [];
     }
@@ -96,17 +92,18 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
     (async () => {
       if (supportedAccountTypes.length === 0) setCapabilityLoading(true);
       try {
-        const r: any = await backendAPI.financial.getSnapshot(20);
+        const r: any = await backendAPI.bridge.externalAccount.capabilities();
         if (r?.success) {
-          const types = Array.isArray(r?.data?.external_account_capabilities) ? r.data.external_account_capabilities : [];
+          const types = Array.isArray(r?.data?.supported_account_types) ? r.data.supported_account_types : [];
           const filtered = types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix');
-          setSupportedAccountTypes(filtered);
+          setSupportedAccountTypes(filtered.length > 0 ? filtered : cachedCapabilities);
+          if (filtered.length > 0) {
+            try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(filtered)); } catch { /* noop */ }
+          }
           if (filtered.length > 0) setAccountType(filtered[0] as AccountType);
-        } else {
-          setSupportedAccountTypes([]);
         }
       } catch {
-        setSupportedAccountTypes([]);
+        // Keep cached capabilities on transient network failures.
       } finally {
         setCapabilityLoading(false);
       }

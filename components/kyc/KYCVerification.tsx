@@ -90,10 +90,13 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [accountType, setAccountType] = useState<AccountType>(seed.accountType);
   const [status, setStatus] = useState<KycView>(seed.status);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshTsKey = useMemo(() => `borderpay_kyc_refresh_ts_v1:${userId}`, [userId]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 45_000) return;
       const profileResult = await backendAPI.user.getProfile();
       const prof = profileResult?.success ? profileResult?.data?.user : null;
       if (prof) {
@@ -105,10 +108,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           bridgeKybStatus: prof.bridge_kyb_status,
           bridgeAccountStatus: prof.bridge_account_status,
         }));
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       }
     } catch { /* keep the cached status on any error */ }
     finally { setRefreshing(false); }
-  }, [userId]);
+  }, [refreshTsKey]);
 
   // Background refresh on mount — no loading gate; the seed already rendered.
   useEffect(() => { refresh(); }, [refresh]);
@@ -137,33 +141,27 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const startVerification = async () => {
     setVerifying(true);
     try {
-      // Fast-path for mobile/PWA clients: if we already have a hosted link
-      // cached for this user, open it immediately to avoid extra network
-      // dependency on slower Android WebViews.
+      // Resolve account type + any reusable hosted link from one fresh profile call.
+      let currentAccountType: AccountType = accountType;
+      let existingHostedLink: string | null = null;
       try {
-        const profileResult = await backendAPI.user.getProfile();
-        const prof = profileResult?.success ? profileResult?.data?.user : null;
-        const existing =
-          (accountType === 'business'
-            ? (prof?.bridge_kyb_link_url || prof?.kyb_link_url)
-            : (prof?.bridge_kyc_link_url || prof?.kyc_link_url)) ||
-          localStorage.getItem(`borderpay_last_verify_url:${userId}`);
-        if (existing && typeof existing === 'string') {
-          openHostedVerificationUrl(existing);
-          return;
+        const freshRes = await backendAPI.user.getProfile();
+        const fresh = freshRes?.success ? freshRes?.data?.user : null;
+        if (fresh) {
+          currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
+          existingHostedLink = currentAccountType === 'business'
+            ? (fresh.bridge_kyb_link_url || fresh.kyb_link_url || null)
+            : (fresh.bridge_kyc_link_url || fresh.kyc_link_url || null);
         }
       } catch {
-        // continue with fresh hosted-link generation
-      }
-
-      // Always resolve account type from fresh profile before routing to KYC/KYB.
-      let currentAccountType: AccountType = accountType;
-      try {
-        const freshProfile = await backendAPI.user.getProfile();
-        const fresh = freshProfile?.success ? freshProfile?.data?.user : null;
-        if (fresh) currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
-      } catch {
         // keep cached account type as fallback
+      }
+      if (!existingHostedLink) {
+        try { existingHostedLink = localStorage.getItem(`borderpay_last_verify_url:${userId}`); } catch { /* noop */ }
+      }
+      if (existingHostedLink && typeof existingHostedLink === 'string') {
+        openHostedVerificationUrl(existingHostedLink);
+        return;
       }
       const redirect_url = `${window.location.origin}/?screen=kyc`;
       const r: any = currentAccountType === 'business'
