@@ -664,6 +664,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </h3>
           {wallets.length > 0 && (
             <button
+              onPointerDown={() => prefetchScreen('wallet-detail')}
+              onMouseEnter={() => prefetchScreen('wallet-detail')}
+              onTouchStart={() => prefetchScreen('wallet-detail')}
               onClick={() => handleNavigate('wallet-detail')}
               className="text-[11px] font-semibold text-[#C7FF00]"
             >
@@ -694,6 +697,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                 {wallets.map((w) => (
                   <button
                     key={w.currency}
+                    onPointerDown={() => prefetchScreen('wallet-detail')}
+                    onMouseEnter={() => prefetchScreen('wallet-detail')}
+                    onTouchStart={() => prefetchScreen('wallet-detail')}
                     onClick={() => handleNavigate('wallet-detail')}
                     className={`flex-shrink-0 w-[160px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
                   >
@@ -743,6 +749,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <BridgeKycStatusCard userId={userId} onStartVerification={() => handleNavigate('kyc')} />
         )}
         <button
+          onPointerDown={() => prefetchScreen('wallet-detail')}
+          onMouseEnter={() => prefetchScreen('wallet-detail')}
+          onTouchStart={() => prefetchScreen('wallet-detail')}
           onClick={() => handleNavigate('wallet-detail')}
           className={`w-full rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
         >
@@ -767,7 +776,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>
             {tt('dashboard.recentActivity', 'Recent activity')}
           </h3>
-          <button onClick={() => handleNavigate('transactions')} className="text-[11px] font-semibold text-[#C7FF00]">
+          <button
+            onPointerDown={() => prefetchScreen('transactions')}
+            onMouseEnter={() => prefetchScreen('transactions')}
+            onTouchStart={() => prefetchScreen('transactions')}
+            onClick={() => handleNavigate('transactions')}
+            className="text-[11px] font-semibold text-[#C7FF00]"
+          >
             {tt('dashboard.seeAll', 'See all')}
           </button>
         </div>

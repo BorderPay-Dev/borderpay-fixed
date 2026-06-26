@@ -465,6 +465,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                 onClick={() => onNavigate('receive-money')}
                 onPointerDown={() => prefetchScreen('receive-money')}
                 onMouseEnter={() => prefetchScreen('receive-money')}
+                onTouchStart={() => prefetchScreen('receive-money')}
                 className={`w-full px-4 py-5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
               >
                 <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
@@ -482,6 +483,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                   key={w.currency}
                   onPointerDown={() => prefetchScreen('wallet-detail')}
                   onMouseEnter={() => prefetchScreen('wallet-detail')}
+                  onTouchStart={() => prefetchScreen('wallet-detail')}
                   onClick={() => onNavigate('wallet-detail')}
                   className={`w-full px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} transition-colors text-left ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
                 >
