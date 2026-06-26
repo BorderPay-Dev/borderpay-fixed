@@ -18,7 +18,7 @@
  * partner rails, gated separately.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { Banknote, Loader2, Building2, User as UserIcon } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
@@ -53,7 +53,9 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   };
   const cachedCapabilities = readCachedCapabilities();
   const [supportedAccountTypes, setSupportedAccountTypes] = useState<Array<AccountType>>(cachedCapabilities);
+  const supportedAccountTypesRef = useRef<Array<AccountType>>(cachedCapabilities);
   const [capabilityLoading, setCapabilityLoading] = useState(cachedCapabilities.length === 0);
+  const capabilityRefreshTsKey = financialCacheKey('borderpay_external_account_capabilities_refresh_ts_v1', { userId });
   const defaultType: AccountType = supportedAccountTypes[0] || 'us';
   const [accountType, setAccountType] = useState<AccountType>(defaultType);
   const [submitting, setSubmitting] = useState(false);
@@ -89,22 +91,36 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   const [documentNumber, setDocumentNumber] = useState('');
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['external-accounts', 'send-money', 'wallet-detail', 'settings'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    supportedAccountTypesRef.current = supportedAccountTypes;
+  }, [supportedAccountTypes]);
+
+  useEffect(() => {
+    const prewarmKey = `borderpay_add_external_account_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['external-accounts', 'send-money', 'wallet-detail', 'settings'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
 
     const loadCapabilities = async (force = false) => {
-      const seeded = supportedAccountTypes.length > 0 ? supportedAccountTypes : readCachedCapabilities();
+      const seeded = supportedAccountTypesRef.current.length > 0 ? supportedAccountTypesRef.current : readCachedCapabilities();
       if (seeded.length === 0) setCapabilityLoading(true);
-      if (!force && seeded.length > 0) return;
+      try {
+        const last = Number(localStorage.getItem(capabilityRefreshTsKey) || '0');
+        if (!force && seeded.length > 0 && Number.isFinite(last) && Date.now() - last < 60_000) return;
+      } catch { /* noop */ }
       try {
         const r: any = await backendAPI.bridge.externalAccount.capabilities();
         if (r?.success) {
@@ -113,6 +129,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
           setSupportedAccountTypes(filtered.length > 0 ? filtered : cachedCapabilities);
           if (filtered.length > 0) {
             try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(filtered)); } catch { /* noop */ }
+            try { localStorage.setItem(capabilityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
           }
           if (filtered.length > 0) setAccountType(filtered[0] as AccountType);
         }
@@ -135,7 +152,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
       document.removeEventListener('visibilitychange', onVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId, capabilityRefreshTsKey]);
 
   const submit = async () => {
     if (!ownerName.trim()) { toast.error('Account holder name is required.'); return; }

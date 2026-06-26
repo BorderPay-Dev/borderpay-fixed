@@ -9,7 +9,7 @@
  * Existing individual `Dashboard` is untouched.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet,
   AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
@@ -136,6 +136,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   );
   const cachedBizTransactions = useMemo(() => readBizTx(bizTxCacheKey), [bizTxCacheKey]);
   const [wallets, setWallets]             = useState<WalletRow[]>(cachedBizWallets);
+  const walletsRef = useRef<WalletRow[]>(cachedBizWallets);
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
@@ -145,6 +146,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [has2FA, setHas2FA] = useState<boolean>(() => {
     try { return !!SecurityStatus.get(userId).has2FA || TOTPManager.isEnabled(userId); } catch { return false; }
   });
+
+  useEffect(() => {
+    walletsRef.current = wallets;
+  }, [wallets]);
 
   const usdLikeTotal = useMemo(
     () => wallets.filter(w => ['USD', 'USDT', 'USDC', 'PYUSD', 'USDB'].includes(w.currency))
@@ -158,7 +163,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   })).filter((w: WalletRow) => !!w.currency);
 
   const loadWallets = async (force = false) => {
-    const seededWallets = wallets.length > 0 ? wallets : readBizWallets(bizWalletsCacheKey);
+    const seededWallets = walletsRef.current.length > 0 ? walletsRef.current : readBizWallets(bizWalletsCacheKey);
     // Do not blank a cached dashboard on refresh; only skeleton on cold start.
     if (seededWallets.length === 0) setWalletsLoading(true);
     setWalletsError(null);
@@ -290,7 +295,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     const ric = (window as any).requestIdleCallback;
     if (typeof ric === 'function') ric(warm, { timeout: 1000 });
     else setTimeout(warm, 220);
-  }, []);
+  }, [userId]);
 
   const refreshAll = () => { loadWallets(true); };
   const kybVerified = affiliateKycStatus === 'verified';
