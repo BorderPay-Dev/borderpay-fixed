@@ -197,7 +197,7 @@ function BusinessTeamPanel({
   // Native-app pattern: seed the roster from the last-loaded cache so the panel
   // mounts INSTANTLY, then refresh in the background.
   const cachedRoster = readRosterCache();
-  const [loading, setLoading]   = useState(false);
+  const [loading, setLoading]   = useState(!cachedRoster);
   const [error, setError]       = useState<string | null>(null);
   const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
   const [busyId, setBusyId]     = useState<string | null>(null);
@@ -215,6 +215,7 @@ function BusinessTeamPanel({
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
       if (!force && roster && Number.isFinite(last) && Date.now() - last < 45_000) return;
     } catch { /* noop */ }
+    if (!roster) setLoading(true);
     setError(null);
     try {
       const r = await withTimeout(
