@@ -458,8 +458,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               <h1 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[40px] sm:text-[52px]">
                 {balanceHidden ? (
                   <span>••••••</span>
-                ) : !walletsLoaded ? (
-                  <span className="text-2xl sm:text-3xl text-white/40">Loading…</span>
                 ) : (
                   <>
                     <span className="text-xl sm:text-2xl text-white/50 mr-1 align-top">$</span>
