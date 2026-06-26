@@ -62,10 +62,10 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       }
     } catch { /* noop */ }
 
-    const loadStatus = async () => {
+    const loadStatus = async (force = false) => {
       try {
         const last = Number(localStorage.getItem(settingsSecurityRefreshTsKey) || '0');
-        if (Number.isFinite(last) && Date.now() - last < 60_000) return;
+        if (!force && Number.isFinite(last) && Date.now() - last < 60_000) return;
       } catch { /* noop */ }
       try {
         // 2FA truth lives in `user_security` (not always denormalised onto
@@ -94,6 +94,18 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       }
     };
     loadStatus();
+
+    const onFocus = () => { void loadStatus(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadStatus(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [settingsSecurityCacheKey, settingsSecurityRefreshTsKey, userId]);
 
   const settingsSections = [
