@@ -197,7 +197,15 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
       >
         <h1 className={`text-base font-semibold ${tc.text}`}>External Accounts</h1>
-        <button onClick={onAdd} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold">
+        <button
+          onPointerDown={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+          onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+          onClick={() => {
+            try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
+            window.setTimeout(onAdd, 0);
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold"
+        >
           <Plus className="w-3.5 h-3.5" /> Add
         </button>
       </header>
@@ -224,7 +232,15 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
             </div>
             <p className={`text-sm font-semibold ${tc.text} mb-1`}>No external accounts yet</p>
             <p className={`text-xs ${tc.textMuted} mb-5`}>Add a bank account to receive payouts through BorderPay.</p>
-            <button onClick={onAdd} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold">
+            <button
+              onPointerDown={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+              onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+              onClick={() => {
+                try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
+                window.setTimeout(onAdd, 0);
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold"
+            >
               <Plus className="w-4 h-4" /> Add payout account
             </button>
           </div>

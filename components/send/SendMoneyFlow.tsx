@@ -111,6 +111,7 @@ function getCurrencySymbol(code: string) {
 
 const SEND_WALLETS_CACHE_KEY = 'borderpay_send_wallets_v1';
 const SEND_CAPS_CACHE_KEY = 'borderpay_send_caps_v1';
+const EXTERNAL_ACCOUNTS_CACHE_KEY = 'borderpay_payout_accounts_v1';
 
 
 // ---------------------------------------------------------------------------
@@ -147,6 +148,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const cachedSendCaps = useMemo(() => {
     try { const v = JSON.parse(localStorage.getItem(sendCapsCacheKey) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
   }, [sendCapsCacheKey]);
+  const externalAccountsCacheKey = useMemo(
+    () => financialCacheKey(EXTERNAL_ACCOUNTS_CACHE_KEY, { userId }),
+    [userId],
+  );
+  const cachedExternalAccounts = useMemo(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(externalAccountsCacheKey) || '[]');
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  }, [externalAccountsCacheKey]);
 
   // Step & method
   const [step, setStep] = useState<Step>('method');
@@ -169,8 +182,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [resolveError, setResolveError] = useState('');
 
   // External bank payout state (Bridge external accounts)
-  const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>([]);
-  const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>('');
+  const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>(cachedExternalAccounts);
+  const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>(
+    String(cachedExternalAccounts?.[0]?.bridge_external_account_id || ''),
+  );
   const [usMemo, setUsMemo] = useState('');
 
   // External stablecoin withdrawal — network + token + destination address.
@@ -302,6 +317,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setWallets(list);
         setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
         setExternalAccounts(ext);
+        try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
         if (!selectedExternalAccountId && ext.length > 0) {
           setSelectedExternalAccountId(ext[0].bridge_external_account_id);
           if (ext[0]?.currency) setSelectedCurrency(ext[0].currency);
@@ -316,7 +332,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return () => {
       cancelled = true;
     };
-  }, [userId, sendWalletsCacheKey, sendCapsCacheKey, selectedExternalAccountId]);
+  }, [userId, sendWalletsCacheKey, sendCapsCacheKey, selectedExternalAccountId, externalAccountsCacheKey]);
 
   // Select wallet when currency changes
   useEffect(() => {
