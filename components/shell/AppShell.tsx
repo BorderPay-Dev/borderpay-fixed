@@ -384,22 +384,19 @@ export function AppShell({
               aria-label={tt('shell.menu', 'Menu')}
             >
               <div className="sticky top-0 z-10 px-3 pt-safe-header pb-2 bg-transparent">
-                <div className={`${tc.headerBg} border ${tc.borderLight} rounded-2xl px-3 py-2.5 backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.28)] flex items-center justify-between`}>
-                  <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center justify-between">
+                  <div className={`w-11 h-11 rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] overflow-hidden flex items-center justify-center`}>
                     {avatarUrl ? (
-                      <img src={avatarUrl} alt={userName ?? ''} className="w-10 h-10 rounded-full object-cover border border-white/10" />
+                      <img src={avatarUrl} alt={userName ?? ''} className="w-full h-full rounded-full object-cover" />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-[#C7FF00] text-black font-bold text-sm flex items-center justify-center">{initials}</div>
+                      <div className="w-full h-full rounded-full bg-[#C7FF00] text-black font-bold text-sm flex items-center justify-center">{initials}</div>
                     )}
-                    <div className="min-w-0">
-                      <div className={`text-sm font-semibold ${tc.text} truncate`}>{userName || tt('shell.guest', 'Guest')}</div>
-                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => setDrawerOpen(false)}
                     aria-label={tt('shell.menu.close', 'Close menu')}
-                    className={`p-2 rounded-full ${tc.hoverBg}`}
+                    className={`w-11 h-11 rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] flex items-center justify-center ${tc.hoverBg}`}
                   >
                     <X className={`w-5 h-5 ${tc.text}`} />
                   </button>
