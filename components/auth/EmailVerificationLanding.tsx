@@ -45,6 +45,17 @@ export function EmailVerificationLanding({ token, purpose, onNavigateToLogin }: 
   const [resending, setResending] = useState(false);
 
   useEffect(() => {
+    if (state.kind !== 'ok' && state.kind !== 'already_used') return;
+    // Keep verify UX deterministic: successful token consumption should
+    // always route the user back to sign-in quickly.
+    const id = window.setTimeout(() => {
+      try { sessionStorage.setItem('borderpay_email_verified_just_now', '1'); } catch { /* noop */ }
+      onNavigateToLogin();
+    }, 1200);
+    return () => window.clearTimeout(id);
+  }, [state.kind, onNavigateToLogin]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const r: any = await backendAPI.auth.verifyEmailToken(token, purpose);
@@ -118,6 +129,7 @@ export function EmailVerificationLanding({ token, purpose, onNavigateToLogin }: 
             >
               Continue to sign in
             </button>
+            <p className="text-[11px] text-white/50 mt-3">Redirecting…</p>
           </>
         )}
 

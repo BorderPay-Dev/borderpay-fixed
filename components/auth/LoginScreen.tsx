@@ -50,6 +50,21 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
   const [show2FA, setShow2FA]       = useState(false);
   const [pendingUser, setPendingUser] = useState<any>(null);
 
+  useEffect(() => {
+    // Smooth signup -> verify -> signin handoff on the same device.
+    try {
+      const pending = JSON.parse(localStorage.getItem('borderpay_pending_signup') || 'null');
+      if (pending?.email && !email) setEmail(String(pending.email));
+      const justVerified = sessionStorage.getItem('borderpay_email_verified_just_now') === '1';
+      if (justVerified) {
+        sessionStorage.removeItem('borderpay_email_verified_just_now');
+        toast.success('Email verified. Please sign in to continue.');
+      }
+    } catch { /* noop */ }
+    // Intentional one-time hydration on first render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Show the biometric button ONLY when sign-in can actually run — i.e. all the
   // local session context the handler needs exists (biometric_user_id + enrolled
   // credential + cached borderpay_user + borderpay_refresh_token). Enrollment
