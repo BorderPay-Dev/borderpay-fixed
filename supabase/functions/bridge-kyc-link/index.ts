@@ -343,9 +343,11 @@ Deno.serve(async (req: Request) => {
       account_type: fallbackAccountType,
       country: String(user.user_metadata?.country || user.user_metadata?.country_code || "KE").toUpperCase(),
       phone: user.phone || null,
-      kyc_status: "pending",
-      bridge_kyc_status: "pending",
-      bridge_account_status: "pending",
+      // Important: do NOT mark as pending during bootstrap. Pending must only
+      // be set after a real hosted Bridge link is successfully created.
+      kyc_status: "unverified",
+      bridge_kyc_status: "not_started",
+      bridge_account_status: "not_started",
       updated_at: new Date().toISOString(),
     };
     const { data: seeded, error: seedErr } = await supa
