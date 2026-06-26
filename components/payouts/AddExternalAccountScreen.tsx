@@ -89,8 +89,10 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   const [documentNumber, setDocumentNumber] = useState('');
 
   useEffect(() => {
-    (async () => {
-      if (supportedAccountTypes.length === 0) setCapabilityLoading(true);
+    const loadCapabilities = async (force = false) => {
+      const seeded = supportedAccountTypes.length > 0 ? supportedAccountTypes : readCachedCapabilities();
+      if (seeded.length === 0) setCapabilityLoading(true);
+      if (!force && seeded.length > 0) return;
       try {
         const r: any = await backendAPI.bridge.externalAccount.capabilities();
         if (r?.success) {
@@ -107,7 +109,19 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
       } finally {
         setCapabilityLoading(false);
       }
-    })();
+    };
+
+    void loadCapabilities();
+    const onFocus = () => { void loadCapabilities(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadCapabilities(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
