@@ -98,7 +98,6 @@ function getCurrencySymbol(code: string) {
   return CURRENCY_SYMBOLS[code] || code;
 }
 
-const SNAPSHOT_READY_TIMEOUT_MS = 2000;
 const SEND_WALLETS_CACHE_KEY = 'borderpay_send_wallets_v1';
 const SEND_CAPS_CACHE_KEY = 'borderpay_send_caps_v1';
 
@@ -256,61 +255,43 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
-  // Never block route rendering on capability/snapshot checks.
-  const [snapshotReady, setSnapshotReady] = useState(true);
-
   useEffect(() => {
     navPerfTrackCache('send-money', cachedSendWallets.length > 0 || cachedSendCaps.length > 0);
   }, [cachedSendWallets.length, cachedSendCaps.length]);
 
   // ---------------------------------------------------------------------------
-  // Snapshot hydration gate:
-  // - render send flow only when snapshot.isReady === true
-  // - derive wallets + external account capabilities from the same snapshot
-  // - no post-render capability patching
+  // Snapshot hydration:
+  // - first paint comes from cache
+  // - one immediate background refresh only
+  // - no delayed retry loop that contends with route navigation
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
-    const hydrate = async () => {
-      const startedAt = Date.now();
-      while (!cancelled) {
-        const timedOut = Date.now() - startedAt >= SNAPSHOT_READY_TIMEOUT_MS;
-        try {
-          const res: any = await backendAPI.financial.getSnapshot(100);
-          if (cancelled) return;
-          if (res?.success && res?.data) {
-            const list = ((res.data as any).wallets || []).map((w: any) => ({
-              id: w.id,
-              currency: w.currency,
-              balance: parseFloat(w.balance) || 0,
-              symbol: getCurrencySymbol(w.currency),
-            }));
-            const types = Array.isArray(res?.data?.external_account_capabilities)
-              ? res.data.external_account_capabilities
-              : [];
-            setWallets(list);
-            setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
-            try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
-            try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
-            // Render deterministically once the snapshot is explicitly ready,
-            // or after the timeout with partial capabilities.
-            if (res?.data?.isReady === true || timedOut) {
-              setSnapshotReady(true);
-              return;
-            }
-          }
-        } catch {
-          // Keep polling until timeout, then fail-open with deterministic UI.
-        }
-        if (timedOut) {
-          setSnapshotReady(true);
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+    const hydrateOnce = async () => {
+      try {
+        const res: any = await backendAPI.financial.getSendRouteData();
+        if (cancelled || !res?.success || !res?.data) return;
+        const list = ((res.data as any).wallets || []).map((w: any) => ({
+          id: w.id,
+          currency: w.currency,
+          balance: parseFloat(w.balance) || 0,
+          symbol: getCurrencySymbol(w.currency),
+        }));
+        const types = Array.isArray(res?.data?.external_account_capabilities)
+          ? res.data.external_account_capabilities
+          : [];
+        setWallets(list);
+        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+        try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
+        try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
+      } catch {
+        // best effort: keep cached values
       }
     };
-    hydrate();
-    return () => { cancelled = true; };
+    hydrateOnce();
+    return () => {
+      cancelled = true;
+    };
   }, [userId, sendWalletsCacheKey, sendCapsCacheKey]);
 
   // Select wallet when currency changes
@@ -556,33 +537,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       default: return t('send.title');
     }
   };
-
-  if (!snapshotReady) {
-    return (
-      <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe relative`}>
-        <FloatingBackButton onBack={onBack} />
-        <div className={`sticky top-0 z-30 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
-          <div className="flex items-center justify-center px-5 py-4 pt-safe-header">
-            <h1 className={`text-base font-bold ${tc.text}`}>{t('send.title')}</h1>
-          </div>
-        </div>
-        <div className="px-5 py-6">
-          <div className={`animate-pulse ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 mb-3`}>
-            <div className="h-4 w-40 bg-white/10 rounded mb-3" />
-            <div className="h-3 w-56 bg-white/10 rounded" />
-          </div>
-          <div className={`animate-pulse ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 mb-3`}>
-            <div className="h-4 w-36 bg-white/10 rounded mb-3" />
-            <div className="h-3 w-64 bg-white/10 rounded" />
-          </div>
-          <div className={`animate-pulse ${tc.card} border ${tc.cardBorder} rounded-2xl p-5`}>
-            <div className="h-4 w-44 bg-white/10 rounded mb-3" />
-            <div className="h-3 w-52 bg-white/10 rounded" />
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ---------------------------------------------------------------------------
   // Render
