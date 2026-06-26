@@ -242,6 +242,7 @@ export function AppShell({
     };
     const ric = (window as any).requestIdleCallback;
     if (typeof ric === 'function') {
+      try { sessionStorage.setItem(prewarmKey, String(Date.now())); } catch { /* noop */ }
       const id = ric(warm, { timeout: 900 });
       return () => {
         try { (window as any).cancelIdleCallback?.(id); } catch { /* noop */ }
