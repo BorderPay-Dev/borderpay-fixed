@@ -20,6 +20,7 @@ import { supabase } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { AssetBadge, chainLabel, assetName } from '../dashboard/bridge/WalletVisuals';
 import { showToast } from '../common/StatusToast';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 /** Per-CEO floors. Individuals $20, businesses $100. Sheet receives the exact
  *  min via the 402 detail when triggered by a gate; falls back to these per
@@ -48,8 +49,16 @@ interface Stable { id: string; currency: string; chain: string; address: string 
 export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType, onOpenWallet, userId }: Props) {
   const minRequired = minUsd ?? (accountType === 'business' ? FUNDING_MIN_USD_BUSINESS : FUNDING_MIN_USD_INDIVIDUAL);
   const tc = useThemeClasses();
+  const stableWalletsCacheKey = useMemo(
+    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    [userId],
+  );
+  const stableWalletsRefreshTsKey = useMemo(
+    () => financialCacheKey('borderpay_funding_wallets_refresh_ts_v1', { userId }),
+    [userId],
+  );
   const [stables, setStables] = useState<Stable[]>(() => {
-    try { return JSON.parse(localStorage.getItem('borderpay_wallets_ind_v1') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; }
   });
   const [loading, setLoading] = useState(stables.length === 0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -59,17 +68,27 @@ export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType
     let alive = true;
     (async () => {
       try {
+        const hasCached = stables.length > 0;
+        const last = Number(localStorage.getItem(stableWalletsRefreshTsKey) || '0');
+        if (hasCached && Number.isFinite(last) && Date.now() - last < 60_000) {
+          if (alive) setLoading(false);
+          return;
+        }
         const { data } = await supabase
           .from('bridge_wallets')
           .select('id, currency, chain, address')
           .eq('user_id', userId)
           .not('address', 'is', null);
-        if (alive && Array.isArray(data)) setStables(data as Stable[]);
+        if (alive && Array.isArray(data)) {
+          setStables(data as Stable[]);
+          try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(data)); } catch { /* noop */ }
+          try { localStorage.setItem(stableWalletsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+        }
       } catch { /* best-effort */ }
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [open, userId]);
+  }, [open, userId, stableWalletsCacheKey, stableWalletsRefreshTsKey, stables.length]);
 
   const progress = useMemo(() => {
     const cur = Math.max(0, Number(currentUsd ?? 0));
