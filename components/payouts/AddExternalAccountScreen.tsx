@@ -89,6 +89,18 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   const [documentNumber, setDocumentNumber] = useState('');
 
   useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['external-accounts', 'send-money', 'wallet-detail', 'settings'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+    }
+
     const loadCapabilities = async (force = false) => {
       const seeded = supportedAccountTypes.length > 0 ? supportedAccountTypes : readCachedCapabilities();
       if (seeded.length === 0) setCapabilityLoading(true);
