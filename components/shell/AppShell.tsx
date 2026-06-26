@@ -199,6 +199,10 @@ export function AppShell({
     setDrawerOpen(false);
     onRoute(next);
   }, [onRoute]);
+  const goFromDrawer = useCallback((next: AppRoute) => {
+    setDrawerOpen(false);
+    window.setTimeout(() => onRoute(next), 0);
+  }, [onRoute]);
   const closeDrawerThen = useCallback((fn: () => void) => {
     setDrawerOpen(false);
     window.setTimeout(fn, 0);
@@ -412,24 +416,24 @@ export function AppShell({
               </div>
 
               <ul className="py-2">
-                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           description={tt('nav.home.desc',         'Your dashboard & balances')}      active={route === 'dashboard'}    onPrefetch={() => prefetchRoute('dashboard')}    onClick={() => go('dashboard')}    tc={tc} />
-                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         description={tt('nav.wallet.desc',       'Balances across your currencies')} active={route === 'wallet'}       onPrefetch={() => prefetchRoute('wallet')}       onClick={() => go('wallet')}       tc={tc} />
-                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     description={tt('nav.send.desc',         'Pay anyone by bank or crypto')}    active={route === 'send'}         onPrefetch={() => prefetchRoute('send')}         onClick={() => go('send')}         tc={tc} />
-                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  description={tt('nav.receive.desc',      'Get paid into your accounts')}     active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => go('receive')}      tc={tc} />
-                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
+                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           description={tt('nav.home.desc',         'Your dashboard & balances')}      active={route === 'dashboard'}    onPrefetch={() => prefetchRoute('dashboard')}    onClick={() => goFromDrawer('dashboard')}    tc={tc} />
+                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         description={tt('nav.wallet.desc',       'Balances across your currencies')} active={route === 'wallet'}       onPrefetch={() => prefetchRoute('wallet')}       onClick={() => goFromDrawer('wallet')}       tc={tc} />
+                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     description={tt('nav.send.desc',         'Pay anyone by bank or crypto')}    active={route === 'send'}         onPrefetch={() => prefetchRoute('send')}         onClick={() => goFromDrawer('send')}         tc={tc} />
+                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  description={tt('nav.receive.desc',      'Get paid into your accounts')}     active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => goFromDrawer('receive')}      tc={tc} />
+                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => goFromDrawer('transactions')} tc={tc} />
                 {onOpenPayoutAccounts && (
                   <DrawerItem icon={Banknote}  label={tt('nav.external_accounts', 'External Accounts')} description={tt('nav.external_accounts.desc', 'Manage withdrawal destinations')} active={false} onPrefetch={() => prefetchScreen('external-accounts')} onClick={() => closeDrawerThen(onOpenPayoutAccounts)} tc={tc} />
                 )}
                 {onOpenWithdrawalWallets && (
                   <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onPrefetch={() => prefetchScreen('external-wallets')} onClick={() => closeDrawerThen(onOpenWithdrawalWallets)} tc={tc} />
                 )}
-                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
+                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => goFromDrawer('cards')}        tc={tc} badge="Locked" />
                 {isBusinessAccount && (
-                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
+                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => goFromDrawer('team')}         tc={tc} />
                 )}
                 <div className={`my-2 border-t ${tc.borderLight}`} />
-                <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} description={isBusinessAccount ? tt('nav.kyb.desc', 'Verify your business') : tt('nav.kyc.desc', 'Verify your identity')} active={route === 'kyc'} onPrefetch={() => prefetchRoute('kyc')} onClick={() => go('kyc')} tc={tc} />
-                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       description={tt('nav.settings.desc',     'App, security & preferences')}     active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
+                <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} description={isBusinessAccount ? tt('nav.kyb.desc', 'Verify your business') : tt('nav.kyc.desc', 'Verify your identity')} active={route === 'kyc'} onPrefetch={() => prefetchRoute('kyc')} onClick={() => goFromDrawer('kyc')} tc={tc} />
+                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       description={tt('nav.settings.desc',     'App, security & preferences')}     active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => goFromDrawer('settings')}     tc={tc} />
                 {onLock && (
                   <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       description={tt('nav.lockApp.desc',      'Lock now, return with biometrics')} onClick={() => closeDrawerThen(onLock)}                   tc={tc} />
                 )}

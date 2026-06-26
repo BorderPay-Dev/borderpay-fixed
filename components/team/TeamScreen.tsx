@@ -114,13 +114,16 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   const effectiveAccountType: 'individual' | 'business' =
     accountType === 'business' || inferredBusiness || inferredBusinessFromAuthToken ? 'business' : 'individual';
   const [resolvedAccountType, setResolvedAccountType] = useState<'individual' | 'business'>(effectiveAccountType);
+  const [resolvingAccountType, setResolvingAccountType] = useState<boolean>(effectiveAccountType !== 'business');
 
   useEffect(() => {
     if (effectiveAccountType === 'business') {
       setResolvedAccountType('business');
+      setResolvingAccountType(false);
       return;
     }
     let cancelled = false;
+    setResolvingAccountType(true);
     // Do not block first paint for account-type correction; run in background.
     (async () => {
       try {
@@ -140,12 +143,28 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
         // profile fetch failures/timeouts.
       } catch {
         // Preserve current state on failure.
+      } finally {
+        if (!cancelled) setResolvingAccountType(false);
       }
     })();
     return () => { cancelled = true; };
   }, [effectiveAccountType]);
 
   // ── Individual-account placeholder ────────────────────────────────────
+  if (resolvedAccountType !== 'business' && resolvingAccountType) {
+    return (
+      <div className={`min-h-screen ${tc.bg}`}>
+        <Header tc={tc} onBack={onBack} title="Team members" />
+        <div className="max-w-2xl mx-auto px-5 py-12">
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 animate-pulse`}>
+            <div className={`h-4 w-32 rounded ${tc.bgAlt} mb-3`} />
+            <div className={`h-3 w-full rounded ${tc.bgAlt} mb-2`} />
+            <div className={`h-3 w-2/3 rounded ${tc.bgAlt}`} />
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (resolvedAccountType !== 'business') {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
