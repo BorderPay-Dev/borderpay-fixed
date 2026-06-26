@@ -89,6 +89,16 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
 
   useEffect(() => {
     loadTransactions();
+    const onFocus = () => { void loadTransactions(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadTransactions(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
     // Filter is applied client-side below; avoid refetch on every toggle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
