@@ -306,7 +306,7 @@ export function AppShell({
             aria-label={tt('shell.notifications', 'Notifications')}
             onPointerDown={() => prefetchRoute('notifications')}
             onMouseEnter={() => prefetchRoute('notifications')}
-            onClick={() => go('notifications')}
+            onClick={() => { prefetchRoute('notifications'); go('notifications'); }}
             className={`pointer-events-auto relative shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
           >
             <Bell className={`w-5 h-5 ${tc.text}`} />
@@ -323,7 +323,7 @@ export function AppShell({
             aria-label={tt('shell.account', 'Account')}
             onPointerDown={() => prefetchRoute('account')}
             onMouseEnter={() => prefetchRoute('account')}
-            onClick={() => go('account')}
+            onClick={() => { prefetchRoute('account'); go('account'); }}
             className={`pointer-events-auto shrink-0 w-11 h-11 rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] overflow-hidden flex items-center justify-center`}
           >
             {avatarUrl ? (
@@ -464,7 +464,10 @@ function BottomButton({
       type="button"
       onPointerDown={onPrefetch}
       onMouseEnter={onPrefetch}
-      onClick={onClick}
+      onClick={() => {
+        onPrefetch?.();
+        onClick();
+      }}
       aria-current={active ? 'page' : undefined}
       className="relative h-full min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-[22px] transition-colors"
     >
@@ -509,7 +512,10 @@ function DrawerItem({
         type="button"
         onPointerDown={onPrefetch}
         onMouseEnter={onPrefetch}
-        onClick={onClick}
+        onClick={() => {
+          onPrefetch?.();
+          onClick();
+        }}
         className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors ${tc.hoverBg} ${active ? (tc.isLight ? 'bg-black/[0.04]' : 'bg-white/[0.04]') : ''}`}
       >
         <Icon className={`w-5 h-5 flex-shrink-0 ${danger ? 'text-red-500' : active || highlight ? 'text-[#C7FF00]' : tc.textSecondary}`} />
