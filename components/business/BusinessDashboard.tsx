@@ -157,14 +157,14 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     balance: parseFloat(w?.balance) || 0,
   })).filter((w: WalletRow) => !!w.currency);
 
-  const loadWallets = async () => {
+  const loadWallets = async (force = false) => {
     // Do not blank a cached dashboard on refresh; only skeleton on cold start.
     if (wallets.length === 0) setWalletsLoading(true);
     setWalletsError(null);
     try {
       const refreshTsKey = financialCacheKey(BIZ_DASH_REFRESH_TS_KEY, { userId, accountType: 'business' });
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (wallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (!force && wallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
       const walletRouteRes: any = await backendAPI.financial.getWalletRouteData();
@@ -268,7 +268,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const refreshAll = () => { loadWallets(); };
+  const refreshAll = () => { loadWallets(true); };
   const kybVerified = affiliateKycStatus === 'verified';
   const setupSteps = [
     { id: '2fa', label: 'Enable 2FA', completed: has2FA, screen: 'two-factor-setup' },
@@ -412,7 +412,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>Accounts</h2>
             {walletsError && (
               <button
-                onClick={loadWallets}
+                onClick={() => loadWallets(true)}
                 className="text-[11px] text-[#C7FF00] font-semibold inline-flex items-center gap-1"
               >
                 <RefreshCw className="w-3 h-3" /> Retry
