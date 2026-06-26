@@ -47,6 +47,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const abortControllerRef = React.useRef<AbortController | null>(null);
+  const unreadRefreshTsRef = React.useRef<number>(0);
 
   useEffect(() => {
     // Refresh unread count immediately on mount.
@@ -82,6 +83,8 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   };
 
   const loadUnreadCount = async () => {
+    const now = Date.now();
+    if (now - unreadRefreshTsRef.current < 10_000) return;
     try {
       // Skip if user is not authenticated
       const token = authAPI.getToken();
@@ -99,6 +102,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       if (controller.signal.aborted) return;
       if (result.success && result.data) {
         setUnreadCount(Number((result.data as any).notifications_unread_count || 0));
+        unreadRefreshTsRef.current = Date.now();
       }
     } catch (error: any) {
       // Silently ignore abort and network errors for polling

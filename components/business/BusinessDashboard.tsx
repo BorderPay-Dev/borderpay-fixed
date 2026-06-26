@@ -285,16 +285,22 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   }, [userId]);
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch !== 'function') return;
-    const warm = () => {
-      ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'team', 'settings', 'profile', 'bulk-payout', 'payroll', 'exchange'].forEach((s) => {
-        try { prefetch(s); } catch { /* noop */ }
-      });
-    };
-    const ric = (window as any).requestIdleCallback;
-    if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-    else setTimeout(warm, 220);
+    const prewarmKey = `borderpay_business_dashboard_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return;
+      const prefetch = (window as any).__borderpay_prefetch;
+      if (typeof prefetch !== 'function') return;
+      const warm = () => {
+        ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'team', 'settings', 'profile', 'bulk-payout', 'payroll', 'exchange'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
   }, [userId]);
 
   const refreshAll = () => { loadWallets(true); };
