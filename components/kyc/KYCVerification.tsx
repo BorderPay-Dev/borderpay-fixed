@@ -217,8 +217,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             </div>
           </div>
 
-          {/* Free in-app start — KYC/KYB is no longer email-gated. */}
-          {status === 'not_started' && (
+          {/* Free in-app start/continue — allow users in not_started OR pending
+              to (re)open the hosted verification link. Bridge handles link reuse
+              / regeneration idempotently server-side. */}
+          {(status === 'not_started' || status === 'pending') && (
             <button
               onClick={startVerification}
               disabled={verifying}
@@ -226,7 +228,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             >
               {verifying
                 ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <>{isBusiness ? 'Verify your business' : 'Verify your identity'} <ArrowRight className="w-4 h-4" /></>}
+                : <>{status === 'pending'
+                    ? 'Continue verification'
+                    : (isBusiness ? 'Verify your business' : 'Verify your identity')}
+                   <ArrowRight className="w-4 h-4" /></>}
             </button>
           )}
           {(status === 'pending' || status === 'under_review') && (
