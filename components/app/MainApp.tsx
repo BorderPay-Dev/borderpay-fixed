@@ -575,7 +575,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       // re-entry. Route screens now own their own revalidation throttles.
       try {
         const last = Number(localStorage.getItem(warmTsKey) || '0');
-        if (Number.isFinite(last) && Date.now() - last < 60_000) return;
+        if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
       } catch { /* noop */ }
 
       try {
