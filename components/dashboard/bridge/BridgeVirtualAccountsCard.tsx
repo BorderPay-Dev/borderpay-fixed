@@ -25,6 +25,7 @@ import {
 } from '../../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
+import { financialCacheKey } from '../../../utils/financial/cacheScope';
 
 type Currency = BridgeVirtualAccountCurrency;
 
@@ -48,7 +49,10 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const vaCacheKey = `borderpay_va_${isBusiness ? 'biz' : 'ind'}_v1`;
+  const vaCacheKey = financialCacheKey('borderpay_va_v1', {
+    userId,
+    accountType: isBusiness ? 'business' : 'individual',
+  });
   const cachedRows = useMemo<VARow[]>(() => {
     try { const raw = localStorage.getItem(vaCacheKey); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -66,9 +70,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     [country],
   );
 
-  const refresh = async () => {
-    // Mirror Bridge → local first so dashboard-created / unsynced VAs appear.
-    try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
+  const refresh = async (forceSync = false) => {
     const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
     const { data } = isBusiness
       ? await q.eq('business_user_id', userId)
@@ -77,6 +79,21 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     setRows(next);
     try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
     setLoading(false);
+
+    // Keep first paint local-first. Mirror Bridge → local in background, then
+    // re-read rows once sync completes so newly provisioned accounts appear.
+    if (forceSync || next.length === 0) {
+      try {
+        await backendAPI.bridge.syncAccounts();
+        const q2 = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
+        const { data: synced } = isBusiness
+          ? await q2.eq('business_user_id', userId)
+          : await q2.eq('user_id', userId);
+        const merged = (synced as VARow[]) ?? [];
+        setRows(merged);
+        try { localStorage.setItem(vaCacheKey, JSON.stringify(merged)); } catch { /* noop */ }
+      } catch { /* best-effort */ }
+    }
   };
 
   useEffect(() => { refresh(); }, [userId, isBusiness]);
@@ -126,7 +143,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
       return;
     }
     showToast.success(tt('dash.va.create.success', `${currency} account created`));
-    refresh();
+    refresh(true);
   };
 
   const railLabel = (c: Currency) => (c === 'EUR' ? 'SEPA · bank transfer' : c === 'GBP' ? 'Faster Payments' : 'ACH / Wire');
