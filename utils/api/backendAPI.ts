@@ -16,6 +16,15 @@ import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../per
 // ── CSRF token (per-session, rotated on page load) ───────────────────────────
 const CSRF_TOKEN = crypto.randomUUID();
 
+function timeoutMsForEndpoint(endpoint: string): number | null {
+  // Hosted KYC/KYB link generation can take longer on provider side.
+  // Avoid premature client aborts that surface timeout-first errors to users.
+  if (endpoint === 'bridge-kyc-link' || endpoint === 'bridge-kyb-link' || endpoint === 'bridge-customer') {
+    return 20000;
+  }
+  return 8000;
+}
+
 // ── Sanitize error messages to prevent info leakage ──────────────────────────
 function sanitizeError(raw: string | undefined): string {
   if (!raw) return 'Something went wrong. Please try again.';
@@ -52,11 +61,12 @@ async function apiCall<T = any>(
       ...options.headers,
     } as Record<string, string>;
 
-    const shouldAddTimeout = !options.signal;
+    const timeoutMs = timeoutMsForEndpoint(endpoint);
+    const shouldAddTimeout = !options.signal && timeoutMs !== null;
     const timeoutController = shouldAddTimeout ? new AbortController() : null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    if (timeoutController) {
-      timeoutId = setTimeout(() => timeoutController.abort(), 8000);
+    if (timeoutController && timeoutMs) {
+      timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
     }
     let response: Response;
     try {
@@ -151,11 +161,12 @@ async function apiCallPublic<T = any>(
       ...options.headers,
     };
 
-    const shouldAddTimeout = !options.signal;
+    const timeoutMs = timeoutMsForEndpoint(endpoint);
+    const shouldAddTimeout = !options.signal && timeoutMs !== null;
     const timeoutController = shouldAddTimeout ? new AbortController() : null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    if (timeoutController) {
-      timeoutId = setTimeout(() => timeoutController.abort(), 8000);
+    if (timeoutController && timeoutMs) {
+      timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
     }
     let response: Response;
     try {
