@@ -1755,7 +1755,7 @@ export const bridgeAPI = {
   /** Individual KYC hosted-link flow. Returns { link_url, link_id } or { already_approved }. */
   kyc: {
     startIndividual: async (opts?: { redirect_url?: string; endorsements?: ('base'|'sepa'|'spei'|'crypto')[] }) =>
-      apiCall<{ link_id?: string; link_url?: string; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
+      apiCall<{ link_id?: string | null; link_url?: string | null; tos_link_url?: string | null; tos_required?: boolean; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
         'bridge-kyc-link',
         { method: 'POST', body: JSON.stringify(opts ?? {}) },
       ),
@@ -1764,7 +1764,7 @@ export const bridgeAPI = {
   /** Business KYB hosted-link flow. Returns { link_url, link_id } or { already_approved }. */
   kyb: {
     startBusiness: async (opts?: { redirect_url?: string; endorsements?: ('base'|'sepa'|'spei'|'crypto')[] }) =>
-      apiCall<{ link_id?: string; link_url?: string; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
+      apiCall<{ link_id?: string | null; link_url?: string | null; tos_link_url?: string | null; tos_required?: boolean; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
         'bridge-kyb-link',
         { method: 'POST', body: JSON.stringify(opts ?? {}) },
       ),
