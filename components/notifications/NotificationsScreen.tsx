@@ -42,6 +42,8 @@ interface NotificationsScreenProps {
 }
 
 const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
+const NOTIFICATIONS_REFRESH_TS_PREFIX = 'borderpay_notifications_refresh_ts_v1:';
+const NOTIFICATIONS_REFRESH_THROTTLE_MS = 45_000;
 function currentNotificationCacheKey(): string | null {
   try {
     const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
@@ -115,6 +117,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const initialRows = useMemo(() => readCachedNotifications(), []);
+  const refreshTsKey = useMemo(() => {
+    const uid = currentUserId();
+    return uid ? `${NOTIFICATIONS_REFRESH_TS_PREFIX}${uid}` : null;
+  }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState<string | null>(null);
@@ -126,7 +132,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     hasRowsRef.current = rows.length > 0;
   }, [rows.length]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     // Keep first paint instant; refresh in background.
     setError(null);
     try {
@@ -137,6 +143,14 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         onUnreadCountChange?.(0);
         return;
       }
+      if (!force && refreshTsKey && hasRowsRef.current) {
+        try {
+          const last = Number(localStorage.getItem(refreshTsKey) || '0');
+          if (Number.isFinite(last) && Date.now() - last < NOTIFICATIONS_REFRESH_THROTTLE_MS) {
+            return;
+          }
+        } catch { /* noop */ }
+      }
       const r: any = await backendAPI.notifications.getNotifications(50);
       const data = Array.isArray((r as any)?.data?.notifications)
         ? (r as any).data.notifications
@@ -144,15 +158,18 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       setRows(data);
       writeCachedNotifications(data);
       onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
+      if (refreshTsKey) {
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
+      }
     } catch (e: any) {
       setError(friendlyError(e, 'Could not load notifications'));
     } finally {
       setLoading(false);
     }
-  }, [onUnreadCountChange]);
+  }, [onUnreadCountChange, refreshTsKey]);
 
   useEffect(() => {
-    load();
+    load(true);
     const prefetch = (window as any).__borderpay_prefetch;
     if (typeof prefetch === 'function') {
       const warm = () => {
@@ -175,7 +192,6 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [load]);
-  useEffect(() => { hasRowsRef.current = rows.length > 0; }, [rows.length]);
 
   const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
 
