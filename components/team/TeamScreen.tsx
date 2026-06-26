@@ -136,9 +136,11 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
           } catch { /* ignore cache write */ }
           return;
         }
-        setResolvedAccountType('individual');
+        // Keep the existing resolved state unless we positively confirm
+        // business. This avoids false "business blocked" UX on transient
+        // profile fetch failures/timeouts.
       } catch {
-        setResolvedAccountType(effectiveAccountType);
+        // Preserve current state on failure.
       }
     })();
     return () => { cancelled = true; };
