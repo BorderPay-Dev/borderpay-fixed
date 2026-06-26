@@ -117,6 +117,15 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
   return { raw, numeric };
 }
 
+const SUPPORTED_FX_PAIRS = new Set([
+  "USD_BRL", "BRL_USD",
+  "USD_COP", "COP_USD",
+  "USD_EUR", "EUR_USD",
+  "USD_GBP", "GBP_USD",
+  "USD_MXN", "MXN_USD",
+  "USD_USDT", "USDT_USD",
+]);
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -154,6 +163,22 @@ Deno.serve(async (req) => {
       code:    "idempotency_key_required",
       error:   "A client-provided idempotency_key (8-128 printable ASCII chars) is required for transfers.",
     }, 400);
+  }
+  // FX policy gate (wallet->wallet conversion only): only allow documented
+  // supported pairs for conversion-style routes. Other transfer rails remain
+  // unaffected (send/payout/onramp/offramp).
+  const srcRail = String(body?.source?.payment_rail || "").toLowerCase();
+  const dstRail = String(body?.destination?.payment_rail || "").toLowerCase();
+  const srcCcy = String(body?.source?.currency || "").toUpperCase();
+  const dstCcy = String(body?.destination?.currency || "").toUpperCase();
+  if (srcRail === "bridge_wallet" && dstRail === "bridge_wallet" && srcCcy !== dstCcy) {
+    if (!SUPPORTED_FX_PAIRS.has(`${srcCcy}_${dstCcy}`)) {
+      return json({
+        success: false,
+        code: "unsupported_pair",
+        error: `Unsupported conversion pair ${srcCcy}/${dstCcy}`,
+      }, 400);
+    }
   }
   fxLog("validation_passed", {
     user_id: user.id,

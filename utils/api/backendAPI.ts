@@ -1043,6 +1043,49 @@ export const cardAPI = {
 // Bridge orchestration (wallet source → wallet destination), while rates
 // remain indicative unless a quote endpoint is wired.
 export const fxAPI = {
+  // Bridge-documented fiat/stablecoin pair set used by BorderPay FX UI policy.
+  // Keep this strict to avoid showing non-executable pairs.
+  supportedPairs(): string[] {
+    const directed = [
+      'USD_BRL', 'BRL_USD',
+      'USD_COP', 'COP_USD',
+      'USD_EUR', 'EUR_USD',
+      'USD_GBP', 'GBP_USD',
+      'USD_MXN', 'MXN_USD',
+      'USD_USDT', 'USDT_USD',
+    ];
+    return directed;
+  },
+
+  isPairSupported(fromCurrency: string, toCurrency: string): boolean {
+    const from = String(fromCurrency || '').toUpperCase();
+    const to = String(toCurrency || '').toUpperCase();
+    if (!from || !to || from === to) return false;
+    return fxAPI.supportedPairs().includes(`${from}_${to}`);
+  },
+
+  async getCurrentRate(fromCurrency: string, toCurrency: string) {
+    const from = String(fromCurrency || '').toUpperCase();
+    const to = String(toCurrency || '').toUpperCase();
+    if (!fxAPI.isPairSupported(from, to)) {
+      return { success: false, error: `Unsupported pair ${from}/${to}` };
+    }
+    return apiCall<{
+      from: string;
+      to: string;
+      rate: number;
+      reverse_rate?: number;
+      updated_at?: string | null;
+      provider: 'bridge';
+    }>(
+      'bridge-exchange-rates',
+      {
+        method: 'POST',
+        body: JSON.stringify({ from, to }),
+      },
+    );
+  },
+
   async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
     const from = String(sourceCurrency || '').toUpperCase();
     const to = String(targetCurrency || '').toUpperCase();
@@ -1065,12 +1108,11 @@ export const fxAPI = {
       };
     }
 
-    const rates: any = await fxAPI.getLiveRates();
-    if (!rates?.success || !rates?.data?.rates) {
-      return { success: false, error: 'FX rates unavailable' };
+    const live: any = await fxAPI.getCurrentRate(from, to);
+    if (!live?.success || !Number.isFinite(Number(live?.data?.rate))) {
+      return { success: false, error: live?.error || 'FX rates unavailable' };
     }
-    const key = `${from}_${to}`;
-    const rate = Number(rates.data.rates[key] || 0);
+    const rate = Number(live.data.rate);
     if (!Number.isFinite(rate) || rate <= 0) {
       return { success: false, error: `Unsupported pair ${from}/${to}` };
     }
@@ -1084,7 +1126,7 @@ export const fxAPI = {
         rate,
         converted_amount: Number(converted.toFixed(2)),
         fee: 0,
-        source: rates.data.source || 'live',
+        source: 'live',
       },
     };
   },
