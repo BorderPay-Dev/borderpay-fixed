@@ -15,6 +15,8 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { authAPI } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 
 interface Row { label: string; chain: string; address: string; amount: string }
@@ -36,6 +38,7 @@ export interface BulkPayoutScreenProps {
 
 export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const tc = useThemeClasses();
+  const securityUserId = String(authAPI.getStoredUser()?.id || '');
   const [asset, setAsset] = useState<Asset>('USDC');
   const [rows, setRows] = useState<Row[]>([blankRow(defaultChain('USDC')), blankRow(defaultChain('USDC'))]);
   const [submitting, setSubmitting] = useState(false);
@@ -73,6 +76,49 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
 
   const valid = rows.filter((r) => r.address.trim() && Number(r.amount) > 0);
   const total = useMemo(() => valid.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows]);
+  const hasPinFactor = useMemo(
+    () => (securityUserId ? PINManager.hasPIN(securityUserId) : false),
+    [securityUserId],
+  );
+  const hasBiometricFactor = useMemo(
+    () => (securityUserId ? BiometricManager.isEnrolled(securityUserId) : false),
+    [securityUserId],
+  );
+
+  const requirePayoutAuth = async (): Promise<boolean> => {
+    if (!securityUserId) {
+      toast.error('Unable to verify security factors for this account.');
+      return false;
+    }
+    if (!hasPinFactor && !hasBiometricFactor) {
+      toast.error('Set a transaction PIN or biometric verification before sending payouts.');
+      return false;
+    }
+    if (hasBiometricFactor) {
+      const useBiometric = confirm('Use biometric/fingerprint verification for this payout?');
+      if (useBiometric) {
+        const r = await BiometricManager.verify(securityUserId);
+        if (r.success) return true;
+        toast.error(friendlyError(r.error, 'Biometric verification failed.'));
+        return false;
+      }
+    }
+    if (!hasPinFactor) {
+      toast.error('No transaction PIN is set on this account.');
+      return false;
+    }
+    const pin = window.prompt('Enter your 6-digit transaction PIN to confirm this payout batch:') || '';
+    if (!/^\d{6}$/.test(pin)) {
+      toast.error('Enter a valid 6-digit transaction PIN.');
+      return false;
+    }
+    const ok = await PINManager.verifyPIN(securityUserId, pin);
+    if (!ok) {
+      toast.error('Incorrect transaction PIN.');
+      return false;
+    }
+    return true;
+  };
 
   const update = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -89,6 +135,9 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
       `Send ${valid.length} payout${valid.length > 1 ? 's' : ''} totalling $${total.toFixed(2)} ${asset}?\n\n` +
       `This moves real money. Double-check the addresses — stablecoin transfers cannot be reversed.`
     )) return;
+
+    const authPassed = await requirePayoutAuth();
+    if (!authPassed) return;
 
     setSubmitting(true);
     setResults(null);

@@ -251,6 +251,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
+  const hasPinFactor = useMemo(() => PINManager.hasPIN(userId), [userId]);
+  const hasBiometricFactor = useMemo(() => BiometricManager.isEnrolled(userId), [userId]);
+  const hasAnyAuthFactor = hasPinFactor || hasBiometricFactor;
   // ---------------------------------------------------------------------------
   // Snapshot hydration:
   // - first paint comes from cache
@@ -541,15 +544,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const handlePinComplete = async (value: string) => {
     setPin(value);
     if (value.length === 6) {
+      if (!hasPinFactor) {
+        toast.error('Set a transaction PIN or use biometric verification to continue.');
+        setPin('');
+        return;
+      }
       // Verify PIN locally first before sending to backend
-      const hasPIN = PINManager.hasPIN(userId);
-      if (hasPIN) {
-        const isValid = await PINManager.verifyPIN(userId, value);
-        if (!isValid) {
-          toast.error(t('send.incorrectPin') || 'Incorrect PIN');
-          setPin('');
-          return;
-        }
+      const isValid = await PINManager.verifyPIN(userId, value);
+      if (!isValid) {
+        toast.error(t('send.incorrectPin') || 'Incorrect PIN');
+        setPin('');
+        return;
       }
       processTransaction(value);
     }
@@ -1285,7 +1290,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <button
-              onClick={() => setStep('pin')}
+              onClick={() => {
+                if (!hasAnyAuthFactor) {
+                  toast.error('Set a transaction PIN or biometric verification before sending payouts.');
+                  onNavigate?.('settings');
+                  return;
+                }
+                setStep('pin');
+              }}
               className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
             >
               {t('send.confirmAndPay')}
@@ -1334,7 +1346,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             {/* Biometric option */}
-            {BiometricManager.isEnrolled(userId) && (
+            {hasBiometricFactor && (
               <div className="px-5">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="flex-1 h-px bg-white/10" />
