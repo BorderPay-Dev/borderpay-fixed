@@ -160,6 +160,9 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const [rateSource, setRateSource] = useState<'live' | 'fallback'>('fallback');
   const [generated, setGenerated] = useState<string | null>(null);
   const [loadingRates, setLoadingRates] = useState(false);
+  const [pairRate, setPairRate] = useState<number | null>(null);
+  const [pairRateUpdatedAt, setPairRateUpdatedAt] = useState<string | null>(null);
+  const [pairRateLoading, setPairRateLoading] = useState(false);
 
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [stableWallets, setStableWallets] = useState<StableWallet[]>([]);
@@ -209,8 +212,48 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     selectedWallet.id !== selectedDestinationWallet.id &&
     Number(amount) > 0 &&
     Number(amount) <= Number(selectedWallet.balance || 0) &&
+    backendAPI.fx.isPairSupported(selectedWallet.currency, selectedDestinationWallet.currency) &&
     prerequisites.wallet &&
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPairRate = async () => {
+      if (!selectedWallet || !selectedDestinationWallet) {
+        setPairRate(null);
+        setPairRateUpdatedAt(null);
+        return;
+      }
+      const supported = backendAPI.fx.isPairSupported(
+        selectedWallet.currency,
+        selectedDestinationWallet.currency,
+      );
+      if (!supported) {
+        setPairRate(null);
+        setPairRateUpdatedAt(null);
+        return;
+      }
+      setPairRateLoading(true);
+      try {
+        const r: any = await backendAPI.fx.getCurrentRate(
+          selectedWallet.currency,
+          selectedDestinationWallet.currency,
+        );
+        if (cancelled) return;
+        if (r?.success && Number.isFinite(Number(r?.data?.rate))) {
+          setPairRate(Number(r.data.rate));
+          setPairRateUpdatedAt(r?.data?.updated_at || null);
+        } else {
+          setPairRate(null);
+          setPairRateUpdatedAt(null);
+        }
+      } finally {
+        if (!cancelled) setPairRateLoading(false);
+      }
+    };
+    void loadPairRate();
+    return () => { cancelled = true; };
+  }, [selectedWallet?.currency, selectedDestinationWallet?.currency]);
 
   const loadRates = async (foreground: boolean = false) => {
     if (foreground) setLoadingRates(true);
@@ -542,6 +585,22 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
             placeholder="0.00"
             className={`w-full rounded-xl ${tc.bgAlt} border ${tc.cardBorder} px-3 py-2.5 text-sm ${tc.text} mb-3`}
           />
+
+          {selectedWallet && selectedDestinationWallet && !backendAPI.fx.isPairSupported(selectedWallet.currency, selectedDestinationWallet.currency) && (
+            <p className="mb-3 text-xs text-amber-400">
+              This pair is currently unavailable. Supported pairs: USD↔BRL, USD↔COP, USD↔EUR, USD↔GBP, USD↔MXN, USD↔USDT.
+            </p>
+          )}
+
+          {selectedWallet && selectedDestinationWallet && backendAPI.fx.isPairSupported(selectedWallet.currency, selectedDestinationWallet.currency) && (
+            <p className={`mb-3 text-xs ${tc.textMuted}`}>
+              {pairRateLoading
+                ? 'Fetching current exchange rate…'
+                : pairRate
+                  ? `Current rate: 1 ${selectedWallet.currency} = ${pairRate.toFixed(pairRate >= 100 ? 2 : 6)} ${selectedDestinationWallet.currency}${pairRateUpdatedAt ? ` · ${new Date(pairRateUpdatedAt).toLocaleTimeString()}` : ''}`
+                  : 'Current exchange rate unavailable. You can retry.'}
+            </p>
+          )}
 
           <button
             onClick={executeFxTransfer}
