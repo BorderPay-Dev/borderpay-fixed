@@ -142,9 +142,24 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     setVerifying(true);
     try {
       const redirect_url = `${window.location.origin}/?screen=kyc`;
-      const r: any = isBusiness
-        ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
-        : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
+      // Individual hardening: pre-create/reuse Bridge customer before KYC link.
+      // This is idempotent and avoids edge states where legacy/new users have
+      // no attached Bridge customer at CTA time.
+      if (!isBusiness) {
+        try { await backendAPI.bridge.customer.createOrGet(); } catch { /* best-effort */ }
+      }
+
+      const start = () => (isBusiness
+        ? backendAPI.bridge.kyb.startBusiness({ redirect_url })
+        : backendAPI.bridge.kyc.startIndividual({ redirect_url }));
+
+      let r: any = await start();
+      const transient = /unable to connect|failed to fetch|network|timeout|timed out/i.test(String(r?.error || ''));
+      if (!r?.success && transient) {
+        // One bounded retry for mobile/PWA network jitter.
+        await new Promise(res => setTimeout(res, 350));
+        r = await start();
+      }
       if (r?.success && (r.data?.tos_link_url || r.data?.link_url)) {
         const hostedUrl = r.data?.tos_link_url || r.data?.link_url;
         openHostedVerificationUrl(hostedUrl);   // Bridge hosted flow (ToS first when required)
