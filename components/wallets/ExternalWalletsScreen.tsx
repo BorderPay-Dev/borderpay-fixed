@@ -78,7 +78,31 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     } catch { /* keep cache */ }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['send-money', 'wallet-detail', 'external-accounts', 'transactions', 'settings'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+    }
+
+    load();
+    const onFocus = () => { void load(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  /* eslint-disable-next-line */ }, []);
 
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }

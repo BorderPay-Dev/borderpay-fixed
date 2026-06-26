@@ -73,7 +73,32 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['add-external-account', 'send-money', 'wallet-detail', 'transactions', 'settings'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+    }
+
+    load();
+    const onFocus = () => { void load(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+  useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
 
   const remove = async (extId: string) => {
     setRemoving(extId);
