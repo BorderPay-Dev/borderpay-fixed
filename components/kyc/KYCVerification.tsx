@@ -165,20 +165,18 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const startVerification = async () => {
     setVerifying(true);
     try {
-      // Resolve account type + any reusable hosted link from one fresh profile call.
-      let currentAccountType: AccountType = accountType;
-      let existingHostedLink: string | null = null;
-      try {
-        const freshRes = await backendAPI.user.getProfile();
-        const fresh = freshRes?.success ? freshRes?.data?.user : null;
-        if (fresh) {
-          currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
+      // Android/PWA reliability: avoid a blocking profile fetch before opening
+      // hosted verification. Use cached account type/link first, then request a
+      // fresh link directly from onboarding endpoint.
+      const currentAccountType: AccountType = accountType;
+      let existingHostedLink: string | null = lastHostedUrl;
+      if (!existingHostedLink) {
+        try {
+          const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
           existingHostedLink = currentAccountType === 'business'
-            ? (fresh.bridge_kyb_link_url || fresh.kyb_link_url || null)
-            : (fresh.bridge_kyc_link_url || fresh.kyc_link_url || null);
-        }
-      } catch {
-        // keep cached account type as fallback
+            ? (cached.bridge_kyb_link_url || cached.kyb_link_url || null)
+            : (cached.bridge_kyc_link_url || cached.kyc_link_url || null);
+        } catch { /* noop */ }
       }
       if (!existingHostedLink) {
         try { existingHostedLink = localStorage.getItem(`borderpay_last_verify_url:${userId}`); } catch { /* noop */ }
