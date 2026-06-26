@@ -74,6 +74,19 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
     results: Array<{ row: number; label: string | null; state: string; error?: string }>;
   }>(null);
 
+  useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch !== 'function') return;
+    const warm = () => {
+      ['payroll', 'transactions', 'wallet-detail', 'send-money', 'settings'].forEach((s) => {
+        try { prefetch(s); } catch { /* noop */ }
+      });
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+    else setTimeout(warm, 220);
+  }, []);
+
   const valid = rows.filter((r) => r.address.trim() && Number(r.amount) > 0);
   const total = useMemo(() => valid.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows]);
   const hasPinFactor = useMemo(

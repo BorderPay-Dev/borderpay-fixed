@@ -36,6 +36,15 @@ export function PayrollScreen({
   const [asset, setAsset] = useState<PayrollAsset>('USDC');
   const [rows, setRows] = useState<EmployeeRow[]>([blank('USDC'), blank('USDC')]);
 
+  useEffect(() => {
+    const warm = () => {
+      ['bulk-payout', 'transactions', 'wallet-detail', 'settings'].forEach(prefetch);
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+    else setTimeout(warm, 220);
+  }, []);
+
   const valid = useMemo(
     () => rows.filter((r) => r.address.trim() && Number(r.amount) > 0),
     [rows],

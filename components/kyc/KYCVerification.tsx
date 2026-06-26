@@ -116,6 +116,18 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   // Background refresh on mount — no loading gate; the seed already rendered.
   useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['dashboard', 'settings', 'profile', 'wallet-detail'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+    }
+
     refresh();
     const onFocus = () => { void refresh(true); };
     const onVisibility = () => {
