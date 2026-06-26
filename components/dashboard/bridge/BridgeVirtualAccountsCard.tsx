@@ -71,28 +71,33 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   );
 
   const refresh = async (forceSync = false) => {
-    const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
-    const { data } = isBusiness
-      ? await q.eq('business_user_id', userId)
-      : await q.eq('user_id', userId);
-    const next = (data as VARow[]) ?? [];
-    setRows(next);
-    try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
-    setLoading(false);
+    try {
+      const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
+      const { data } = isBusiness
+        ? await q.eq('business_user_id', userId)
+        : await q.eq('user_id', userId);
+      const next = (data as VARow[]) ?? [];
+      setRows(next);
+      try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
 
-    // Keep first paint local-first. Mirror Bridge → local in background, then
-    // re-read rows once sync completes so newly provisioned accounts appear.
-    if (forceSync || next.length === 0) {
-      try {
-        await backendAPI.bridge.syncAccounts();
-        const q2 = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
-        const { data: synced } = isBusiness
-          ? await q2.eq('business_user_id', userId)
-          : await q2.eq('user_id', userId);
-        const merged = (synced as VARow[]) ?? [];
-        setRows(merged);
-        try { localStorage.setItem(vaCacheKey, JSON.stringify(merged)); } catch { /* noop */ }
-      } catch { /* best-effort */ }
+      // Keep first paint local-first. Mirror Bridge → local in background, then
+      // re-read rows once sync completes so newly provisioned accounts appear.
+      if (forceSync || next.length === 0) {
+        try {
+          await backendAPI.bridge.syncAccounts();
+          const q2 = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
+          const { data: synced } = isBusiness
+            ? await q2.eq('business_user_id', userId)
+            : await q2.eq('user_id', userId);
+          const merged = (synced as VARow[]) ?? [];
+          setRows(merged);
+          try { localStorage.setItem(vaCacheKey, JSON.stringify(merged)); } catch { /* noop */ }
+        } catch { /* best-effort */ }
+      }
+    } catch {
+      // Fail-open: keep cached rows on any transient query failure.
+    } finally {
+      setLoading(false);
     }
   };
 

@@ -62,27 +62,32 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const walletsSupported = isBridgeCustodialWalletSupported(country);
 
   const refresh = async (forceSync = false) => {
-    const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
-    const { data } = isBusiness
-      ? await q.eq('business_user_id', userId)
-      : await q.eq('user_id', userId);
-    const next = (data as WalletRow[]) ?? [];
-    setRows(next);
-    try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
-    setLoading(false);
+    try {
+      const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
+      const { data } = isBusiness
+        ? await q.eq('business_user_id', userId)
+        : await q.eq('user_id', userId);
+      const next = (data as WalletRow[]) ?? [];
+      setRows(next);
+      try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
 
-    // Local-first paint. Provision/sync in background, then requery so newly
-    // created wallets appear without blocking initial render.
-    if (forceSync || next.length === 0) {
-      try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
-      try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
-      const q2 = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
-      const { data: synced } = isBusiness
-        ? await q2.eq('business_user_id', userId)
-        : await q2.eq('user_id', userId);
-      const merged = (synced as WalletRow[]) ?? [];
-      setRows(merged);
-      try { localStorage.setItem(walletCacheKey, JSON.stringify(merged)); } catch { /* noop */ }
+      // Local-first paint. Provision/sync in background, then requery so newly
+      // created wallets appear without blocking initial render.
+      if (forceSync || next.length === 0) {
+        try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
+        try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
+        const q2 = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
+        const { data: synced } = isBusiness
+          ? await q2.eq('business_user_id', userId)
+          : await q2.eq('user_id', userId);
+        const merged = (synced as WalletRow[]) ?? [];
+        setRows(merged);
+        try { localStorage.setItem(walletCacheKey, JSON.stringify(merged)); } catch { /* noop */ }
+      }
+    } catch {
+      // Fail-open: keep cached rows on any transient query failure.
+    } finally {
+      setLoading(false);
     }
   };
 
