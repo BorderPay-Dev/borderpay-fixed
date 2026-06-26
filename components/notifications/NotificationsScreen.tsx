@@ -120,7 +120,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
   }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(initialRows.length === 0);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const load = useCallback(async (force = false) => {
@@ -128,6 +128,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     setError(null);
     try {
       const hasCachedRows = rows.length > 0;
+      if (!hasCachedRows) setLoading(true);
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
       if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;

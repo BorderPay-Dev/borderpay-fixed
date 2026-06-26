@@ -211,11 +211,12 @@ function BusinessTeamPanel({
   // Background refresh — does not blank the cached roster (no setLoading(true)).
   const load = useCallback(async (force = false) => {
     const refreshTsKey = `${TEAM_REFRESH_TS_KEY_PREFIX}:${currentTeamCacheKey()}`;
+    const seededRoster = roster ?? readRosterCache();
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (!force && roster && Number.isFinite(last) && Date.now() - last < 45_000) return;
+      if (!force && seededRoster && Number.isFinite(last) && Date.now() - last < 45_000) return;
     } catch { /* noop */ }
-    if (!roster) setLoading(true);
+    if (!seededRoster) setLoading(true);
     setError(null);
     try {
       const r = await withTimeout(
@@ -227,11 +228,11 @@ function BusinessTeamPanel({
         setRoster(r.data);
         writeRosterCache(r.data);
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (!roster) {
+      } else if (!seededRoster) {
         setError(friendlyError(r.error, 'Could not load team'));
       }
     } catch (e: any) {
-      if (!roster) setError(friendlyError(e, 'Could not load team'));
+      if (!seededRoster) setError(friendlyError(e, 'Could not load team'));
     } finally {
       setLoading(false);
     }
