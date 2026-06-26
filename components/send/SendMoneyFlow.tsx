@@ -338,9 +338,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
     };
     hydrateOnce();
-    const onFocus = () => { void hydrateOnce(true); };
+    // Revalidate with throttle on app focus/visibility so quick route hops
+    // do not trigger duplicate route-data fetches.
+    const onFocus = () => { void hydrateOnce(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void hydrateOnce(true);
+      if (document.visibilityState === 'visible') void hydrateOnce();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
