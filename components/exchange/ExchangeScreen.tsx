@@ -176,6 +176,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
   const FX_RATES_CACHE_KEY = 'borderpay_fx_rates_cache_v1';
   const FX_ROUTE_CACHE_KEY = 'borderpay_fx_route_cache_v1';
+  const FX_ROUTE_REFRESH_TS_KEY = 'borderpay_fx_route_refresh_ts_v1';
 
   const selectedWallet = useMemo(
     () => stableWallets.find((w) => w.id === sourceWalletId) || null,
@@ -283,6 +284,13 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const loadSnapshot = async (foreground: boolean = false) => {
     if (foreground) setSnapshotLoading(true);
     try {
+      try {
+        const hasCachedRoute = Array.isArray(stableWallets) && stableWallets.length > 0;
+        const last = Number(localStorage.getItem(FX_ROUTE_REFRESH_TS_KEY) || '0');
+        if (!foreground && hasCachedRoute && Number.isFinite(last) && Date.now() - last < 30_000) {
+          return;
+        }
+      } catch { /* noop */ }
       // Use the exact same live route source as WalletScreen first.
       const routeRes: any = await backendAPI.financial.getWalletRouteData();
       const routeData = routeRes?.success ? routeRes.data : null;
@@ -388,6 +396,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           wallets,
           hasVirtualAccount: vaRows.length > 0,
         }));
+        localStorage.setItem(FX_ROUTE_REFRESH_TS_KEY, String(Date.now()));
       } catch { /* ignore cache write */ }
     } finally {
       if (foreground) setSnapshotLoading(false);

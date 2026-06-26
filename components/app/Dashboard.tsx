@@ -383,6 +383,19 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     };
   }, [loadDashboardData]);
 
+  useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch !== 'function') return;
+    const warm = () => {
+      ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'exchange', 'settings', 'profile', 'notifications'].forEach((s) => {
+        try { prefetch(s); } catch { /* noop */ }
+      });
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+    else setTimeout(warm, 220);
+  }, []);
+
   // ─── setup steps ─────────────────────────────────────────────────────
   const setupSteps = [
     { id: 'account', label: t('activation.accountCreated'),                        completed: true,  screen: '' },

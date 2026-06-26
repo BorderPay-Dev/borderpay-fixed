@@ -279,6 +279,19 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+  useEffect(() => {
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch !== 'function') return;
+    const warm = () => {
+      ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'team', 'settings', 'profile', 'bulk-payout', 'payroll', 'exchange'].forEach((s) => {
+        try { prefetch(s); } catch { /* noop */ }
+      });
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+    else setTimeout(warm, 220);
+  }, []);
+
   const refreshAll = () => { loadWallets(true); };
   const kybVerified = affiliateKycStatus === 'verified';
   const setupSteps = [
