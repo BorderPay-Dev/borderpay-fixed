@@ -539,14 +539,14 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           <div className="pointer-events-none absolute -top-20 -right-20 w-56 h-56 rounded-full bg-[#C7FF00] opacity-[0.08] blur-3xl" />
           <div className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C7FF00]/15 mb-3">
             <Sparkles className="w-3 h-3 text-[#C7FF00]" />
-            <span className="text-[10px] font-bold tracking-wider uppercase text-[#C7FF00]">Bridge orchestration</span>
+            <span className="text-[10px] font-bold tracking-wider uppercase text-[#C7FF00]">FX orchestration</span>
           </div>
           <h1 className="relative text-white font-semibold tracking-tight text-2xl sm:text-3xl mb-2">
             FX / Stablecoin sandwich
           </h1>
           <p className="relative text-sm text-white/60 max-w-xl leading-relaxed">
-            Execution path: Bridge Wallet source → Transfer orchestration → External Account destination.
-            Virtual Account is used for fiat intake when you need inbound funding before conversion.
+            Execution path: Wallet source → Transfer orchestration → External account destination.
+            Virtual account is used for fiat intake when you need inbound funding before conversion.
           </p>
         </div>
 
@@ -555,7 +555,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
           <div className="space-y-1.5 text-xs">
             <div className={`flex items-center gap-2 ${prerequisites.wallet ? 'text-emerald-400' : tc.textMuted}`}>
               {prerequisites.wallet ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-              Bridge Wallet
+              Wallet
             </div>
             <div className={`flex items-center gap-2 ${prerequisites.virtualAccount ? 'text-emerald-400' : tc.textMuted}`}>
               {prerequisites.virtualAccount ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
