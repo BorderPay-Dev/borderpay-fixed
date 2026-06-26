@@ -335,6 +335,7 @@ export function AppShell({
             aria-label={tt('shell.notifications', 'Notifications')}
             onPointerDown={() => prefetchRoute('notifications')}
             onMouseEnter={() => prefetchRoute('notifications')}
+            onTouchStart={() => prefetchRoute('notifications')}
             onClick={() => { prefetchRoute('notifications'); go('notifications'); }}
             className={`pointer-events-auto relative shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
           >
@@ -352,6 +353,7 @@ export function AppShell({
             aria-label={tt('shell.account', 'Account')}
             onPointerDown={() => prefetchRoute('account')}
             onMouseEnter={() => prefetchRoute('account')}
+            onTouchStart={() => prefetchRoute('account')}
             onClick={() => { prefetchRoute('account'); go('account'); }}
             className={`pointer-events-auto shrink-0 w-11 h-11 rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] overflow-hidden flex items-center justify-center`}
           >
