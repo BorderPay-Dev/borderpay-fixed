@@ -37,7 +37,6 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { showToast } from '../common/StatusToast';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface WalletScreenProps {
   userId:     string;
@@ -124,10 +123,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       return true;
     }
   };
-
-  useEffect(() => {
-    navPerfTrackCache('wallet-detail', stables.length > 0 || vas.length > 0);
-  }, [stables.length, vas.length]);
 
   const refresh = async () => {
     const isColdStart = stables.length === 0 && vas.length === 0;

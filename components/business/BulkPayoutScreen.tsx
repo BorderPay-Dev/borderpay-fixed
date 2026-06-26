@@ -8,7 +8,7 @@
  * wallet address) — same primitive the single Send uses.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Users, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -26,6 +26,7 @@ const CHAINS_BY_ASSET: Record<Asset, string[]> = {
   USDT: ['tron', 'ethereum', 'solana', 'polygon'],
 };
 const defaultChain = (a: Asset) => CHAINS_BY_ASSET[a][0];
+const PREFILL_KEY = 'borderpay_bulk_prefill_v1';
 
 const blankRow = (chain: string): Row => ({ label: '', chain, address: '', amount: '' });
 
@@ -38,6 +39,27 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const [asset, setAsset] = useState<Asset>('USDC');
   const [rows, setRows] = useState<Row[]>([blankRow(defaultChain('USDC')), blankRow(defaultChain('USDC'))]);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PREFILL_KEY);
+      if (!raw) return;
+      localStorage.removeItem(PREFILL_KEY);
+      const parsed = JSON.parse(raw);
+      const nextAsset = parsed?.asset === 'USDT' ? 'USDT' : 'USDC';
+      const items = Array.isArray(parsed?.items) ? parsed.items : [];
+      const mapped: Row[] = items
+        .map((it: any) => ({
+          label: String(it?.label || ''),
+          chain: String(it?.chain || defaultChain(nextAsset)),
+          address: String(it?.address || ''),
+          amount: String(it?.amount || ''),
+        }))
+        .filter((it: Row) => it.address || it.amount || it.label);
+      setAsset(nextAsset);
+      if (mapped.length > 0) setRows(mapped);
+    } catch { /* ignore malformed prefill */ }
+  }, []);
 
   // Switching stablecoin resets each row's chain to one that asset is issued on.
   const switchAsset = (a: Asset) => {

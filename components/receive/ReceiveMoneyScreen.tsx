@@ -24,7 +24,6 @@ import {
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { showToast } from '../common/StatusToast';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -116,10 +115,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       return true;
     }
   };
-
-  useEffect(() => {
-    navPerfTrackCache('receive-money', stables.length > 0 || vas.length > 0);
-  }, [stables.length, vas.length]);
 
   const refresh = async () => {
     const isColdStart = stables.length === 0 && vas.length === 0;

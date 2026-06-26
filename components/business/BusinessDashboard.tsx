@@ -27,7 +27,6 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
@@ -122,10 +121,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [has2FA, setHas2FA] = useState<boolean>(() => {
     try { return !!SecurityStatus.get(userId).has2FA || TOTPManager.isEnabled(userId); } catch { return false; }
   });
-
-  useEffect(() => {
-    navPerfTrackCache('dashboard', cachedBizWallets.length > 0);
-  }, [cachedBizWallets.length]);
 
   const usdLikeTotal = useMemo(
     () => wallets.filter(w => ['USD', 'USDT', 'USDC', 'PYUSD', 'USDB'].includes(w.currency))

@@ -34,7 +34,6 @@ import { computePayoutFee } from '../../utils/fees/engine';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { ExternalCryptoWithdrawalFields, isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 // ---------------------------------------------------------------------------
@@ -255,10 +254,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
-  useEffect(() => {
-    navPerfTrackCache('send-money', cachedSendWallets.length > 0 || cachedSendCaps.length > 0);
-  }, [cachedSendWallets.length, cachedSendCaps.length]);
-
   // ---------------------------------------------------------------------------
   // Snapshot hydration:
   // - first paint comes from cache

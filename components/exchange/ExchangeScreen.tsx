@@ -4,7 +4,6 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyErrorFor } from '../../utils/errors/friendlyError';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { resolveFinancialCacheScope } from '../../utils/financial/cacheScope';
 import { authAPI } from '../../utils/supabase/client';
 
@@ -460,7 +459,6 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
         }
       } catch { /* noop */ }
     }
-    navPerfTrackCache('exchange', hasCachedRates || hasCachedRoute);
     loadRates(false);
     loadSnapshot(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -17,7 +17,6 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExternalAccountRow {
   id: string;
@@ -106,10 +105,6 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
-
-  useEffect(() => {
-    navPerfTrackCache('external-accounts', cached.length > 0);
-  }, [cached.length]);
 
   // Background refresh — never blanks the cached view; no setLoading(true) here.
   const load = async () => {

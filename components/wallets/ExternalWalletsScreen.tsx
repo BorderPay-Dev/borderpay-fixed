@@ -18,6 +18,7 @@ import { useVerification } from '../../utils/verification/useVerification';
 import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 interface Props {
   onBack: () => void;
@@ -44,8 +45,8 @@ function validAddress(chain: string, a: string): boolean {
   return false;
 }
 
-function readCache(): ExternalWallet[] {
-  try { const v = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+function readCache(cacheKey: string): ExternalWallet[] {
+  try { const v = JSON.parse(localStorage.getItem(cacheKey) || '[]'); return Array.isArray(v) ? v : []; }
   catch { return []; }
 }
 
@@ -53,8 +54,9 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const tc = useThemeClasses();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const verification = useVerification(userId);
+  const cacheKey = financialCacheKey(CACHE_KEY, { userId });
 
-  const cached = readCache();
+  const cached = readCache(cacheKey);
   const [wallets, setWallets] = useState<ExternalWallet[]>(cached);
   const [loading, setLoading] = useState(cached.length === 0);
   const [adding, setAdding]   = useState(false);
@@ -69,11 +71,11 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
 
   const load = async () => {
     try {
-      const r: any = await backendAPI.externalWallets.list();
+      const r: any = await backendAPI.financial.getSnapshot(20);
       if (r?.success) {
-        const next: ExternalWallet[] = r.data?.wallets || [];
+        const next: ExternalWallet[] = Array.isArray(r.data?.external_wallets) ? r.data.external_wallets : [];
         setWallets(next);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       }
     } catch { /* keep cache */ }
     finally { setLoading(false); }
@@ -89,7 +91,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       if (r?.success && r.data?.wallet) {
         const next = [r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)];
         setWallets(next);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         setAdding(false); setLabel(''); setAddress('');
         toast.success('Wallet saved.');
       } else {
@@ -106,7 +108,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       if (r?.success) {
         const next = wallets.filter(w => w.id !== id);
         setWallets(next);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       } else { toast.error(friendlyError(r?.error, 'Could not remove that wallet.')); }
     } catch (e) { toast.error(friendlyError(e, 'Could not remove that wallet.')); }
     finally { setRemoving(null); }

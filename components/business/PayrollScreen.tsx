@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Users, Plus, Trash2, ArrowRight } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 type PayrollAsset = 'USDC' | 'USDT';
 interface EmployeeRow {
@@ -33,11 +32,6 @@ export function PayrollScreen({
   const tc = useThemeClasses();
   const [asset, setAsset] = useState<PayrollAsset>('USDC');
   const [rows, setRows] = useState<EmployeeRow[]>([blank('USDC'), blank('USDC')]);
-
-  useEffect(() => {
-    // Local-first form builder; should always first-paint immediately.
-    navPerfTrackCache('payroll', true);
-  }, []);
 
   const valid = useMemo(
     () => rows.filter((r) => r.address.trim() && Number(r.amount) > 0),
