@@ -75,16 +75,22 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   }>(null);
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch !== 'function') return;
-    const warm = () => {
-      ['payroll', 'transactions', 'wallet-detail', 'send-money', 'settings'].forEach((s) => {
-        try { prefetch(s); } catch { /* noop */ }
-      });
-    };
-    const ric = (window as any).requestIdleCallback;
-    if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-    else setTimeout(warm, 220);
+    const prewarmKey = 'borderpay_bulk_payout_prewarm_v1';
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return;
+      const prefetch = (window as any).__borderpay_prefetch;
+      if (typeof prefetch !== 'function') return;
+      const warm = () => {
+        ['payroll', 'transactions', 'wallet-detail', 'send-money', 'settings'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
   }, []);
 
   const valid = rows.filter((r) => r.address.trim() && Number(r.amount) > 0);

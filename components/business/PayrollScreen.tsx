@@ -37,12 +37,18 @@ export function PayrollScreen({
   const [rows, setRows] = useState<EmployeeRow[]>([blank('USDC'), blank('USDC')]);
 
   useEffect(() => {
-    const warm = () => {
-      ['bulk-payout', 'transactions', 'wallet-detail', 'settings'].forEach(prefetch);
-    };
-    const ric = (window as any).requestIdleCallback;
-    if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-    else setTimeout(warm, 220);
+    const prewarmKey = 'borderpay_payroll_prewarm_v1';
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return;
+      const warm = () => {
+        ['bulk-payout', 'transactions', 'wallet-detail', 'settings'].forEach(prefetch);
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
   }, []);
 
   const valid = useMemo(
