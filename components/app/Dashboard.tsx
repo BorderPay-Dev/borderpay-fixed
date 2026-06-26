@@ -309,6 +309,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
     } catch (error) {
       // silent — synchronous cache already populated the UI
+    } finally {
+      // Fail-open: never leave dashboard in loading placeholders when refresh
+      // fails or a partial parse throws. Cached data stays visible.
+      setWalletsLoaded(true);
+      setTxLoaded(true);
+      setLoading(false);
     }
   }, []);
 
