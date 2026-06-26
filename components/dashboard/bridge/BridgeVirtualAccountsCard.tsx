@@ -53,6 +53,14 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     userId,
     accountType: isBusiness ? 'business' : 'individual',
   });
+  const vaRefreshTsKey = financialCacheKey('borderpay_va_refresh_ts_v1', {
+    userId,
+    accountType: isBusiness ? 'business' : 'individual',
+  });
+  const vaSyncTsKey = financialCacheKey('borderpay_va_sync_ts_v1', {
+    userId,
+    accountType: isBusiness ? 'business' : 'individual',
+  });
   const cachedRows = useMemo<VARow[]>(() => {
     try { const raw = localStorage.getItem(vaCacheKey); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -72,6 +80,14 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
 
   const refresh = async (forceSync = false) => {
     try {
+      try {
+        const hasCached = rows.length > 0 || cachedRows.length > 0;
+        const last = Number(localStorage.getItem(vaRefreshTsKey) || '0');
+        if (!forceSync && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) {
+          setLoading(false);
+          return;
+        }
+      } catch { /* noop */ }
       const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
       const { data } = isBusiness
         ? await q.eq('business_user_id', userId)
@@ -79,12 +95,21 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
       const next = (data as VARow[]) ?? [];
       setRows(next);
       try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
+      try { localStorage.setItem(vaRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
       // Keep first paint local-first. Mirror Bridge → local in background, then
       // re-read rows once sync completes so newly provisioned accounts appear.
       if (forceSync || next.length === 0) {
         try {
+          const lastSync = Number(localStorage.getItem(vaSyncTsKey) || '0');
+          if (!forceSync && Number.isFinite(lastSync) && Date.now() - lastSync < 5 * 60_000) {
+            setLoading(false);
+            return;
+          }
+        } catch { /* noop */ }
+        try {
           await backendAPI.bridge.syncAccounts();
+          try { localStorage.setItem(vaSyncTsKey, String(Date.now())); } catch { /* noop */ }
           const q2 = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
           const { data: synced } = isBusiness
             ? await q2.eq('business_user_id', userId)
@@ -101,7 +126,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     }
   };
 
-  useEffect(() => { refresh(); }, [userId, isBusiness]);
+  useEffect(() => { refresh(); }, [userId, isBusiness, vaRefreshTsKey, vaSyncTsKey]);
 
   useEffect(() => {
     if (kycApproved !== undefined) return;

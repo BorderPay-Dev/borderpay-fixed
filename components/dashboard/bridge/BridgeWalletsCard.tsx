@@ -47,6 +47,14 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     userId,
     accountType: isBusiness ? 'business' : 'individual',
   });
+  const walletRefreshTsKey = financialCacheKey('borderpay_wallets_refresh_ts_v1', {
+    userId,
+    accountType: isBusiness ? 'business' : 'individual',
+  });
+  const walletSyncTsKey = financialCacheKey('borderpay_wallets_sync_ts_v1', {
+    userId,
+    accountType: isBusiness ? 'business' : 'individual',
+  });
   const cachedRows = React.useMemo<WalletRow[]>(() => {
     try { const raw = localStorage.getItem(walletCacheKey); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -63,6 +71,14 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
 
   const refresh = async (forceSync = false) => {
     try {
+      try {
+        const hasCached = rows.length > 0 || cachedRows.length > 0;
+        const last = Number(localStorage.getItem(walletRefreshTsKey) || '0');
+        if (!forceSync && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) {
+          setLoading(false);
+          return;
+        }
+      } catch { /* noop */ }
       const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
       const { data } = isBusiness
         ? await q.eq('business_user_id', userId)
@@ -70,12 +86,21 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
       const next = (data as WalletRow[]) ?? [];
       setRows(next);
       try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
+      try { localStorage.setItem(walletRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
       // Local-first paint. Provision/sync in background, then requery so newly
       // created wallets appear without blocking initial render.
       if (forceSync || next.length === 0) {
+        try {
+          const lastSync = Number(localStorage.getItem(walletSyncTsKey) || '0');
+          if (!forceSync && Number.isFinite(lastSync) && Date.now() - lastSync < 5 * 60_000) {
+            setLoading(false);
+            return;
+          }
+        } catch { /* noop */ }
         try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
         try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
+        try { localStorage.setItem(walletSyncTsKey, String(Date.now())); } catch { /* noop */ }
         const q2 = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
         const { data: synced } = isBusiness
           ? await q2.eq('business_user_id', userId)
@@ -91,7 +116,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     }
   };
 
-  useEffect(() => { refresh(); }, [userId, isBusiness]);
+  useEffect(() => { refresh(); }, [userId, isBusiness, walletRefreshTsKey, walletSyncTsKey]);
 
   useEffect(() => {
     if (kycApproved !== undefined) return;
