@@ -54,33 +54,38 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
     }
     let alive = true;
     (async () => {
-      const { data: prof } = await supabase
-        .from('user_profiles')
-        .select('account_type, kyc_status, bridge_kyc_status, bridge_account_status')
-        .eq('id', userId)
-        .maybeSingle();
-      if (!alive) return;
-      const acct: AccountType = prof?.account_type === 'business' ? 'business' : 'individual';
-      setAccountType(acct);
-
-      if (acct === 'business') {
-        const { data: biz } = await supabase
-          .from('business_profiles')
-          .select('bridge_kyb_status')
-          .eq('user_id', userId)
+      try {
+        const { data: prof } = await supabase
+          .from('user_profiles')
+          .select('account_type, kyc_status, bridge_kyc_status, bridge_account_status')
+          .eq('id', userId)
           .maybeSingle();
         if (!alive) return;
-        const derived = deriveKycStatus({
-          ...prof,
-          bridge_kyb_status: biz?.bridge_kyb_status ?? null,
-          account_type: 'business',
-        });
-        setStatus(derived === 'verified' ? 'approved' : derived);
-      } else {
-        const derived = deriveKycStatus(prof);
-        setStatus(derived === 'verified' ? 'approved' : derived);
+        const acct: AccountType = prof?.account_type === 'business' ? 'business' : 'individual';
+        setAccountType(acct);
+
+        if (acct === 'business') {
+          const { data: biz } = await supabase
+            .from('business_profiles')
+            .select('bridge_kyb_status')
+            .eq('user_id', userId)
+            .maybeSingle();
+          if (!alive) return;
+          const derived = deriveKycStatus({
+            ...prof,
+            bridge_kyb_status: biz?.bridge_kyb_status ?? null,
+            account_type: 'business',
+          });
+          setStatus(derived === 'verified' ? 'approved' : derived);
+        } else {
+          const derived = deriveKycStatus(prof);
+          setStatus(derived === 'verified' ? 'approved' : derived);
+        }
+      } catch {
+        // Fail-open: keep cached status for instant dashboard paint.
+      } finally {
+        if (alive) setLoading(false);
       }
-      setLoading(false);
     })();
     return () => { alive = false; };
   }, [userId]);
