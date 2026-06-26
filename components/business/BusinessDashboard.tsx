@@ -158,13 +158,14 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   })).filter((w: WalletRow) => !!w.currency);
 
   const loadWallets = async (force = false) => {
+    const seededWallets = wallets.length > 0 ? wallets : readBizWallets(bizWalletsCacheKey);
     // Do not blank a cached dashboard on refresh; only skeleton on cold start.
-    if (wallets.length === 0) setWalletsLoading(true);
+    if (seededWallets.length === 0) setWalletsLoading(true);
     setWalletsError(null);
     try {
       const refreshTsKey = financialCacheKey(BIZ_DASH_REFRESH_TS_KEY, { userId, accountType: 'business' });
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (!force && wallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (!force && seededWallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
       const walletRouteRes: any = await backendAPI.financial.getWalletRouteData();
@@ -188,7 +189,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             setWallets(formatted);
             try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
           }
-        } else if (wallets.length === 0) {
+        } else if (seededWallets.length === 0) {
           setWalletsError(friendlyError(walletRouteRes?.error || snapshotRes?.error, 'Could not load wallets'));
         }
       }
@@ -253,7 +254,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         }
       });
     } catch (e: any) {
-      if (wallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
+      if (seededWallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
       // Never block or scare users with profile-setup errors on transient
       // dashboard/network failures. Keep the identity header populated from
       // cached auth data and refresh profile in the background.
@@ -265,6 +266,16 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 
   useEffect(() => {
     loadWallets();
+    const onFocus = () => { void loadWallets(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadWallets(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
