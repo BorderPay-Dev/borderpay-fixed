@@ -79,6 +79,18 @@ function writeJSON(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota/private mode */ }
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 function initialsFromName(name?: string, email?: string): string {
   const src = (name || '').trim() || (email || '').trim();
   if (!src) return '';
@@ -231,8 +243,16 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // read both and merge below so the Dashboard tiles always reflect
       // ALL of the user's accounts and stablecoins.
       const [snapshotRes, securityRes] = await Promise.allSettled([
-        backendAPI.financial.getSnapshot(5),
-        backendAPI.auth.getSecurityStatus(userId),
+        withTimeout(
+          backendAPI.financial.getSnapshot(5),
+          1800,
+          { success: false, data: null, error: 'snapshot_timeout' } as any,
+        ),
+        withTimeout(
+          backendAPI.auth.getSecurityStatus(userId),
+          1800,
+          { success: false, data: null, error: 'security_timeout' } as any,
+        ),
       ]);
       const snapshotOk = snapshotRes.status === 'fulfilled' && snapshotRes.value?.success;
       const snapshotData = snapshotOk ? (snapshotRes.value as any).data : null;

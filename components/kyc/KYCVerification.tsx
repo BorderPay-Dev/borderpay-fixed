@@ -142,23 +142,44 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     setVerifying(true);
     try {
       const redirect_url = `${window.location.origin}/?screen=kyc`;
+      // Resolve account type from backend right before launch. Cached account
+      // type can be stale for legacy users and route to the wrong endpoint.
+      let runtimeIsBusiness = isBusiness;
+      try {
+        const p: any = await backendAPI.user.getProfile();
+        const liveType = String(p?.data?.user?.account_type || '').toLowerCase();
+        if (liveType === 'business') {
+          runtimeIsBusiness = true;
+          setAccountType('business');
+        } else if (liveType === 'individual') {
+          runtimeIsBusiness = false;
+          setAccountType('individual');
+        }
+      } catch { /* keep current state-derived type */ }
+
       // Individual hardening: pre-create/reuse Bridge customer before KYC link.
       // This is idempotent and avoids edge states where legacy/new users have
       // no attached Bridge customer at CTA time.
-      if (!isBusiness) {
+      if (!runtimeIsBusiness) {
         try { await backendAPI.bridge.customer.createOrGet(); } catch { /* best-effort */ }
       }
 
-      const start = () => (isBusiness
+      const start = (useBusiness: boolean) => (useBusiness
         ? backendAPI.bridge.kyb.startBusiness({ redirect_url })
         : backendAPI.bridge.kyc.startIndividual({ redirect_url }));
 
-      let r: any = await start();
+      let r: any = await start(runtimeIsBusiness);
       const transient = /unable to connect|failed to fetch|network|timeout|timed out/i.test(String(r?.error || ''));
       if (!r?.success && transient) {
         // One bounded retry for mobile/PWA network jitter.
         await new Promise(res => setTimeout(res, 350));
-        r = await start();
+        r = await start(runtimeIsBusiness);
+      }
+      if (!r?.success && r?.code === 'wrong_account_type') {
+        // Fallback once in case account-type state drifted between cache and API.
+        runtimeIsBusiness = !runtimeIsBusiness;
+        r = await start(runtimeIsBusiness);
+        setAccountType(runtimeIsBusiness ? 'business' : 'individual');
       }
       if (r?.success && (r.data?.link_url || r.data?.tos_link_url)) {
         // Product contract: route users to hosted KYC/KYB verification URL first.
