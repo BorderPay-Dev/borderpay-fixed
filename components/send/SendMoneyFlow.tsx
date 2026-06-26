@@ -282,11 +282,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
-    const hydrateOnce = async () => {
+    const hydrateOnce = async (force = false) => {
       try {
         const hasCached = cachedSendWallets.length > 0 || cachedExternalAccounts.length > 0;
         const last = Number(localStorage.getItem(sendRefreshTsKey) || '0');
-        if (hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
+        if (!force && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
         const res: any = await backendAPI.financial.getSendRouteData();
         if (cancelled || !res?.success || !res?.data) return;
         const list = ((res.data as any).wallets || []).map((w: any) => ({
@@ -338,8 +338,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
     };
     hydrateOnce();
+    const onFocus = () => { void hydrateOnce(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void hydrateOnce(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey, cachedSendWallets.length, cachedExternalAccounts.length]);
 
