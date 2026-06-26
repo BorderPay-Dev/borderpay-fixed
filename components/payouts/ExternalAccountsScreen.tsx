@@ -108,7 +108,8 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
 
   // Background refresh — never blanks the cached view; no setLoading(true) here.
   const load = async (force = false) => {
-    const isColdStart = rows.length === 0;
+    const seededRows = rows.length > 0 ? rows : readCache(cacheKey);
+    const isColdStart = seededRows.length === 0;
     if (isColdStart) setLoading(true);
     setError(null);
     try {
@@ -122,17 +123,29 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         setRows(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (rows.length === 0) {
+      } else if (seededRows.length === 0) {
         setError(friendlyError(r?.error, 'Could not load payout accounts'));
       }
     } catch (e: any) {
-      if (rows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
+      if (seededRows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const onFocus = () => { void load(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
 
   const remove = async (extId: string) => {
