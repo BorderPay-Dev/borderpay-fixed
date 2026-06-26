@@ -493,6 +493,7 @@ function BottomButton({
       type="button"
       onPointerDown={onPrefetch}
       onMouseEnter={onPrefetch}
+      onTouchStart={onPrefetch}
       onClick={() => {
         onPrefetch?.();
         onClick();
@@ -541,6 +542,7 @@ function DrawerItem({
         type="button"
         onPointerDown={onPrefetch}
         onMouseEnter={onPrefetch}
+        onTouchStart={onPrefetch}
         onClick={() => {
           onPrefetch?.();
           onClick();

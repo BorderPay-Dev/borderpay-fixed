@@ -313,6 +313,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
                       key={itemIndex}
                       onPointerDown={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
                       onMouseEnter={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
+                      onTouchStart={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
                       onClick={() => {
                         if (item.screen) (window as any).__borderpay_prefetch?.(item.screen);
                         handleItemClick(item);

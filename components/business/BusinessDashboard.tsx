@@ -548,6 +548,7 @@ function BizChip({
       disabled={disabled}
       onPointerDown={onPrefetch}
       onMouseEnter={onPrefetch}
+      onTouchStart={onPrefetch}
       onClick={onClick}
       className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl py-3.5 transition-colors active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed ${
         primary
