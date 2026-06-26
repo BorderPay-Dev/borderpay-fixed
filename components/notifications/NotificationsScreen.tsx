@@ -156,7 +156,19 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     }
   }, [onUnreadCountChange, refreshTsKey]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const onFocus = () => { void load(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [load]);
   useEffect(() => { rowsRef.current = rows; }, [rows]);
 
   const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
