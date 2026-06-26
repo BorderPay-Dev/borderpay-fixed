@@ -73,20 +73,35 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   const [documentNumber, setDocumentNumber] = useState('');
 
   useEffect(() => {
-    (async () => {
-      setCapabilityLoading(true);
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['external-accounts', 'send-money', 'wallet-detail', 'settings'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+    }
+
+    const loadCapabilities = async (force = false) => {
+      const seeded = supportedAccountTypes.length > 0 ? supportedAccountTypes : readCachedCapabilities();
+      if (seeded.length === 0) setCapabilityLoading(true);
+      if (!force && seeded.length > 0) return;
       try {
-        const r: any = await backendAPI.financial.getSnapshot(20);
+        const r: any = await backendAPI.bridge.externalAccount.capabilities();
         if (r?.success) {
-          const types = Array.isArray(r?.data?.external_account_capabilities) ? r.data.external_account_capabilities : [];
+          const types = Array.isArray(r?.data?.supported_account_types) ? r.data.supported_account_types : [];
           const filtered = types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix');
-          setSupportedAccountTypes(filtered);
+          setSupportedAccountTypes(filtered.length > 0 ? filtered : cachedCapabilities);
+          if (filtered.length > 0) {
+            try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(filtered)); } catch { /* noop */ }
+          }
           if (filtered.length > 0) setAccountType(filtered[0] as AccountType);
-        } else {
-          setSupportedAccountTypes([]);
         }
       } catch {
-        setSupportedAccountTypes([]);
+        // Keep cached capabilities on transient network failures.
       } finally {
         setCapabilityLoading(false);
       }
