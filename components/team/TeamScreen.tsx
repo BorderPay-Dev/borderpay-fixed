@@ -94,7 +94,14 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   const inferredBusiness = useMemo(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-      return String(cached?.account_type || '').toLowerCase() === 'business';
+      if (String(cached?.account_type || '').toLowerCase() === 'business') return true;
+      if (String(cached?.company_name || '').trim().length > 0) return true;
+      const cachedId = String(cached?.id || '').trim();
+      if (cachedId) {
+        const cachedBizName = String(localStorage.getItem(`borderpay_business_name_v1:${cachedId}`) || '').trim();
+        if (cachedBizName) return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -113,59 +120,7 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   }, []);
   const effectiveAccountType: 'individual' | 'business' =
     accountType === 'business' || inferredBusiness || inferredBusinessFromAuthToken ? 'business' : 'individual';
-  const [resolvedAccountType, setResolvedAccountType] = useState<'individual' | 'business'>(effectiveAccountType);
-  const [resolvingAccountType, setResolvingAccountType] = useState<boolean>(effectiveAccountType !== 'business');
-
-  useEffect(() => {
-    if (effectiveAccountType === 'business') {
-      setResolvedAccountType('business');
-      setResolvingAccountType(false);
-      return;
-    }
-    let cancelled = false;
-    setResolvingAccountType(true);
-    // Do not block first paint for account-type correction; run in background.
-    (async () => {
-      try {
-        const r: any = await backendAPI.user.getProfile();
-        if (cancelled) return;
-        const profileType = String(r?.data?.user?.account_type || '').toLowerCase();
-        if (r?.success && profileType === 'business') {
-          setResolvedAccountType('business');
-          try {
-            const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-            localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, account_type: 'business' }));
-          } catch { /* ignore cache write */ }
-          return;
-        }
-        // Keep the existing resolved state unless we positively confirm
-        // business. This avoids false "business blocked" UX on transient
-        // profile fetch failures/timeouts.
-      } catch {
-        // Preserve current state on failure.
-      } finally {
-        if (!cancelled) setResolvingAccountType(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [effectiveAccountType]);
-
-  // ── Individual-account placeholder ────────────────────────────────────
-  if (resolvedAccountType !== 'business' && resolvingAccountType) {
-    return (
-      <div className={`min-h-screen ${tc.bg}`}>
-        <Header tc={tc} onBack={onBack} title="Team members" />
-        <div className="max-w-2xl mx-auto px-5 py-12">
-          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 animate-pulse`}>
-            <div className={`h-4 w-32 rounded ${tc.bgAlt} mb-3`} />
-            <div className={`h-3 w-full rounded ${tc.bgAlt} mb-2`} />
-            <div className={`h-3 w-2/3 rounded ${tc.bgAlt}`} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (resolvedAccountType !== 'business') {
+  if (effectiveAccountType !== 'business') {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
         <Header tc={tc} onBack={onBack} title="Team members" />
