@@ -92,17 +92,24 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   useEffect(() => {
     loadTransactions();
     // Warm common next hops from Activity so drawer transitions feel instant.
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['settings', 'profile', 'notifications', 'team'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 900 });
-      else setTimeout(warm, 180);
-    }
+    const prewarmKey = `borderpay_transactions_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['settings', 'profile', 'notifications', 'team'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 900 });
+          else setTimeout(warm, 180);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
     const onFocus = () => { void loadTransactions(); };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void loadTransactions();
