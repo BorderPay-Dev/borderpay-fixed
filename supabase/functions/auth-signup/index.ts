@@ -397,6 +397,19 @@ Deno.serve(async (req: Request) => {
       },
     });
   } catch (err) {
-    return json({ success: false, error: (err as Error).message || "Internal server error" }, 500);
+    const raw = String((err as Error)?.message || "");
+    const normalized = raw.toLowerCase();
+    let userMessage = "We couldn't create your account right now. Please try again in a few moments.";
+    if (normalized.includes("already registered") || normalized.includes("already exists")) {
+      userMessage = "An account with this email already exists. Please sign in instead.";
+    } else if (normalized.includes("captcha")) {
+      userMessage = "CAPTCHA validation failed. Please retry and complete the verification.";
+    } else if (normalized.includes("password")) {
+      userMessage = "Your password doesn't meet security requirements. Please use a stronger password.";
+    } else if (normalized.includes("email")) {
+      userMessage = "Please enter a valid email address and try again.";
+    }
+    console.error("auth-signup unhandled error", { message: raw });
+    return json({ success: false, error: userMessage }, 500);
   }
 });
