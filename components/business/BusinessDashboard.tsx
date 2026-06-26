@@ -266,9 +266,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 
   useEffect(() => {
     loadWallets();
-    const onFocus = () => { void loadWallets(true); };
+    const onFocus = () => { void loadWallets(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void loadWallets(true);
+      if (document.visibilityState === 'visible') void loadWallets();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
