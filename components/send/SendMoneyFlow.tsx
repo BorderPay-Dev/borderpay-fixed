@@ -112,6 +112,7 @@ function getCurrencySymbol(code: string) {
 const SEND_WALLETS_CACHE_KEY = 'borderpay_send_wallets_v1';
 const SEND_CAPS_CACHE_KEY = 'borderpay_send_caps_v1';
 const EXTERNAL_ACCOUNTS_CACHE_KEY = 'borderpay_payout_accounts_v1';
+const SEND_ROUTE_REFRESH_TS_KEY = 'borderpay_send_refresh_ts_v1';
 
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   );
   const sendCapsCacheKey = useMemo(
     () => financialCacheKey(SEND_CAPS_CACHE_KEY, { userId }),
+    [userId],
+  );
+  const sendRefreshTsKey = useMemo(
+    () => financialCacheKey(SEND_ROUTE_REFRESH_TS_KEY, { userId }),
     [userId],
   );
   const cachedSendWallets = useMemo(() => {
@@ -279,6 +284,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     let cancelled = false;
     const hydrateOnce = async () => {
       try {
+        const hasCached = cachedSendWallets.length > 0 || cachedExternalAccounts.length > 0;
+        const last = Number(localStorage.getItem(sendRefreshTsKey) || '0');
+        if (hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
         const res: any = await backendAPI.financial.getSendRouteData();
         if (cancelled || !res?.success || !res?.data) return;
         const list = ((res.data as any).wallets || []).map((w: any) => ({
@@ -324,6 +332,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
+        try { localStorage.setItem(sendRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       } catch {
         // best effort: keep cached values
       }
@@ -332,7 +341,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return () => {
       cancelled = true;
     };
-  }, [userId, sendWalletsCacheKey, sendCapsCacheKey, selectedExternalAccountId, externalAccountsCacheKey]);
+  }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey, cachedSendWallets.length, cachedExternalAccounts.length]);
 
   // Select wallet when currency changes
   useEffect(() => {
