@@ -93,12 +93,14 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       two_factor_enabled: false,
     };
     try {
+      const businessNameKey = `borderpay_business_name_v1:${userId}`;
+      const cachedBusinessName = String(localStorage.getItem(businessNameKey) || '').trim();
       const cached = localStorage.getItem('borderpay_user');
       if (cached) {
         const u = JSON.parse(cached);
         return {
           full_name: u.full_name || '',
-          company_name: u.company_name || '',
+          company_name: u.company_name || cachedBusinessName || '',
           email: u.email || '',
           phone: u.phone || '',
           address: u.address || '',
@@ -149,6 +151,8 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     try {
       const cachedCompanyName = (() => {
         try {
+          const byUserId = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
+          if (byUserId) return byUserId;
           const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
           return cached?.company_name || '';
         } catch {
@@ -196,6 +200,9 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         setEditedProfile(profileData);
         setWalletStatus(profileData.wallet_status);
         mergeProfileCache({ ...u, company_name: profileData.company_name });
+        if (profileData.account_type === 'business' && profileData.company_name) {
+          try { localStorage.setItem(`borderpay_business_name_v1:${userId}`, profileData.company_name); } catch { /* ignore */ }
+        }
 
         // Do not block first paint on business-profile enrichment.
         setLoading(false);
