@@ -113,6 +113,18 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       }
     };
     loadStatus();
+
+    const onFocus = () => { void loadStatus(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadStatus();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [settingsSecurityCacheKey, userId]);
 
   const settingsSections = [

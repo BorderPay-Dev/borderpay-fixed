@@ -240,6 +240,16 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 
   useEffect(() => {
     loadWallets();
+    const onFocus = () => { void loadWallets(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadWallets();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
