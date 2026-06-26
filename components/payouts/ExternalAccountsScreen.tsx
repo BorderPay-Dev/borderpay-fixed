@@ -8,7 +8,7 @@
  * Reached only when EXTERNAL_ACCOUNTS_LIVE is true (gated in MainApp).
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { Plus, Banknote, Loader2, Trash2, Shield } from 'lucide-react';
 import { toast } from 'sonner';
@@ -101,14 +101,19 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const refreshTsKey = financialCacheKey('borderpay_external_accounts_refresh_ts_v1', { userId });
   const cached = readCache(cacheKey);
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
+  const rowsRef = useRef<ExternalAccountRow[]>(cached);
   // Only show skeletons when we have nothing cached to render instantly.
   const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+
   // Background refresh — never blanks the cached view; no setLoading(true) here.
   const load = async (force = false) => {
-    const seededRows = rows.length > 0 ? rows : readCache(cacheKey);
+    const seededRows = rowsRef.current.length > 0 ? rowsRef.current : readCache(cacheKey);
     const isColdStart = seededRows.length === 0;
     if (isColdStart) setLoading(true);
     setError(null);
@@ -134,17 +139,24 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   };
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['add-external-account', 'send-money', 'wallet-detail', 'transactions', 'settings'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    const prewarmKey = `borderpay_external_accounts_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['add-external-account', 'send-money', 'wallet-detail', 'transactions', 'settings'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
 
     load();
     const onFocus = () => { void load(); };
