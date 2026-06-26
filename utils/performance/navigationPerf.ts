@@ -26,10 +26,17 @@ interface PerfState {
 declare global {
   interface Window {
     __bpNavPerfState?: PerfState;
+    __BORDERPAY_ENABLE_NAV_PERF?: boolean;
   }
 }
 
+function perfEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (window as any).__BORDERPAY_ENABLE_NAV_PERF === true;
+}
+
 function state(): PerfState {
+  if (!perfEnabled()) return { history: [] };
   if (typeof window === 'undefined') return { history: [] };
   if (!window.__bpNavPerfState) window.__bpNavPerfState = { history: [] };
   return window.__bpNavPerfState;
@@ -50,6 +57,7 @@ function finalizeActive() {
 }
 
 export function navPerfStartRoute(route: string, accountType: AccountType): void {
+  if (!perfEnabled()) return;
   const s = state();
   if (s.active?.route === route && s.active?.accountType === accountType) return;
   finalizeActive();
@@ -70,12 +78,14 @@ export function navPerfStartRoute(route: string, accountType: AccountType): void
 }
 
 export function navPerfMarkFirstPaint(route: string): void {
+  if (!perfEnabled()) return;
   const s = state();
   if (!s.active || s.active.route !== route) return;
   if (s.active.firstPaintAt == null) s.active.firstPaintAt = now();
 }
 
 export function navPerfMarkRouteMounted(route: string): void {
+  if (!perfEnabled()) return;
   const s = state();
   if (!s.active || s.active.route !== route) return;
   s.active.routeMountCount += 1;
@@ -83,18 +93,21 @@ export function navPerfMarkRouteMounted(route: string): void {
 }
 
 export function navPerfMarkRouteUnmounted(route: string): void {
+  if (!perfEnabled()) return;
   const s = state();
   if (!s.active || s.active.route !== route) return;
   s.active.routeUnmountCount += 1;
 }
 
 export function navPerfMarkRouteRender(route: string): void {
+  if (!perfEnabled()) return;
   const s = state();
   if (!s.active || s.active.route !== route) return;
   s.active.routeRenderCount += 1;
 }
 
 export function navPerfTrackApi(endpoint: string, phase: 'start' | 'end', ok?: boolean): void {
+  if (!perfEnabled()) return;
   if (phase !== 'end') return;
   const s = state();
   const a = s.active;
@@ -106,6 +119,7 @@ export function navPerfTrackApi(endpoint: string, phase: 'start' | 'end', ok?: b
 }
 
 export function navPerfTrackSnapshot(ok: boolean): void {
+  if (!perfEnabled()) return;
   const s = state();
   const a = s.active;
   if (!a) return;
@@ -114,6 +128,7 @@ export function navPerfTrackSnapshot(ok: boolean): void {
 }
 
 export function navPerfTrackCache(route: string, hit: boolean): void {
+  if (!perfEnabled()) return;
   const s = state();
   const a = s.active;
   if (!a || a.route !== route) return;
@@ -163,6 +178,13 @@ function summarize(rows: VisitMetric[]) {
 }
 
 export function navPerfGetReport() {
+  if (!perfEnabled()) {
+    return {
+      generatedAt: new Date().toISOString(),
+      rows: [],
+      summary: [],
+    };
+  }
   const s = state();
   const rows = [...s.history, ...(s.active ? [{ ...s.active }] : [])];
   return {
@@ -173,6 +195,7 @@ export function navPerfGetReport() {
 }
 
 export function navPerfReset() {
+  if (!perfEnabled()) return;
   const s = state();
   s.history = [];
   s.active = undefined;
