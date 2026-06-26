@@ -155,14 +155,24 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   useEffect(() => {
     loadProfile();
+    const onFocus = () => { void loadProfile(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadProfile(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [userId]);
 
-  const loadProfile = async () => {
+  const loadProfile = async (force = false) => {
     // Route parity: keep profile first paint from cache and avoid repeating the
     // same profile request on every quick nav open/close.
     try {
       const last = Number(localStorage.getItem(profileRefreshTsKey) || '0');
-      if (hasSeedIdentity && Number.isFinite(last) && Date.now() - last < 60_000) {
+      if (!force && hasSeedIdentity && Number.isFinite(last) && Date.now() - last < 60_000) {
         return;
       }
     } catch { /* noop */ }
