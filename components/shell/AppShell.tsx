@@ -356,6 +356,7 @@ export function AppShell({
             </div>
           </nav>
         );
+        if (drawerOpen) return null;
         return portalRoot ? createPortal(tabBar, portalRoot) : tabBar;
       })()}
 
