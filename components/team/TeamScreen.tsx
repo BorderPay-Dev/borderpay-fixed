@@ -20,7 +20,7 @@
  *     the drawer entry), so the notice is the safety net.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
 import {
@@ -155,6 +155,7 @@ function BusinessTeamPanel({
   const [loading, setLoading]   = useState(!cachedRoster);
   const [error, setError]       = useState<string | null>(null);
   const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
+  const rosterRef = useRef<TeamRosterResponse | null>(cachedRoster);
   const [busyId, setBusyId]     = useState<string | null>(null);
 
   // Invite form
@@ -163,10 +164,14 @@ function BusinessTeamPanel({
   const [role, setRole]             = useState<Exclude<TeamRole, 'owner'>>('member');
   const [inviting, setInviting]     = useState(false);
 
+  useEffect(() => {
+    rosterRef.current = roster;
+  }, [roster]);
+
   // Background refresh — does not blank the cached roster (no setLoading(true)).
   const load = useCallback(async (force = false) => {
     const refreshTsKey = `${TEAM_REFRESH_TS_KEY_PREFIX}:${currentTeamCacheKey()}`;
-    const seededRoster = roster ?? readRosterCache();
+    const seededRoster = rosterRef.current ?? readRosterCache();
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
       if (!force && seededRoster && Number.isFinite(last) && Date.now() - last < 45_000) return;
