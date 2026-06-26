@@ -209,11 +209,11 @@ function BusinessTeamPanel({
   const [inviting, setInviting]     = useState(false);
 
   // Background refresh — does not blank the cached roster (no setLoading(true)).
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     const refreshTsKey = `${TEAM_REFRESH_TS_KEY_PREFIX}:${currentTeamCacheKey()}`;
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (roster && Number.isFinite(last) && Date.now() - last < 45_000) return;
+      if (!force && roster && Number.isFinite(last) && Date.now() - last < 45_000) return;
     } catch { /* noop */ }
     setError(null);
     try {
@@ -255,7 +255,7 @@ function BusinessTeamPanel({
       if (r.success) {
         setEmail('');
         setInviteOpen(false);
-        await load();
+        await load(true);
       } else {
         // 402 plan_required is auto-intercepted globally → UpgradeModal opens.
         // Surface other errors inline.
@@ -275,7 +275,7 @@ function BusinessTeamPanel({
     try {
       const r = await backendAPI.team.remove(memberId);
       if (r.success) {
-        await load();
+        await load(true);
       } else {
         setError(friendlyError(r.error, 'Could not remove member'));
       }
@@ -326,7 +326,7 @@ function BusinessTeamPanel({
               <p className={`text-xs ${tc.text}`}>{error}</p>
               <button
                 type="button"
-                onClick={load}
+                onClick={() => load(true)}
                 className="mt-2 text-xs font-semibold text-red-200 hover:text-white"
               >
                 Retry
