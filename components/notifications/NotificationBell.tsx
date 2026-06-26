@@ -49,16 +49,22 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   const abortControllerRef = React.useRef<AbortController | null>(null);
 
   useEffect(() => {
-    // Small delay to avoid cold-start race conditions
-    const initialTimeout = setTimeout(() => {
-      loadUnreadCount();
-    }, 2000);
-    
+    // Refresh unread count immediately on mount.
+    loadUnreadCount();
+
+    const onFocus = () => { void loadUnreadCount(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadUnreadCount();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
     // Poll for unread count every 30 seconds
     const interval = setInterval(loadUnreadCount, 30000);
     return () => {
-      clearTimeout(initialTimeout);
       clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
       // Abort any in-flight requests on unmount
       abortControllerRef.current?.abort();
     };

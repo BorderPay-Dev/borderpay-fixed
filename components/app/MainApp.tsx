@@ -553,34 +553,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     };
     idle(() => {
       if (cancelled) return;
-      // Warm all primary dashboard quick actions so first tap does not wait on
-      // lazy chunk fetch.
-      [
-        'transactions',
-        'send-money',
-        'receive-money',
-        'exchange',
-        'add-money',
-        'wallet-detail',
-        'external-wallets',
-        'bulk-payout',
-        'payroll',
-        'team',
-        'external-accounts',
-        'notifications',
-        'profile',
-        'settings',
-        'change-pin',
-        'change-password',
-        'two-factor-setup',
-        'biometric-setup',
-        'help-center',
-        'terms-of-service',
-        'privacy-policy',
-        'preferences',
-        'kyc',
-        'pricing',
-      ].forEach(prefetchScreen);
+      // Keep runtime light: warm only highest-traffic routes. Other screens are
+      // prefetched on intent (tap/hover) via AppShell/route controls.
+      ['wallet-detail', 'receive-money', 'send-money', 'transactions', 'notifications', 'profile']
+        .forEach(prefetchScreen);
     });
     return () => { cancelled = true; };
   }, []);
