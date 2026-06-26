@@ -65,6 +65,28 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
 
   useEffect(() => {
     loadTransactions();
+    // Warm common next hops from Activity so drawer transitions feel instant.
+    const prefetch = (window as any).__borderpay_prefetch;
+    if (typeof prefetch === 'function') {
+      const warm = () => {
+        ['settings', 'profile', 'notifications', 'team'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 900 });
+      else setTimeout(warm, 180);
+    }
+    const onFocus = () => { void loadTransactions(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadTransactions();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
     // Filter is applied client-side below; avoid refetch on every toggle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
