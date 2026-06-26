@@ -383,25 +383,27 @@ export function AppShell({
               aria-modal="true"
               aria-label={tt('shell.menu', 'Menu')}
             >
-              <div className={`sticky top-0 ${tc.headerBg} border-b ${tc.borderLight} px-4 pb-3 pt-safe-header flex items-center justify-between`}>
-                <div className="flex items-center gap-3">
-                  {avatarUrl ? (
-                    <img src={avatarUrl} alt={userName ?? ''} className="w-10 h-10 rounded-full object-cover border border-white/10" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-[#C7FF00] text-black font-bold text-sm flex items-center justify-center">{initials}</div>
-                  )}
-                  <div className="min-w-0">
-                    <div className={`text-sm font-semibold ${tc.text} truncate`}>{userName || tt('shell.guest', 'Guest')}</div>
+              <div className="sticky top-0 z-10 px-3 pt-safe-header pb-2 bg-transparent">
+                <div className={`${tc.headerBg} border ${tc.borderLight} rounded-2xl px-3 py-2.5 backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.28)] flex items-center justify-between`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt={userName ?? ''} className="w-10 h-10 rounded-full object-cover border border-white/10" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-[#C7FF00] text-black font-bold text-sm flex items-center justify-center">{initials}</div>
+                    )}
+                    <div className="min-w-0">
+                      <div className={`text-sm font-semibold ${tc.text} truncate`}>{userName || tt('shell.guest', 'Guest')}</div>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setDrawerOpen(false)}
+                    aria-label={tt('shell.menu.close', 'Close menu')}
+                    className={`p-2 rounded-full ${tc.hoverBg}`}
+                  >
+                    <X className={`w-5 h-5 ${tc.text}`} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen(false)}
-                  aria-label={tt('shell.menu.close', 'Close menu')}
-                  className={`p-2 -mr-2 rounded-full ${tc.hoverBg}`}
-                >
-                  <X className={`w-5 h-5 ${tc.text}`} />
-                </button>
               </div>
 
               <ul className="py-2">
