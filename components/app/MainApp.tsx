@@ -421,8 +421,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   useEffect(() => {
     let cancelled = false;
+    let syncInFlight = false;
     const syncProfile = async (force = false) => {
+      if (syncInFlight) return;
       if (!force && !shouldRunShellSync(userId, 'profile')) return;
+      syncInFlight = true;
       try {
         const r = await backendAPI.user.getProfile();
         if (cancelled) return;
@@ -456,6 +459,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           } catch { /* ignore */ }
         }
       } catch { /* keep cached */ }
+      finally { syncInFlight = false; }
     };
     void syncProfile(true);
     const onFocus = () => { void syncProfile(false); };
@@ -477,8 +481,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // tiny values it actually needs for first-navigation responsiveness.
   useEffect(() => {
     let cancelled = false;
+    let syncInFlight = false;
     const syncUnread = async (force = false) => {
+      if (syncInFlight) return;
       if (!force && !shouldRunShellSync(userId, 'unread')) return;
+      syncInFlight = true;
       try {
         const unreadRes = await backendAPI.notifications.getUnreadCount();
         if (cancelled) return;
@@ -488,6 +495,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           if (Number.isFinite(n)) updateUnreadCount(n);
         }
       } catch { /* non-fatal */ }
+      finally { syncInFlight = false; }
     };
     void syncUnread(true);
     const onFocus = () => { void syncUnread(false); };
