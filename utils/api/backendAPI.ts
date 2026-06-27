@@ -2320,6 +2320,84 @@ export const adminAPI = {
     adminAPI.broadcast('individual_platform_live', opts),
 };
 
+export interface SupportTicket {
+  id: string;
+  requester_user_id: string;
+  requester_email: string | null;
+  requester_account_type: 'individual' | 'business';
+  source: 'app' | 'website' | 'admin';
+  issue_type: 'account_access' | 'verification' | 'wallet_balances' | 'send_receive' | 'general';
+  subject: string;
+  status: 'open' | 'pending_support' | 'pending_user' | 'resolved' | 'closed';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  assigned_admin_id: string | null;
+  first_response_at: string | null;
+  resolved_at: string | null;
+  closed_at: string | null;
+  last_message_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupportTicketMessage {
+  id: string;
+  ticket_id: string;
+  sender_type: 'user' | 'agent' | 'assistant' | 'system';
+  sender_user_id: string | null;
+  body: string;
+  is_internal: boolean;
+  created_at: string;
+}
+
+export const supportAPI = {
+  createTicket: async (input: {
+    issue_type: 'account_access' | 'verification' | 'wallet_balances' | 'send_receive' | 'general';
+    subject: string;
+    message: string;
+    source?: 'app' | 'website';
+  }) =>
+    apiCall<{ ticket_id: string }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'create_ticket', ...input }),
+    }),
+
+  listTickets: async (limit = 20) =>
+    apiCall<{ tickets: SupportTicket[] }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'list_tickets', limit }),
+    }),
+
+  getTicket: async (ticketId: string) =>
+    apiCall<{ ticket: SupportTicket; messages: SupportTicketMessage[] }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'get_ticket', ticket_id: ticketId }),
+    }),
+
+  addMessage: async (ticketId: string, message: string) =>
+    apiCall<{ ticket_id: string }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'add_message', ticket_id: ticketId, message }),
+    }),
+
+  adminListTickets: async (input: { limit?: number; status?: SupportTicket['status'] } = {}) =>
+    apiCall<{ tickets: SupportTicket[] }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'admin_list_tickets', ...input }),
+    }),
+
+  adminReply: async (ticketId: string, message: string) =>
+    apiCall<{ ticket_id: string }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'admin_reply', ticket_id: ticketId, message }),
+    }),
+
+  adminUpdateStatus: async (ticketId: string, status: SupportTicket['status']) =>
+    apiCall<{ ticket_id: string; status: SupportTicket['status'] }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'admin_update_status', ticket_id: ticketId, status }),
+    }),
+};
+
 export const backendAPI = {
   auth: authSecurityAPI,
   user: userAPI,
@@ -2345,6 +2423,7 @@ export const backendAPI = {
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,
   admin:        adminAPI,
+  support:      supportAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,
 };

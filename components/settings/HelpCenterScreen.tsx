@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
-import { Mail, FileText, Shield, ChevronRight, ExternalLink } from 'lucide-react';
+import { Mail, MessageSquare, FileText, Shield, ChevronRight, ExternalLink } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface HelpCenterScreenProps {
@@ -62,6 +62,20 @@ export function HelpCenterScreen({ onBack, onNavigate }: HelpCenterScreenProps) 
           <p className={`text-sm ${tc.textSecondary} mb-4`}>
             Our support team is here to assist you.
           </p>
+
+          <button
+            onClick={() => onNavigate?.('support')}
+            className="w-full flex items-center gap-3 p-3 rounded-xl bg-[#C7FF00]/10 border border-[#C7FF00]/20 mb-3"
+          >
+            <div className="w-10 h-10 rounded-full bg-[#C7FF00]/20 flex items-center justify-center">
+              <MessageSquare size={18} className="text-[#C7FF00]" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className={`text-sm font-semibold ${tc.text}`}>Support Tools</p>
+              <p className="text-xs text-[#C7FF00]">Open in-app queue</p>
+            </div>
+            <ChevronRight size={16} className={tc.textSecondary} />
+          </button>
 
           <a
             href="mailto:support@borderpayafrica.com"

@@ -21,6 +21,7 @@ import {
   MapPin,
   Fingerprint,
   Mail,
+  MessageSquare,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -68,6 +69,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       'biometric-setup',
       'preferences',
       'help-center',
+      'support',
       'terms-of-service',
       'privacy-policy',
       'country-eligibility',
@@ -179,6 +181,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       title: t('settings.support'),
       items: [
         { icon: HelpCircle, label: 'Help Center', screen: 'help-center', color: 'text-blue-400' },
+        { icon: MessageSquare, label: 'Support Tools', screen: 'support', color: 'text-[#C7FF00]' },
         { icon: Mail, label: 'Email Support', action: 'email-support', color: 'text-green-400' },
       ]
     },
