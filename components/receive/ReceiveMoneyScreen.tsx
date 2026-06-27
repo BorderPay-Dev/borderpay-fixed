@@ -101,6 +101,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [loading, setLoading] = useState(!hasCachedReceiveRows);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
+  const refreshInFlightRef = useRef(false);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
@@ -122,6 +123,8 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   const refresh = async (force = false) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => { try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; } })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => { try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; } })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -164,6 +167,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      refreshInFlightRef.current = false;
     }
   };
 

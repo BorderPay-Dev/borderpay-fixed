@@ -86,6 +86,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const refreshInFlightRef = useRef(false);
   const { t, language } = useThemeLanguage();
   const tc = useThemeClasses();
 
@@ -125,6 +126,8 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   }, []);
 
   const loadTransactions = async (force = false) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     const hasCachedRows = transactionsRef.current.length > 0;
     if (!hasCachedRows) setLoading(true);
     setLoadError(false);
@@ -163,6 +166,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
       if (transactionsRef.current.length === 0) setLoadError(true);
     } finally {
       setLoading(false);
+      refreshInFlightRef.current = false;
     }
   };
 

@@ -135,6 +135,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     (profile.email && String(profile.email).trim().length > 0),
   );
   const hasSeedIdentityRef = useRef<boolean>(hasSeedIdentity);
+  const profileRefreshInFlightRef = useRef(false);
 
   useEffect(() => {
     hasSeedIdentityRef.current = hasSeedIdentity;
@@ -194,6 +195,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   }, [userId, profilePrewarmTsKey]);
 
   const loadProfile = async (force = false) => {
+    if (profileRefreshInFlightRef.current) return;
     // Route parity: keep profile first paint from cache and avoid repeating the
     // same profile request on every quick nav open/close.
     try {
@@ -204,6 +206,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     } catch { /* noop */ }
 
     // Fetch fresh data from backend (cached data already loaded synchronously in useState)
+    profileRefreshInFlightRef.current = true;
     try {
       const cachedCompanyName = (() => {
         try {
@@ -273,6 +276,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       // Silent — the screen works with cached data or defaults
     } finally {
       setLoading(false);
+      profileRefreshInFlightRef.current = false;
     }
   };
 

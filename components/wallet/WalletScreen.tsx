@@ -112,6 +112,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
+  const refreshInFlightRef = useRef(false);
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
@@ -130,6 +131,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   };
 
   const refresh = async (force = false) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => { try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; } })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => { try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; } })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -201,6 +204,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     } finally {
       setLoading(false);
       setRefreshing(false);
+      refreshInFlightRef.current = false;
     }
   };
 
