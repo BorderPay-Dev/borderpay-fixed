@@ -386,14 +386,28 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             </button>
           )}
 
-          {/* Support entry for the failed state (no developer reasons shown) */}
+          {/* Rejected users can retry hosted verification immediately.
+              Developer rejection reasons remain internal; only safe user
+              messaging is shown in UI. */}
           {status === 'rejected' && (
-            <a
-              href="mailto:support@borderpayafrica.com"
-              className={`mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg}`}
-            >
-              <Mail className="w-4 h-4" /> {tt('kyc.contactSupport', 'Contact support')}
-            </a>
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={() => { void startVerification(); }}
+                disabled={verifying}
+                className="w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+              >
+                {verifying
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <>{isBusiness ? 'Retry business verification' : 'Retry identity verification'} <ArrowRight className="w-4 h-4" /></>}
+              </button>
+              <a
+                href="mailto:support@borderpayafrica.com"
+                className={`w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg}`}
+              >
+                <Mail className="w-4 h-4" /> {tt('kyc.contactSupport', 'Contact support')}
+              </a>
+            </div>
           )}
         </motion.div>
 

@@ -906,7 +906,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       {/* KYC reminder — nudges unverified users to verify (free); opens the
           Identity & KYC screen. Once-per-session; disappears when verified. */}
       <KycReminderPopup
-        open={!isVerified && kycStatus !== 'rejected'}
+        open={!isVerified}
         isBusiness={false}
         onVerify={() => handleNavigate('kyc')}
         onClose={() => { /* dismissed for this session inside the popup */ }}
