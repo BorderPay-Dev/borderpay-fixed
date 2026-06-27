@@ -36,6 +36,15 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const [loadingTicketThread, setLoadingTicketThread] = useState(false);
   const [replyMessage, setReplyMessage] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminTickets, setAdminTickets] = useState<SupportTicket[]>([]);
+  const [loadingAdminTickets, setLoadingAdminTickets] = useState(false);
+  const [selectedAdminTicketId, setSelectedAdminTicketId] = useState<string | null>(null);
+  const [selectedAdminTicketMessages, setSelectedAdminTicketMessages] = useState<SupportTicketMessage[]>([]);
+  const [loadingAdminThread, setLoadingAdminThread] = useState(false);
+  const [adminReplyMessage, setAdminReplyMessage] = useState('');
+  const [sendingAdminReply, setSendingAdminReply] = useState(false);
+  const [adminStatusUpdating, setAdminStatusUpdating] = useState(false);
 
   const statusLabel = useMemo<Record<SupportTicket['status'], string>>(
     () => ({
@@ -61,9 +70,28 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     }
   }, []);
 
+  const loadAdminTickets = useCallback(async () => {
+    setLoadingAdminTickets(true);
+    try {
+      const res = await backendAPI.support.adminListTickets({ limit: 50 });
+      if (res.success) {
+        setIsAdmin(true);
+        setAdminTickets(res.data?.tickets || []);
+      } else {
+        // Non-admin users get Forbidden from the gateway; keep user mode only.
+        setIsAdmin(false);
+      }
+    } catch {
+      setIsAdmin(false);
+    } finally {
+      setLoadingAdminTickets(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadTickets();
-  }, [loadTickets]);
+    void loadAdminTickets();
+  }, [loadTickets, loadAdminTickets]);
 
   const loadTicketThread = useCallback(async (ticketId: string) => {
     setLoadingTicketThread(true);
@@ -79,6 +107,23 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       toast.error('Could not load ticket');
     } finally {
       setLoadingTicketThread(false);
+    }
+  }, []);
+
+  const loadAdminTicketThread = useCallback(async (ticketId: string) => {
+    setLoadingAdminThread(true);
+    try {
+      const res = await backendAPI.support.getTicket(ticketId);
+      if (!res.success) {
+        toast.error(res.error || 'Could not load ticket');
+        return;
+      }
+      setSelectedAdminTicketId(ticketId);
+      setSelectedAdminTicketMessages(res.data?.messages || []);
+    } catch {
+      toast.error('Could not load ticket');
+    } finally {
+      setLoadingAdminThread(false);
     }
   }, []);
 
@@ -106,6 +151,48 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       setSendingReply(false);
     }
   }, [loadTicketThread, loadTickets, replyMessage, selectedTicketId]);
+
+  const sendAdminReply = useCallback(async () => {
+    if (!selectedAdminTicketId) return;
+    if (!adminReplyMessage.trim()) {
+      toast.error('Please enter a message');
+      return;
+    }
+    setSendingAdminReply(true);
+    try {
+      const res = await backendAPI.support.adminReply(selectedAdminTicketId, adminReplyMessage.trim());
+      if (!res.success) {
+        toast.error(res.error || 'Could not send admin reply');
+        return;
+      }
+      setAdminReplyMessage('');
+      await loadAdminTicketThread(selectedAdminTicketId);
+      await loadAdminTickets();
+      toast.success('Reply sent');
+    } catch {
+      toast.error('Could not send admin reply');
+    } finally {
+      setSendingAdminReply(false);
+    }
+  }, [adminReplyMessage, loadAdminTicketThread, loadAdminTickets, selectedAdminTicketId]);
+
+  const updateAdminStatus = useCallback(async (status: SupportTicket['status']) => {
+    if (!selectedAdminTicketId) return;
+    setAdminStatusUpdating(true);
+    try {
+      const res = await backendAPI.support.adminUpdateStatus(selectedAdminTicketId, status);
+      if (!res.success) {
+        toast.error(res.error || 'Could not update status');
+        return;
+      }
+      await loadAdminTickets();
+      toast.success('Ticket updated');
+    } catch {
+      toast.error('Could not update status');
+    } finally {
+      setAdminStatusUpdating(false);
+    }
+  }, [loadAdminTickets, selectedAdminTicketId]);
 
   const submitTicket = async () => {
     if (!subject.trim()) {
@@ -304,6 +391,95 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                 Send reply
               </button>
             </div>
+          </div>
+        ) : null}
+
+        {isAdmin ? (
+          <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
+            <div className="flex items-center justify-between mb-3">
+              <p className={`text-sm font-semibold ${tc.text}`}>Customer Support Queue</p>
+              {loadingAdminTickets ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
+            </div>
+            {adminTickets.length === 0 ? (
+              <p className={`text-sm ${tc.textSecondary}`}>No open tickets in queue.</p>
+            ) : (
+              <div className="space-y-2">
+                {adminTickets.map((t) => (
+                  <button
+                    key={`admin-${t.id}`}
+                    onClick={() => void loadAdminTicketThread(t.id)}
+                    className={`w-full text-left rounded-xl border ${tc.cardBorder} ${tc.bgAlt} px-3 py-2.5`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className={`text-sm font-medium ${tc.text} truncate`}>{t.subject}</p>
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#C7FF00]/15 text-[#C7FF00]">
+                        {statusLabel[t.status]}
+                      </span>
+                    </div>
+                    <p className={`text-xs ${tc.textSecondary} mt-1`}>
+                      {(t.requester_email || 'unknown')} • {new Date(t.last_message_at).toLocaleString()}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedAdminTicketId ? (
+              <div className={`mt-4 rounded-xl border ${tc.cardBorder} ${tc.bgAlt} p-3`}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className={`text-xs ${tc.textSecondary}`}>Queue ticket thread</p>
+                  <select
+                    disabled={adminStatusUpdating}
+                    onChange={(e) => void updateAdminStatus(e.target.value as SupportTicket['status'])}
+                    defaultValue=""
+                    className={`rounded-lg border ${tc.cardBorder} ${tc.bg} ${tc.text} text-xs px-2 py-1`}
+                  >
+                    <option value="" disabled>Set status</option>
+                    <option value="pending_support">Pending support</option>
+                    <option value="pending_user">Pending user</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </div>
+                {loadingAdminThread ? (
+                  <div className="py-3 flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin text-[#C7FF00]" />
+                    <p className={`text-xs ${tc.textSecondary}`}>Loading thread…</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 mb-3 max-h-72 overflow-y-auto">
+                    {selectedAdminTicketMessages.map((m) => (
+                      <div
+                        key={`admin-msg-${m.id}`}
+                        className={`rounded-xl px-3 py-2 text-sm ${tc.bg} border ${tc.cardBorder}`}
+                      >
+                        <p className={tc.text}>{m.body}</p>
+                        <p className={`text-[11px] mt-1 ${tc.textSecondary}`}>
+                          {m.sender_type === 'agent' ? 'Agent' : (m.sender_type === 'assistant' ? 'Assistant' : m.sender_type === 'user' ? 'User' : 'System')} • {new Date(m.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <textarea
+                    value={adminReplyMessage}
+                    onChange={(e) => setAdminReplyMessage(e.target.value)}
+                    rows={3}
+                    placeholder="Reply as support agent..."
+                    className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
+                  />
+                  <button
+                    onClick={() => void sendAdminReply()}
+                    disabled={sendingAdminReply}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
+                  >
+                    {sendingAdminReply ? <Loader2 size={15} className="animate-spin" /> : null}
+                    Send agent reply
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
