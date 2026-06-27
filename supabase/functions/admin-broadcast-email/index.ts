@@ -38,7 +38,10 @@ type BroadcastAction =
   | "borderpay_live"
   | "individual_verification_reminder"
   | "business_verification_reminder"
-  | "verification_reminder_all";
+  | "verification_reminder_all"
+  | "verification_tos_stuck_recovery"
+  | "verification_pending_no_attempt"
+  | "verification_business_kyb_completion";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -95,6 +98,9 @@ Deno.serve(async (req) => {
     "individual_verification_reminder",
     "business_verification_reminder",
     "verification_reminder_all",
+    "verification_tos_stuck_recovery",
+    "verification_pending_no_attempt",
+    "verification_business_kyb_completion",
   ]);
   if (!supportedActions.has(action)) {
     return json({ success: false, error: "unsupported action" }, 400);
@@ -130,6 +136,32 @@ Deno.serve(async (req) => {
 
   const kycOpen = new Set(["not_started", "pending", "under_review", "incomplete"]);
   const kybOpen = new Set(["not_started", "pending", "under_review", "incomplete"]);
+  const segmentNeedsTrace = action === "verification_tos_stuck_recovery" || action === "verification_pending_no_attempt";
+  const invokedUserIds = new Set<string>();
+  const tosSeenUserIds = new Set<string>();
+  if (segmentNeedsTrace) {
+    const { data: traces, error: traceErr } = await supabase
+      .from("bridge_kyc_traces")
+      .select("user_id, stage, response_body, created_at")
+      .in("stage", ["invoked", "returned_success"])
+      .not("user_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(10000);
+    if (traceErr) return json({ success: false, error: traceErr.message }, 500);
+    for (const row of traces || []) {
+      const userId = String((row as Record<string, unknown>).user_id || "");
+      if (!userId) continue;
+      const stage = String((row as Record<string, unknown>).stage || "");
+      if (stage === "invoked") {
+        invokedUserIds.add(userId);
+      } else if (stage === "returned_success") {
+        if (tosSeenUserIds.has(userId)) continue; // rows are desc by created_at
+        const body = (row as Record<string, unknown>).response_body as Record<string, unknown> | null;
+        const tosSeen = Boolean(body && body["tos_link_present"] === true);
+        if (tosSeen) tosSeenUserIds.add(userId);
+      }
+    }
+  }
 
   const candidates = (profiles || []).filter((p: Record<string, unknown>) => {
     if (p.is_admin === true) return false;
@@ -149,6 +181,20 @@ Deno.serve(async (req) => {
       if (at === "individual") return kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase());
       if (at === "business") return kybOpen.has(String(bizStatusByUser.get(String(p.id || "")) || "not_started").toLowerCase());
       return false;
+    }
+    if (action === "verification_tos_stuck_recovery") {
+      return at === "individual"
+        && kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase())
+        && tosSeenUserIds.has(String(p.id || ""));
+    }
+    if (action === "verification_pending_no_attempt") {
+      return at === "individual"
+        && kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase())
+        && !invokedUserIds.has(String(p.id || ""));
+    }
+    if (action === "verification_business_kyb_completion") {
+      return at === "business"
+        && kybOpen.has(String(bizStatusByUser.get(String(p.id || "")) || "not_started").toLowerCase());
     }
     return true;
   });
@@ -193,7 +239,10 @@ Deno.serve(async (req) => {
     const template =
       action === "business_verification_delay" ? "business.platform_live" :
       action === "business_platform_live" ? "business.platform_live" :
+      action === "verification_business_kyb_completion" ? "business.verification_authorized" :
       action === "business_verification_reminder" ? "business.verification_authorized" :
+      action === "verification_tos_stuck_recovery" ? "individual.verification_authorized" :
+      action === "verification_pending_no_attempt" ? "individual.verification_authorized" :
       action === "individual_verification_reminder" ? "individual.verification_authorized" :
       action === "verification_reminder_all"
         ? (accountType === "business" ? "business.verification_authorized" : "individual.verification_authorized") :
