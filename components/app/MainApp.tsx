@@ -35,6 +35,7 @@ import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 import { PreferencesScreen } from './PreferencesScreen';
 import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
 import { HelpCenterScreen } from '../settings/HelpCenterScreen';
+import { SupportScreen } from '../settings/SupportScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -94,6 +95,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'privacy-policy': eagerPreload,
   preferences: eagerPreload,
   'help-center': eagerPreload,
+  support: eagerPreload,
   pricing:       (PricingScreen as any).preload,
   team:          eagerPreload,
   notifications: eagerPreload,
@@ -276,6 +278,7 @@ export type AppScreen =
   | 'preferences'
   | 'biometric-setup'
   | 'help-center'
+  | 'support'
   | 'pricing'
   | 'team'
   | 'notifications'
@@ -928,6 +931,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'help-center':
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
+
+      case 'support':
+        return <SupportScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
       case 'pricing':
         return (

@@ -20,7 +20,7 @@ import {
   Trash2,
   MapPin,
   Fingerprint,
-  Mail,
+  MessageSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
@@ -80,6 +80,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       'preferences',
       'country-eligibility',
       'help-center',
+      'support',
       'terms-of-service',
       'privacy-policy',
     ];
@@ -199,7 +200,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       title: t('settings.support'),
       items: [
         { icon: HelpCircle, label: 'Help Center', screen: 'help-center', color: 'text-blue-400' },
-        { icon: Mail, label: 'Email Support', action: 'email-support', color: 'text-green-400' },
+        { icon: MessageSquare, label: 'Support', screen: 'support', color: 'text-green-400' },
       ]
     },
     {
@@ -302,8 +303,6 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       handleSuspendAccount();
     } else if (item.action === 'disable-2fa') {
       handleDisable2FA();
-    } else if (item.action === 'email-support') {
-      window.open('mailto:support@borderpayafrica.com', '_blank');
     } else if (item.screen) {
       onNavigate(item.screen);
     }
