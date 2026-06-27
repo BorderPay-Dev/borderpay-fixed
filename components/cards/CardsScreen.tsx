@@ -12,6 +12,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CreditCard, Lock, ShieldCheck, RefreshCw, List, SlidersHorizontal, Receipt, CheckCircle2 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { authAPI } from '../../utils/supabase/client';
 import { BorderPayLogo } from './BorderPayLogo';
 
 interface CardsScreenProps {
@@ -30,7 +31,7 @@ function CardChip() {
   );
 }
 
-function CardFace({ depth = 0 }: { depth?: number }) {
+function CardFace({ depth = 0, cardType = 'PERSONAL CARD' }: { depth?: number; cardType?: string }) {
   const baseRotate = 0 - depth * 2.6;
   const baseX = 0 - depth * 28;
   const baseY = 0 + depth * 1.5;
@@ -54,7 +55,7 @@ function CardFace({ depth = 0 }: { depth?: number }) {
         }}
       />
       <div className="relative z-10 h-full flex flex-col px-5 py-4">
-        <p className="text-[10px] tracking-[0.2em] font-semibold text-white/55 uppercase">Team Card</p>
+        <p className="text-[10px] tracking-[0.2em] font-semibold text-white/55 uppercase">{cardType}</p>
         <div className="mt-4 flex items-start justify-between">
           <div className="flex items-start gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#C7FF00] flex items-center justify-center overflow-hidden">
@@ -75,14 +76,14 @@ function CardFace({ depth = 0 }: { depth?: number }) {
   );
 }
 
-function CardMockupStack() {
+function CardMockupStack({ cardType }: { cardType: string }) {
   return (
     <div className="mt-4 rounded-3xl border border-[#C7FF00]/25 bg-black/60 p-4 sm:p-5 overflow-hidden">
       <div className="relative mx-auto w-full max-w-[760px] h-[220px] sm:h-[280px]">
-        <CardFace depth={3} />
-        <CardFace depth={2} />
-        <CardFace depth={1} />
-        <CardFace depth={0} />
+        <CardFace depth={3} cardType={cardType} />
+        <CardFace depth={2} cardType={cardType} />
+        <CardFace depth={1} cardType={cardType} />
+        <CardFace depth={0} cardType={cardType} />
       </div>
     </div>
   );
@@ -100,6 +101,9 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   const subtitle    = (t as any)?.('cards.locked.subtitle') ?? 'Card issuing is not enabled for your account yet.';
   const sectionTitle = 'Cards';
   const canCreate = false;
+  const accountType = String(authAPI.getStoredUser()?.account_type || 'individual').toLowerCase();
+  const isBusiness = accountType === 'business';
+  const cardTypeLabel = isBusiness ? 'TEAM CARD' : 'PERSONAL CARD';
 
   const cardTabs = useMemo(() => ([
     { id: 'overview' as const, label: 'Overview', icon: List },
@@ -185,7 +189,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
           </div>
         </div>
 
-        <CardMockupStack />
+        <CardMockupStack cardType={cardTypeLabel} />
 
         <div className={`mt-5 rounded-2xl border ${tc.cardBorder} ${tc.card} p-2 flex items-center gap-2`}>
           {cardTabs.map((tab) => {
