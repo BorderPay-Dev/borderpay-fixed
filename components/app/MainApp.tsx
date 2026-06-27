@@ -68,7 +68,6 @@ const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
 const PaymentMethods = lazyImport(() => import('../settings/PaymentMethods').then(m => ({ default: m.PaymentMethods })));
-const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
@@ -90,9 +89,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
   exchange: eagerPreload,
-  converter: eagerPreload,
-  deposit: (FundingScreen as any).preload,
-  'add-money': (FundingScreen as any).preload,
   'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': eagerPreload,
@@ -135,6 +131,18 @@ export function prefetchScreen(name: string) {
 
 if (typeof window !== 'undefined') {
   (window as any).__borderpay_prefetch = prefetchScreen;
+}
+
+function canonicalizeScreen(screen: AppScreen | string): AppScreen {
+  switch (screen as string) {
+    case 'converter':
+      return 'exchange';
+    case 'deposit':
+    case 'add-money':
+      return 'wallet-detail';
+    default:
+      return screen as AppScreen;
+  }
 }
 
 function getBusinessDisplayName(profile: any): string {
@@ -256,9 +264,6 @@ export type AppScreen =
   | 'send-money'
   | 'receive-money'
   | 'exchange'
-  | 'converter'
-  | 'deposit'
-  | 'add-money'
   | 'transactions'
   | 'wallet-detail'
   | 'two-factor-setup'
@@ -540,7 +545,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, []);
 
   const navigateTo = (screen: AppScreen | string) => {
-    const target = screen as AppScreen;
+    const target = canonicalizeScreen(screen);
     const isAlreadyHere =
       currentScreen === target ||
       (target === 'home' && currentScreen === 'dashboard') ||
@@ -581,7 +586,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         'send-money',
         'receive-money',
         'exchange',
-        'add-money',
         'wallet-detail',
         'external-wallets',
         'bulk-payout',
@@ -799,13 +803,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'exchange':
         return <ExchangeScreen onBack={navigateBack} />;
-
-      case 'converter':
-        return <ExchangeScreen onBack={navigateBack} />;
-
-      case 'deposit':
-      case 'add-money':
-        return <FundingScreen onBack={navigateBack} />;
 
       case 'two-factor-setup':
         return (
