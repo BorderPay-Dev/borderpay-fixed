@@ -19,6 +19,7 @@ const corsHeaders = {
 };
 const INTERNAL_TOKEN = Deno.env.get('SEND_EMAIL_INTERNAL_TOKEN') || '';
 const APP_URL = Deno.env.get('BORDERPAY_APP_URL') || 'https://app.borderpayafrica.com';
+const EMAIL_LOGO_URL = 'https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-white-logo-email.png';
 
 function timingSafeEqualStr(a: string, b: string): boolean {
   const enc = new TextEncoder();
@@ -98,11 +99,11 @@ serve(async (req) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Confirm your email — BorderPay</title>
 </head>
-<body style="margin:0;padding:0;background-color:#0B0E11;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0B0E11;min-height:100vh;">
+<body style="margin:0;padding:0;background-color:#000000;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#000000;min-height:100vh;">
     <tr>
       <td align="center" style="padding:40px 20px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#13171C;border-radius:16px;border:1px solid rgba(255,255,255,0.06);overflow:hidden;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background-color:#000000;border:1px solid #1A1A1A;overflow:hidden;">
 
           <!-- Top accent bar -->
           <tr>
@@ -111,12 +112,8 @@ serve(async (req) => {
 
           <!-- Logo -->
           <tr>
-            <td align="center" style="padding:36px 32px 24px;">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 110" width="44" height="60" style="display:block;">
-                <rect x="10" y="5" width="24" height="95" rx="12" fill="#C7FF00"/>
-                <path d="M38 33 A33.5 33.5 0 0 1 38 100 Z" fill="#C7FF00"/>
-              </svg>
-              <p style="margin:12px 0 0;font-size:20px;font-weight:800;color:#FFFFFF;letter-spacing:-0.3px;">BorderPay</p>
+            <td align="left" style="padding:26px 32px 20px;">
+              <img src="${EMAIL_LOGO_URL}" alt="BorderPay Africa" width="168" style="display:block;width:168px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />
             </td>
           </tr>
 
@@ -136,7 +133,7 @@ serve(async (req) => {
                   <td align="center">
                     <a href="${safeConfirmationUrl}"
                        target="_blank"
-                       style="display:inline-block;padding:14px 40px;background-color:#C7FF00;color:#0B0E11;font-size:15px;font-weight:700;text-decoration:none;border-radius:12px;letter-spacing:0.3px;">
+                       style="display:inline-block;padding:14px 40px;background-color:#C7FF00;color:#000000;font-size:15px;font-weight:700;text-decoration:none;border-radius:12px;letter-spacing:0.3px;">
                       Verify My Email
                     </a>
                   </td>

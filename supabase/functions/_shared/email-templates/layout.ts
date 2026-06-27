@@ -6,14 +6,14 @@
  */
 
 export const BORDERPAY_BRAND = {
-  bg:        "#0B0E11",
-  card:      "#11161D",
-  border:    "#26313A",
+  bg:        "#000000",
+  card:      "#000000",
+  border:    "#1A1A1A",
   accent:    "#C7FF00",
-  accent2:   "#9CD400",
+  accent2:   "#C7FF00",
   text:      "#F3F7FA",
-  textMuted: "#B7C2CC",
-  textFaint: "#8D99A5",
+  textMuted: "#C5CDD5",
+  textFaint: "#8A949E",
   danger:    "#FF5A5A",
   success:   "#2FD06E",
   warning:   "#E8A923",
@@ -67,26 +67,26 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
 <table role="presentation" class="bp-bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.bg}" style="background-color:${b.bg};">
   <tr>
     <td align="center" bgcolor="${b.bg}" style="background-color:${b.bg};padding:36px 16px;">
-      <table role="presentation" class="bp-card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.card}" style="max-width:540px;background-color:${b.card};border-radius:18px;border:1px solid ${b.border};overflow:hidden;box-shadow:0 10px 32px rgba(0,0,0,0.35);">
+      <table role="presentation" class="bp-card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.card}" style="max-width:540px;background-color:${b.card};border:1px solid ${b.border};overflow:hidden;">
         <tr><td style="height:4px;background:${accentBar};line-height:4px;font-size:4px;">&nbsp;</td></tr>
         <tr>
           <td align="center" style="padding:0;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(160deg,#121a22 0%,#0b0f14 100%);">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${b.bg};">
               <tr>
-                <td style="padding:22px 28px 16px;">
+                <td style="padding:24px 28px 14px;">
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                      <td style="background:#05070A;border:1px solid #1D2630;border-radius:12px;padding:10px 14px;">
+                      <td>
                         <img
                           src="${escapeHtml(b.heroUrl)}"
-                          width="210"
+                          width="168"
                           alt="BorderPay Africa"
-                          style="display:block;width:210px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;"
+                          style="display:block;width:168px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;"
                         />
                       </td>
                     </tr>
                   </table>
-                  <p style="margin:8px 0 0;font-size:12px;line-height:1.45;color:#9FB0BD;">
+                  <p style="margin:10px 0 0;font-size:12px;line-height:1.45;color:${b.textFaint};">
                     Global wallets, payments, and verification in one app.
                   </p>
                 </td>
