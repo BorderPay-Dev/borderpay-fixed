@@ -269,6 +269,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
+  const institutionsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -395,6 +396,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step, method, selectedCurrency]);
 
   const loadInstitutions = async () => {
+    if (institutionsLoadInFlightRef.current) {
+      await institutionsLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     // Fast route re-entry: render cached institutions instantly when available.
     let seededFromCache = false;
     try {
@@ -429,6 +435,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } catch (e) {
     } finally {
       setLoadingInstitutions(false);
+    }
+    })();
+    institutionsLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (institutionsLoadInFlightRef.current === run) {
+        institutionsLoadInFlightRef.current = null;
+      }
     }
   };
 

@@ -12,7 +12,7 @@
  * of truth; developer/internal rejection reasons are never surfaced.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -90,9 +90,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [accountType, setAccountType] = useState<AccountType>(seed.accountType);
   const [status, setStatus] = useState<KycView>(seed.status);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const refreshTsKey = useMemo(() => `borderpay_kyc_refresh_ts_v1:${userId}`, [userId]);
 
   const refresh = useCallback(async (force = false) => {
+    if (refreshInFlightRef.current) {
+      await refreshInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     setRefreshing(true);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
@@ -112,6 +118,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       }
     } catch { /* keep the cached status on any error */ }
     finally { setRefreshing(false); }
+    })();
+    refreshInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (refreshInFlightRef.current === run) {
+        refreshInFlightRef.current = null;
+      }
+    }
   }, [refreshTsKey]);
 
   // Background refresh on mount — no loading gate; the seed already rendered.

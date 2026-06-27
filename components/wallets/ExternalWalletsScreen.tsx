@@ -60,6 +60,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const cached = readCache(cacheKey);
   const [wallets, setWallets] = useState<ExternalWallet[]>(cached);
   const walletsRef = useRef<ExternalWallet[]>(cached);
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
   const [loading, setLoading] = useState(cached.length === 0);
   const [adding, setAdding]   = useState(false);
   const [saving, setSaving]   = useState(false);
@@ -76,6 +77,11 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   }, [wallets]);
 
   const load = async (force = false) => {
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     const seededWallets = walletsRef.current.length > 0 ? walletsRef.current : readCache(cacheKey);
     const isColdStart = seededWallets.length === 0;
     try {
@@ -93,6 +99,15 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       }
     } catch { /* keep cache */ }
     finally { setLoading(false); }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) {
+        loadInFlightRef.current = null;
+      }
+    }
   };
   useEffect(() => {
     const prewarmKey = `borderpay_external_wallets_prewarm_v1:${userId}`;
