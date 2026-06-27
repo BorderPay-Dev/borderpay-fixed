@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { isBridgeBlocked } from "../_shared/providers/bridge-country-policy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -29,6 +30,7 @@ interface Body {
   limit?: number;
   start_index?: number;
   max_recipients?: number;
+  campaign_id?: string;
 }
 
 type BroadcastAction =
@@ -110,11 +112,13 @@ Deno.serve(async (req) => {
   const limit = Math.max(1, Math.min(Number(body.limit || 2000), 10000));
   const startIndex = Math.max(0, Number(body.start_index || 0));
   const maxRecipients = Math.max(1, Math.min(Number(body.max_recipients || 2000), 10000));
+  const campaignIdRaw = String(body.campaign_id || "v2").trim();
+  const campaignId = /^[a-zA-Z0-9._-]{1,64}$/.test(campaignIdRaw) ? campaignIdRaw : "v2";
 
   const [{ data: profiles, error: profilesErr }, { data: bizProfiles, error: bizErr }] = await Promise.all([
     supabase
       .from("user_profiles")
-      .select("id, email, full_name, account_type, is_admin, bridge_kyc_status")
+      .select("id, email, full_name, country, account_type, is_admin, bridge_kyc_status")
       .not("email", "is", null)
       .limit(limit),
     supabase
@@ -168,6 +172,8 @@ Deno.serve(async (req) => {
     const email = String(p.email || "").trim().toLowerCase();
     if (!email || !email.includes("@")) return false;
     if (email === "founder@borderpayafrica.com") return false;
+    const country = String(p.country || "").trim().toUpperCase();
+    if (isBridgeBlocked(country)) return false;
     const at = String(p.account_type || "").toLowerCase();
     if ((action === "business_verification_delay" || action === "business_platform_live") && at !== "business") return false;
     if (action === "individual_platform_live" && at !== "individual") return false;
@@ -253,7 +259,7 @@ Deno.serve(async (req) => {
       : template === "business.verification_authorized"
         ? { company_name: bizNameByUser.get(userId) || "Your business", full_name: String(u.full_name || "") }
       : { full_name: String(u.full_name || "") };
-    const idempotencyKey = `broadcast:${action}:v1:${userId}`;
+    const idempotencyKey = `broadcast:${action}:${campaignId}:${userId}`;
 
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
