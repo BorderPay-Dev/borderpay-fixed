@@ -11,7 +11,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Building2, Send, Download, RefreshCw, Loader2, Wallet,
+  Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard,
   AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -428,7 +428,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               onClick={() => onNavigate('exchange')}
               tc={tc}
             />
-            <BizChip label="Wallets" Icon={Wallet} onPrefetch={() => prefetchScreen('wallet-detail')} onClick={() => onNavigate('wallet-detail')} tc={tc} />
+            <BizChip label="Cards" Icon={CreditCard} onPrefetch={() => prefetchScreen('cards')} onClick={() => onNavigate('cards')} tc={tc} />
           </div>
         </section>
 

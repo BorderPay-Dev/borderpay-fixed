@@ -1,17 +1,14 @@
 /**
- * BorderPay Africa — Cards (locked)
+ * BorderPay Africa — Cards
  *
- * Card issuing is not enabled for this product yet. Keep a real locked
- * product boundary, but do not show preview card faces or active card controls.
- *
- * Header chrome (back / title) is owned by AppShell for top-level routes —
- * this screen renders body-only.
+ * Product rule:
+ * - Let users explore the card UI.
+ * - Block only card-creation actions with a "Coming soon" message.
  */
 
-import React, { useMemo, useRef, useState } from 'react';
-import { CreditCard, Lock, ShieldCheck, RefreshCw, List, SlidersHorizontal, Receipt, CheckCircle2 } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { CreditCard, Lock, List, SlidersHorizontal, Receipt } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { BorderPayLogo } from './BorderPayLogo';
 
@@ -31,21 +28,14 @@ function CardChip() {
   );
 }
 
-function CardFace({ depth = 0, cardType = 'PERSONAL CARD' }: { depth?: number; cardType?: string }) {
-  const baseRotate = 12 - depth * 1.25;
-  const baseX = 0 - depth * 24;
-  const baseY = 0 + depth * 1.2;
+function CardFace({ cardType = 'PERSONAL CARD' }: { cardType?: string }) {
   return (
     <div
-      className="absolute inset-0 rounded-[22px] border border-[#C7FF00]/55 overflow-hidden"
+      className="rounded-[22px] border border-[#C7FF00]/55 overflow-hidden"
       style={{
-        transform: `translateX(${baseX}px) translateY(${baseY}px) rotate(${baseRotate}deg)`,
-        transformOrigin: 'right center',
         background:
           'radial-gradient(120% 100% at 20% 15%, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 28%, rgba(0,0,0,0.0) 55%), linear-gradient(125deg, #08090B 0%, #14171C 50%, #0C0E12 100%)',
-        boxShadow: depth === 0
-          ? '0 14px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(199,255,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.04)'
-          : '0 8px 22px rgba(0,0,0,0.45), 0 0 0 1px rgba(199,255,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.03)',
+        boxShadow: '0 14px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(199,255,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.04)',
       }}
     >
       <div
@@ -76,14 +66,11 @@ function CardFace({ depth = 0, cardType = 'PERSONAL CARD' }: { depth?: number; c
   );
 }
 
-function CardMockupStack({ cardType }: { cardType: string }) {
+function CardMockup({ cardType }: { cardType: string }) {
   return (
     <div className="mt-4 rounded-3xl border border-[#C7FF00]/25 bg-black/60 p-4 sm:p-5 overflow-hidden">
-      <div className="relative mx-auto w-full max-w-[760px] h-[220px] sm:h-[280px]">
-        <CardFace depth={3} cardType={cardType} />
-        <CardFace depth={2} cardType={cardType} />
-        <CardFace depth={1} cardType={cardType} />
-        <CardFace depth={0} cardType={cardType} />
+      <div className="mx-auto w-full max-w-[760px]">
+        <CardFace cardType={cardType} />
       </div>
     </div>
   );
@@ -92,14 +79,12 @@ function CardMockupStack({ cardType }: { cardType: string }) {
 export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>('Cards are visible but locked until BorderPay enables card access.');
+  const [message, setMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'controls' | 'activity'>('overview');
-  const loadInFlightRef = useRef<Promise<void> | null>(null);
   const user = authAPI.getStoredUser();
 
-  const title       = (t as any)?.('cards.locked.title')    ?? 'Cards are locked';
-  const subtitle    = (t as any)?.('cards.locked.subtitle') ?? 'Card issuing is not enabled for your account yet.';
+  const title       = (t as any)?.('cards.title')    ?? 'Cards';
+  const subtitle    = (t as any)?.('cards.subtitle') ?? 'Coming soon';
   const sectionTitle = 'Cards';
   const accountType = String(user?.account_type || 'individual').toLowerCase();
   const isBusiness = accountType === 'business';
@@ -110,38 +95,6 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
     { id: 'controls' as const, label: 'Controls', icon: SlidersHorizontal },
     { id: 'activity' as const, label: 'Activity', icon: Receipt },
   ]), []);
-
-  const loadProgramState = async (force = false) => {
-    if (loadInFlightRef.current) {
-      await loadInFlightRef.current;
-      return;
-    }
-    const run = (async () => {
-      if (force) setLoading(true);
-      setMessage(null);
-      try {
-        const r: any = await backendAPI.cards.getProgramStatus();
-        if (!r?.success && r?.code === 'cards_locked') {
-          setMessage('Cards are visible but locked until BorderPay enables card access.');
-          return;
-        }
-        if (!r?.success) {
-          setMessage('Card status is temporarily unavailable.');
-          return;
-        }
-      } catch {
-        setMessage('Card status is temporarily unavailable.');
-      } finally {
-        if (force) setLoading(false);
-      }
-    })();
-    loadInFlightRef.current = run;
-    try {
-      await run;
-    } finally {
-      if (loadInFlightRef.current === run) loadInFlightRef.current = null;
-    }
-  };
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
@@ -159,7 +112,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
             <div className="min-w-0">
               <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${tc.borderLight} ${tc.bgAlt} mb-3`}>
                 <Lock className={`w-3 h-3 ${tc.textMuted}`} />
-                <span className={`text-[10px] font-bold tracking-wider uppercase ${tc.textMuted}`}>Locked</span>
+                <span className={`text-[10px] font-bold tracking-wider uppercase ${tc.textMuted}`}>Coming soon</span>
               </div>
               <h1 className={`text-2xl sm:text-3xl font-semibold ${tc.text} tracking-tight mb-2`}>
                 {title}
@@ -167,15 +120,11 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
               <p className={`text-sm ${tc.textMuted} leading-relaxed`}>
                 {subtitle}
               </p>
-              <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C7FF00]/10 border border-[#C7FF00]/25">
-                <CheckCircle2 className="w-3 h-3 text-[#C7FF00]" />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#C7FF00]">Visa program readiness</span>
-              </div>
             </div>
           </div>
         </div>
 
-        <CardMockupStack cardType={cardTypeLabel} />
+        <CardMockup cardType={cardTypeLabel} />
 
         <div className={`mt-5 rounded-2xl border ${tc.cardBorder} ${tc.card} p-2 flex items-center gap-2`}>
           {cardTabs.map((tab) => {
@@ -200,22 +149,18 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
           <h1 className={`text-2xl sm:text-3xl font-semibold ${tc.text} tracking-tight mb-2`}>
             No card can be issued yet
           </h1>
-          <p className={`text-sm ${tc.textMuted} leading-relaxed`}>
-            The card backend stays locked until BorderPay has live card access.
-            This screen will connect to the card service once that access is
-            approved; until then it cannot create, fund, freeze, or manage cards.
-          </p>
+          <p className={`text-sm ${tc.textMuted} leading-relaxed`}>Coming soon</p>
           {message && (
             <p className={`mt-2 text-xs ${tc.textMuted}`}>{message}</p>
           )}
 
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <button
               type="button"
               disabled={false}
               aria-disabled={false}
               onClick={() => {
-                setMessage('Coming soon: card issuing is not enabled yet.');
+                setMessage('Card creation is locked. Coming soon.');
               }}
               className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`}
             >
@@ -227,37 +172,14 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
               disabled={false}
               aria-disabled={false}
               onClick={() => {
-                setMessage('Coming soon: spending controls are not enabled yet.');
+                setMessage('Coming soon.');
               }}
               className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`}
             >
               <SlidersHorizontal className="w-4 h-4" />
               <span className="text-xs font-semibold">Spending controls</span>
             </button>
-            <button
-              type="button"
-              onClick={() => { void loadProgramState(true); }}
-              className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${tc.textMuted} ${tc.hoverBg}`}
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              <span className="text-xs font-semibold">Refresh status</span>
-            </button>
           </div>
-
-          <ul className={`mt-8 space-y-2.5 text-sm ${tc.textSecondary}`}>
-            <li className="flex items-start gap-2">
-              <Lock className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
-              <span>Cards remain locked for both Individual and Business users.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <ShieldCheck className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
-              <span>Card backend endpoints are fail-closed until BorderPay enables the program.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <Receipt className="w-4 h-4 mt-0.5 text-[#C7FF00] flex-shrink-0" />
-              <span>Card transactions/statements UI remains present but locked for now.</span>
-            </li>
-          </ul>
         </div>
       </div>
     </div>
