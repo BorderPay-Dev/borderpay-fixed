@@ -54,6 +54,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   const cachedCapabilities = readCachedCapabilities();
   const [supportedAccountTypes, setSupportedAccountTypes] = useState<Array<AccountType>>(cachedCapabilities);
   const supportedAccountTypesRef = useRef<Array<AccountType>>(cachedCapabilities);
+  const capabilityLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [capabilityLoading, setCapabilityLoading] = useState(cachedCapabilities.length === 0);
   const capabilityRefreshTsKey = financialCacheKey('borderpay_external_account_capabilities_refresh_ts_v1', { userId });
   const defaultType: AccountType = supportedAccountTypes[0] || 'us';
@@ -115,6 +116,11 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
     } catch { /* noop */ }
 
     const loadCapabilities = async (force = false) => {
+      if (capabilityLoadInFlightRef.current) {
+        await capabilityLoadInFlightRef.current;
+        return;
+      }
+      const run = (async () => {
       const seeded = supportedAccountTypesRef.current.length > 0 ? supportedAccountTypesRef.current : readCachedCapabilities();
       if (seeded.length === 0) setCapabilityLoading(true);
       try {
@@ -137,6 +143,15 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         // Keep cached capabilities on transient network failures.
       } finally {
         setCapabilityLoading(false);
+      }
+      })();
+      capabilityLoadInFlightRef.current = run;
+      try {
+        await run;
+      } finally {
+        if (capabilityLoadInFlightRef.current === run) {
+          capabilityLoadInFlightRef.current = null;
+        }
       }
     };
 
