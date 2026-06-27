@@ -56,6 +56,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   })();
   const settingsSecurityCacheKey = `borderpay_settings_security_v1:${userId}`;
   const settingsSecurityRefreshTsKey = `borderpay_settings_security_refreshed_at:${userId}`;
+  const securityRefreshInFlightRef = React.useRef(false);
 
   // Keep Settings mount light. We prefetch on user intent (pointer/tap) only.
   useEffect(() => {
@@ -107,10 +108,12 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     } catch { /* noop */ }
 
     const loadStatus = async (force = false) => {
+      if (securityRefreshInFlightRef.current) return;
       try {
         const last = Number(localStorage.getItem(settingsSecurityRefreshTsKey) || '0');
         if (!force && Number.isFinite(last) && Date.now() - last < 60_000) return;
       } catch { /* noop */ }
+      securityRefreshInFlightRef.current = true;
       try {
         // 2FA truth lives in `user_security` (not always denormalised onto
         // user_profiles). Read both in parallel and OR with TOTPManager so the
@@ -135,6 +138,9 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         setHas2FA(secStatus.has2FA);
         try { localStorage.setItem(settingsSecurityCacheKey, JSON.stringify({ hasPIN: secStatus.hasPIN, has2FA: secStatus.has2FA, ts: Date.now() })); } catch { /* noop */ }
         try { localStorage.setItem(settingsSecurityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+      }
+      finally {
+        securityRefreshInFlightRef.current = false;
       }
     };
     loadStatus();
