@@ -114,6 +114,15 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
           </div>
         </div>
 
+        <div className="mt-4 rounded-3xl border border-[#C7FF00]/25 bg-black/60 overflow-hidden">
+          <img
+            src="/cards/IMG_2165.PNG"
+            alt="BorderPay Visa card mockup"
+            className="w-full h-auto object-cover"
+            loading="lazy"
+          />
+        </div>
+
         <div className={`mt-5 rounded-2xl border ${tc.cardBorder} ${tc.card} p-2 flex items-center gap-2`}>
           {cardTabs.map((tab) => {
             const Icon = tab.icon;

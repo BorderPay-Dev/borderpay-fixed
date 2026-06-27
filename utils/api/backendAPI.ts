@@ -12,6 +12,7 @@ import { authAPI, BASE_URL, ANON_KEY, supabase } from '../supabase/client';
 import { ownerOrFilter } from '../financial/ownership';
 import { deriveWalletStatus } from '../financial/walletStatus';
 import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../performance/navigationPerf';
+import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -1022,7 +1023,10 @@ const RAILS_FUTURE_STATE = {
 // Arguments are accepted and intentionally ignored — the methods short-circuit
 // without any network call.
 export const cardAPI = {
-  async getProgramStatus() { return CARDS_LOCKED; },
+  async getProgramStatus() {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-program-status', { method: 'POST' });
+  },
 
   async createCard(_data: {
     card_type?: string;
@@ -1031,28 +1035,79 @@ export const cardAPI = {
     card_name?: string;
     spending_limit?: number;
     design_id?: string;
-  }) { return CARDS_LOCKED; },
+  }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-create', {
+      method: 'POST',
+      body: JSON.stringify(_data || {}),
+    });
+  },
 
-  async getCards() { return CARDS_LOCKED; },
+  async getCards() {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-list', { method: 'POST' });
+  },
 
-  async getCard(_cardId: string) { return CARDS_LOCKED; },
+  async getCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-details', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
   async getCardTransactions(_cardId: string, _filters?: {
     start_date?: string;
     end_date?: string;
     page?: string;
     page_size?: string;
-  }) { return CARDS_LOCKED; },
+  }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-transactions', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, ...(_filters || {}) }),
+    });
+  },
 
-  async fundCard(_cardId: string, _amount: number) { return CARDS_LOCKED; },
+  async fundCard(_cardId: string, _amount: number) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-fund', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, amount: _amount }),
+    });
+  },
 
-  async withdrawCard(_cardId: string, _amount: number) { return CARDS_LOCKED; },
+  async withdrawCard(_cardId: string, _amount: number) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-withdraw', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, amount: _amount }),
+    });
+  },
 
-  async freezeCard(_cardId: string) { return CARDS_LOCKED; },
+  async freezeCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-freeze', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
-  async unfreezeCard(_cardId: string) { return CARDS_LOCKED; },
+  async unfreezeCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-unfreeze', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
-  async terminateCard(_cardId: string) { return CARDS_LOCKED; },
+  async terminateCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-terminate', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
   async getCardCharges(_filters?: {
     channel?: string;
@@ -1062,7 +1117,29 @@ export const cardAPI = {
     page?: number;
     page_size?: number;
     search?: string;
-  }) { return CARDS_LOCKED; },
+  }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-transactions', {
+      method: 'POST',
+      body: JSON.stringify(_filters || {}),
+    });
+  },
+
+  async updateSpendingLimits(_cardId: string, _limits: { daily_limit?: number | null; monthly_limit?: number | null }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-spending-limits', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, ...(_limits || {}) }),
+    });
+  },
+
+  async getStatements(_cardId: string, _opts?: { month?: string; year?: number; page?: number; page_size?: number }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-statements', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, ...(_opts || {}) }),
+    });
+  },
 };
 
 // ============================================================================
