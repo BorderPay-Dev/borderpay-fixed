@@ -987,7 +987,24 @@ const CARDS_LOCKED = {
   success: false as const,
   error: 'Cards are locked for your account.',
   code:  'cards_locked',
-  data:  undefined as any,
+  data:  {
+    locked: true,
+    program: {
+      network: 'VISA',
+      status: 'locked',
+      reason: 'program_not_enabled',
+    },
+    capabilities: {
+      issue_card: false,
+      fund_card: false,
+      withdraw_card: false,
+      freeze_card: false,
+      terminate_card: false,
+      card_transactions: false,
+      spending_controls: false,
+      statements: false,
+    },
+  } as any,
 };
 
 // Future-state stub returned by quarantined provisioning/transfer methods
@@ -1005,6 +1022,8 @@ const RAILS_FUTURE_STATE = {
 // Arguments are accepted and intentionally ignored — the methods short-circuit
 // without any network call.
 export const cardAPI = {
+  async getProgramStatus() { return CARDS_LOCKED; },
+
   async createCard(_data: {
     card_type?: string;
     brand?: string;
