@@ -37,15 +37,15 @@ function CardFace({ depth = 0, cardType = 'PERSONAL CARD' }: { depth?: number; c
   const baseY = 0 + depth * 1.5;
   return (
     <div
-      className="absolute inset-0 rounded-[22px] border border-[#C7FF00]/45 overflow-hidden"
+      className="absolute inset-0 rounded-[22px] border border-[#C7FF00]/55 overflow-hidden"
       style={{
         transform: `translateX(${baseX}px) translateY(${baseY}px) rotate(${baseRotate}deg)`,
         transformOrigin: 'right center',
         background:
           'radial-gradient(120% 100% at 20% 15%, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 28%, rgba(0,0,0,0.0) 55%), linear-gradient(125deg, #08090B 0%, #14171C 50%, #0C0E12 100%)',
         boxShadow: depth === 0
-          ? '0 14px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(199,255,0,0.22), inset 0 0 0 1px rgba(255,255,255,0.04)'
-          : '0 8px 22px rgba(0,0,0,0.45), 0 0 0 1px rgba(199,255,0,0.16), inset 0 0 0 1px rgba(255,255,255,0.03)',
+          ? '0 14px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(199,255,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.04)'
+          : '0 8px 22px rgba(0,0,0,0.45), 0 0 0 1px rgba(199,255,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.03)',
       }}
     >
       <div
@@ -57,13 +57,13 @@ function CardFace({ depth = 0, cardType = 'PERSONAL CARD' }: { depth?: number; c
       <div className="relative z-10 h-full flex flex-col px-5 py-4">
         <p className="text-[10px] tracking-[0.2em] font-semibold text-white/55 uppercase">{cardType}</p>
         <div className="mt-4 flex items-start justify-between">
-          <div className="flex items-start gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#C7FF00] flex items-center justify-center overflow-hidden">
-              <BorderPayLogo color="#0A0B0D" size={16} showRegistered={false} />
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5">
+              <BorderPayLogo color="#C7FF00" size={44} showRegistered={false} />
             </div>
             <div className="leading-none">
               <p className="text-white font-semibold text-[28px] tracking-tight">BorderPay</p>
-              <p className="text-white/90 text-[14px] mt-1">Africa</p>
+              <p className="text-white/90 text-[14px] mt-1 italic">Africa</p>
             </div>
           </div>
           <div className="mt-1"><CardChip /></div>
