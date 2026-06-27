@@ -35,7 +35,6 @@ import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 import { PreferencesScreen } from './PreferencesScreen';
 import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
 import { HelpCenterScreen } from '../settings/HelpCenterScreen';
-import { ProofOfAddressScreen } from '../settings/ProofOfAddressScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -99,7 +98,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'privacy-policy': eagerPreload,
   preferences: eagerPreload,
   'help-center': eagerPreload,
-  'proof-of-address': eagerPreload,
   pricing:       (PricingScreen as any).preload,
   team:          eagerPreload,
   notifications: eagerPreload,
@@ -273,7 +271,6 @@ export type AppScreen =
   | 'preferences'
   | 'biometric-setup'
   | 'help-center'
-  | 'proof-of-address'
   | 'pricing'
   | 'team'
   | 'notifications'
@@ -941,8 +938,16 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'help-center':
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
+      // Legacy route alias: POA is hosted inside Bridge KYC/KYB now.
       case 'proof-of-address':
-        return <ProofOfAddressScreen onBack={navigateBack} />;
+        return (
+          <KYCVerification
+            userId={userId}
+            userEmail=""
+            onBack={navigateBack}
+            onComplete={() => { navigateBack(); handleRefresh(); }}
+          />
+        );
 
       case 'pricing':
         return (
