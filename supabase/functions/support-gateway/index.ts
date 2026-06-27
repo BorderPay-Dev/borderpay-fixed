@@ -36,6 +36,10 @@ function trimText(v: unknown, max = 1000): string {
   return String(v || "").trim().slice(0, max);
 }
 
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -124,10 +128,35 @@ Deno.serve(async (req) => {
     const name = trimText(body?.name, 160);
     if (!subject) return json({ success: false, error: "Subject is required" }, 400);
     if (!message) return json({ success: false, error: "Message is required" }, 400);
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!email || !isValidEmail(email)) {
       return json({ success: false, error: "Valid email is required" }, 400);
     }
     if (!ISSUE_TYPES.has(issueType)) return json({ success: false, error: "Invalid issue type" }, 400);
+
+    // Lightweight anti-spam throttle for website widget:
+    // cap to 3 tickets per email in the trailing 2-minute window.
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const { data: recentRows, error: recentErr } = await supa
+      .from("support_tickets")
+      .select("id")
+      .eq("source", "website")
+      .eq("requester_email", email)
+      .gte("created_at", twoMinutesAgo)
+      .limit(4);
+    if (recentErr) return json({ success: false, error: recentErr.message }, 500);
+    if ((recentRows || []).length >= 3) {
+      return json(
+        { success: false, error: "Too many requests. Please wait a few minutes and try again." },
+        429,
+      );
+    }
+
+    const context = typeof body?.context === "object" && body?.context
+      ? body.context
+      : {};
+    const pageUrl = trimText(context?.page_url, 500);
+    const referrer = trimText(context?.referrer, 500);
+    const userAgent = trimText(context?.user_agent, 400);
 
     const { data: ticket, error: ticketErr } = await supa
       .from("support_tickets")
@@ -159,7 +188,13 @@ Deno.serve(async (req) => {
       ticket_id: ticket.id,
       event_type: "website_ticket_created",
       actor_user_id: null,
-      payload: { issue_type: issueType, email },
+      payload: {
+        issue_type: issueType,
+        email,
+        page_url: pageUrl || null,
+        referrer: referrer || null,
+        user_agent: userAgent || null,
+      },
     });
 
     return json({ success: true, data: { ticket_id: ticket.id } });
