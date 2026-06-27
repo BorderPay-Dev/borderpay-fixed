@@ -12,9 +12,80 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CreditCard, Lock, ShieldCheck, RefreshCw, List, SlidersHorizontal, Receipt, CheckCircle2 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { BorderPayLogo } from './BorderPayLogo';
 
 interface CardsScreenProps {
   onBack: () => void;
+}
+
+function CardChip() {
+  return (
+    <div className="w-10 h-8 rounded-md bg-gradient-to-br from-[#f4f4f4] via-[#cfcfcf] to-[#9b9b9b] border border-white/40 shadow-[inset_0_1px_1px_rgba(255,255,255,0.45)]">
+      <div className="h-full w-full grid grid-cols-3 grid-rows-2">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="border-[0.5px] border-black/10" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CardFace({ depth = 0 }: { depth?: number }) {
+  const baseRotate = 0 - depth * 2.6;
+  const baseX = 0 - depth * 28;
+  const baseY = 0 + depth * 1.5;
+  return (
+    <div
+      className="absolute inset-0 rounded-[22px] border border-[#C7FF00]/45 overflow-hidden"
+      style={{
+        transform: `translateX(${baseX}px) translateY(${baseY}px) rotate(${baseRotate}deg)`,
+        transformOrigin: 'right center',
+        background:
+          'radial-gradient(120% 100% at 20% 15%, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 28%, rgba(0,0,0,0.0) 55%), linear-gradient(125deg, #08090B 0%, #14171C 50%, #0C0E12 100%)',
+        boxShadow: depth === 0
+          ? '0 14px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(199,255,0,0.22), inset 0 0 0 1px rgba(255,255,255,0.04)'
+          : '0 8px 22px rgba(0,0,0,0.45), 0 0 0 1px rgba(199,255,0,0.16), inset 0 0 0 1px rgba(255,255,255,0.03)',
+      }}
+    >
+      <div
+        className="absolute inset-0 opacity-[0.12]"
+        style={{
+          backgroundImage: 'repeating-linear-gradient(105deg, rgba(255,255,255,0.25) 0px, rgba(255,255,255,0.1) 1px, transparent 2px, transparent 9px)',
+        }}
+      />
+      <div className="relative z-10 h-full flex flex-col px-5 py-4">
+        <p className="text-[10px] tracking-[0.2em] font-semibold text-white/55 uppercase">Team Card</p>
+        <div className="mt-4 flex items-start justify-between">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-[#C7FF00] flex items-center justify-center overflow-hidden">
+              <BorderPayLogo color="#0A0B0D" size={16} showRegistered={false} />
+            </div>
+            <div className="leading-none">
+              <p className="text-white font-semibold text-[28px] tracking-tight">BorderPay</p>
+              <p className="text-white/90 text-[14px] mt-1">Africa</p>
+            </div>
+          </div>
+          <div className="mt-1"><CardChip /></div>
+        </div>
+        <div className="mt-auto flex items-end justify-end">
+          <p className="text-[56px] leading-none font-bold tracking-tight italic bg-gradient-to-br from-[#f4f4f4] via-[#c9c9c9] to-[#8f8f8f] bg-clip-text text-transparent">VISA</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CardMockupStack() {
+  return (
+    <div className="mt-4 rounded-3xl border border-[#C7FF00]/25 bg-black/60 p-4 sm:p-5 overflow-hidden">
+      <div className="relative mx-auto w-full max-w-[760px] h-[220px] sm:h-[280px]">
+        <CardFace depth={3} />
+        <CardFace depth={2} />
+        <CardFace depth={1} />
+        <CardFace depth={0} />
+      </div>
+    </div>
+  );
 }
 
 export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
@@ -114,14 +185,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
           </div>
         </div>
 
-        <div className="mt-4 rounded-3xl border border-[#C7FF00]/25 bg-black/60 overflow-hidden">
-          <img
-            src="/cards/IMG_2165.PNG"
-            alt="BorderPay Visa card mockup"
-            className="w-full h-auto object-cover"
-            loading="lazy"
-          />
-        </div>
+        <CardMockupStack />
 
         <div className={`mt-5 rounded-2xl border ${tc.cardBorder} ${tc.card} p-2 flex items-center gap-2`}>
           {cardTabs.map((tab) => {
