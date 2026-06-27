@@ -273,6 +273,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
+  const institutionsCacheKey = useMemo(
+    () => `borderpay_send_institutions_v1:${userId}:${method}:${selectedCurrency}`,
+    [userId, method, selectedCurrency]
+  );
+  const institutionsRefreshTsKey = useMemo(
+    () => `borderpay_send_institutions_refreshed_at:${userId}:${method}:${selectedCurrency}`,
+    [userId, method, selectedCurrency]
+  );
   const hasPinFactor = useMemo(() => PINManager.hasPIN(userId), [userId]);
   const hasBiometricFactor = useMemo(() => BiometricManager.isEnrolled(userId), [userId]);
   const hasAnyAuthFactor = hasPinFactor || hasBiometricFactor;
@@ -387,14 +395,36 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step, method, selectedCurrency]);
 
   const loadInstitutions = async () => {
+    // Fast route re-entry: render cached institutions instantly when available.
+    let seededFromCache = false;
+    try {
+      const raw = localStorage.getItem(institutionsCacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (Array.isArray(cached) && cached.length > 0) {
+          setInstitutions(cached);
+          seededFromCache = true;
+          setSelectedBank((prev) => prev || null);
+        }
+      }
+    } catch { /* noop */ }
+    if (!seededFromCache) setInstitutions([]);
+    // Throttle duplicate rail fetches on quick step toggles.
+    try {
+      const last = Number(localStorage.getItem(institutionsRefreshTsKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
+    } catch { /* noop */ }
+
     setLoadingInstitutions(true);
-    setInstitutions([]);
     setSelectedBank(null);
     try {
       const type = method === 'mobile_money' ? 'MOBILE_MONEY' : undefined;
       const res = await backendAPI.localPayments.getInstitutions(selectedCurrency, type);
       if (res.success && res.data?.institutions) {
-        setInstitutions(res.data.institutions);
+        const list = Array.isArray(res.data.institutions) ? res.data.institutions : [];
+        setInstitutions(list);
+        try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
+        try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       }
     } catch (e) {
     } finally {
