@@ -72,7 +72,7 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
   };
 }
 
-function extractLink(parsed: any): { link_url: string; link_id: string; customer_id?: string } | null {
+function extractLink(parsed: any): { link_url: string | null; link_id: string | null; customer_id?: string; tos_link_url?: string | null } | null {
   if (!parsed) return null;
   const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
   for (const c of candidates) {
@@ -83,7 +83,8 @@ function extractLink(parsed: any): { link_url: string; link_id: string; customer
       c?.link;
     const link_id: string | null  = c?.kyc_link?.id || c?.id;
     const customer_id: string | undefined = c?.customer_id || c?.kyc_link?.customer_id;
-    if (link_url && link_id) return { link_url, link_id, customer_id };
+    const tos_link_url: string | null = c?.tos_link?.url || c?.tos_link || c?.data?.tos_link?.url || null;
+    if (link_url || tos_link_url) return { link_url, link_id, customer_id, tos_link_url };
   }
   return null;
 }
@@ -195,7 +196,7 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  if (!link) {
+  if (!link || (!link.link_url && !link.tos_link_url)) {
     console.error(`bridge-kyb-link: missing link/url body=${(r.raw_text || "").slice(0, 800)}`);
     return json({
       success: false,
@@ -220,8 +221,25 @@ Deno.serve(async (req: Request) => {
   }
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
+  const tos_status_raw =
+    r.data?.data?.tos_status ||
+    r.data?.tos_status ||
+    r.data?.existing_kyc_link?.tos_status ||
+    null;
+  const tos_required = Boolean(
+    link.tos_link_url &&
+    String(tos_status_raw || "").toLowerCase() !== "accepted",
+  );
   return json({
     success: true,
-    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined },
+    data: {
+      link_id: link.link_id,
+      link_url: link.link_url,
+      tos_link_url: link.tos_link_url ?? null,
+      tos_status: tos_status_raw,
+      tos_required,
+      expires_at,
+      reused: !r.ok ? true : undefined,
+    },
   });
 });

@@ -235,11 +235,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       const r: any = currentAccountType === 'business'
         ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
         : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
-      if (r?.success && r.data?.link_url) {
-        // Product contract: route users directly to hosted verification URL.
-        openHostedVerificationUrl(r.data.link_url);
-        return;
-      }
       if (r?.success && r.data?.tos_link_url) {
         // Bridge may require ToS acceptance before issuing a KYC/KYB link.
         // Open ToS first, then auto-resume verification on return.
@@ -248,6 +243,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           toast.info('Please accept Terms first, then we will continue verification.');
         }
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
+        return;
+      }
+      if (r?.success && r.data?.link_url) {
+        // Product contract: route users directly to hosted verification URL.
+        openHostedVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }

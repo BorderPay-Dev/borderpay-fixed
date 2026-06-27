@@ -500,6 +500,15 @@ Deno.serve(async (req: Request) => {
   }
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
+  const tos_status_raw =
+    r.data?.data?.tos_status ||
+    r.data?.tos_status ||
+    r.data?.existing_kyc_link?.tos_status ||
+    null;
+  const tos_required = Boolean(
+    links.tos_link_url &&
+    String(tos_status_raw || "").toLowerCase() !== "accepted",
+  );
   await writeTrace(correlationId, "returned_success", {
     executionTimestamp,
     userId: user.id,
@@ -511,6 +520,8 @@ Deno.serve(async (req: Request) => {
       link_id: links.kyc_link_id,
       link_url_present: Boolean(links.kyc_link_url),
       tos_link_present: Boolean(links.tos_link_url),
+      tos_status: tos_status_raw,
+      tos_required,
       expires_at: expires_at ?? null,
       reused: !r.ok ? true : false,
     },
@@ -522,6 +533,8 @@ Deno.serve(async (req: Request) => {
       link_id: links.kyc_link_id,
       link_url: links.kyc_link_url,
       tos_link_url: links.tos_link_url,
+      tos_status: tos_status_raw,
+      tos_required,
       expires_at,
       reused: !r.ok ? true : undefined,
       correlation_id: correlationId,
