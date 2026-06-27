@@ -35,7 +35,7 @@ const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // SUPABASE_SERVICE_ROLE_KEY is used ONLY for the in-function admin DB client
 // (log_email_attempt RPC + email_log writes). It is NOT the HTTP caller password.
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const BREVO_KEY             = Deno.env.get("BREVO_API_KEY") ?? "";
+const BREVO_KEY             = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("BREVO_API_KEYS") ?? "";
 const RESEND_KEY            = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL            = Deno.env.get("BORDERPAY_FROM_EMAIL") ?? "BorderPay Africa <noreply@app.borderpayafrica.com>";
 // Dedicated internal caller token. send-email is invoked server-to-server only
@@ -70,6 +70,7 @@ interface ProviderSendResult {
   providerId?: string;
   error?: string;
   retryable?: boolean;
+  authFailure?: boolean;
 }
 
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
@@ -149,9 +150,12 @@ Deno.serve(async (req: Request) => {
   let providerId = "";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const sendResult = emailProvider === "brevo"
+    let sendResult = emailProvider === "brevo"
       ? await sendViaBrevo({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to })
       : await sendViaResend({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to });
+    if (!sendResult.ok && emailProvider === "brevo" && sendResult.authFailure && RESEND_KEY) {
+      sendResult = await sendViaResend({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to });
+    }
     if (sendResult.ok && sendResult.providerId) {
       providerId = sendResult.providerId;
       lastError = "";
@@ -253,6 +257,7 @@ async function sendViaBrevo(input: { to: string; subject: string; html: string; 
     const retryable = !(res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429);
     return {
       ok: false,
+      authFailure: res.status === 401 || res.status === 403,
       retryable,
       error: `Brevo HTTP ${res.status}: ${String((data as Record<string, unknown>)?.message || JSON.stringify(data).slice(0, 300))}`,
     };

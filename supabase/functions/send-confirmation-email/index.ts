@@ -77,7 +77,7 @@ serve(async (req) => {
     }
     const safeConfirmationUrl = parsedConfirmation.toString();
 
-    const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY');
+    const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') || Deno.env.get('BREVO_API_KEYS');
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     const FROM_EMAIL = Deno.env.get('BORDERPAY_FROM_EMAIL') || 'BorderPay <noreply@borderpayafrica.com>';
 
@@ -195,17 +195,22 @@ serve(async (req) => {
         }),
       });
       resData = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      if (res.ok) {
+        return new Response(
+          JSON.stringify({ success: true, message_id: resData.messageId }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      // Fail-safe: if Brevo key is invalid/forbidden, fall back to Resend if configured.
+      if (RESEND_API_KEY && (res.status === 401 || res.status === 403)) {
+        console.error('Brevo auth error; falling back to Resend:', resData);
+      } else {
         console.error('Brevo error:', resData);
         return new Response(
           JSON.stringify({ success: false, error: resData.message || 'Email send failed' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      return new Response(
-        JSON.stringify({ success: true, message_id: resData.messageId }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
     res = await fetch('https://api.resend.com/emails', {
