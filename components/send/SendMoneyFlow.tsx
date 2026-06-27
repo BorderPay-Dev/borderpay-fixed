@@ -423,8 +423,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setLoadingInstitutions(true);
     setSelectedBank(null);
     try {
-      const type = method === 'mobile_money' ? 'MOBILE_MONEY' : undefined;
-      const res = await backendAPI.localPayments.getInstitutions(selectedCurrency, type);
+      const res = await backendAPI.localPayments.getInstitutions(selectedCurrency, undefined);
       if (res.success && res.data?.institutions) {
         const list = Array.isArray(res.data.institutions) ? res.data.institutions : [];
         setInstitutions(list);
@@ -645,7 +644,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const getStepTitle = () => {
     switch (step) {
       case 'method': return t('send.title');
-      case 'details': return method === 'bank' ? t('send.bankDetails') : method === 'mobile_money' ? t('send.momoDetails') : method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Stablecoin Transfer' : t('send.borderPayDetails');
+      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Stablecoin Transfer' : t('send.borderPayDetails');
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
@@ -1567,10 +1566,3 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     </div>
   );
 }
-  useEffect(() => {
-    walletsRef.current = wallets;
-  }, [wallets]);
-
-  useEffect(() => {
-    externalAccountsRef.current = externalAccounts;
-  }, [externalAccounts]);
