@@ -21,7 +21,7 @@ interface CardsScreenProps {
 
 function CardChip() {
   return (
-    <div className="w-10 h-8 rounded-md bg-gradient-to-br from-[#f4f4f4] via-[#cfcfcf] to-[#9b9b9b] border border-white/40 shadow-[inset_0_1px_1px_rgba(255,255,255,0.45)]">
+    <div className="w-[44px] h-[34px] rounded-md bg-gradient-to-br from-[#f4f4f4] via-[#cfcfcf] to-[#9b9b9b] border border-white/40 shadow-[inset_0_1px_1px_rgba(255,255,255,0.45)]">
       <div className="h-full w-full grid grid-cols-3 grid-rows-2">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="border-[0.5px] border-black/10" />
@@ -32,9 +32,9 @@ function CardChip() {
 }
 
 function CardFace({ depth = 0, cardType = 'PERSONAL CARD' }: { depth?: number; cardType?: string }) {
-  const baseRotate = 0 - depth * 2.6;
-  const baseX = 0 - depth * 28;
-  const baseY = 0 + depth * 1.5;
+  const baseRotate = 12 - depth * 1.25;
+  const baseX = 0 - depth * 24;
+  const baseY = 0 + depth * 1.2;
   return (
     <div
       className="absolute inset-0 rounded-[22px] border border-[#C7FF00]/55 overflow-hidden"
@@ -59,17 +59,17 @@ function CardFace({ depth = 0, cardType = 'PERSONAL CARD' }: { depth?: number; c
         <div className="mt-4 flex items-start justify-between">
           <div className="flex items-start gap-3">
             <div className="mt-0.5">
-              <BorderPayLogo color="#C7FF00" size={44} showRegistered={false} />
+              <BorderPayLogo color="#C7FF00" size={56} showRegistered={false} />
             </div>
             <div className="leading-none">
-              <p className="text-white font-semibold text-[28px] tracking-tight">BorderPay</p>
-              <p className="text-white/90 text-[14px] mt-1 italic">Africa</p>
+              <p className="text-white font-semibold text-[28px] tracking-tight">BorderPay<span className="text-[12px] align-top ml-0.5">®</span></p>
+              <p className="text-white/90 text-[15px] mt-1 italic">Africa</p>
             </div>
           </div>
-          <div className="mt-1"><CardChip /></div>
+          <div className="mt-3 mr-1"><CardChip /></div>
         </div>
-        <div className="mt-auto flex items-end justify-end">
-          <p className="text-[56px] leading-none font-bold tracking-tight italic bg-gradient-to-br from-[#f4f4f4] via-[#c9c9c9] to-[#8f8f8f] bg-clip-text text-transparent">VISA</p>
+        <div className="mt-auto flex items-end justify-end pr-1 pb-1">
+          <p className="text-[60px] leading-none font-bold tracking-[-0.03em] italic -rotate-[13deg] bg-gradient-to-br from-[#f4f4f4] via-[#c9c9c9] to-[#8f8f8f] bg-clip-text text-transparent">VISA</p>
         </div>
       </div>
     </div>
