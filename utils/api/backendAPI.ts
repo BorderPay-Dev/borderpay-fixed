@@ -1384,22 +1384,17 @@ export const localPaymentsAPI = {
 // US PAYMENTS (ACH / Wire)
 // ============================================================================
 
-// QUARANTINED — `transfer` and `createCounterparty` will switch to
-// bridgeAPI.transfer.create after sandbox smoke test. Until then both
-// return rails_future_state. `getCounterparties` is read-only and kept
-// operational for history display.
+// QUARANTINED — legacy US counterparty endpoints are hard-disabled.
+// BorderPay send/payout flows must use Bridge-backed transfer orchestration
+// only. Do not route any runtime path through `get-counterparty` here.
 export const usPaymentsAPI = {
   async transfer(_data: any) {
     return RAILS_FUTURE_STATE;
   },
 
-  async getCounterparties() {
-    return apiCall('get-counterparty', { method: 'POST' });
-  },
+  async getCounterparties() { return RAILS_FUTURE_STATE; },
 
-  async createCounterparty(_data: any) {
-    return RAILS_FUTURE_STATE;
-  },
+  async createCounterparty(_data: any) { return RAILS_FUTURE_STATE; },
 };
 
 // ============================================================================
@@ -1568,10 +1563,8 @@ export const notificationsAPI = {
 // `getAccounts` is read-only display of existing accounts.
 // `createUSDAccount` routes to Bridge VA(USD).
 // `createDynamicAccount` is future-state (African local rails).
-// Counterparty methods (`createCounterparty`, `getCounterparty`,
-// `getAccountCounterparties`) and rail status (`checkAccountStatus`,
-// `getSupportedRails`) are transfer-adjacent and read-only respectively;
-// kept operational pending the transfers cutover.
+// Legacy account-rail/counterparty endpoints are hard-disabled.
+// Runtime send/payout execution must remain Bridge-backed only.
 export const accountsAPI = {
   async getAccounts() {
     return apiCall('get-accounts', { method: 'GET' });
@@ -1592,37 +1585,17 @@ export const accountsAPI = {
     });
   },
 
-  /** Read-only supported rails lookup. */
-  async getSupportedRails(accountId: string) {
-    return apiCall('get-account-rails', {
-      method: 'POST',
-      body: JSON.stringify({ account_id: accountId }),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async getSupportedRails(_accountId: string) { return RAILS_FUTURE_STATE; },
 
-  /** Counterparty management; held for the transfers cutover. */
-  async createCounterparty(data: any) {
-    return apiCall('create-counterparty', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async createCounterparty(_data: any) { return RAILS_FUTURE_STATE; },
 
-  /** Counterparty management; held for the transfers cutover. */
-  async getCounterparty(counterPartyId: string) {
-    return apiCall('get-counterparty', {
-      method: 'POST',
-      body: JSON.stringify({ counter_party_id: counterPartyId }),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async getCounterparty(_counterPartyId: string) { return RAILS_FUTURE_STATE; },
 
-  /** Counterparty management; held for the transfers cutover. */
-  async getAccountCounterparties(accountId: string) {
-    return apiCall('get-account-counterparties', {
-      method: 'POST',
-      body: JSON.stringify({ account_id: accountId }),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async getAccountCounterparties(_accountId: string) { return RAILS_FUTURE_STATE; },
 
   async createDynamicAccount(_accountName: string, _preferredBank: string, _amount?: string) {
     return RAILS_FUTURE_STATE;
