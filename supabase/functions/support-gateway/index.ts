@@ -27,6 +27,7 @@ type Action =
   | "add_message"
   | "admin_list_tickets"
   | "admin_reply"
+  | "admin_ai_draft"
   | "admin_assign_ticket"
   | "admin_handoff_to_human"
   | "admin_update_status";
@@ -40,6 +41,101 @@ function trimText(v: unknown, max = 1000): string {
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+async function generateSupportDraft(input: {
+  ticketSubject: string;
+  issueType: string;
+  requesterEmail: string;
+  conversation: Array<{ sender_type: string; body: string; created_at?: string }>;
+  operatorGuidance?: string;
+}): Promise<{ draft: string; provider: "azure_openai" | "openai"; model: string }> {
+  const systemPrompt = [
+    "You are BorderPay customer support assistant for a live fintech product.",
+    "Write a concise, human reply to the customer.",
+    "Do not expose internal systems, providers, stack traces, or implementation details.",
+    "Do not promise money movement completion unless already confirmed in the conversation.",
+    "If escalation is needed, clearly state support will follow up.",
+    "Keep tone professional and calm.",
+  ].join(" ");
+
+  const convoLines = input.conversation
+    .slice(-12)
+    .map((m) => `[${m.sender_type}] ${String(m.body || "").trim()}`)
+    .join("\n");
+
+  const userPrompt = [
+    `Ticket subject: ${input.ticketSubject}`,
+    `Issue type: ${input.issueType}`,
+    `Requester: ${input.requesterEmail}`,
+    input.operatorGuidance ? `Operator guidance: ${input.operatorGuidance}` : "",
+    "Recent conversation:",
+    convoLines || "(no prior messages)",
+    "",
+    "Return only the final customer-facing reply text.",
+  ].filter(Boolean).join("\n");
+
+  const azureEndpoint = (Deno.env.get("AZURE_OPENAI_ENDPOINT") ?? "").trim();
+  const azureKey = (Deno.env.get("AZURE_OPENAI_API_KEY") ?? "").trim();
+  const azureDeployment = (Deno.env.get("AZURE_OPENAI_DEPLOYMENT") ?? "").trim();
+  const azureApiVersion = (Deno.env.get("AZURE_OPENAI_API_VERSION") ?? "2024-10-21").trim();
+
+  if (azureEndpoint && azureKey && azureDeployment) {
+    const base = azureEndpoint.replace(/\/+$/, "");
+    const url = `${base}/openai/deployments/${encodeURIComponent(azureDeployment)}/chat/completions?api-version=${encodeURIComponent(azureApiVersion)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": azureKey,
+      },
+      body: JSON.stringify({
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+    const raw = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errMsg = typeof raw?.error?.message === "string" ? raw.error.message : `Azure OpenAI error (${res.status})`;
+      throw new Error(errMsg);
+    }
+    const draft = String(raw?.choices?.[0]?.message?.content ?? "").trim();
+    if (!draft) throw new Error("Azure OpenAI returned an empty draft");
+    return { draft, provider: "azure_openai", model: azureDeployment };
+  }
+
+  const openaiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
+  const openaiModel = (Deno.env.get("OPENAI_MODEL") ?? "gpt-4o").trim();
+  if (openaiKey) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: openaiModel,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+    const raw = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errMsg = typeof raw?.error?.message === "string" ? raw.error.message : `OpenAI error (${res.status})`;
+      throw new Error(errMsg);
+    }
+    const draft = String(raw?.choices?.[0]?.message?.content ?? "").trim();
+    if (!draft) throw new Error("OpenAI returned an empty draft");
+    return { draft, provider: "openai", model: openaiModel };
+  }
+
+  throw new Error("AI provider not configured");
 }
 
 Deno.serve(async (req) => {
@@ -320,6 +416,65 @@ Deno.serve(async (req) => {
     });
 
     return json({ success: true, data: { ticket_id: ticketId } });
+  }
+
+  if (action === "admin_ai_draft") {
+    if (!isAdmin) return json({ success: false, error: "Forbidden" }, 403);
+    const ticketId = trimText(body?.ticket_id, 80);
+    const operatorGuidance = trimText(body?.operator_guidance, 800);
+    if (!ticketId) return json({ success: false, error: "ticket_id is required" }, 400);
+
+    const { data: ticket, error: ticketErr } = await supa
+      .from("support_tickets")
+      .select("id, requester_email, issue_type, subject")
+      .eq("id", ticketId)
+      .maybeSingle();
+    if (ticketErr) return json({ success: false, error: ticketErr.message }, 500);
+    if (!ticket) return json({ success: false, error: "Ticket not found" }, 404);
+
+    const { data: messages, error: msgErr } = await supa
+      .from("support_ticket_messages")
+      .select("sender_type, body, created_at")
+      .eq("ticket_id", ticketId)
+      .order("created_at", { ascending: true })
+      .limit(50);
+    if (msgErr) return json({ success: false, error: msgErr.message }, 500);
+
+    try {
+      const out = await generateSupportDraft({
+        ticketSubject: String(ticket.subject ?? "Support request"),
+        issueType: String(ticket.issue_type ?? "general"),
+        requesterEmail: String(ticket.requester_email ?? "customer"),
+        conversation: Array.isArray(messages) ? messages : [],
+        operatorGuidance: operatorGuidance || undefined,
+      });
+
+      await supa.from("support_ticket_events").insert({
+        ticket_id: ticketId,
+        event_type: "ai_draft_generated",
+        actor_user_id: user.id,
+        payload: { provider: out.provider, model: out.model },
+      });
+
+      return json({
+        success: true,
+        data: {
+          ticket_id: ticketId,
+          draft: out.draft,
+          provider: out.provider,
+          model: out.model,
+        },
+      });
+    } catch (e: any) {
+      const message = String(e?.message || "Failed to generate AI draft");
+      await supa.from("support_ticket_events").insert({
+        ticket_id: ticketId,
+        event_type: "ai_draft_failed",
+        actor_user_id: user.id,
+        payload: { reason: message.slice(0, 300) },
+      });
+      return json({ success: false, error: message }, 502);
+    }
   }
 
   if (action === "admin_update_status") {
