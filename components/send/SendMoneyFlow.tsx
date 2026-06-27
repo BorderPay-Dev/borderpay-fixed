@@ -514,7 +514,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const canProceedDetails = () => {
     if (method === 'us_ach_wire') return !!selectedExternalAccount;
     if (method === 'stablecoin') return isValidCryptoAddress(crypto.network, crypto.address);
-    return !!selectedBank && accountNumber.length >= 6;
+    return false;
   };
 
   const canProceedAmount = () => {
@@ -576,17 +576,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           },
         });
       } else {
-        const meta = method === 'mobile_money' ? { scheme: 'MOBILEMONEY' } : undefined;
-        result = await backendAPI.localPayments.transfer({
-          bank_code: selectedBank!.code,
-          account_number: accountNumber,
-          amount: parseFloat(amount),
-          currency: selectedCurrency,
-          reason: reason || 'Transfer',
-          transaction_pin: verifiedPin,
-          wallet_id: selectedWallet?.id,
-          meta,
-        });
+        throw new Error('Unsupported transfer method.');
       }
 
       if (result.success) {
@@ -1242,7 +1232,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.method')}</span>
                   <span className={`text-sm font-medium ${tc.text}`}>
-                    {method === 'bank' ? t('send.bankTransfer') : method === 'mobile_money' ? t('send.mobileMoney') : method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : t('send.borderPayPay')}
+                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : t('send.borderPayPay')}
                   </span>
                 </div>
 
@@ -1403,7 +1393,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
               <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
               <p className={`text-sm ${tc.textSecondary}`}>
-                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedExternalAccount?.account_owner_name || 'External account') : resolvedName || accountNumber}
+                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : (selectedExternalAccount?.account_owner_name || 'External account')}
               </p>
             </div>
 
@@ -1495,7 +1485,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
             <p className={`text-sm ${tc.textMuted} mb-6`}>
-              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedExternalAccount?.account_owner_name || 'External account') : resolvedName || accountNumber}
+              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : (selectedExternalAccount?.account_owner_name || 'External account')}
             </p>
 
             {/* Transaction details */}
