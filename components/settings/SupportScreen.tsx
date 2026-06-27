@@ -8,7 +8,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { HelpCircle, MessageSquare, ChevronRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { backendAPI, type SupportTicket } from '../../utils/api/backendAPI';
+import { backendAPI, type SupportTicket, type SupportTicketMessage } from '../../utils/api/backendAPI';
 
 interface SupportScreenProps {
   onBack: () => void;
@@ -31,6 +31,11 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [creating, setCreating] = useState(false);
   const [loadingTickets, setLoadingTickets] = useState(true);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [selectedTicketMessages, setSelectedTicketMessages] = useState<SupportTicketMessage[]>([]);
+  const [loadingTicketThread, setLoadingTicketThread] = useState(false);
+  const [replyMessage, setReplyMessage] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
 
   const statusLabel = useMemo<Record<SupportTicket['status'], string>>(
     () => ({
@@ -59,6 +64,48 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   useEffect(() => {
     void loadTickets();
   }, [loadTickets]);
+
+  const loadTicketThread = useCallback(async (ticketId: string) => {
+    setLoadingTicketThread(true);
+    try {
+      const res = await backendAPI.support.getTicket(ticketId);
+      if (!res.success) {
+        toast.error(res.error || 'Could not load ticket');
+        return;
+      }
+      setSelectedTicketId(ticketId);
+      setSelectedTicketMessages(res.data?.messages || []);
+    } catch {
+      toast.error('Could not load ticket');
+    } finally {
+      setLoadingTicketThread(false);
+    }
+  }, []);
+
+  const sendReply = useCallback(async () => {
+    if (!selectedTicketId) return;
+    if (!replyMessage.trim()) {
+      toast.error('Please enter a message');
+      return;
+    }
+
+    setSendingReply(true);
+    try {
+      const res = await backendAPI.support.addMessage(selectedTicketId, replyMessage.trim());
+      if (!res.success) {
+        toast.error(res.error || 'Could not send message');
+        return;
+      }
+      setReplyMessage('');
+      await loadTicketThread(selectedTicketId);
+      await loadTickets();
+      toast.success('Message sent');
+    } catch {
+      toast.error('Could not send message');
+    } finally {
+      setSendingReply(false);
+    }
+  }, [loadTicketThread, loadTickets, replyMessage, selectedTicketId]);
 
   const submitTicket = async () => {
     if (!subject.trim()) {
@@ -188,7 +235,11 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
           ) : (
             <div className="space-y-2">
               {tickets.map((t) => (
-                <div key={t.id} className={`rounded-xl border ${tc.cardBorder} ${tc.bgAlt} px-3 py-2.5`}>
+                <button
+                  key={t.id}
+                  onClick={() => void loadTicketThread(t.id)}
+                  className={`w-full text-left rounded-xl border ${tc.cardBorder} ${tc.bgAlt} px-3 py-2.5`}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <p className={`text-sm font-medium ${tc.text} truncate`}>{t.subject}</p>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#C7FF00]/15 text-[#C7FF00]">
@@ -198,11 +249,63 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                   <p className={`text-xs ${tc.textSecondary} mt-1`}>
                     {new Date(t.last_message_at).toLocaleString()}
                   </p>
-                </div>
+                </button>
               ))}
             </div>
           )}
         </div>
+
+        {selectedTicketId ? (
+          <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
+            <div className="flex items-center justify-between mb-3">
+              <p className={`text-sm font-semibold ${tc.text}`}>Ticket conversation</p>
+              {loadingTicketThread ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
+            </div>
+
+            {selectedTicketMessages.length === 0 ? (
+              <p className={`text-sm ${tc.textSecondary}`}>No messages yet.</p>
+            ) : (
+              <div className="space-y-2 mb-3 max-h-72 overflow-y-auto">
+                {selectedTicketMessages.map((m) => {
+                  const mine = m.sender_type === 'user';
+                  return (
+                    <div
+                      key={m.id}
+                      className={`rounded-xl px-3 py-2 text-sm ${
+                        mine
+                          ? 'bg-[#C7FF00]/12 border border-[#C7FF00]/25'
+                          : `${tc.bgAlt} border ${tc.cardBorder}`
+                      }`}
+                    >
+                      <p className={tc.text}>{m.body}</p>
+                      <p className={`text-[11px] mt-1 ${tc.textSecondary}`}>
+                        {m.sender_type === 'agent' ? 'Support' : (m.sender_type === 'assistant' ? 'Assistant' : 'You')} • {new Date(m.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <textarea
+                value={replyMessage}
+                onChange={(e) => setReplyMessage(e.target.value)}
+                rows={3}
+                placeholder="Reply to support..."
+                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
+              />
+              <button
+                onClick={() => void sendReply()}
+                disabled={sendingReply}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
+              >
+                {sendingReply ? <Loader2 size={15} className="animate-spin" /> : null}
+                Send reply
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

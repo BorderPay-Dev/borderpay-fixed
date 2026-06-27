@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
-import { Mail, FileText, Shield, ChevronRight, ExternalLink } from 'lucide-react';
+import { MessageSquare, FileText, Shield, ChevronRight } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface HelpCenterScreenProps {
@@ -56,26 +56,26 @@ export function HelpCenterScreen({ onBack, onNavigate }: HelpCenterScreenProps) 
       </div>
 
       <div className="px-6 py-6 space-y-6">
-        {/* Contact Support Card */}
+        {/* In-app Support Card */}
         <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-5`}>
           <h2 className={`text-base font-bold ${tc.text} mb-1`}>Need Help?</h2>
           <p className={`text-sm ${tc.textSecondary} mb-4`}>
-            Our support team is here to assist you.
+            Contact BorderPay support directly in-app.
           </p>
 
-          <a
-            href="mailto:support@borderpayafrica.com"
+          <button
+            onClick={() => onNavigate?.('support')}
             className="flex items-center gap-3 p-3 rounded-xl bg-[#C7FF00]/10 border border-[#C7FF00]/20"
           >
             <div className="w-10 h-10 rounded-full bg-[#C7FF00]/20 flex items-center justify-center">
-              <Mail size={18} className="text-[#C7FF00]" />
+              <MessageSquare size={18} className="text-[#C7FF00]" />
             </div>
             <div className="flex-1">
-              <p className={`text-sm font-semibold ${tc.text}`}>Email Support</p>
-              <p className="text-xs text-[#C7FF00]">support@borderpayafrica.com</p>
+              <p className={`text-sm font-semibold ${tc.text}`}>Open Support</p>
+              <p className="text-xs text-[#C7FF00]">Create and track tickets in-app</p>
             </div>
-            <ExternalLink size={16} className={tc.textSecondary} />
-          </a>
+            <ChevronRight size={16} className={tc.textSecondary} />
+          </button>
         </div>
 
         {/* Response Time */}
