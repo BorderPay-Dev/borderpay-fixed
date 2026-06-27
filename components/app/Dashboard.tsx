@@ -488,11 +488,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           {/* Circular action buttons (Revolut idiom) */}
           <div className="relative mt-6 grid grid-cols-4 gap-1">
             <HeroAction
-              label={tt('nav.wallet', 'Wallet')}
-              Icon={Wallet}
+              label={tt('nav.cards', 'Cards')}
+              Icon={CreditCard}
               primary
-              onClick={() => handleNavigate('wallet-detail')}
-              onHover={() => prefetchScreen('wallet-detail')}
+              onClick={() => handleNavigate('cards')}
+              onHover={() => prefetchScreen('cards')}
             />
             <HeroAction
               label={tt('action.send', 'Send')}
