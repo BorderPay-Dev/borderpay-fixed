@@ -169,10 +169,14 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   // secure hosted verification flow; Bridge returns them to /?screen=kyc.
   const [verifying, setVerifying] = useState(false);
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
+  const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
 
-  const openHostedVerificationUrl = useCallback((url: string) => {
-    setLastHostedUrl(url);
-    try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
+  const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
+    const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
+    if (cacheAsVerifyUrl) {
+      setLastHostedUrl(url);
+      try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
+    }
     try {
       // On return from hosted Bridge verification, resume app directly
       // without replaying the branded splash animation.
@@ -184,7 +188,27 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     window.location.href = url;
   }, [userId]);
 
-  const startVerification = async () => {
+  // If the previous attempt required Bridge ToS, resume automatically on return
+  // to fetch/open the actual hosted KYC/KYB link.
+  useEffect(() => {
+    let cancelled = false;
+    const shouldResume = (() => {
+      try { return sessionStorage.getItem(resumeAfterTosKey) === '1'; } catch { return false; }
+    })();
+    if (!shouldResume) return;
+    try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
+      await startVerification(true);
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeAfterTosKey]);
+
+  const startVerification = async (isResume = false) => {
     setVerifying(true);
     try {
       // Android/PWA reliability: avoid a blocking profile fetch before opening
@@ -214,6 +238,16 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (r?.success && r.data?.link_url) {
         // Product contract: route users directly to hosted verification URL.
         openHostedVerificationUrl(r.data.link_url);
+        return;
+      }
+      if (r?.success && r.data?.tos_link_url) {
+        // Bridge may require ToS acceptance before issuing a KYC/KYB link.
+        // Open ToS first, then auto-resume verification on return.
+        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
+        if (!isResume) {
+          toast.info('Please accept Terms first, then we will continue verification.');
+        }
+        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -321,7 +355,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
               / regeneration idempotently server-side. */}
           {(status === 'not_started' || status === 'pending') && (
             <button
-              onClick={startVerification}
+              onClick={() => { void startVerification(); }}
               disabled={verifying}
               className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
             >
