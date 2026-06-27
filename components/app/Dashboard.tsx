@@ -7,7 +7,7 @@
  * - /auth/security/status → PIN setup status
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck,
@@ -164,6 +164,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
   const [profilePicLoaded, setProfilePicLoaded] = useState(false);
   const [userFullName, setUserFullName]   = useState<string>(cachedIdentity.fullName);
+  const dashboardLoadInFlightRef = useRef<Promise<void> | null>(null);
   // Derive an initial account status from the cached profile so we never
   // first-paint "starter" on a verified user.
   const [accountStatus, setAccountStatus] = useState<AccountStatus>(() => {
@@ -246,6 +247,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   // ─── data loading ─────────────────────────────────────────────────────────
   const loadDashboardData = useCallback(async () => {
+    if (dashboardLoadInFlightRef.current) {
+      await dashboardLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     // Fast path: show cached user data immediately
     const storedUser = authAPI.getStoredUser();
     if (storedUser?.profile_picture_url) setProfilePicUrl(storedUser.profile_picture_url);
@@ -366,6 +372,15 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       setWalletsLoaded(true);
       setTxLoaded(true);
       setLoading(false);
+    }
+    })();
+    dashboardLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (dashboardLoadInFlightRef.current === run) {
+        dashboardLoadInFlightRef.current = null;
+      }
     }
   }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey]);
 

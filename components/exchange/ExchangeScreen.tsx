@@ -166,6 +166,8 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [stableWallets, setStableWallets] = useState<StableWallet[]>([]);
   const stableWalletsRef = useRef<StableWallet[]>([]);
+  const ratesLoadInFlightRef = useRef<Promise<void> | null>(null);
+  const snapshotLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [hasVirtualAccount, setHasVirtualAccount] = useState(false);
 
   const [sourceWalletId, setSourceWalletId] = useState('');
@@ -261,6 +263,11 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   }, [selectedWallet?.currency, selectedDestinationWallet?.currency]);
 
   const loadRates = async (foreground: boolean = false) => {
+    if (ratesLoadInFlightRef.current) {
+      await ratesLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     if (foreground) setLoadingRates(true);
     try {
       const r: any = await backendAPI.fx.getLiveRates();
@@ -284,9 +291,23 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     } finally {
       if (foreground) setLoadingRates(false);
     }
+    })();
+    ratesLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (ratesLoadInFlightRef.current === run) {
+        ratesLoadInFlightRef.current = null;
+      }
+    }
   };
 
   const loadSnapshot = async (foreground: boolean = false) => {
+    if (snapshotLoadInFlightRef.current) {
+      await snapshotLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     if (foreground) setSnapshotLoading(true);
     try {
       try {
@@ -405,6 +426,15 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
       } catch { /* ignore cache write */ }
     } finally {
       if (foreground) setSnapshotLoading(false);
+    }
+    })();
+    snapshotLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (snapshotLoadInFlightRef.current === run) {
+        snapshotLoadInFlightRef.current = null;
+      }
     }
   };
 

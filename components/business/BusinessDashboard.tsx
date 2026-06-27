@@ -140,6 +140,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
+  const walletsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [hasPIN, setHasPIN] = useState<boolean>(() => {
     try { return !!SecurityStatus.get(userId).hasPIN; } catch { return false; }
   });
@@ -163,6 +164,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   })).filter((w: WalletRow) => !!w.currency);
 
   const loadWallets = async (force = false) => {
+    if (walletsLoadInFlightRef.current) {
+      await walletsLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     const seededWallets = walletsRef.current.length > 0 ? walletsRef.current : readBizWallets(bizWalletsCacheKey);
     // Do not blank a cached dashboard on refresh; only skeleton on cold start.
     if (seededWallets.length === 0) setWalletsLoading(true);
@@ -266,6 +272,15 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       setProfileError(null);
     } finally {
       setWalletsLoading(false);
+    }
+    })();
+    walletsLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (walletsLoadInFlightRef.current === run) {
+        walletsLoadInFlightRef.current = null;
+      }
     }
   };
 

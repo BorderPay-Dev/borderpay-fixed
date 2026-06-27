@@ -125,10 +125,16 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
   const rowsRef = useRef<NotificationRow[]>(initialRows);
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
   const [loading, setLoading] = useState(initialRows.length === 0);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const load = useCallback(async (force = false) => {
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     // Keep first paint instant; refresh in background and throttle fast re-entry.
     setError(null);
     try {
@@ -157,6 +163,15 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       setError(friendlyErrorFor(e, 'notifications', "Notifications couldn't be loaded right now."));
     } finally {
       setLoading(false);
+    }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) {
+        loadInFlightRef.current = null;
+      }
     }
   }, [onUnreadCountChange, refreshTsKey]);
 

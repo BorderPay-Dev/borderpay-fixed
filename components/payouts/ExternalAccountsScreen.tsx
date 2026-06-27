@@ -102,6 +102,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const cached = readCache(cacheKey);
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   const rowsRef = useRef<ExternalAccountRow[]>(cached);
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
   // Only show skeletons when we have nothing cached to render instantly.
   const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +114,11 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
 
   // Background refresh — never blanks the cached view; no setLoading(true) here.
   const load = async (force = false) => {
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     const seededRows = rowsRef.current.length > 0 ? rowsRef.current : readCache(cacheKey);
     const isColdStart = seededRows.length === 0;
     if (isColdStart) setLoading(true);
@@ -135,6 +141,15 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       if (seededRows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
     } finally {
       setLoading(false);
+    }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) {
+        loadInFlightRef.current = null;
+      }
     }
   };
 
