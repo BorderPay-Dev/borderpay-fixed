@@ -8,7 +8,7 @@
  * this screen renders body-only.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { CreditCard, Lock, ShieldCheck, RefreshCw, List, SlidersHorizontal, Receipt, CheckCircle2 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -93,7 +93,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>('Cards are visible but locked until BorderPay enables card access.');
   const [activeTab, setActiveTab] = useState<'overview' | 'controls' | 'activity'>('overview');
   const loadInFlightRef = useRef<Promise<void> | null>(null);
   const user = authAPI.getStoredUser();
@@ -142,20 +142,6 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
       if (loadInFlightRef.current === run) loadInFlightRef.current = null;
     }
   };
-
-  useEffect(() => {
-    void loadProgramState(false);
-    const onFocus = () => { void loadProgramState(false); };
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void loadProgramState(false);
-    };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, []);
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
