@@ -1,4 +1,4 @@
-import { htmlLayout, textLayout, firstName, escapeHtml, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 export interface IndividualPasswordResetProps {
   full_name?:       string;
@@ -18,12 +18,6 @@ export function render(p: IndividualPasswordResetProps): RenderedEmail {
     </p>
     <p style="margin:18px 0 0;font-size:12px;color:${BORDERPAY_BRAND.textFaint};text-align:center;line-height:1.5;">
       If you didn't request this, your password is still safe — you can ignore this email.
-    </p>
-    <p style="margin:18px 0 0;font-size:12px;color:${BORDERPAY_BRAND.textFaint};text-align:center;line-height:1.5;">
-      Trouble with the button? Copy and paste this link:
-    </p>
-    <p style="margin:6px 0 0;font-size:11px;color:${BORDERPAY_BRAND.accent};text-align:center;word-break:break-all;line-height:1.4;">
-      ${escapeHtml(p.reset_url)}
     </p>`;
   return {
     subject,

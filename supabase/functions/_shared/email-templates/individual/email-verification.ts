@@ -1,4 +1,4 @@
-import { htmlLayout, textLayout, firstName, escapeHtml, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 export interface IndividualEmailVerificationProps {
   full_name?:        string;
@@ -15,12 +15,6 @@ export function render(p: IndividualEmailVerificationProps): RenderedEmail {
   const body = `
     <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
       For security, this link expires in <strong style="color:${BORDERPAY_BRAND.text};">${ttl} hour${ttl === 1 ? '' : 's'}</strong> and can only be used once.
-    </p>
-    <p style="margin:18px 0 0;font-size:12px;color:${BORDERPAY_BRAND.textFaint};text-align:center;line-height:1.5;">
-      Trouble with the button? Copy and paste this link:
-    </p>
-    <p style="margin:6px 0 0;font-size:11px;color:${BORDERPAY_BRAND.accent};text-align:center;word-break:break-all;line-height:1.4;">
-      ${escapeHtml(p.verification_url)}
     </p>`;
   const footerNote = "If you didn't sign up for BorderPay, you can safely ignore this email.";
   return {

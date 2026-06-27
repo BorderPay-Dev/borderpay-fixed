@@ -153,8 +153,13 @@ Deno.serve(async (req: Request) => {
     let sendResult = emailProvider === "brevo"
       ? await sendViaBrevo({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to })
       : await sendViaResend({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to });
+    let brevoError = "";
     if (!sendResult.ok && emailProvider === "brevo" && sendResult.authFailure && RESEND_KEY) {
+      brevoError = sendResult.error || "Brevo auth failure";
       sendResult = await sendViaResend({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to });
+      if (!sendResult.ok) {
+        sendResult.error = `${brevoError}; fallback ${sendResult.error || "Resend failure"}`;
+      }
     }
     if (sendResult.ok && sendResult.providerId) {
       providerId = sendResult.providerId;
@@ -247,6 +252,9 @@ async function sendViaBrevo(input: { to: string; subject: string; html: string; 
         subject: input.subject,
         htmlContent: input.html,
         textContent: input.text,
+        headers: {
+          "X-Mailin-track": "0",
+        },
         ...(input.reply_to ? { replyTo: { email: input.reply_to } } : {}),
       }),
     });
