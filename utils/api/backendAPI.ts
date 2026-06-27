@@ -12,6 +12,7 @@ import { authAPI, BASE_URL, ANON_KEY, supabase } from '../supabase/client';
 import { ownerOrFilter } from '../financial/ownership';
 import { deriveWalletStatus } from '../financial/walletStatus';
 import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../performance/navigationPerf';
+import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -938,19 +939,30 @@ export const financialReadModelAPI = (() => {
     async getSendRouteData() {
       const walletsRes = await walletAPI.getWallets();
       if (!walletsRes?.success) return walletsRes as any;
-      const capsRes: any = await withTimeout(
-        bridgeAPI.externalAccount.capabilities() as Promise<any>,
-        EXTERNAL_FETCH_TIMEOUT_MS,
-        { success: false, error: 'timeout' } as any,
-      );
+      const [capsRes, externalListRes]: any[] = await Promise.all([
+        withTimeout(
+          bridgeAPI.externalAccount.capabilities() as Promise<any>,
+          EXTERNAL_FETCH_TIMEOUT_MS,
+          { success: false, error: 'timeout' } as any,
+        ),
+        withTimeout(
+          bridgeAPI.externalAccount.list() as Promise<any>,
+          EXTERNAL_FETCH_TIMEOUT_MS,
+          { success: false, error: 'timeout' } as any,
+        ),
+      ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
         ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+        : [];
+      const externalAccounts = (externalListRes?.success && Array.isArray(externalListRes?.data?.external_accounts))
+        ? externalListRes.data.external_accounts
         : [];
       return {
         success: true,
         data: {
           wallets: Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
           external_account_capabilities: caps,
+          external_accounts: externalAccounts,
           external_accounts_partial: !capsRes?.success,
         },
       };
@@ -976,7 +988,24 @@ const CARDS_LOCKED = {
   success: false as const,
   error: 'Cards are locked for your account.',
   code:  'cards_locked',
-  data:  undefined as any,
+  data:  {
+    locked: true,
+    program: {
+      network: 'VISA',
+      status: 'locked',
+      reason: 'program_not_enabled',
+    },
+    capabilities: {
+      issue_card: false,
+      fund_card: false,
+      withdraw_card: false,
+      freeze_card: false,
+      terminate_card: false,
+      card_transactions: false,
+      spending_controls: false,
+      statements: false,
+    },
+  } as any,
 };
 
 // Future-state stub returned by quarantined provisioning/transfer methods
@@ -994,6 +1023,11 @@ const RAILS_FUTURE_STATE = {
 // Arguments are accepted and intentionally ignored — the methods short-circuit
 // without any network call.
 export const cardAPI = {
+  async getProgramStatus() {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-program-status', { method: 'POST' });
+  },
+
   async createCard(_data: {
     card_type?: string;
     brand?: string;
@@ -1001,28 +1035,79 @@ export const cardAPI = {
     card_name?: string;
     spending_limit?: number;
     design_id?: string;
-  }) { return CARDS_LOCKED; },
+  }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-create', {
+      method: 'POST',
+      body: JSON.stringify(_data || {}),
+    });
+  },
 
-  async getCards() { return CARDS_LOCKED; },
+  async getCards() {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-list', { method: 'POST' });
+  },
 
-  async getCard(_cardId: string) { return CARDS_LOCKED; },
+  async getCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-details', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
   async getCardTransactions(_cardId: string, _filters?: {
     start_date?: string;
     end_date?: string;
     page?: string;
     page_size?: string;
-  }) { return CARDS_LOCKED; },
+  }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-transactions', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, ...(_filters || {}) }),
+    });
+  },
 
-  async fundCard(_cardId: string, _amount: number) { return CARDS_LOCKED; },
+  async fundCard(_cardId: string, _amount: number) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-fund', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, amount: _amount }),
+    });
+  },
 
-  async withdrawCard(_cardId: string, _amount: number) { return CARDS_LOCKED; },
+  async withdrawCard(_cardId: string, _amount: number) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-withdraw', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, amount: _amount }),
+    });
+  },
 
-  async freezeCard(_cardId: string) { return CARDS_LOCKED; },
+  async freezeCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-freeze', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
-  async unfreezeCard(_cardId: string) { return CARDS_LOCKED; },
+  async unfreezeCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-unfreeze', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
-  async terminateCard(_cardId: string) { return CARDS_LOCKED; },
+  async terminateCard(_cardId: string) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-terminate', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId }),
+    });
+  },
 
   async getCardCharges(_filters?: {
     channel?: string;
@@ -1032,7 +1117,29 @@ export const cardAPI = {
     page?: number;
     page_size?: number;
     search?: string;
-  }) { return CARDS_LOCKED; },
+  }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-transactions', {
+      method: 'POST',
+      body: JSON.stringify(_filters || {}),
+    });
+  },
+
+  async updateSpendingLimits(_cardId: string, _limits: { daily_limit?: number | null; monthly_limit?: number | null }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-spending-limits', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, ...(_limits || {}) }),
+    });
+  },
+
+  async getStatements(_cardId: string, _opts?: { month?: string; year?: number; page?: number; page_size?: number }) {
+    if (!CARDS_RUNTIME_ENABLED) return CARDS_LOCKED;
+    return apiCall('card-statements', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: _cardId, ...(_opts || {}) }),
+    });
+  },
 };
 
 // ============================================================================
@@ -1373,22 +1480,17 @@ export const localPaymentsAPI = {
 // US PAYMENTS (ACH / Wire)
 // ============================================================================
 
-// QUARANTINED — `transfer` and `createCounterparty` will switch to
-// bridgeAPI.transfer.create after sandbox smoke test. Until then both
-// return rails_future_state. `getCounterparties` is read-only and kept
-// operational for history display.
+// QUARANTINED — legacy US counterparty endpoints are hard-disabled.
+// BorderPay send/payout flows must use Bridge-backed transfer orchestration
+// only. Do not route any runtime path through `get-counterparty` here.
 export const usPaymentsAPI = {
   async transfer(_data: any) {
     return RAILS_FUTURE_STATE;
   },
 
-  async getCounterparties() {
-    return apiCall('get-counterparty', { method: 'POST' });
-  },
+  async getCounterparties() { return RAILS_FUTURE_STATE; },
 
-  async createCounterparty(_data: any) {
-    return RAILS_FUTURE_STATE;
-  },
+  async createCounterparty(_data: any) { return RAILS_FUTURE_STATE; },
 };
 
 // ============================================================================
@@ -1557,10 +1659,8 @@ export const notificationsAPI = {
 // `getAccounts` is read-only display of existing accounts.
 // `createUSDAccount` routes to Bridge VA(USD).
 // `createDynamicAccount` is future-state (African local rails).
-// Counterparty methods (`createCounterparty`, `getCounterparty`,
-// `getAccountCounterparties`) and rail status (`checkAccountStatus`,
-// `getSupportedRails`) are transfer-adjacent and read-only respectively;
-// kept operational pending the transfers cutover.
+// Legacy account-rail/counterparty endpoints are hard-disabled.
+// Runtime send/payout execution must remain Bridge-backed only.
 export const accountsAPI = {
   async getAccounts() {
     return apiCall('get-accounts', { method: 'GET' });
@@ -1581,37 +1681,17 @@ export const accountsAPI = {
     });
   },
 
-  /** Read-only supported rails lookup. */
-  async getSupportedRails(accountId: string) {
-    return apiCall('get-account-rails', {
-      method: 'POST',
-      body: JSON.stringify({ account_id: accountId }),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async getSupportedRails(_accountId: string) { return RAILS_FUTURE_STATE; },
 
-  /** Counterparty management; held for the transfers cutover. */
-  async createCounterparty(data: any) {
-    return apiCall('create-counterparty', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async createCounterparty(_data: any) { return RAILS_FUTURE_STATE; },
 
-  /** Counterparty management; held for the transfers cutover. */
-  async getCounterparty(counterPartyId: string) {
-    return apiCall('get-counterparty', {
-      method: 'POST',
-      body: JSON.stringify({ counter_party_id: counterPartyId }),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async getCounterparty(_counterPartyId: string) { return RAILS_FUTURE_STATE; },
 
-  /** Counterparty management; held for the transfers cutover. */
-  async getAccountCounterparties(accountId: string) {
-    return apiCall('get-account-counterparties', {
-      method: 'POST',
-      body: JSON.stringify({ account_id: accountId }),
-    });
-  },
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  async getAccountCounterparties(_accountId: string) { return RAILS_FUTURE_STATE; },
 
   async createDynamicAccount(_accountName: string, _preferredBank: string, _amount?: string) {
     return RAILS_FUTURE_STATE;

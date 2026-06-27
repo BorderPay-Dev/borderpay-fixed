@@ -35,6 +35,18 @@ deployed copies should be redeployed from these source stubs or deleted.
 | Path | Behaviour |
 |---|---|
 | `fund-card/` | `501 cards_locked` |
+| `card-program-status/` | `501 cards_locked` |
+| `card-create/` | `501 cards_locked` |
+| `card-list/` | `501 cards_locked` |
+| `card-details/` | `501 cards_locked` |
+| `card-transactions/` | `501 cards_locked` |
+| `card-fund/` | `501 cards_locked` |
+| `card-withdraw/` | `501 cards_locked` |
+| `card-freeze/` | `501 cards_locked` |
+| `card-unfreeze/` | `501 cards_locked` |
+| `card-terminate/` | `501 cards_locked` |
+| `card-spending-limits/` | `501 cards_locked` |
+| `card-statements/` | `501 cards_locked` |
 | `kyc-submit/` | `410 provider_removed` |
 | `borderpay-transfer/` | `410 provider_removed` |
 | `get-fx-rates/` | `410 provider_removed` |

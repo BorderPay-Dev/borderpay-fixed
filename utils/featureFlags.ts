@@ -95,6 +95,13 @@ export const PAYROLL_RUNTIME_ENABLED: boolean = true;
 export const FX_NAV_ENABLED: boolean = true;
 export const PAYROLL_NAV_ENABLED: boolean = true;
 export const RAMPS_NAV_ENABLED: boolean = true;
+/**
+ * Card runtime execution gate.
+ *
+ * - false: card API methods fail-closed with `cards_locked`.
+ * - true:  card API methods call dedicated card edge functions.
+ */
+export const CARDS_RUNTIME_ENABLED: boolean = false;
 
 /**
  * Affiliate money lifecycle gate (earnings/commissions/payout balances/requests).
