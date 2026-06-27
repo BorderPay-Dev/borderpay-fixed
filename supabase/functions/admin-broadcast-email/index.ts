@@ -35,7 +35,13 @@ type BroadcastAction =
   | "business_verification_delay"
   | "business_platform_live"
   | "individual_platform_live"
-  | "borderpay_live";
+  | "borderpay_live"
+  | "individual_verification_reminder"
+  | "business_verification_reminder"
+  | "verification_reminder_all"
+  | "verification_tos_stuck_recovery"
+  | "verification_pending_no_attempt"
+  | "verification_business_kyb_completion";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -89,6 +95,12 @@ Deno.serve(async (req) => {
     "business_verification_delay",
     "business_platform_live",
     "individual_platform_live",
+    "individual_verification_reminder",
+    "business_verification_reminder",
+    "verification_reminder_all",
+    "verification_tos_stuck_recovery",
+    "verification_pending_no_attempt",
+    "verification_business_kyb_completion",
   ]);
   if (!supportedActions.has(action)) {
     return json({ success: false, error: "unsupported action" }, 400);
@@ -102,28 +114,88 @@ Deno.serve(async (req) => {
   const [{ data: profiles, error: profilesErr }, { data: bizProfiles, error: bizErr }] = await Promise.all([
     supabase
       .from("user_profiles")
-      .select("id, email, full_name, account_type, is_admin")
+      .select("id, email, full_name, account_type, is_admin, bridge_kyc_status")
       .not("email", "is", null)
       .limit(limit),
     supabase
       .from("business_profiles")
-      .select("user_id, company_name"),
+      .select("user_id, company_name, bridge_kyb_status"),
   ]);
   if (profilesErr) return json({ success: false, error: profilesErr.message }, 500);
   if (bizErr) return json({ success: false, error: bizErr.message }, 500);
 
   const bizNameByUser = new Map<string, string>();
+  const bizStatusByUser = new Map<string, string>();
   for (const row of bizProfiles || []) {
     bizNameByUser.set(String((row as Record<string, unknown>).user_id || ""), String((row as Record<string, unknown>).company_name || ""));
+    bizStatusByUser.set(
+      String((row as Record<string, unknown>).user_id || ""),
+      String((row as Record<string, unknown>).bridge_kyb_status || "not_started").toLowerCase(),
+    );
+  }
+
+  const kycOpen = new Set(["not_started", "pending", "under_review", "incomplete"]);
+  const kybOpen = new Set(["not_started", "pending", "under_review", "incomplete"]);
+  const segmentNeedsTrace = action === "verification_tos_stuck_recovery" || action === "verification_pending_no_attempt";
+  const invokedUserIds = new Set<string>();
+  const tosSeenUserIds = new Set<string>();
+  if (segmentNeedsTrace) {
+    const { data: traces, error: traceErr } = await supabase
+      .from("bridge_kyc_traces")
+      .select("user_id, stage, response_body, created_at")
+      .in("stage", ["invoked", "returned_success"])
+      .not("user_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(10000);
+    if (traceErr) return json({ success: false, error: traceErr.message }, 500);
+    for (const row of traces || []) {
+      const userId = String((row as Record<string, unknown>).user_id || "");
+      if (!userId) continue;
+      const stage = String((row as Record<string, unknown>).stage || "");
+      if (stage === "invoked") {
+        invokedUserIds.add(userId);
+      } else if (stage === "returned_success") {
+        if (tosSeenUserIds.has(userId)) continue; // rows are desc by created_at
+        const body = (row as Record<string, unknown>).response_body as Record<string, unknown> | null;
+        const tosSeen = Boolean(body && body["tos_link_present"] === true);
+        if (tosSeen) tosSeenUserIds.add(userId);
+      }
+    }
   }
 
   const candidates = (profiles || []).filter((p: Record<string, unknown>) => {
     if (p.is_admin === true) return false;
     const email = String(p.email || "").trim().toLowerCase();
     if (!email || !email.includes("@")) return false;
+    if (email === "founder@borderpayafrica.com") return false;
     const at = String(p.account_type || "").toLowerCase();
     if ((action === "business_verification_delay" || action === "business_platform_live") && at !== "business") return false;
     if (action === "individual_platform_live" && at !== "individual") return false;
+    if (action === "individual_verification_reminder") {
+      return at === "individual" && kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase());
+    }
+    if (action === "business_verification_reminder") {
+      return at === "business" && kybOpen.has(String(bizStatusByUser.get(String(p.id || "")) || "not_started").toLowerCase());
+    }
+    if (action === "verification_reminder_all") {
+      if (at === "individual") return kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase());
+      if (at === "business") return kybOpen.has(String(bizStatusByUser.get(String(p.id || "")) || "not_started").toLowerCase());
+      return false;
+    }
+    if (action === "verification_tos_stuck_recovery") {
+      return at === "individual"
+        && kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase())
+        && tosSeenUserIds.has(String(p.id || ""));
+    }
+    if (action === "verification_pending_no_attempt") {
+      return at === "individual"
+        && kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase())
+        && !invokedUserIds.has(String(p.id || ""));
+    }
+    if (action === "verification_business_kyb_completion") {
+      return at === "business"
+        && kybOpen.has(String(bizStatusByUser.get(String(p.id || "")) || "not_started").toLowerCase());
+    }
     return true;
   });
 
@@ -167,10 +239,19 @@ Deno.serve(async (req) => {
     const template =
       action === "business_verification_delay" ? "business.platform_live" :
       action === "business_platform_live" ? "business.platform_live" :
+      action === "verification_business_kyb_completion" ? "business.verification_authorized" :
+      action === "business_verification_reminder" ? "business.verification_authorized" :
+      action === "verification_tos_stuck_recovery" ? "individual.verification_authorized" :
+      action === "verification_pending_no_attempt" ? "individual.verification_authorized" :
+      action === "individual_verification_reminder" ? "individual.verification_authorized" :
+      action === "verification_reminder_all"
+        ? (accountType === "business" ? "business.verification_authorized" : "individual.verification_authorized") :
       action === "individual_platform_live" ? "individual.platform_live" :
       (accountType === "business" ? "business.platform_live" : "individual.platform_live");
     const props = template === "business.platform_live"
       ? { company_name: bizNameByUser.get(userId) || "Your business" }
+      : template === "business.verification_authorized"
+        ? { company_name: bizNameByUser.get(userId) || "Your business", full_name: String(u.full_name || "") }
       : { full_name: String(u.full_name || "") };
     const idempotencyKey = `broadcast:${action}:v1:${userId}`;
 
