@@ -13,10 +13,10 @@ export interface BusinessVerificationAuthorizedProps {
 export function render(p: BusinessVerificationAuthorizedProps): RenderedEmail {
   const name = firstName(p.full_name) || "there";
   const company = p.company_name ? ` for ${p.company_name}` : "";
-  const subject = "Your business is approved to finish verification";
-  const heading = "Business verification unlocked";
-  const introText = `Hi ${name}, your business${company} has been reviewed and approved to start KYB verification.`;
-  const closing = "Open BorderPay and complete your business document uploads to finish verifying.";
+  const subject = "Verify your business";
+  const heading = "Verify your business";
+  const introText = `Hello ${name}, thank you for choosing BorderPay.`;
+  const closing = `To activate all business features${company}, please verify your business from your dashboard.`;
 
   return {
     subject,
@@ -25,15 +25,15 @@ export function render(p: BusinessVerificationAuthorizedProps): RenderedEmail {
       heading,
       introText,
       body: `<p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">${closing}</p>`,
-      ctaText: "Finish verification",
-      ctaUrl: BORDERPAY_BRAND.appUrl,
+      ctaText: "Verify your business",
+      ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
       brandTone: "default",
     }),
     text: textLayout({
       heading,
       body: `${introText}\n\n${closing}`,
-      ctaText: "Finish verification",
-      ctaUrl: BORDERPAY_BRAND.appUrl,
+      ctaText: "Verify your business",
+      ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
     }),
   };
 }
