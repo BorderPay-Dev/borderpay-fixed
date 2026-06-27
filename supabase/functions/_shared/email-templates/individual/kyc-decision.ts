@@ -13,6 +13,12 @@ export interface IndividualKycDecisionProps {
 
 export function render(p: IndividualKycDecisionProps): RenderedEmail {
   const SAFE_REJECTION_REASON = "Your information could not be verified";
+  const providedReason = String(p.reason || "").trim();
+  const safeReason =
+    providedReason &&
+    !/developer reason|do not share|informational purposes only|for your informational purposes only/i.test(providedReason)
+      ? providedReason
+      : SAFE_REJECTION_REASON;
   const name     = firstName(p.full_name) || "there";
   const approved = p.decision === "approved";
 
@@ -26,7 +32,7 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
     : `Hi ${name}, we couldn't verify your identity this time.`;
 
   const reasonBlock = !approved
-    ? `<div style="background:${BORDERPAY_BRAND.bg};border-left:3px solid ${BORDERPAY_BRAND.danger};padding:14px 16px;border-radius:6px;margin:12px 0;color:${BORDERPAY_BRAND.text};font-size:14px;line-height:1.55;">${escapeHtml(SAFE_REJECTION_REASON)}</div>`
+    ? `<div style="background:${BORDERPAY_BRAND.bg};border-left:3px solid ${BORDERPAY_BRAND.danger};padding:14px 16px;border-radius:6px;margin:12px 0;color:${BORDERPAY_BRAND.text};font-size:14px;line-height:1.55;">${escapeHtml(safeReason)}</div>`
     : "";
 
   const closing = approved
@@ -55,7 +61,7 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
       heading,
       body: approved
         ? "Identity verified. Open BorderPay to view the services available for your account."
-        : `Verification didn't pass.\nReason: ${SAFE_REJECTION_REASON}\n${closing}`,
+        : `Verification didn't pass.\nReason: ${safeReason}\n${closing}`,
       ctaText, ctaUrl,
     }),
   };

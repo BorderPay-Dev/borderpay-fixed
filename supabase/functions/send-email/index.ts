@@ -65,6 +65,27 @@ interface SendEmailBody {
   reply_to?:        string;
 }
 
+function sanitizeDecisionPropsForCustomerSafety(
+  template: TemplateName,
+  props: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const p = { ...(props || {}) } as Record<string, unknown>;
+  // Hard safety guard: never allow developer/internal rejection details to
+  // pass to customer decision templates.
+  if (template === "individual.kyc_decision" || template === "business.kyb_decision") {
+    const dev = String(p.developer_reason ?? p.internal_reason ?? "").trim();
+    const rawReason = String(p.reason ?? "").trim();
+    if (dev) delete p.developer_reason;
+    if ("internal_reason" in p) delete p.internal_reason;
+    if (
+      /developer reason|do not share|informational purposes only|for your informational purposes only/i.test(rawReason)
+    ) {
+      p.reason = "Your information could not be verified";
+    }
+  }
+  return p;
+}
+
 interface ProviderSendResult {
   ok: boolean;
   providerId?: string;
@@ -99,9 +120,10 @@ Deno.serve(async (req: Request) => {
   if (!body.to)       return json({ success: false, error: "to required" }, 400);
 
   // ── Render the template ────────────────────────────────────────────────
+  const safeProps = sanitizeDecisionPropsForCustomerSafety(body.template, body.props ?? {});
   let rendered;
   try {
-    rendered = renderTemplate(body.template, body.props ?? {});
+    rendered = renderTemplate(body.template, safeProps);
   } catch (e) {
     return json({ success: false, error: `Render failed: ${(e as Error).message}` }, 400);
   }
@@ -112,7 +134,7 @@ Deno.serve(async (req: Request) => {
     p_recipient: body.to,
     p_template:  body.template,
     p_subject:   rendered.subject,
-    p_payload:   { props: body.props ?? {} },
+    p_payload:   { props: safeProps },
     p_idem_key:  body.idempotency_key ?? null,
   });
   if (logErr) {

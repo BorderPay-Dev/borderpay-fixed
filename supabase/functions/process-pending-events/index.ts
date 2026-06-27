@@ -111,6 +111,7 @@ async function emailKycDecisionBestEffort(
   userId: string,
   isKyb: boolean,
   decision: "approved" | "rejected",
+  reason?: string | null,
 ): Promise<void> {
   try {
     if (!SEND_EMAIL_TOKEN) return;
@@ -126,10 +127,10 @@ async function emailKycDecisionBestEffort(
         .eq("user_id", userId)
         .maybeSingle();
       template = "business.kyb_decision";
-      props = { company_name: biz?.company_name ?? null, decision };
+      props = { company_name: biz?.company_name ?? null, decision, reason: reason ?? null };
     } else {
       template = "individual.kyc_decision";
-      props = { full_name: rcpt.full_name, decision };
+      props = { full_name: rcpt.full_name, decision, reason: reason ?? null };
     }
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
@@ -153,6 +154,28 @@ async function emailKycDecisionBestEffort(
   } catch (e) {
     console.log(`webhook-email kyc/kyb best-effort error: ${(e as Error).message}`);
   }
+}
+
+function extractCustomerRejectionReason(payload: any): string | null {
+  if (!payload) return null;
+
+  const direct = [
+    payload?.rejection_reason,
+    payload?.customer_rejection_reason,
+    payload?.user_rejection_reason,
+    payload?.reason,
+    payload?.message,
+  ].find((v) => typeof v === "string" && String(v).trim().length > 0);
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  const rr = payload?.rejection_reasons;
+  if (Array.isArray(rr)) {
+    for (const item of rr) {
+      const msg = item?.rejection_reason ?? item?.user_reason ?? item?.reason;
+      if (typeof msg === "string" && msg.trim()) return msg.trim();
+    }
+  }
+  return null;
 }
 
 /**
@@ -635,7 +658,8 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
 
   // Terminal KYC/KYB decision → best-effort email (approved/rejected only).
   if (normalized === "approved" || normalized === "rejected") {
-    await emailKycDecisionBestEffort(resolved, isKyb || account_type === "business", normalized);
+    const customerReason = normalized === "rejected" ? extractCustomerRejectionReason(d) : null;
+    await emailKycDecisionBestEffort(resolved, isKyb || account_type === "business", normalized, customerReason);
   }
 
   await supabase.rpc("complete_pending_event", {
@@ -718,9 +742,11 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
       try {
         const owner = await resolveOwnerFromBridgeCustomer(String(customer));
         if (owner.account_type === "individual") {
+          const customerReason = canonicalKyc === "rejected" ? extractCustomerRejectionReason(d) : null;
           await emailKycDecisionBestEffort(
             owner.resolved, false,
             canonicalKyc === "verified" ? "approved" : "rejected",
+            customerReason,
           );
         }
       } catch { /* best-effort: never fail the webhook on email */ }

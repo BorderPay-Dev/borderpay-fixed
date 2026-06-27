@@ -9,6 +9,12 @@ export interface BusinessKybDecisionProps {
 
 export function render(p: BusinessKybDecisionProps): RenderedEmail {
   const SAFE_REJECTION_REASON = "Your information could not be verified";
+  const providedReason = String(p.reason || "").trim();
+  const safeReason =
+    providedReason &&
+    !/developer reason|do not share|informational purposes only|for your informational purposes only/i.test(providedReason)
+      ? providedReason
+      : SAFE_REJECTION_REASON;
   const company  = p.company_name || "your business";
   const approved = p.decision === "approved";
 
@@ -22,7 +28,7 @@ export function render(p: BusinessKybDecisionProps): RenderedEmail {
     : `We reviewed your Business Verification submission for ${company} and couldn't verify it yet.`;
 
   const reasonBlock = !approved
-    ? `<div style="background:${BORDERPAY_BRAND.bg};border-left:3px solid ${BORDERPAY_BRAND.warning};padding:14px 16px;border-radius:6px;margin:12px 0;color:${BORDERPAY_BRAND.text};font-size:14px;line-height:1.55;">${escapeHtml(SAFE_REJECTION_REASON)}</div>`
+    ? `<div style="background:${BORDERPAY_BRAND.bg};border-left:3px solid ${BORDERPAY_BRAND.warning};padding:14px 16px;border-radius:6px;margin:12px 0;color:${BORDERPAY_BRAND.text};font-size:14px;line-height:1.55;">${escapeHtml(safeReason)}</div>`
     : "";
 
   const nextSteps = !approved
@@ -49,7 +55,7 @@ export function render(p: BusinessKybDecisionProps): RenderedEmail {
       heading,
       body: approved
         ? `${company} verified. Account fully active.`
-        : `${company} needs more Business Verification information.\nReason: ${SAFE_REJECTION_REASON}\nNext steps: ${nextSteps}`,
+        : `${company} needs more Business Verification information.\nReason: ${safeReason}\nNext steps: ${nextSteps}`,
       ctaText, ctaUrl,
     }),
   };
