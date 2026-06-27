@@ -112,7 +112,7 @@ serve(async (req) => {
 
           <!-- Logo -->
           <tr>
-            <td align="left" style="padding:26px 32px 20px;">
+            <td align="center" style="padding:26px 32px 20px;">
               <img src="${EMAIL_LOGO_URL}" alt="BorderPay Africa" width="168" style="display:block;width:168px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />
             </td>
           </tr>

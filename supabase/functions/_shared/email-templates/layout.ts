@@ -73,7 +73,7 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
           <td align="center" style="padding:0;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${b.bg};">
               <tr>
-                <td style="padding:24px 28px 14px;">
+                <td align="center" style="padding:24px 28px 14px;">
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                     <tr>
                       <td>
@@ -86,9 +86,6 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
                       </td>
                     </tr>
                   </table>
-                  <p style="margin:10px 0 0;font-size:12px;line-height:1.45;color:${b.textFaint};">
-                    Global wallets, payments, and verification in one app.
-                  </p>
                 </td>
               </tr>
             </table>
