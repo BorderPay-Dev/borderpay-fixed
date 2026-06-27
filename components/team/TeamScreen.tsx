@@ -156,6 +156,7 @@ function BusinessTeamPanel({
   const [error, setError]       = useState<string | null>(null);
   const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
   const rosterRef = useRef<TeamRosterResponse | null>(cachedRoster);
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
   const [busyId, setBusyId]     = useState<string | null>(null);
 
   // Invite form
@@ -170,6 +171,11 @@ function BusinessTeamPanel({
 
   // Background refresh — does not blank the cached roster (no setLoading(true)).
   const load = useCallback(async (force = false) => {
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     const refreshTsKey = `${TEAM_REFRESH_TS_KEY_PREFIX}:${currentTeamCacheKey()}`;
     const seededRoster = rosterRef.current ?? readRosterCache();
     try {
@@ -195,6 +201,15 @@ function BusinessTeamPanel({
       if (!seededRoster) setError(friendlyError(e, 'Could not load team'));
     } finally {
       setLoading(false);
+    }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) {
+        loadInFlightRef.current = null;
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
