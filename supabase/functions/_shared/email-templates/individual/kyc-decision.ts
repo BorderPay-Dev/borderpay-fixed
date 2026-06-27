@@ -2,7 +2,7 @@ import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, firstName, Rendere
 
 /**
  * Individual KYC decision — terminal approve/reject only (per the webhook-email
- * policy). Sent by the worker on a TERMINAL Bridge customer/kyc_link status.
+ * policy). Sent by the worker on a terminal verification status.
  */
 export interface IndividualKycDecisionProps {
   full_name?: string;
@@ -12,6 +12,7 @@ export interface IndividualKycDecisionProps {
 }
 
 export function render(p: IndividualKycDecisionProps): RenderedEmail {
+  const SAFE_REJECTION_REASON = "Your information could not be verified";
   const name     = firstName(p.full_name) || "there";
   const approved = p.decision === "approved";
 
@@ -22,10 +23,10 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
   const heading = approved ? "Identity verified" : "Verification didn't pass";
   const introText = approved
     ? `Hi ${name}, your identity is verified and your BorderPay account is active. You can now request supported account and wallet services from your dashboard.`
-    : `Hi ${name}, we couldn't verify your identity this time. Details are below.`;
+    : `Hi ${name}, we couldn't verify your identity this time.`;
 
-  const reasonBlock = !approved && p.reason
-    ? `<div style="background:${BORDERPAY_BRAND.bg};border-left:3px solid ${BORDERPAY_BRAND.danger};padding:14px 16px;border-radius:6px;margin:12px 0;color:${BORDERPAY_BRAND.text};font-size:14px;line-height:1.55;">${escapeHtml(p.reason)}</div>`
+  const reasonBlock = !approved
+    ? `<div style="background:${BORDERPAY_BRAND.bg};border-left:3px solid ${BORDERPAY_BRAND.danger};padding:14px 16px;border-radius:6px;margin:12px 0;color:${BORDERPAY_BRAND.text};font-size:14px;line-height:1.55;">${escapeHtml(SAFE_REJECTION_REASON)}</div>`
     : "";
 
   const closing = approved
@@ -54,7 +55,7 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
       heading,
       body: approved
         ? "Identity verified. Open BorderPay to view the services available for your account."
-        : `Verification didn't pass.\nReason: ${p.reason || "—"}\n${closing}`,
+        : `Verification didn't pass.\nReason: ${SAFE_REJECTION_REASON}\n${closing}`,
       ctaText, ctaUrl,
     }),
   };
