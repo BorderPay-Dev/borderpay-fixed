@@ -1,20 +1,19 @@
 /**
- * BorderPay Africa - Send Money Flow (Local Payments Africa + US Payments)
- * 3 transfer methods:
- *   1. Bank Transfer — NGN/KES/GHS/UGX/XAF/XOF/TZS via banking provider
- *   2. Mobile Money — MOBILEMONEY scheme
- *   3. US Payment (ACH/Wire) — USD to registered counterparties via banking API
+ * BorderPay Africa - Send Money Flow (Bridge-backed payout rails)
+ * Active transfer methods:
+ *   1. External Bank Account (linked payout destination)
+ *   2. Stablecoin Withdrawal (external wallet address)
  *
  * Flow: Choose Method → Enter Details → Amount → Review → PIN → Success
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ArrowLeft, Building2, Smartphone, Users, Search,
+  ArrowLeft, Building2, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
-  Send, Info, ArrowRight, Copy, XCircle, Zap, Shield, Coins,
+  Info, ArrowRight, Copy, XCircle, Shield, Coins,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -25,7 +24,6 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from '../ui/input-otp';
-import { USPaymentDetails } from './USPaymentDetails';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
@@ -34,14 +32,13 @@ import { computePayoutFee } from '../../utils/fees/engine';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { ExternalCryptoWithdrawalFields, isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type TransferMethod = 'bank' | 'mobile_money' | 'us_ach_wire' | 'stablecoin';
+type TransferMethod = 'us_ach_wire' | 'stablecoin';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
 interface Institution {
@@ -55,6 +52,19 @@ interface Wallet {
   currency: string;
   balance: number;
   symbol?: string;
+  bridge_wallet_id?: string | null;
+}
+
+interface ExternalAccountOption {
+  id: string;
+  bridge_external_account_id: string;
+  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  currency: string;
+  account_owner_name: string | null;
+  bank_name: string | null;
+  last_4: string | null;
+  rail: string | null;
+  status: string;
 }
 
 interface SendMoneyFlowProps {
@@ -100,6 +110,8 @@ function getCurrencySymbol(code: string) {
 
 const SEND_WALLETS_CACHE_KEY = 'borderpay_send_wallets_v1';
 const SEND_CAPS_CACHE_KEY = 'borderpay_send_caps_v1';
+const EXTERNAL_ACCOUNTS_CACHE_KEY = 'borderpay_payout_accounts_v1';
+const SEND_ROUTE_REFRESH_TS_KEY = 'borderpay_send_refresh_ts_v1';
 
 
 // ---------------------------------------------------------------------------
@@ -130,20 +142,37 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     () => financialCacheKey(SEND_CAPS_CACHE_KEY, { userId }),
     [userId],
   );
+  const sendRefreshTsKey = useMemo(
+    () => financialCacheKey(SEND_ROUTE_REFRESH_TS_KEY, { userId }),
+    [userId],
+  );
   const cachedSendWallets = useMemo(() => {
     try { return JSON.parse(localStorage.getItem(sendWalletsCacheKey) || '[]'); } catch { return []; }
   }, [sendWalletsCacheKey]);
   const cachedSendCaps = useMemo(() => {
     try { const v = JSON.parse(localStorage.getItem(sendCapsCacheKey) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
   }, [sendCapsCacheKey]);
+  const externalAccountsCacheKey = useMemo(
+    () => financialCacheKey(EXTERNAL_ACCOUNTS_CACHE_KEY, { userId }),
+    [userId],
+  );
+  const cachedExternalAccounts = useMemo(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(externalAccountsCacheKey) || '[]');
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  }, [externalAccountsCacheKey]);
 
   // Step & method
   const [step, setStep] = useState<Step>('method');
-  const [method, setMethod] = useState<TransferMethod>('bank');
+  const [method, setMethod] = useState<TransferMethod>('stablecoin');
 
   // Currency & wallet
   const [wallets, setWallets] = useState<Wallet[]>(cachedSendWallets);
-  const [selectedCurrency, setSelectedCurrency] = useState('NGN');
+  const walletsRef = useRef<Wallet[]>(cachedSendWallets);
+  const [selectedCurrency, setSelectedCurrency] = useState('USDC');
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
@@ -157,29 +186,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
 
-
-  // US Payments (ACH/Wire) state
-  const [usCounterparties, setUsCounterparties] = useState<any[]>([]);
-  const [selectedCounterparty, setSelectedCounterparty] = useState<any>(null);
-  const [loadingCounterparties, setLoadingCounterparties] = useState(false);
-  const [showCounterpartyList, setShowCounterpartyList] = useState(false);
-  const [paymentRail, setPaymentRail] = useState<'ACH' | 'ACH-ACCELERATED' | 'FEDWIRE'>('ACH');
+  // External bank payout state (Bridge external accounts)
+  const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>(cachedExternalAccounts);
+  const externalAccountsRef = useRef<ExternalAccountOption[]>(cachedExternalAccounts);
+  const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>(
+    String(cachedExternalAccounts?.[0]?.bridge_external_account_id || ''),
+  );
   const [usMemo, setUsMemo] = useState('');
-  const [showNewCounterparty, setShowNewCounterparty] = useState(false);
-  // New counterparty form fields
-  const [cpFirstName, setCpFirstName] = useState('');
-  const [cpLastName, setCpLastName] = useState('');
-  const [cpIsCorporate, setCpIsCorporate] = useState(false);
-  const [cpBusinessName, setCpBusinessName] = useState('');
-  const [cpAccountNumber, setCpAccountNumber] = useState('');
-  const [cpRoutingNumber, setCpRoutingNumber] = useState('');
-  const [cpInstitutionName, setCpInstitutionName] = useState('');
-  const [cpAccountType, setCpAccountType] = useState<'CHECKING' | 'SAVINGS'>('CHECKING');
-  const [cpStreet, setCpStreet] = useState('');
-  const [cpCity, setCpCity] = useState('');
-  const [cpState, setCpState] = useState('');
-  const [cpPostalCode, setCpPostalCode] = useState('');
-  const [creatingCounterparty, setCreatingCounterparty] = useState(false);
 
   // External stablecoin withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'tron', token: 'USDT', address: '' });
@@ -227,6 +240,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
     cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
   );
+  const selectedExternalAccount = useMemo(
+    () => externalAccounts.find((x) => x.bridge_external_account_id === selectedExternalAccountId) || null,
+    [externalAccounts, selectedExternalAccountId],
+  );
 
   // BorderPay Network Fee — corridor-aware, via the revenue fee engine.
   // Provider stays invisible; the total is fully disclosed to the user.
@@ -251,14 +268,22 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
+  const institutionsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
-  useEffect(() => {
-    navPerfTrackCache('send-money', cachedSendWallets.length > 0 || cachedSendCaps.length > 0);
-  }, [cachedSendWallets.length, cachedSendCaps.length]);
-
+  const institutionsCacheKey = useMemo(
+    () => `borderpay_send_institutions_v1:${userId}:${method}:${selectedCurrency}`,
+    [userId, method, selectedCurrency]
+  );
+  const institutionsRefreshTsKey = useMemo(
+    () => `borderpay_send_institutions_refreshed_at:${userId}:${method}:${selectedCurrency}`,
+    [userId, method, selectedCurrency]
+  );
+  const hasPinFactor = useMemo(() => PINManager.hasPIN(userId), [userId]);
+  const hasBiometricFactor = useMemo(() => BiometricManager.isEnrolled(userId), [userId]);
+  const hasAnyAuthFactor = hasPinFactor || hasBiometricFactor;
   // ---------------------------------------------------------------------------
   // Snapshot hydration:
   // - first paint comes from cache
@@ -267,8 +292,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
-    const hydrateOnce = async () => {
+    const hydrateOnce = async (force = false) => {
       try {
+        const hasCached = walletsRef.current.length > 0 || externalAccountsRef.current.length > 0;
+        const last = Number(localStorage.getItem(sendRefreshTsKey) || '0');
+        if (!force && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
         const res: any = await backendAPI.financial.getSendRouteData();
         if (cancelled || !res?.success || !res?.data) return;
         const list = ((res.data as any).wallets || []).map((w: any) => ({
@@ -276,14 +304,45 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           currency: w.currency,
           balance: parseFloat(w.balance) || 0,
           symbol: getCurrencySymbol(w.currency),
+          bridge_wallet_id: w.bridge_wallet_id ?? null,
         }));
         const types = Array.isArray(res?.data?.external_account_capabilities)
           ? res.data.external_account_capabilities
           : [];
+        const ext = Array.isArray(res?.data?.external_accounts)
+          ? res.data.external_accounts.map((row: any, idx: number) => {
+              const rawType = String(row?.account_type || '').toLowerCase();
+              const accountType: ExternalAccountOption['account_type'] =
+                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+              const rawCurrency = String(row?.currency || '');
+              const currency = rawCurrency
+                ? rawCurrency.toUpperCase()
+                : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+              const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
+              return {
+                id: String(row?.id || externalId || `ext_${idx}`),
+                bridge_external_account_id: externalId,
+                account_type: accountType,
+                currency,
+                account_owner_name: row?.account_owner_name ?? null,
+                bank_name: row?.bank_name ?? null,
+                last_4: row?.last_4 ? String(row.last_4) : null,
+                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+                status: String(row?.status || 'active'),
+              } as ExternalAccountOption;
+            }).filter((x: ExternalAccountOption) => !!x.bridge_external_account_id)
+          : [];
         setWallets(list);
         setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+        setExternalAccounts(ext);
+        try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
+        if (!selectedExternalAccountId && ext.length > 0) {
+          setSelectedExternalAccountId(ext[0].bridge_external_account_id);
+          if (ext[0]?.currency) setSelectedCurrency(ext[0].currency);
+        }
         try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
+        try { localStorage.setItem(sendRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       } catch {
         // best effort: keep cached values
       }
@@ -302,13 +361,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [userId, sendWalletsCacheKey, sendCapsCacheKey]);
+  }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey]);
 
   // Select wallet when currency changes
   useEffect(() => {
     const w = wallets.find(w => w.currency === selectedCurrency);
     setSelectedWallet(w || null);
   }, [selectedCurrency, wallets]);
+
+  useEffect(() => {
+    if (method !== 'us_ach_wire') return;
+    if (selectedExternalAccount?.currency && selectedExternalAccount.currency !== selectedCurrency) {
+      setSelectedCurrency(selectedExternalAccount.currency);
+    }
+  }, [method, selectedExternalAccount, selectedCurrency]);
 
   // Stablecoin sends must always use the selected stablecoin asset as source.
   useEffect(() => {
@@ -329,18 +395,54 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step, method, selectedCurrency]);
 
   const loadInstitutions = async () => {
+    if (institutionsLoadInFlightRef.current) {
+      await institutionsLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
+    // Fast route re-entry: render cached institutions instantly when available.
+    let seededFromCache = false;
+    try {
+      const raw = localStorage.getItem(institutionsCacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (Array.isArray(cached) && cached.length > 0) {
+          setInstitutions(cached);
+          seededFromCache = true;
+          setSelectedBank((prev) => prev || null);
+        }
+      }
+    } catch { /* noop */ }
+    if (!seededFromCache) setInstitutions([]);
+    // Throttle duplicate rail fetches on quick step toggles.
+    try {
+      const last = Number(localStorage.getItem(institutionsRefreshTsKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
+    } catch { /* noop */ }
+
     setLoadingInstitutions(true);
-    setInstitutions([]);
     setSelectedBank(null);
     try {
       const type = method === 'mobile_money' ? 'MOBILE_MONEY' : undefined;
       const res = await backendAPI.localPayments.getInstitutions(selectedCurrency, type);
       if (res.success && res.data?.institutions) {
-        setInstitutions(res.data.institutions);
+        const list = Array.isArray(res.data.institutions) ? res.data.institutions : [];
+        setInstitutions(list);
+        try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
+        try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
       }
     } catch (e) {
     } finally {
       setLoadingInstitutions(false);
+    }
+    })();
+    institutionsLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (institutionsLoadInFlightRef.current === run) {
+        institutionsLoadInFlightRef.current = null;
+      }
     }
   };
 
@@ -410,16 +512,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   };
 
   const canProceedDetails = () => {
-    if (method === 'us_ach_wire') return !!selectedCounterparty;
+    if (method === 'us_ach_wire') return !!selectedExternalAccount;
     if (method === 'stablecoin') return isValidCryptoAddress(crypto.network, crypto.address);
-    return !!selectedBank && accountNumber.length >= 6;
+    return false;
   };
 
   const canProceedAmount = () => {
     if (limitError) return false;
     const num = parseFloat(amount);
     if (method === 'us_ach_wire') {
-      return num > 0 && selectedWallet && num <= selectedWallet.balance && usMemo.trim().length > 0 && reason.trim().length > 0;
+      return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
     }
     if (method === 'stablecoin') {
       return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
@@ -451,26 +553,30 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           idempotency_key: transferIdempotencyKey,
         });
       } else if (method === 'us_ach_wire') {
-        result = await backendAPI.usPayments.transfer({
-          counterparty_id: selectedCounterparty.id,
-          amount: parseFloat(amount),
-          payment_rail: paymentRail,
-          memo: usMemo || 'invoice #1',
-          reason: reason || 'payment for goods and services',
-          transaction_pin: verifiedPin,
+        if (!selectedExternalAccount) {
+          throw new Error('Select an external account');
+        }
+        const destinationRail =
+          selectedExternalAccount.account_type === 'iban' ? 'sepa'
+          : selectedExternalAccount.account_type === 'clabe' ? 'spei'
+          : selectedExternalAccount.account_type === 'pix' ? 'pix'
+          : 'ach';
+        result = await backendAPI.bridge.transfer.create({
+          idempotency_key: transferIdempotencyKey,
+          source: {
+            payment_rail: 'bridge_wallet',
+            currency: selectedCurrency,
+            amount: String(parseFloat(amount)),
+            ...(selectedWallet?.bridge_wallet_id ? { bridge_wallet_id: selectedWallet.bridge_wallet_id } : {}),
+          },
+          destination: {
+            payment_rail: destinationRail,
+            currency: selectedExternalAccount.currency,
+            external_account_id: selectedExternalAccount.bridge_external_account_id,
+          },
         });
       } else {
-        const meta = method === 'mobile_money' ? { scheme: 'MOBILEMONEY' } : undefined;
-        result = await backendAPI.localPayments.transfer({
-          bank_code: selectedBank!.code,
-          account_number: accountNumber,
-          amount: parseFloat(amount),
-          currency: selectedCurrency,
-          reason: reason || 'Transfer',
-          transaction_pin: verifiedPin,
-          wallet_id: selectedWallet?.id,
-          meta,
-        });
+        throw new Error('Unsupported transfer method.');
       }
 
       if (result.success) {
@@ -509,15 +615,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const handlePinComplete = async (value: string) => {
     setPin(value);
     if (value.length === 6) {
+      if (!hasPinFactor) {
+        toast.error('Set a transaction PIN or use biometric verification to continue.');
+        setPin('');
+        return;
+      }
       // Verify PIN locally first before sending to backend
-      const hasPIN = PINManager.hasPIN(userId);
-      if (hasPIN) {
-        const isValid = await PINManager.verifyPIN(userId, value);
-        if (!isValid) {
-          toast.error(t('send.incorrectPin') || 'Incorrect PIN');
-          setPin('');
-          return;
-        }
+      const isValid = await PINManager.verifyPIN(userId, value);
+      if (!isValid) {
+        toast.error(t('send.incorrectPin') || 'Incorrect PIN');
+        setPin('');
+        return;
       }
       processTransaction(value);
     }
@@ -920,40 +1028,48 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
             {/* US Payment (ACH/Wire) Details */}
             {method === 'us_ach_wire' && (
-              <USPaymentDetails
-                tc={tc}
-                t={t}
-                usCounterparties={usCounterparties}
-                selectedCounterparty={selectedCounterparty}
-                setSelectedCounterparty={setSelectedCounterparty}
-                loadingCounterparties={loadingCounterparties}
-                setLoadingCounterparties={setLoadingCounterparties}
-                showCounterpartyList={showCounterpartyList}
-                setShowCounterpartyList={setShowCounterpartyList}
-                showNewCounterparty={showNewCounterparty}
-                setShowNewCounterparty={setShowNewCounterparty}
-                paymentRail={paymentRail}
-                setPaymentRail={setPaymentRail}
-                setUsCounterparties={setUsCounterparties}
-                setSelectedCurrency={setSelectedCurrency}
-                selectedWallet={selectedWallet}
-                cpFirstName={cpFirstName} setCpFirstName={setCpFirstName}
-                cpLastName={cpLastName} setCpLastName={setCpLastName}
-                cpIsCorporate={cpIsCorporate} setCpIsCorporate={setCpIsCorporate}
-                cpBusinessName={cpBusinessName} setCpBusinessName={setCpBusinessName}
-                cpAccountNumber={cpAccountNumber} setCpAccountNumber={setCpAccountNumber}
-                cpRoutingNumber={cpRoutingNumber} setCpRoutingNumber={setCpRoutingNumber}
-                cpInstitutionName={cpInstitutionName} setCpInstitutionName={setCpInstitutionName}
-                cpAccountType={cpAccountType} setCpAccountType={setCpAccountType}
-                cpStreet={cpStreet} setCpStreet={setCpStreet}
-                cpCity={cpCity} setCpCity={setCpCity}
-                cpState={cpState} setCpState={setCpState}
-                cpPostalCode={cpPostalCode} setCpPostalCode={setCpPostalCode}
-                creatingCounterparty={creatingCounterparty}
-                setCreatingCounterparty={setCreatingCounterparty}
-                wallets={wallets}
-                onNavigateToFullForm={onNavigate ? () => onNavigate('create-counterparty') : undefined}
-              />
+              <div className="space-y-4">
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Destination external account</label>
+                  {externalAccounts.length === 0 ? (
+                    <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
+                      <p className={`text-sm ${tc.textSecondary} mb-3`}>No external accounts available.</p>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate?.('external-accounts')}
+                        className="text-sm font-semibold text-[#C7FF00]"
+                      >
+                        Open External Accounts
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {externalAccounts.map((acc) => (
+                        <button
+                          key={acc.bridge_external_account_id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedExternalAccountId(acc.bridge_external_account_id);
+                            if (acc.currency) setSelectedCurrency(acc.currency);
+                          }}
+                          className={`w-full text-left ${tc.card} border rounded-2xl p-3.5 transition-colors ${
+                            selectedExternalAccountId === acc.bridge_external_account_id
+                              ? 'border-[#C7FF00]/60 bg-[#C7FF00]/10'
+                              : tc.cardBorder
+                          }`}
+                        >
+                          <p className={`text-sm font-semibold ${tc.text}`}>
+                            {acc.account_owner_name || 'External account'} • {acc.currency}
+                          </p>
+                          <p className={`text-xs ${tc.textMuted} mt-1`}>
+                            {(acc.bank_name || acc.account_type.toUpperCase())}{acc.last_4 ? ` • ****${acc.last_4}` : ''}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {/* Continue Button */}
@@ -993,14 +1109,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </>
               ) : method === 'us_ach_wire' ? (
                 <>
-                  <p className={`text-sm font-semibold ${tc.text}`}>{selectedCounterparty?.account_name || selectedCounterparty?.business_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`}</p>
-                  <p className={`text-xs ${tc.textMuted}`}>{selectedCounterparty?.institution_name} • ****{selectedCounterparty?.account_number_last4}</p>
+                  <p className={`text-sm font-semibold ${tc.text}`}>{selectedExternalAccount?.account_owner_name || 'External account'}</p>
+                  <p className={`text-xs ${tc.textMuted}`}>
+                    {(selectedExternalAccount?.bank_name || selectedExternalAccount?.account_type?.toUpperCase() || 'Account')}
+                    {selectedExternalAccount?.last_4 ? ` • ****${selectedExternalAccount.last_4}` : ''}
+                  </p>
                   <div className="flex items-center gap-1.5 mt-1.5">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                      paymentRail === 'FEDWIRE' ? 'bg-orange-500/15 text-orange-400' :
-                      paymentRail === 'ACH-ACCELERATED' ? 'bg-yellow-500/15 text-yellow-400' :
-                      'bg-blue-500/15 text-blue-400'
-                    }`}>{paymentRail}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-400 uppercase">
+                      {selectedExternalAccount?.rail || selectedExternalAccount?.account_type || 'bank'}
+                    </span>
                   </div>
                 </>
               ) : (
@@ -1115,7 +1232,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.method')}</span>
                   <span className={`text-sm font-medium ${tc.text}`}>
-                    {method === 'bank' ? t('send.bankTransfer') : method === 'mobile_money' ? t('send.mobileMoney') : method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : t('send.borderPayPay')}
+                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : t('send.borderPayPay')}
                   </span>
                 </div>
 
@@ -1141,24 +1258,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 {method === 'us_ach_wire' && (
                   <>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usCounterparty')}</span>
-                      <span className={`text-sm font-medium ${tc.text} text-right max-w-[180px]`}>{selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>External account</span>
+                      <span className={`text-sm font-medium ${tc.text} text-right max-w-[180px]`}>{selectedExternalAccount?.account_owner_name || 'External account'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usInstitution')}</span>
-                      <span className={`text-sm font-medium ${tc.text}`}>{selectedCounterparty?.institution_name}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>Institution</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{selectedExternalAccount?.bank_name || selectedExternalAccount?.account_type?.toUpperCase()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usAccountLast4')}</span>
-                      <span className={`text-sm font-mono ${tc.text}`}>****{selectedCounterparty?.account_number_last4}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>Account</span>
+                      <span className={`text-sm font-mono ${tc.text}`}>{selectedExternalAccount?.last_4 ? `****${selectedExternalAccount.last_4}` : '—'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className={`text-xs ${tc.textMuted}`}>{t('send.usPaymentRail')}</span>
-                      <span className={`text-sm font-semibold ${
-                        paymentRail === 'FEDWIRE' ? 'text-orange-400' :
-                        paymentRail === 'ACH-ACCELERATED' ? 'text-yellow-400' :
-                        'text-blue-400'
-                      }`}>{paymentRail}</span>
+                      <span className={`text-xs ${tc.textMuted}`}>Rail</span>
+                      <span className="text-sm font-semibold text-blue-400 uppercase">{selectedExternalAccount?.rail || selectedExternalAccount?.account_type || 'bank'}</span>
                     </div>
                     {usMemo && (
                       <div className="flex justify-between">
@@ -1248,7 +1361,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <button
-              onClick={() => setStep('pin')}
+              onClick={() => {
+                if (!hasAnyAuthFactor) {
+                  toast.error('Set a transaction PIN or biometric verification before sending payouts.');
+                  onNavigate?.('settings');
+                  return;
+                }
+                setStep('pin');
+              }}
               className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
             >
               {t('send.confirmAndPay')}
@@ -1273,7 +1393,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
               <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
               <p className={`text-sm ${tc.textSecondary}`}>
-                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : resolvedName || accountNumber}
+                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : (selectedExternalAccount?.account_owner_name || 'External account')}
               </p>
             </div>
 
@@ -1297,7 +1417,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             {/* Biometric option */}
-            {BiometricManager.isEnrolled(userId) && (
+            {hasBiometricFactor && (
               <div className="px-5">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="flex-1 h-px bg-white/10" />
@@ -1365,7 +1485,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
             <p className={`text-sm ${tc.textMuted} mb-6`}>
-              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'us_ach_wire' ? (selectedCounterparty?.account_name || `${selectedCounterparty?.first_name} ${selectedCounterparty?.last_name}`) : resolvedName || accountNumber}
+              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : (selectedExternalAccount?.account_owner_name || 'External account')}
             </p>
 
             {/* Transaction details */}
@@ -1447,3 +1567,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     </div>
   );
 }
+  useEffect(() => {
+    walletsRef.current = wallets;
+  }, [wallets]);
+
+  useEffect(() => {
+    externalAccountsRef.current = externalAccounts;
+  }, [externalAccounts]);
