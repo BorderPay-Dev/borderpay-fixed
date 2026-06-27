@@ -200,6 +200,26 @@ function BusinessTeamPanel({
   }, []);
 
   useEffect(() => {
+    // Warm likely next hops from Team so drawer/settings transitions stay instant.
+    try {
+      const prewarmKey = `borderpay_team_prewarm_v1:${currentTeamCacheKey()}`;
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['settings', 'profile', 'pricing', 'notifications'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 900 });
+          else setTimeout(warm, 180);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
+
     load();
     const onFocus = () => { void load(); };
     const onVisibility = () => {
