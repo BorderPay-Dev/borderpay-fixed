@@ -1,9 +1,8 @@
 /**
- * BorderPay Africa - Send Money Flow (Local Payments Africa + US Payments)
- * 3 transfer methods:
- *   1. Bank Transfer — NGN/KES/GHS/UGX/XAF/XOF/TZS via banking provider
- *   2. Mobile Money — MOBILEMONEY scheme
- *   3. US Payment (ACH/Wire) — USD to registered counterparties via banking API
+ * BorderPay Africa - Send Money Flow (Bridge-backed payout rails)
+ * Active transfer methods:
+ *   1. External Bank Account (linked payout destination)
+ *   2. Stablecoin Withdrawal (external wallet address)
  *
  * Flow: Choose Method → Enter Details → Amount → Review → PIN → Success
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
@@ -12,9 +11,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ArrowLeft, Building2, Smartphone, Users, Search,
+  ArrowLeft, Building2, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
-  Send, Info, ArrowRight, Copy, XCircle, Zap, Shield, Coins,
+  Info, ArrowRight, Copy, XCircle, Shield, Coins,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -39,7 +38,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 // Types
 // ---------------------------------------------------------------------------
 
-type TransferMethod = 'bank' | 'mobile_money' | 'us_ach_wire' | 'stablecoin';
+type TransferMethod = 'us_ach_wire' | 'stablecoin';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
 interface Institution {
@@ -168,12 +167,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Step & method
   const [step, setStep] = useState<Step>('method');
-  const [method, setMethod] = useState<TransferMethod>('bank');
+  const [method, setMethod] = useState<TransferMethod>('stablecoin');
 
   // Currency & wallet
   const [wallets, setWallets] = useState<Wallet[]>(cachedSendWallets);
   const walletsRef = useRef<Wallet[]>(cachedSendWallets);
-  const [selectedCurrency, setSelectedCurrency] = useState('NGN');
+  const [selectedCurrency, setSelectedCurrency] = useState('USDC');
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 

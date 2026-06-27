@@ -79,9 +79,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
   exchange: eagerPreload,
-  converter: eagerPreload,
-  deposit: eagerPreload,
-  'add-money': eagerPreload,
   'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': eagerPreload,
@@ -117,7 +114,7 @@ if (typeof window !== 'undefined') {
 }
 
 function canonicalizeScreen(screen: AppScreen | string): AppScreen {
-  switch (screen as AppScreen) {
+  switch (screen as string) {
     case 'converter':
       return 'exchange';
     case 'deposit':
@@ -264,9 +261,6 @@ export type AppScreen =
   | 'send-money'
   | 'receive-money'
   | 'exchange'
-  | 'converter'
-  | 'deposit'
-  | 'add-money'
   | 'transactions'
   | 'wallet-detail'
   | 'two-factor-setup'
@@ -787,16 +781,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         return <CardsScreen onBack={navigateBack} />;
 
       case 'send-money':
-        // P1 partner onboarding readiness: while the backend
-        // `BRIDGE_TRANSFERS_ENABLED` env on `bridge-transfer` is false,
-        // we route every Send entry point (bottom-nav, drawer,
-        // Dashboard CTA, BusinessDashboard CTA) here. Renders an
-        // honest "Transfers activating soon" screen instead of the
-        // full SendMoneyFlow, which would otherwise hit broken
-        // counterparty-lookup endpoints (get-account-rails,
-        // resolve-account, etc.) and fail at the bridge-transfer
-        // submit anyway. Flip `TRANSFERS_LIVE` (utils/featureFlags.ts)
-        // in lockstep with the backend env when transfers ship.
+        // Runtime transfer gate: while backend transfers are disabled, keep all
+        // send entry points on the explicit coming-soon screen. This prevents
+        // users entering a flow that cannot submit transfer orchestration yet.
         if (!TRANSFERS_LIVE) {
           return <TransfersComingSoonScreen onBack={navigateBack} />;
         }
@@ -856,20 +843,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'exchange':
         return <ExchangeScreen onBack={navigateBack} />;
-
-      case 'converter':
-        return <ExchangeScreen onBack={navigateBack} />;
-
-      case 'deposit':
-      case 'add-money':
-        return (
-          <WalletScreen
-            userId={userId}
-            onBack={navigateBack}
-            isVerified={false}
-            onNavigate={navigateTo}
-          />
-        );
 
       case 'two-factor-setup':
         return (
