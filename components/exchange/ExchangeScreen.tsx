@@ -220,7 +220,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     Number(amount) > 0 &&
     Number(amount) <= Number(selectedWallet.balance || 0) &&
     backendAPI.fx.isPairSupported(selectedWallet.currency, selectedDestinationWallet.currency) &&
-    prerequisites.wallet &&
+    prerequisites.wallet
   );
 
   useEffect(() => {

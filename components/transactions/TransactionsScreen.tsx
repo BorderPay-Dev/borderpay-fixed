@@ -403,6 +403,3 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     </div>
   );
 }
-  useEffect(() => {
-    transactionsRef.current = transactions;
-  }, [transactions]);
