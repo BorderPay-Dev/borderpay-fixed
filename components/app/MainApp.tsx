@@ -66,7 +66,6 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
 const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
-const FundingScreen = lazyImport(() => import('../deposit/FundingScreen').then(m => ({ default: m.FundingScreen })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
@@ -81,8 +80,8 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'receive-money': eagerPreload,
   exchange: eagerPreload,
   converter: eagerPreload,
-  deposit: (FundingScreen as any).preload,
-  'add-money': (FundingScreen as any).preload,
+  deposit: eagerPreload,
+  'add-money': eagerPreload,
   'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': eagerPreload,
@@ -115,6 +114,18 @@ export function prefetchScreen(name: string) {
 
 if (typeof window !== 'undefined') {
   (window as any).__borderpay_prefetch = prefetchScreen;
+}
+
+function canonicalizeScreen(screen: AppScreen | string): AppScreen {
+  switch (screen as AppScreen) {
+    case 'converter':
+      return 'exchange';
+    case 'deposit':
+    case 'add-money':
+      return 'wallet-detail';
+    default:
+      return screen as AppScreen;
+  }
 }
 
 function getBusinessDisplayName(profile: any): string {
@@ -574,7 +585,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, []);
 
   const navigateTo = (screen: AppScreen | string) => {
-    const target = screen as AppScreen;
+    const target = canonicalizeScreen(screen);
     const isAlreadyHere =
       currentScreen === target ||
       (target === 'home' && currentScreen === 'dashboard') ||
@@ -851,7 +862,14 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'deposit':
       case 'add-money':
-        return <FundingScreen onBack={navigateBack} />;
+        return (
+          <WalletScreen
+            userId={userId}
+            onBack={navigateBack}
+            isVerified={false}
+            onNavigate={navigateTo}
+          />
+        );
 
       case 'two-factor-setup':
         return (
