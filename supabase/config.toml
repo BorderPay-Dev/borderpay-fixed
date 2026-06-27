@@ -117,3 +117,26 @@ verify_jwt = true
 # address validation; no money movement).
 [functions.external-wallet]
 verify_jwt = true
+
+# RC1 observability watchdog — machine-to-machine probe endpoint; uses
+# in-function bearer validation via RC1_WATCHDOG_TOKEN (not a Supabase Auth JWT).
+# Must remain verify_jwt=false so the platform does not reject the token format.
+[functions.rc1-watchdog]
+verify_jwt = false
+
+# Admin broadcast/live email operations — machine-to-machine endpoints gated by
+# ADMIN_BROADCAST_INTERNAL_TOKEN in-code.
+[functions.admin-broadcast-email]
+verify_jwt = false
+
+[functions.admin-email-ops]
+verify_jwt = false
+
+# Unified support gateway:
+# - public website ticket create (public_create_ticket)
+# - authenticated app ticket flow
+# - authenticated admin queue/reply/status flow
+# JWT is validated in-function per action, so this stays false to allow website
+# submissions while preserving auth checks for non-public actions.
+[functions.support-gateway]
+verify_jwt = false
