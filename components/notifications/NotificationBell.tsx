@@ -48,6 +48,8 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   const [loading, setLoading] = useState(false);
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const unreadRefreshTsRef = React.useRef<number>(0);
+  const unreadInFlightRef = React.useRef(false);
+  const notificationsInFlightRef = React.useRef(false);
 
   useEffect(() => {
     // Refresh unread count immediately on mount.
@@ -83,9 +85,11 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   };
 
   const loadUnreadCount = async () => {
+    if (unreadInFlightRef.current) return;
     const now = Date.now();
     if (now - unreadRefreshTsRef.current < 10_000) return;
     unreadRefreshTsRef.current = now;
+    unreadInFlightRef.current = true;
     try {
       // Skip if user is not authenticated
       const token = authAPI.getToken();
@@ -106,10 +110,14 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       }
     } catch (error: any) {
       // Silently ignore abort and network errors for polling
+    } finally {
+      unreadInFlightRef.current = false;
     }
   };
 
   const loadNotifications = async () => {
+    if (notificationsInFlightRef.current) return;
+    notificationsInFlightRef.current = true;
     // Keep existing rows visible; only show spinner on a cold open.
     if (notifications.length === 0) setLoading(true);
     try {
@@ -125,6 +133,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       // Silent — notifications panel shows empty state
     } finally {
       setLoading(false);
+      notificationsInFlightRef.current = false;
     }
   };
 
