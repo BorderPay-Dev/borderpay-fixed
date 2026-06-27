@@ -27,6 +27,8 @@ type Action =
   | "add_message"
   | "admin_list_tickets"
   | "admin_reply"
+  | "admin_assign_ticket"
+  | "admin_handoff_to_human"
   | "admin_update_status";
 
 const STATUSES = new Set(["open", "pending_support", "pending_user", "resolved", "closed"]);
@@ -341,6 +343,51 @@ Deno.serve(async (req) => {
     });
 
     return json({ success: true, data: { ticket_id: ticketId, status } });
+  }
+
+  if (action === "admin_assign_ticket") {
+    if (!isAdmin) return json({ success: false, error: "Forbidden" }, 403);
+    const ticketId = trimText(body?.ticket_id, 80);
+    if (!ticketId) return json({ success: false, error: "ticket_id is required" }, 400);
+
+    const { error } = await supa
+      .from("support_tickets")
+      .update({ assigned_admin_id: user.id })
+      .eq("id", ticketId);
+    if (error) return json({ success: false, error: error.message }, 500);
+
+    await supa.from("support_ticket_events").insert({
+      ticket_id: ticketId,
+      event_type: "ticket_assigned",
+      actor_user_id: user.id,
+      payload: { assigned_admin_id: user.id },
+    });
+
+    return json({ success: true, data: { ticket_id: ticketId, assigned_admin_id: user.id } });
+  }
+
+  if (action === "admin_handoff_to_human") {
+    if (!isAdmin) return json({ success: false, error: "Forbidden" }, 403);
+    const ticketId = trimText(body?.ticket_id, 80);
+    const note = trimText(body?.note, 1000);
+    if (!ticketId) return json({ success: false, error: "ticket_id is required" }, 400);
+
+    const { error } = await supa
+      .from("support_tickets")
+      .update({ status: "pending_support", assigned_admin_id: user.id })
+      .eq("id", ticketId);
+    if (error) return json({ success: false, error: error.message }, 500);
+
+    await supa.from("support_ticket_events").insert({
+      ticket_id: ticketId,
+      event_type: "handoff_to_human",
+      actor_user_id: user.id,
+      payload: {
+        note: note || null,
+      },
+    });
+
+    return json({ success: true, data: { ticket_id: ticketId, status: "pending_support" } });
   }
 
   return json({ success: false, error: "Unsupported action" }, 400);
