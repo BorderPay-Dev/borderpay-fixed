@@ -10,9 +10,8 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
  *     2. Confirm Email (verification link)
  *     3. Date of Birth + ID document type selection
  *     4. Address details (street, city, state, postal)
- *     5. Proof of Address upload (utility bill, bank statement, etc.)
- *     6. Review & Submit
- *     7. Pending → Dashboard
+ *     5. Review & Submit
+ *     6. Pending → Dashboard
  *
  *   • Business account:
  *     1. Basic Info + account-type=business + company name (+ optional reg #)
@@ -30,7 +29,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Eye, EyeOff, Mail, Lock, User, Phone, ChevronDown, Loader2,
   Globe, Search, X, ArrowRight, ArrowLeft, Calendar, CreditCard,
-  Shield, MapPin, Upload, FileText, CheckCircle, Camera, Clock,
+  Shield, MapPin, CheckCircle, Camera, Clock,
   AlertCircle, Home, Building, Hash
 } from 'lucide-react';
 import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/client';
@@ -47,7 +46,7 @@ import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 // TYPES
 // ============================================================================
 
-type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'address' | 'proof-of-address' | 'review' | 'pending';
+type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'address' | 'review' | 'pending';
 
 interface SignUpData {
   // Step 1: Personal
@@ -73,10 +72,6 @@ interface SignUpData {
   city: string;
   state: string;
   postalCode: string;
-  // Step 5: Proof of Address
-  poaDocumentType: 'utility_bill' | 'bank_statement' | 'tenancy_agreement' | 'government_letter' | '';
-  poaFile: File | null;
-  poaUploaded: boolean;
 }
 
 interface SignUpFlowProps {
@@ -100,13 +95,6 @@ const getIdTypesForCountry = (countryCode: string): Array<{ value: string; label
   ];
 
 };
-
-const POA_DOCUMENT_TYPES = [
-  { value: 'utility_bill', label: 'Utility Bill', desc: 'Electricity, water, gas (max 3 months old)' },
-  { value: 'bank_statement', label: 'Bank Statement', desc: 'Official bank statement (max 3 months old)' },
-  { value: 'tenancy_agreement', label: 'Tenancy Agreement', desc: 'Current rental/lease agreement' },
-  { value: 'government_letter', label: 'Government Letter', desc: 'Tax letter, official correspondence' },
-];
 
 // ============================================================================
 // MAIN COMPONENT
@@ -140,18 +128,15 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     city: '',
     state: '',
     postalCode: '',
-    poaDocumentType: '',
-    poaFile: null,
-    poaUploaded: false,
   });
 
   const updateForm = (updates: Partial<SignUpData>) => {
     setFormData(prev => ({ ...prev, ...updates }));
   };
 
-  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'proof-of-address', 'review', 'pending'];
+  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'review', 'pending'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 6; // Don't count 'pending'
+  const totalSteps = 5; // Don't count 'pending'
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)
@@ -256,51 +241,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   // STEP 3: Identity → Address (KYC done from dashboard)
   // ============================================================================
 
-
-  // ============================================================================
-  // STEP 5: Upload Proof of Address
-  // ============================================================================
-
-  const handlePoAUpload = async () => {
-    if (!formData.poaFile || !formData.poaDocumentType) {
-      toast.error('Please select a document type and file');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // Step 1: Get signed upload URL
-      const uploadUrlData = await backendAPI.proofOfAddress.getUploadUrl(
-        formData.poaFile.type,
-        formData.poaFile.name
-      );
-      if (!uploadUrlData.success) throw new Error(uploadUrlData.error || 'Failed to get upload URL');
-
-      // Step 2: Upload the file
-      const uploadRes = await fetch(uploadUrlData.data.upload_url, {
-        method: 'PUT',
-        headers: { 'Content-Type': formData.poaFile.type },
-        body: formData.poaFile,
-      });
-
-      if (!uploadRes.ok) throw new Error('File upload failed');
-
-      // Step 3: Submit for review
-      const submitData = await backendAPI.proofOfAddress.submit(
-        uploadUrlData.data.path,
-        formData.poaDocumentType
-      );
-      if (!submitData.success) throw new Error(submitData.error || 'Submission failed');
-
-      updateForm({ poaUploaded: true });
-      toast.success('Proof of address submitted!');
-      setCurrentStep('review');
-    } catch (error: any) {
-      toast.error(friendlyErrorFor(error, 'signup', 'Upload failed. Please try again.'));
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // ============================================================================
   // STEP 6: Submit to backend
@@ -591,16 +531,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               <StepAddress
                 formData={formData}
                 updateForm={updateForm}
-                onNext={() => setCurrentStep('proof-of-address')}
-              />
-            )}
-
-            {currentStep === 'proof-of-address' && (
-              <StepProofOfAddress
-                formData={formData}
-                updateForm={updateForm}
-                onUpload={handlePoAUpload}
-                isLoading={isLoading}
+                onNext={() => setCurrentStep('review')}
               />
             )}
 
@@ -1479,142 +1410,6 @@ function StepAddress({ formData, updateForm, onNext }: {
 }
 
 // ============================================================================
-// STEP 5: PROOF OF ADDRESS
-// ============================================================================
-
-function StepProofOfAddress({ formData, updateForm, onUpload, isLoading }: {
-  formData: SignUpData;
-  updateForm: (u: Partial<SignUpData>) => void;
-  onUpload: () => void;
-  isLoading: boolean;
-}) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Validate file size (10MB max)
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error('File size must be less than 10MB');
-        return;
-      }
-      // Validate file type
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-      if (!allowedTypes.includes(file.type)) {
-        toast.error('Accepted formats: JPG, PNG, WebP, PDF');
-        return;
-      }
-      updateForm({ poaFile: file });
-    }
-  };
-
-  const isValid = formData.poaDocumentType && formData.poaFile;
-
-  return (
-    <div className="px-6 pb-8">
-      <div className="text-center mb-6 pt-4">
-        <div className="w-16 h-16 bg-[#C7FF00]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <FileText className="w-8 h-8 text-[#C7FF00]" />
-        </div>
-        <h2 className="text-xl font-bold mb-1">Proof of Address</h2>
-        <p className="text-sm text-gray-400 max-w-xs mx-auto">
-          Upload a document confirming your residential address. Must be less than 3 months old.
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        {/* Document Type Selection */}
-        <div>
-          <label className="block text-xs text-gray-400 uppercase tracking-[0.15em] font-semibold mb-2">
-            Document Type
-          </label>
-          <div className="space-y-2">
-            {POA_DOCUMENT_TYPES.map((docType) => (
-              <button
-                key={docType.value}
-                onClick={() => updateForm({ poaDocumentType: docType.value as any })}
-                className={`w-full flex items-start gap-3 p-3.5 rounded-2xl border transition-all text-left ${
-                  formData.poaDocumentType === docType.value
-                    ? 'bg-[#C7FF00]/10 border-[#C7FF00]/50'
-                    : 'bg-white/[0.04] border-white/[0.08] hover:border-white/20'
-                }`}
-              >
-                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                  formData.poaDocumentType === docType.value ? 'border-[#C7FF00]' : 'border-gray-600'
-                }`}>
-                  {formData.poaDocumentType === docType.value && (
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#C7FF00]" />
-                  )}
-                </div>
-                <div>
-                  <span className="text-sm font-medium text-white">{docType.label}</span>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{docType.desc}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* File Upload */}
-        <div>
-          <label className="block text-xs text-gray-400 uppercase tracking-[0.15em] font-semibold mb-2">
-            Upload Document
-          </label>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            accept="image/jpeg,image/png,image/webp,application/pdf"
-            className="hidden"
-          />
-
-          {formData.poaFile ? (
-            <div className="bg-white/[0.04] backdrop-blur-md border border-[#C7FF00]/30 rounded-2xl p-4 flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#C7FF00]/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                <CheckCircle className="w-5 h-5 text-[#C7FF00]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{formData.poaFile.name}</p>
-                <p className="text-xs text-gray-500">{(formData.poaFile.size / 1024).toFixed(0)} KB</p>
-              </div>
-              <button
-                onClick={() => { updateForm({ poaFile: null }); if (fileInputRef.current) fileInputRef.current.value = ''; }}
-                className="text-gray-500 hover:text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full border-2 border-dashed border-white/10 rounded-2xl p-6 text-center hover:border-[#C7FF00]/30 transition-all"
-            >
-              <Upload className="w-8 h-8 text-gray-500 mx-auto mb-2" />
-              <p className="text-sm text-gray-300 font-medium">Tap to upload</p>
-              <p className="text-xs text-gray-500 mt-1">JPG, PNG, WebP, or PDF (max 10MB)</p>
-            </button>
-          )}
-        </div>
-
-        {/* Upload Button */}
-        <motion.button
-          onClick={onUpload}
-          disabled={!isValid || isLoading}
-          whileTap={{ scale: 0.98 }}
-          className="w-full bg-[#C7FF00] text-black py-3.5 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#D4FF33] disabled:opacity-30 disabled:cursor-not-allowed mt-2"
-        >
-          {isLoading ? (
-            <><Loader2 className="w-5 h-5 animate-spin" /> Uploading...</>
-          ) : (
-            <>Upload & Continue <ArrowRight className="w-4 h-4" /></>
-          )}
-        </motion.button>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
 // STEP 6: REVIEW & SUBMIT
 // ============================================================================
 
@@ -1666,11 +1461,6 @@ function StepReview({ formData, onSubmit, isLoading }: {
         <ReviewRow label="City" value={formData.city} icon={MapPin} />
         <ReviewRow label="State" value={formData.state} icon={Globe} />
         <ReviewRow label="Postal Code" value={formData.postalCode} icon={Hash} />
-        <ReviewRow 
-          label="Proof of Address" 
-          value={formData.poaUploaded ? `${formData.poaDocumentType?.replace(/_/g, ' ')} - uploaded` : 'Not uploaded'} 
-          icon={FileText} 
-        />
       </div>
 
       {/* Warning */}
@@ -1751,11 +1541,6 @@ function StepPending({ onProceed, enrollmentComplete }: {
           <StatusCard
             icon={<Shield className="w-4 h-4" />}
             label="Identity Verification"
-            status="processing"
-          />
-          <StatusCard
-            icon={<FileText className="w-4 h-4" />}
-            label="Proof of Address"
             status="processing"
           />
           <StatusCard

@@ -938,17 +938,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'help-center':
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
-      // Legacy route alias: POA is hosted inside Bridge KYC/KYB now.
-      case 'proof-of-address':
-        return (
-          <KYCVerification
-            userId={userId}
-            userEmail=""
-            onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
-          />
-        );
-
       case 'pricing':
         return (
           <PricingScreen
