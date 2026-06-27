@@ -104,14 +104,6 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   const accountType = String(user?.account_type || 'individual').toLowerCase();
   const isBusiness = accountType === 'business';
   const cardTypeLabel = isBusiness ? 'TEAM CARD' : 'PERSONAL CARD';
-  const isFounderPreviewUser = String(user?.email || '').toLowerCase() === 'founder@borderpayafrica.com';
-  const previewUnlocked = useMemo(() => {
-    if (!isFounderPreviewUser || typeof window === 'undefined') return false;
-    const queryEnabled = new URLSearchParams(window.location.search).get('cards_preview') === '1';
-    const persistedEnabled = window.localStorage.getItem('borderpay_cards_preview') === '1';
-    return queryEnabled || persistedEnabled;
-  }, [isFounderPreviewUser]);
-  const canCreate = previewUnlocked;
 
   const cardTabs = useMemo(() => ([
     { id: 'overview' as const, label: 'Overview', icon: List },
@@ -152,10 +144,6 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   };
 
   useEffect(() => {
-    if (previewUnlocked) {
-      setMessage('Preview unlock is active for this account. Card issuance remains disabled globally.');
-      return;
-    }
     void loadProgramState(false);
     const onFocus = () => { void loadProgramState(false); };
     const onVisibility = () => {
@@ -167,7 +155,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [previewUnlocked]);
+  }, []);
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
@@ -185,9 +173,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
             <div className="min-w-0">
               <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${tc.borderLight} ${tc.bgAlt} mb-3`}>
                 <Lock className={`w-3 h-3 ${tc.textMuted}`} />
-                <span className={`text-[10px] font-bold tracking-wider uppercase ${tc.textMuted}`}>
-                  {previewUnlocked ? 'Preview unlock' : 'Locked'}
-                </span>
+                <span className={`text-[10px] font-bold tracking-wider uppercase ${tc.textMuted}`}>Locked</span>
               </div>
               <h1 className={`text-2xl sm:text-3xl font-semibold ${tc.text} tracking-tight mb-2`}>
                 {title}
@@ -240,26 +226,24 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <button
               type="button"
-              disabled={!canCreate}
-              aria-disabled={!canCreate}
+              disabled={false}
+              aria-disabled={false}
               onClick={() => {
-                if (!previewUnlocked) return;
-                setMessage('Card create preview is enabled for UI testing. Live issuing remains locked.');
+                setMessage('Coming soon: card issuing is not enabled yet.');
               }}
-              className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${canCreate ? `${tc.text} ${tc.hoverBg}` : `${tc.textMuted} cursor-not-allowed`}`}
+              className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`}
             >
               <Lock className="w-4 h-4" />
               <span className="text-xs font-semibold">Create card</span>
             </button>
             <button
               type="button"
-              disabled={!canCreate}
-              aria-disabled={!canCreate}
+              disabled={false}
+              aria-disabled={false}
               onClick={() => {
-                if (!previewUnlocked) return;
-                setMessage('Controls preview is enabled. Live card controls remain locked.');
+                setMessage('Coming soon: spending controls are not enabled yet.');
               }}
-              className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${canCreate ? `${tc.text} ${tc.hoverBg}` : `${tc.textMuted} cursor-not-allowed`}`}
+              className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`}
             >
               <SlidersHorizontal className="w-4 h-4" />
               <span className="text-xs font-semibold">Spending controls</span>
