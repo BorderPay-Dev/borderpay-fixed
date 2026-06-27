@@ -1,12 +1,13 @@
 /**
  * BorderPay Africa — Send Confirmation Email
- * Sends a branded email verification link via Resend.
+ * Sends a branded email verification link via Brevo (preferred) or Resend fallback.
  *
  * Expects JSON body:
  *   { email, full_name, confirmation_url }
  *
  * Environment:
- *   RESEND_API_KEY — Resend API key
+ *   BREVO_API_KEY — Brevo API key (preferred)
+ *   RESEND_API_KEY — Resend API key (fallback)
  *   BORDERPAY_FROM_EMAIL — e.g. "BorderPay <noreply@borderpayafrica.com>"
  */
 
@@ -76,10 +77,11 @@ serve(async (req) => {
     }
     const safeConfirmationUrl = parsedConfirmation.toString();
 
+    const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY');
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     const FROM_EMAIL = Deno.env.get('BORDERPAY_FROM_EMAIL') || 'BorderPay <noreply@borderpayafrica.com>';
 
-    if (!RESEND_API_KEY) {
+    if (!BREVO_API_KEY && !RESEND_API_KEY) {
       return new Response(
         JSON.stringify({ success: false, error: 'Email service not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -176,7 +178,37 @@ serve(async (req) => {
 </body>
 </html>`;
 
-    const res = await fetch('https://api.resend.com/emails', {
+    let res: Response;
+    let resData: any = {};
+    if (BREVO_API_KEY) {
+      res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': BREVO_API_KEY,
+        },
+        body: JSON.stringify({
+          sender: parseSender(FROM_EMAIL),
+          to: [{ email }],
+          subject: 'Confirm your email — BorderPay',
+          htmlContent: htmlBody,
+        }),
+      });
+      resData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('Brevo error:', resData);
+        return new Response(
+          JSON.stringify({ success: false, error: resData.message || 'Email send failed' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ success: true, message_id: resData.messageId }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -190,8 +222,7 @@ serve(async (req) => {
       }),
     });
 
-    const resData = await res.json();
-
+    resData = await res.json().catch(() => ({}));
     if (!res.ok) {
       console.error('Resend error:', resData);
       return new Response(
@@ -212,3 +243,13 @@ serve(async (req) => {
     );
   }
 });
+
+function parseSender(raw: string): { email: string; name?: string } {
+  const match = raw.match(/^\s*([^<]+?)\s*<([^>]+)>\s*$/);
+  if (match) {
+    const name = match[1]?.trim();
+    const email = match[2]?.trim();
+    return name ? { name, email } : { email };
+  }
+  return { email: raw.trim() };
+}

@@ -1,8 +1,8 @@
 // send-email — unified transactional email entrypoint.
 //
 // Single send path for every BorderPay email. Renders one of the registered
-// templates, calls Resend, logs the attempt to public.email_log, and retries
-// on transient failures.
+// templates, calls Brevo (preferred) or Resend fallback, logs the attempt to
+// public.email_log, and retries on transient failures.
 //
 // Auth model:
 //   • verify_jwt = false  (called server-to-server from other edge functions
@@ -21,7 +21,7 @@
 //   }
 //
 // Returns:
-//   { success: true,  data: { resend_id, log_id, status } }
+//   { success: true,  data: { provider_id, log_id, status } }
 //   { success: false, error: string, log_id?: uuid }
 //
 // Deploy:
@@ -35,6 +35,7 @@ const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // SUPABASE_SERVICE_ROLE_KEY is used ONLY for the in-function admin DB client
 // (log_email_attempt RPC + email_log writes). It is NOT the HTTP caller password.
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const BREVO_KEY             = Deno.env.get("BREVO_API_KEY") ?? "";
 const RESEND_KEY            = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL            = Deno.env.get("BORDERPAY_FROM_EMAIL") ?? "BorderPay Africa <noreply@app.borderpayafrica.com>";
 // Dedicated internal caller token. send-email is invoked server-to-server only
@@ -62,6 +63,13 @@ interface SendEmailBody {
   user_id?:         string;
   idempotency_key?: string;
   reply_to?:        string;
+}
+
+interface ProviderSendResult {
+  ok: boolean;
+  providerId?: string;
+  error?: string;
+  retryable?: boolean;
 }
 
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
@@ -120,14 +128,15 @@ Deno.serve(async (req: Request) => {
       .eq("id", logId)
       .single();
     if (existing && existing.status === "sent") {
-      return json({ success: true, data: { resend_id: existing.resend_id, log_id: existing.id, status: "sent", deduped: true } });
+      return json({ success: true, data: { provider_id: existing.resend_id, log_id: existing.id, status: "sent", deduped: true } });
     }
   }
 
   // ── Send with retry/backoff ────────────────────────────────────────────
-  if (!RESEND_KEY) {
-    await markFailed(logId, "RESEND_API_KEY missing");
-    return json({ success: false, error: "Email service not configured (RESEND_API_KEY missing)", log_id: logId }, 500);
+  const emailProvider = BREVO_KEY ? "brevo" : RESEND_KEY ? "resend" : "none";
+  if (emailProvider === "none") {
+    await markFailed(logId, "No provider key configured (BREVO_API_KEY / RESEND_API_KEY missing)");
+    return json({ success: false, error: "Email service not configured", log_id: logId }, 500);
   }
 
   await supabaseAdmin
@@ -137,37 +146,19 @@ Deno.serve(async (req: Request) => {
 
   const maxAttempts = 4;
   let lastError = "";
-  let resendId  = "";
+  let providerId = "";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Content-Type":  "application/json",
-          "Authorization": `Bearer ${RESEND_KEY}`,
-        },
-        body: JSON.stringify({
-          from:    FROM_EMAIL,
-          to:      [body.to],
-          subject: rendered.subject,
-          html:    rendered.html,
-          text:    rendered.text,
-          ...(body.reply_to ? { reply_to: body.reply_to } : {}),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && (data as any)?.id) {
-        resendId  = (data as any).id;
-        lastError = "";
-        break;
-      }
-      lastError = `Resend HTTP ${res.status}: ${(data as any)?.message || JSON.stringify(data).slice(0, 300)}`;
-      // 4xx = don't retry (validation, missing-from, etc.); 5xx + network = retry.
-      if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) break;
-    } catch (e) {
-      lastError = `Resend network: ${(e as Error).message}`;
+    const sendResult = emailProvider === "brevo"
+      ? await sendViaBrevo({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to })
+      : await sendViaResend({ to: body.to, subject: rendered.subject, html: rendered.html, text: rendered.text, reply_to: body.reply_to });
+    if (sendResult.ok && sendResult.providerId) {
+      providerId = sendResult.providerId;
+      lastError = "";
+      break;
     }
+    lastError = sendResult.error || `${emailProvider} send failed`;
+    if (!sendResult.retryable) break;
     if (attempt < maxAttempts) {
       const backoffMs = Math.min(8000, 500 * Math.pow(2, attempt - 1));
       await supabaseAdmin
@@ -178,17 +169,19 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  if (resendId) {
+  if (providerId) {
     await supabaseAdmin
       .from("email_log")
       .update({
         status:    "sent",
-        resend_id: resendId,
+        // Keep legacy column name for backward compatibility; value now stores
+        // provider message id (Brevo messageId or Resend id).
+        resend_id: providerId,
         sent_at:   new Date().toISOString(),
         last_error: null,
       })
       .eq("id", logId);
-    return json({ success: true, data: { resend_id: resendId, log_id: logId, status: "sent" } });
+    return json({ success: true, data: { provider_id: providerId, log_id: logId, status: "sent", provider: emailProvider } });
   }
 
   await markFailed(logId, lastError || "Unknown send failure");
@@ -203,6 +196,80 @@ async function markFailed(logId: string, message: string) {
 }
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function sendViaResend(input: { to: string; subject: string; html: string; text: string; reply_to?: string }): Promise<ProviderSendResult> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${RESEND_KEY}`,
+      },
+      body: JSON.stringify({
+        from: FROM_EMAIL,
+        to: [input.to],
+        subject: input.subject,
+        html: input.html,
+        text: input.text,
+        ...(input.reply_to ? { reply_to: input.reply_to } : {}),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data as Record<string, unknown>)?.id) {
+      return { ok: true, providerId: String((data as Record<string, unknown>).id) };
+    }
+    const retryable = !(res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429);
+    return {
+      ok: false,
+      retryable,
+      error: `Resend HTTP ${res.status}: ${String((data as Record<string, unknown>)?.message || JSON.stringify(data).slice(0, 300))}`,
+    };
+  } catch (e) {
+    return { ok: false, retryable: true, error: `Resend network: ${(e as Error).message}` };
+  }
+}
+
+async function sendViaBrevo(input: { to: string; subject: string; html: string; text: string; reply_to?: string }): Promise<ProviderSendResult> {
+  try {
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": BREVO_KEY,
+      },
+      body: JSON.stringify({
+        sender: parseSender(FROM_EMAIL),
+        to: [{ email: input.to }],
+        subject: input.subject,
+        htmlContent: input.html,
+        textContent: input.text,
+        ...(input.reply_to ? { replyTo: { email: input.reply_to } } : {}),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data as Record<string, unknown>)?.messageId) {
+      return { ok: true, providerId: String((data as Record<string, unknown>).messageId) };
+    }
+    const retryable = !(res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429);
+    return {
+      ok: false,
+      retryable,
+      error: `Brevo HTTP ${res.status}: ${String((data as Record<string, unknown>)?.message || JSON.stringify(data).slice(0, 300))}`,
+    };
+  } catch (e) {
+    return { ok: false, retryable: true, error: `Brevo network: ${(e as Error).message}` };
+  }
+}
+
+function parseSender(raw: string): { email: string; name?: string } {
+  const match = raw.match(/^\s*([^<]+?)\s*<([^>]+)>\s*$/);
+  if (match) {
+    const name = match[1]?.trim();
+    const email = match[2]?.trim();
+    return name ? { name, email } : { email };
+  }
+  return { email: raw.trim() };
+}
 
 // Constant-time string comparison for the internal auth token. Returns false
 // immediately on length mismatch (length is not secret); otherwise compares all
