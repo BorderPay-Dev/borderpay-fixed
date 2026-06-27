@@ -59,7 +59,7 @@ function CardFace({ cardType = 'PERSONAL CARD' }: { cardType?: string }) {
           <div className="mt-3 mr-1"><CardChip /></div>
         </div>
         <div className="mt-auto flex items-end justify-end pr-1 pb-1">
-          <p className="text-[60px] leading-none font-bold tracking-[-0.03em] italic -rotate-[13deg] bg-gradient-to-br from-[#f4f4f4] via-[#c9c9c9] to-[#8f8f8f] bg-clip-text text-transparent">VISA</p>
+          <p className="text-[56px] leading-none font-bold tracking-[-0.02em] bg-gradient-to-br from-[#f4f4f4] via-[#c9c9c9] to-[#8f8f8f] bg-clip-text text-transparent">VISA</p>
         </div>
       </div>
     </div>
