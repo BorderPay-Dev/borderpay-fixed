@@ -19,7 +19,7 @@ export const BORDERPAY_BRAND = {
   warning:   "#E8A923",
   appUrl:    "https://app.borderpayafrica.com",
   supportEmail: "support@borderpayafrica.com",
-  heroUrl:   "https://app.borderpayafrica.com/email-hero.png",
+  heroUrl:   "https://app.borderpayafrica.com/email-logo-white.png",
 };
 
 export interface RenderedEmail {
@@ -73,9 +73,20 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
           <td align="center" style="padding:0;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(160deg,#121a22 0%,#0b0f14 100%);">
               <tr>
-                <td style="padding:26px 28px 18px;">
-                  <p style="margin:0;font-size:20px;font-weight:800;letter-spacing:0.6px;color:#FFFFFF;">BorderPay Africa</p>
-                  <p style="margin:6px 0 0;font-size:12px;line-height:1.45;color:#9FB0BD;">
+                <td style="padding:22px 28px 16px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="background:#05070A;border:1px solid #1D2630;border-radius:12px;padding:10px 14px;">
+                        <img
+                          src="${escapeHtml(b.heroUrl)}"
+                          width="210"
+                          alt="BorderPay Africa"
+                          style="display:block;width:210px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;"
+                        />
+                      </td>
+                    </tr>
+                  </table>
+                  <p style="margin:8px 0 0;font-size:12px;line-height:1.45;color:#9FB0BD;">
                     Global wallets, payments, and verification in one app.
                   </p>
                 </td>
