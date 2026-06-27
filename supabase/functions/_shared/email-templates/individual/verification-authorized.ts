@@ -12,10 +12,10 @@ export interface IndividualVerificationAuthorizedProps {
 
 export function render(p: IndividualVerificationAuthorizedProps): RenderedEmail {
   const name = firstName(p.full_name) || "there";
-  const subject = "You're approved to finish verification";
-  const heading = "Verification unlocked";
-  const introText = `Hi ${name}, your account has been reviewed and approved to start identity verification.`;
-  const closing = "Open BorderPay and complete your document uploads to finish verifying your identity.";
+  const subject = "Verify your identity";
+  const heading = "Verify your identity";
+  const introText = `Hi ${name}, please verify your identity to continue using BorderPay.`;
+  const closing = "Open BorderPay and complete identity verification.";
 
   return {
     subject,
@@ -24,14 +24,14 @@ export function render(p: IndividualVerificationAuthorizedProps): RenderedEmail 
       heading,
       introText,
       body: `<p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">${closing}</p>`,
-      ctaText: "Finish verification",
+      ctaText: "Verify your identity",
       ctaUrl: BORDERPAY_BRAND.appUrl,
       brandTone: "default",
     }),
     text: textLayout({
       heading,
       body: `${introText}\n\n${closing}`,
-      ctaText: "Finish verification",
+      ctaText: "Verify your identity",
       ctaUrl: BORDERPAY_BRAND.appUrl,
     }),
   };
