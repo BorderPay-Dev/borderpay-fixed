@@ -14,7 +14,6 @@ returns table (
   bridge_kyb_status text,
   bridge_kyc_link_id text,
   bridge_kyb_link_id text,
-  verification_status text,
   va_count integer,
   wallet_count integer,
   transfer_count integer,
@@ -32,14 +31,12 @@ as $$
       up.bridge_customer_id,
       up.created_at,
       lower(coalesce(up.bridge_kyc_status::text, 'not_started')) as bridge_kyc_status,
-      lower(coalesce(up.bridge_kyc_link_id, '')) as bridge_kyc_link_id,
-      lower(coalesce(up.verification_status::text, 'not_started')) as verification_status
+      lower(coalesce(up.bridge_kyc_link_id, '')) as bridge_kyc_link_id
     from public.user_profiles up
     where up.bridge_customer_id is not null
       and up.created_at <= (now() - make_interval(days => greatest(p_age_days, 1)))
       and lower(coalesce(up.bridge_kyc_status::text, 'not_started')) = 'not_started'
       and coalesce(up.bridge_kyc_link_id, '') = ''
-      and lower(coalesce(up.verification_status::text, 'not_started')) in ('not_started', 'pending')
   ),
   biz as (
     select
@@ -83,7 +80,6 @@ as $$
     bz.bridge_kyb_status,
     nullif(b.bridge_kyc_link_id, '') as bridge_kyc_link_id,
     nullif(bz.bridge_kyb_link_id, '') as bridge_kyb_link_id,
-    b.verification_status,
     c.va_count,
     c.wallet_count,
     c.transfer_count,
