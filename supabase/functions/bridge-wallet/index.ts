@@ -8,7 +8,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
 import type { StablecoinSymbol, StablecoinChain } from "../_shared/providers/types.ts";
 import {
   isBridgeBlocked,
@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
   }
   logControlledBridgeTraffic("bridge-wallet", productCountry, user.id);
   if (!profile.bridge_customer_id) {
-    return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
+    return json({ success: false, error: "Complete account setup before creating a wallet", code: "no_customer" }, 409);
   }
   if (verificationStatus !== "approved") {
     return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
       return json({
         success: false,
         code:    "persistence_failed",
-        error:   `Wallet created at Bridge (${result.wallet_id}) but local save failed: ${(bwErr || wErr)!.message}`,
+        error:   `Wallet created by provider (${result.wallet_id}) but local save failed: ${(bwErr || wErr)!.message}`,
         bridge_wallet_id: result.wallet_id,
       }, 500);
     }
@@ -155,6 +155,46 @@ Deno.serve(async (req) => {
       data: { wallet_id: result.wallet_id, deposit_address: result.deposit_address, symbol, chain },
     });
   } catch (e) {
-    return json({ success: false, error: (e as Error).message }, 502);
+    if (e instanceof BridgeProviderError) {
+      const code = String(e.bridge_code || "").toLowerCase();
+      if (code === "has_not_accepted_tos") {
+        return json({
+          success: false,
+          code: "tos_required",
+          error: "Please accept Terms of Service before creating a wallet.",
+          bridge_request_id: e.request_id || undefined,
+        }, 409);
+      }
+      if (code === "requires_active_kyc_status") {
+        return json({
+          success: false,
+          code: "kyc_not_approved",
+          error: isBusiness
+            ? "Business verification is required before creating a wallet."
+            : "Identity verification is required before creating a wallet.",
+          bridge_request_id: e.request_id || undefined,
+        }, 409);
+      }
+      if (code === "missing_required_endorsements" || code === "endorsement_requirements_not_met") {
+        return json({
+          success: false,
+          code: "endorsement_required",
+          error: "Wallet creation is not enabled for your account yet.",
+          bridge_request_id: e.request_id || undefined,
+        }, 403);
+      }
+      return json({
+        success: false,
+        code: "wallet_provider_error",
+        error: "Unable to create wallet right now. Please try again shortly.",
+        provider_code: code || undefined,
+        bridge_request_id: e.request_id || undefined,
+      }, 502);
+    }
+    return json({
+      success: false,
+      code: "wallet_provision_failed",
+      error: "Unable to create wallet right now. Please try again shortly.",
+    }, 502);
   }
 });

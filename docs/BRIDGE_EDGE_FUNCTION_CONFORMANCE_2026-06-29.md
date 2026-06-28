@@ -65,3 +65,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - added `action=capabilities` to return country-eligible VA currencies (`USD/EUR/GBP`) from policy gate
   - mapped key Bridge provider errors (`has_not_accepted_tos`, `requires_active_kyc_status`, endorsement errors) to deterministic product-safe responses
   - replaced raw provider error passthrough with sanitized fallback error
+
+### 2026-06-29 — Batch F (completed)
+- Hardened `bridge-wallet` error surface:
+  - mapped key provider error classes to deterministic product-safe responses (`tos_required`, `kyc_not_approved`, `endorsement_required`)
+  - removed raw provider message leakage from wallet provisioning path
+- Hardened `bridge-sync-accounts` account mirroring:
+  - no longer defaults unknown wallet currency to `USDC` (prevents silent misclassification)
+  - now skips malformed provider rows with empty currency for wallets/virtual-accounts and logs explicit warning

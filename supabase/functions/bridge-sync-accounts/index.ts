@@ -14,6 +14,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { loadVirtualAccountDeveloperFeePercent } from "../_shared/providers/virtual-account-config.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -27,6 +28,12 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+function normalizeDeveloperFeePercent(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return Number(n.toFixed(4));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -39,7 +46,7 @@ Deno.serve(async (req) => {
 
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("account_type, bridge_customer_id")
+    .select("account_type, bridge_customer_id, country, phone")
     .eq("id", user.id)
     .maybeSingle();
   const isBusiness = profile?.account_type === "business";
@@ -52,6 +59,53 @@ Deno.serve(async (req) => {
   const ownerCols = isBusiness
     ? { user_id: user.id, business_user_id: user.id }
     : { user_id: user.id };
+  const canonicalVaDeveloperFee =
+    normalizeDeveloperFeePercent(await loadVirtualAccountDeveloperFeePercent(supa));
+
+  // ── Customer profile sync (Bridge source-of-truth) ───────────────────────
+  // Keep both user_profiles.country and business_profiles.country hydrated from
+  // the Bridge customer object so KYB-approved business provisioning cannot be
+  // blocked by null country fields.
+  try {
+    const customer = await bridgeProvider.getCustomerProfile(customerId);
+    const country = String(customer.country ?? "").trim().toUpperCase();
+    if (country) {
+      const userUpdate: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (!profile?.country) userUpdate.country = country;
+      if (!profile?.phone && customer.phone) userUpdate.phone = customer.phone;
+      if (customer.address_object && Object.values(customer.address_object).some((v) => String(v ?? "").trim().length > 0)) {
+        userUpdate.bridge_address_object = customer.address_object;
+        const line1 = customer.address_object.street_line_1;
+        const line2 = customer.address_object.street_line_2;
+        if (line1) userUpdate.address = line2 ? `${line1}, ${line2}` : line1;
+        if (customer.address_object.city) userUpdate.city = customer.address_object.city;
+        if (customer.address_object.postal_code) userUpdate.postal_code = customer.address_object.postal_code;
+      }
+      await supa.from("user_profiles").update(userUpdate).eq("id", user.id);
+
+      if (isBusiness) {
+        const { data: biz } = await supa
+          .from("business_profiles")
+          .select("country, company_phone, address, city, state, postal_code")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        const bizUpdate: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        if (!biz?.country) bizUpdate.country = country;
+        if (!biz?.company_phone && customer.phone) bizUpdate.company_phone = customer.phone;
+        if (customer.address_object?.street_line_1 && !biz?.address) {
+          const line1 = customer.address_object.street_line_1;
+          const line2 = customer.address_object.street_line_2;
+          bizUpdate.address = line2 ? `${line1}, ${line2}` : line1;
+        }
+        if (customer.address_object?.city && !biz?.city) bizUpdate.city = customer.address_object.city;
+        if (customer.address_object?.state && !biz?.state) bizUpdate.state = customer.address_object.state;
+        if (customer.address_object?.postal_code && !biz?.postal_code) bizUpdate.postal_code = customer.address_object.postal_code;
+        await supa.from("business_profiles").update(bizUpdate).eq("user_id", user.id);
+      }
+    }
+  } catch (e) {
+    console.warn(`bridge-sync-accounts customer_profile: ${(e as Error).message}`);
+  }
 
   // ── Wallets ───────────────────────────────────────────────────────────────
   try {
@@ -66,11 +120,16 @@ Deno.serve(async (req) => {
       // label (and now also trip the bridge_wallets_currency_nonempty CHECK).
       const keepNonEmpty = (next: string, prev?: string | null) =>
         (next && String(next).trim().length > 0) ? next : (prev ?? "");
+      const normalizedCurrency = keepNonEmpty(w.currency, existing?.currency);
+      if (!normalizedCurrency) {
+        console.warn(`bridge-sync-accounts wallets: skipping wallet ${w.wallet_id} due to empty currency`);
+        continue;
+      }
       const row = {
         ...ownerCols,
         bridge_customer_id: customerId,
         bridge_wallet_id:   w.wallet_id,
-        currency:           keepNonEmpty(w.currency, existing?.currency) || "USDC",
+        currency:           normalizedCurrency,
         chain:              keepNonEmpty(w.chain,    existing?.chain),
         address:            keepNonEmpty(w.address,  existing?.address),
         status:             "active",
@@ -89,15 +148,24 @@ Deno.serve(async (req) => {
     const bva = await bridgeProvider.listVirtualAccounts(customerId);
     for (const v of bva) {
       if (!v.virtual_account_id) continue;
+      const normalizedVaCurrency = String(v.currency || "").trim().toUpperCase();
+      if (!normalizedVaCurrency) {
+        console.warn(`bridge-sync-accounts virtual_accounts: skipping VA ${v.virtual_account_id} due to empty currency`);
+        continue;
+      }
       const { data: existing } = await supa.from("bridge_virtual_accounts")
-        .select("id").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+        .select("id,developer_fee_percent").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
       const row = {
         ...ownerCols,
         bridge_customer_id:        customerId,
         bridge_virtual_account_id: v.virtual_account_id,
-        currency:                  v.currency,
+        currency:                  normalizedVaCurrency,
         rail:                      v.rail ?? null,
         status:                    v.status ?? "active",
+        developer_fee_percent:
+          normalizeDeveloperFeePercent(v.developer_fee_percent) ??
+          normalizeDeveloperFeePercent(existing?.developer_fee_percent) ??
+          canonicalVaDeveloperFee,
         account_details:           v.account_details ?? null,
         updated_at:                new Date().toISOString(),
       };
