@@ -1161,19 +1161,59 @@ export const cardAPI = {
 // FX API surface. Execution is routed through `bridge-transfer` using
 // Bridge orchestration (wallet source → wallet destination), while rates
 // remain indicative unless a quote endpoint is wired.
+
+const FX_SUPPORTED_PAIRS_FALLBACK = [
+  'USD_BRL', 'BRL_USD',
+  'USD_COP', 'COP_USD',
+  'USD_EUR', 'EUR_USD',
+  'USD_GBP', 'GBP_USD',
+  'USD_MXN', 'MXN_USD',
+  'USD_USDT', 'USDT_USD',
+];
+let fxSupportedPairsCache = new Set<string>(FX_SUPPORTED_PAIRS_FALLBACK);
+let fxSupportedPairsLoadedAt = 0;
+let fxSupportedPairsPromise: Promise<string[]> | null = null;
+
 export const fxAPI = {
   // Bridge-documented fiat/stablecoin pair set used by BorderPay FX UI policy.
   // Keep this strict to avoid showing non-executable pairs.
   supportedPairs(): string[] {
-    const directed = [
-      'USD_BRL', 'BRL_USD',
-      'USD_COP', 'COP_USD',
-      'USD_EUR', 'EUR_USD',
-      'USD_GBP', 'GBP_USD',
-      'USD_MXN', 'MXN_USD',
-      'USD_USDT', 'USDT_USD',
-    ];
-    return directed;
+    return Array.from(fxSupportedPairsCache);
+  },
+
+  async refreshSupportedPairs(force: boolean = false): Promise<string[]> {
+    const now = Date.now();
+    if (!force && fxSupportedPairsLoadedAt > 0 && now - fxSupportedPairsLoadedAt < 5 * 60 * 1000) {
+      return fxAPI.supportedPairs();
+    }
+    if (fxSupportedPairsPromise && !force) {
+      return fxSupportedPairsPromise;
+    }
+    const loader = (async () => {
+      const res: any = await apiCall<{ supported_pairs?: string[] }>('bridge-fx-supported-pairs', {
+        method: 'GET',
+      });
+      if (res?.success && Array.isArray(res?.data?.supported_pairs)) {
+        const normalized = res.data.supported_pairs
+          .map((p: string) => String(p || '').trim().toUpperCase())
+          .filter((p: string) => /^[A-Z0-9]{2,10}_[A-Z0-9]{2,10}$/.test(p));
+        if (normalized.length > 0) {
+          fxSupportedPairsCache = new Set(normalized);
+          fxSupportedPairsLoadedAt = Date.now();
+          return normalized;
+        }
+      }
+      if (fxSupportedPairsCache.size === 0) {
+        fxSupportedPairsCache = new Set(FX_SUPPORTED_PAIRS_FALLBACK);
+      }
+      return fxAPI.supportedPairs();
+    })();
+    fxSupportedPairsPromise = loader;
+    try {
+      return await loader;
+    } finally {
+      if (fxSupportedPairsPromise === loader) fxSupportedPairsPromise = null;
+    }
   },
 
   isPairSupported(fromCurrency: string, toCurrency: string): boolean {
@@ -1184,6 +1224,7 @@ export const fxAPI = {
   },
 
   async getCurrentRate(fromCurrency: string, toCurrency: string) {
+    await fxAPI.refreshSupportedPairs();
     const from = String(fromCurrency || '').toUpperCase();
     const to = String(toCurrency || '').toUpperCase();
     if (!fxAPI.isPairSupported(from, to)) {
@@ -1206,6 +1247,7 @@ export const fxAPI = {
   },
 
   async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
+    await fxAPI.refreshSupportedPairs();
     const from = String(sourceCurrency || '').toUpperCase();
     const to = String(targetCurrency || '').toUpperCase();
     const amt = Number(amount || 0);

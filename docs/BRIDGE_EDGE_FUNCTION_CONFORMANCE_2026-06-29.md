@@ -122,3 +122,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - returns backend-effective FX pair allow-list from the same source used by `bridge-transfer`
   - policy source precedence: `provider_settings.bridge.fx.supported_pairs` -> static fallback default
   - enables UI/backend consistency without duplicating pair assumptions in frontend code
+
+### 2026-06-29 — Batch O (completed)
+- Wired client FX policy checks to backend policy source:
+  - `backendAPI.fx` now refreshes supported pairs from `bridge-fx-supported-pairs` with in-memory cache + safe fallback
+  - `ExchangeScreen` now refreshes pair policy on mount and re-evaluates pair-rate path after policy load
+  - replaced static hardcoded unsupported-pair copy with policy-neutral message

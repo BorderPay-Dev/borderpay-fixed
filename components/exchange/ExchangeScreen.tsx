@@ -162,6 +162,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   const [pairRate, setPairRate] = useState<number | null>(null);
   const [pairRateUpdatedAt, setPairRateUpdatedAt] = useState<string | null>(null);
   const [pairRateLoading, setPairRateLoading] = useState(false);
+  const [fxPairsVersion, setFxPairsVersion] = useState(0);
 
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [stableWallets, setStableWallets] = useState<StableWallet[]>([]);
@@ -197,6 +198,16 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   useEffect(() => {
     stableWalletsRef.current = stableWallets;
   }, [stableWallets]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSupportedPairs = async () => {
+      await backendAPI.fx.refreshSupportedPairs();
+      if (!cancelled) setFxPairsVersion((v) => v + 1);
+    };
+    void loadSupportedPairs();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (destinationWallets.length === 0) {
@@ -260,7 +271,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
     };
     void loadPairRate();
     return () => { cancelled = true; };
-  }, [selectedWallet?.currency, selectedDestinationWallet?.currency]);
+  }, [selectedWallet?.currency, selectedDestinationWallet?.currency, fxPairsVersion]);
 
   const loadRates = async (foreground: boolean = false) => {
     if (ratesLoadInFlightRef.current) {
@@ -654,7 +665,7 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
 
           {selectedWallet && selectedDestinationWallet && !backendAPI.fx.isPairSupported(selectedWallet.currency, selectedDestinationWallet.currency) && (
             <p className="mb-3 text-xs text-amber-400">
-              This pair is currently unavailable. Supported pairs: USD↔BRL, USD↔COP, USD↔EUR, USD↔GBP, USD↔MXN, USD↔USDT.
+              This pair is currently unavailable for your account policy.
             </p>
           )}
 
