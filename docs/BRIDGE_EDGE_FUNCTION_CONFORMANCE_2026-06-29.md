@@ -158,3 +158,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - `BridgeProvider.createCustomer` now throws `BridgeProviderError` with structured metadata (`status`, `request_id`, provider code/message)
   - response validation now fails with structured provider error when customer id is missing
   - removes generic error throw path and aligns create-customer behavior with other provider helpers
+
+### 2026-06-29 — Batch U (completed)
+- Hardened `bridge-kyb-link` operational parity with KYC flow:
+  - added staged trace writes (correlation id, status, request id, elapsed ms) into `bridge_kyc_traces`
+  - added structured trace coverage for request/response/db-update/success stages
+  - replaced raw `business_profiles` update error leakage with product-safe `profile_sync_failed` response
