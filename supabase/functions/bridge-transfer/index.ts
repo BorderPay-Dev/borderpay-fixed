@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
   const profile = identity.context;
   const { data: maintenance } = await supa
     .from("user_profiles")
-    .select("maintenance_overdue")
+    .select("maintenance_overdue,wallet_maintenance_overdue")
     .eq("id", user.id)
     .maybeSingle();
   if (isBridgeBlocked(profile?.country)) {
@@ -208,11 +208,11 @@ Deno.serve(async (req) => {
   }
   // Maintenance gate (#3): block OUTBOUND money movement while a virtual-account
   // maintenance fee is unpaid. Inbound/top-ups stay open so the user can clear it.
-  if (maintenance?.maintenance_overdue === true) {
+  if (maintenance?.maintenance_overdue === true || maintenance?.wallet_maintenance_overdue === true) {
     return json({
       success: false,
       code:    "maintenance_due",
-      error:   "Top up your wallet to cover your account maintenance fee before sending. Outbound transfers are paused until then.",
+      error:   "Top up your wallet to cover account maintenance fees before sending. Outbound transfers are paused until then.",
     }, 402);
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);

@@ -123,17 +123,17 @@ Deno.serve(async (req) => {
   const profile = identity.context;
   const { data: maintenance } = await supa
     .from("user_profiles")
-    .select("maintenance_overdue")
+    .select("maintenance_overdue,wallet_maintenance_overdue")
     .eq("id", user.id)
     .maybeSingle();
 
   if (isBridgeBlocked(profile?.country)) return json(bridgeCountryBlockResponse(profile!.country!), 403);
-  if (maintenance?.maintenance_overdue === true) {
+  if (maintenance?.maintenance_overdue === true || maintenance?.wallet_maintenance_overdue === true) {
     return json({ success: false, code: "maintenance_due",
-      error: "Clear your account maintenance fee before sending. Outbound transfers are paused until then." }, 402);
+      error: "Clear your account maintenance fees before sending. Outbound transfers are paused until then." }, 402);
   }
   logControlledBridgeTraffic("bridge-bulk-payout", profile?.country, user.id);
-  if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);
+  if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Complete account setup before sending payouts" }, 409);
   if (profile.verification_status !== "approved") return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
   {
     const isBusiness = profile.account_type === "business";
@@ -174,6 +174,7 @@ Deno.serve(async (req) => {
       const devFeePercent = bridgeDeveloperFeePercent(sourceRail, sourceCurrency);
 
       const result = await bridgeProvider.createTransfer({
+        on_behalf_of: profile.bridge_customer_id,
         source: {
           customer_id:  profile.bridge_customer_id,
           payment_rail: sourceRail,

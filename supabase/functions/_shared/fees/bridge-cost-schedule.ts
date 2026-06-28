@@ -8,7 +8,7 @@
  * (white-labeled) fees we actually display/charge.
  *
  * Figures are the provider's published schedule, verbatim:
- *   Basic orchestration ............ 0.35% of amount
+ *   Basic orchestration ............ 0.25% of amount
  *   Virtual-account orchestration .. 0.50% of amount
  *   Virtual account (USD/GBP/EUR) .. $2.00 per active or created account (annual/maintenance)
  *   Virtual account (MXN) .......... $1.50
@@ -27,7 +27,7 @@
 /** Percentages are expressed as PERCENT (0.35 == 0.35%). USD amounts in dollars. */
 export const PROVIDER_COST = {
   orchestration: {
-    basic_percent:           0.35,
+    basic_percent:           0.25,
     virtual_account_percent: 0.50,
   },
   /** Per active-or-created virtual account, charged monthly (maintenance). */
