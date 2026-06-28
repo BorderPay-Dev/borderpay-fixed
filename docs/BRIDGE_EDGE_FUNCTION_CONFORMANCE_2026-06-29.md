@@ -140,3 +140,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - removed raw provider error string passthrough from client responses
   - added deterministic product-safe error mapping (`unsupported_pair`, `rate_limited`, `provider_unavailable`, etc.)
   - preserved `request_id` passthrough for support tracing
+
+### 2026-06-29 — Batch R (completed)
+- Hardened `bridge-sync-customers` customer/status persistence:
+  - individual rows now initialize `bridge_kyc_status=not_started`; business rows initialize `bridge_kyb_status=not_started`
+  - added explicit DB update error checks for `user_profiles` and `business_profiles` writes
+  - replaced raw exception leakage in sync results with deterministic operator-safe error codes/messages

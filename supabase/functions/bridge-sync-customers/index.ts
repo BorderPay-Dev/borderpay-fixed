@@ -31,6 +31,23 @@ type SyncBody = {
 const INTERNAL_DOMAIN = "@borderpayafrica.com";
 const INTERNAL_ALLOWLIST = new Set(["founder@borderpayafrica.com"]);
 
+function mapSyncCustomerError(error: unknown): { code: string; message: string } {
+  const message = String((error as Error)?.message || "").toLowerCase();
+  if (message.includes("has_not_accepted_tos")) {
+    return { code: "tos_required", message: "Customer must accept terms of service before provisioning can continue." };
+  }
+  if (message.includes("requires_active_kyc_status")) {
+    return { code: "verification_required", message: "Customer verification is required before this operation can continue." };
+  }
+  if (message.includes("rate") || message.includes("429")) {
+    return { code: "rate_limited", message: "Provider rate limit reached. Retry later." };
+  }
+  if (message.includes("timeout") || message.includes("network")) {
+    return { code: "provider_unavailable", message: "Provider is temporarily unavailable. Retry later." };
+  }
+  return { code: "sync_failed", message: "Unable to sync customer at this time." };
+}
+
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split(".");
@@ -188,17 +205,24 @@ Deno.serve(async (req) => {
       });
 
       const bridgeCustomerId = createdCustomer.provider_id;
-      await supa
+      const profileStatusUpdate =
+        c.account_type === "business"
+          ? { bridge_kyb_status: "not_started" as const }
+          : { bridge_kyc_status: "not_started" as const };
+      const { error: profileUpdateErr } = await supa
         .from("user_profiles")
         .update({
           bridge_customer_id: bridgeCustomerId,
-          bridge_kyc_status: "not_started",
+          ...profileStatusUpdate,
           updated_at: new Date().toISOString(),
         })
         .eq("id", c.id);
+      if (profileUpdateErr) {
+        throw new Error(`profile_update_failed:${profileUpdateErr.message}`);
+      }
 
       if (c.account_type === "business" && includeBusiness) {
-        await supa
+        const { error: businessUpdateErr } = await supa
           .from("business_profiles")
           .update({
             bridge_customer_id: bridgeCustomerId,
@@ -206,6 +230,9 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq("user_id", c.id);
+        if (businessUpdateErr) {
+          throw new Error(`business_update_failed:${businessUpdateErr.message}`);
+        }
       }
 
       row.status = "created";
@@ -214,7 +241,9 @@ Deno.serve(async (req) => {
       results.push(row);
     } catch (e) {
       row.status = "failed";
-      row.error = (e as Error).message;
+      const mapped = mapSyncCustomerError(e);
+      row.error_code = mapped.code;
+      row.error = mapped.message;
       failed += 1;
       results.push(row);
     }
