@@ -43,6 +43,46 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+type EscalationDecision = {
+  escalate: boolean;
+  reasons: string[];
+};
+
+function shouldForceHumanHandoff(input: {
+  issueType: string;
+  subject: string;
+  conversation: Array<{ sender_type: string; body: string }>;
+}): EscalationDecision {
+  const reasons: string[] = [];
+  const issue = String(input.issueType || "").toLowerCase();
+  const text = [
+    input.subject || "",
+    ...input.conversation.map((m) => m?.body || ""),
+  ].join("\n").toLowerCase();
+
+  // Issue-type hard gates.
+  if (issue === "wallet_balances") reasons.push("wallet_balance_incident");
+  if (issue === "verification") reasons.push("verification_incident");
+  if (issue === "send_receive") reasons.push("money_movement_incident");
+  if (issue === "account_access") reasons.push("account_access_incident");
+
+  // Content hard gates for fintech risk.
+  const highRiskMatchers: Array<[RegExp, string]> = [
+    [/\b(stuck|pending|failed|declined|reversed|missing)\b.*\b(transfer|withdraw|payout|send|deposit|payment)\b/, "payment_state_dispute"],
+    [/\b(double charge|charged twice|duplicate charge|unauthori[sz]ed|fraud|scam)\b/, "fraud_or_charge_dispute"],
+    [/\b(kyc|kyb|verify|verification)\b.*\b(rejected|failed|blocked|stuck|unable)\b/, "verification_failure"],
+    [/\b(can't login|cannot login|locked out|account locked|reset password not working)\b/, "account_lockout"],
+    [/\b(balance wrong|wallet missing|funds missing|money missing|cannot see funds)\b/, "funds_visibility_incident"],
+    [/\b(lawsuit|legal|regulator|compliance complaint|report to)\b/, "legal_or_regulatory_risk"],
+  ];
+
+  for (const [re, reason] of highRiskMatchers) {
+    if (re.test(text)) reasons.push(reason);
+  }
+
+  return { escalate: reasons.length > 0, reasons };
+}
+
 async function generateSupportDraft(input: {
   ticketSubject: string;
   issueType: string;
@@ -478,6 +518,40 @@ Deno.serve(async (req) => {
       .order("created_at", { ascending: true })
       .limit(50);
     if (msgErr) return json({ success: false, error: msgErr.message }, 500);
+
+    const escalation = shouldForceHumanHandoff({
+      issueType: String(ticket.issue_type ?? "general"),
+      subject: String(ticket.subject ?? ""),
+      conversation: Array.isArray(messages) ? messages : [],
+    });
+
+    if (escalation.escalate) {
+      await supa
+        .from("support_tickets")
+        .update({ status: "pending_support", assigned_admin_id: user.id })
+        .eq("id", ticketId);
+
+      await supa.from("support_ticket_events").insert({
+        ticket_id: ticketId,
+        event_type: "ai_blocked_handoff_required",
+        actor_user_id: user.id,
+        payload: {
+          reasons: escalation.reasons,
+          policy: "high_risk_human_handoff",
+        },
+      });
+
+      return json({
+        success: false,
+        code: "human_handoff_required",
+        error: "This ticket requires human handling. AI drafting is disabled for high-risk support cases.",
+        data: {
+          ticket_id: ticketId,
+          reasons: escalation.reasons,
+          status: "pending_support",
+        },
+      }, 409);
+    }
 
     try {
       const out = await generateSupportDraft({
