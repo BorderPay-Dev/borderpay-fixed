@@ -14,6 +14,7 @@ functions are not part of the runtime contract.
 | `bridge-virtual-account/` | USD / EUR / GBP virtual accounts |
 | `bridge-wallet/` | custodial stablecoin wallets |
 | `bridge-transfer/` | Bridge transfer orchestration |
+| `bridge-fx-supported-pairs/` | backend-effective FX pair allow-list (provider settings + fallback) |
 | `bridge-webhook/` | inbound Bridge webhook receiver (RSA-SHA256 PKCS#1 v1.5 signature) |
 
 ## Core / provider-neutral (vendored)

@@ -116,3 +116,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - wallet→wallet cross-currency validation now reads `provider_settings.key='bridge.fx.supported_pairs'` when configured
   - supports config shape `["USD_EUR", ...]` or `{ supported_pairs: [...] }`
   - malformed configured policy fails closed (empty allow-list), while absent policy falls back to static documented pair set
+
+### 2026-06-29 — Batch N (completed)
+- Added `bridge-fx-supported-pairs` endpoint for policy parity:
+  - returns backend-effective FX pair allow-list from the same source used by `bridge-transfer`
+  - policy source precedence: `provider_settings.bridge.fx.supported_pairs` -> static fallback default
+  - enables UI/backend consistency without duplicating pair assumptions in frontend code
