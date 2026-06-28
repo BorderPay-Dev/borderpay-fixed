@@ -14,6 +14,30 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
+function normalizeBridgeVerificationStatus(
+  bridgeCustomerId: string | null | undefined,
+  rawStatus: string | null | undefined,
+): 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected' {
+  if (!bridgeCustomerId) return 'not_started';
+  const s = String(rawStatus || '').trim().toLowerCase();
+  if (!s) return 'not_started';
+  if (s === 'approved' || s === 'active' || s === 'verified' || s === 'authorized' || s === 'completed' || s === 'complete') return 'approved';
+  if (s === 'rejected' || s === 'failed' || s === 'denied') return 'rejected';
+  if (s === 'under_review' || s === 'in_review' || s === 'review') return 'under_review';
+  if (s === 'pending' || s === 'submitted') return 'pending';
+  return 'not_started';
+}
+
+function mapUiStatus(
+  normalized: 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected',
+): 'none' | 'draft' | 'under_review' | 'approved' | 'rejected' {
+  if (normalized === 'approved') return 'approved';
+  if (normalized === 'rejected') return 'rejected';
+  if (normalized === 'under_review') return 'under_review';
+  if (normalized === 'pending') return 'draft';
+  return 'none';
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -29,47 +53,51 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-    // Provider-neutral KYC status surface. Reads Bridge KYC/KYB from the
-    // canonical fields; the legacy `kyc_submissions` row may still exist
-    // for users who went through the previous-provider flow, so we still
-    // derive a coarse status from it when present.
-    const [{ data: sub }, { data: profile }, { data: biz }] = await Promise.all([
-      supabase.from('kyc_submissions')
-        .select('submission_status, rejection_reason, submitted_at, updated_at, country, id_type')
-        .eq('user_id', user.id)
-        .maybeSingle(),
+    // Bridge is the sole verification authority. Legacy submission rows are
+    // intentionally excluded from active status derivation.
+    const [{ data: profile }, { data: biz }] = await Promise.all([
       supabase.from('user_profiles')
-        .select('kyc_status, account_type, account_status, bridge_customer_id, bridge_kyc_status')
+        .select('account_type, bridge_customer_id, bridge_kyc_status, bridge_account_status, bridge_kyc_completed_at')
         .eq('id', user.id)
         .maybeSingle(),
       supabase.from('business_profiles')
-        .select('bridge_kyb_status')
+        .select('bridge_kyb_status, bridge_kyb_completed_at')
         .eq('user_id', user.id)
         .maybeSingle(),
     ]);
 
-    const bridgeStatus =
-      profile?.account_type === 'business'
-        ? (biz?.bridge_kyb_status ?? null)
-        : (profile?.bridge_kyc_status ?? null);
-
-    let status: 'none' | 'draft' | 'under_review' | 'approved' | 'rejected' = 'none';
-    if (bridgeStatus === 'approved' || profile?.kyc_status === 'verified' || sub?.submission_status === 'approved') status = 'approved';
-    else if (bridgeStatus === 'rejected' || sub?.submission_status === 'rejected') status = 'rejected';
-    else if (bridgeStatus === 'under_review' || sub?.submission_status === 'under_review') status = 'under_review';
-    else if (bridgeStatus === 'pending' || sub?.submission_status === 'draft') status = 'draft';
+    const isBusiness = profile?.account_type === 'business';
+    const bridgeStatusRaw = isBusiness
+      ? (biz?.bridge_kyb_status ?? null)
+      : (profile?.bridge_kyc_status ?? profile?.bridge_account_status ?? null);
+    const normalizedBridgeStatus = normalizeBridgeVerificationStatus(
+      profile?.bridge_customer_id ?? null,
+      bridgeStatusRaw,
+    );
+    const status = mapUiStatus(normalizedBridgeStatus);
+    const submittedAt = isBusiness
+      ? (biz?.bridge_kyb_completed_at || null)
+      : (profile?.bridge_kyc_completed_at || null);
 
     return new Response(JSON.stringify({
       success: true,
+      provider: 'bridge',
       status,
-      rejection_reason:    sub?.rejection_reason || null,
-      submitted_at:        sub?.submitted_at || null,
+      rejection_reason:    null,
+      submitted_at:        submittedAt,
       account_type:        profile?.account_type ?? 'individual',
       bridge_customer_id:  profile?.bridge_customer_id || null,
-      bridge_kyc_status:   bridgeStatus,
+      bridge_kyc_status:   normalizedBridgeStatus, // compatibility field
+      bridge_kyb_status:   isBusiness ? normalizedBridgeStatus : null,
+      bridge_verification_status: normalizedBridgeStatus,
     }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (err) {
-    return new Response(JSON.stringify({ success: false, error: (err as Error).message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    console.error('kyc-status failed', err);
+    return new Response(JSON.stringify({
+      success: false,
+      code: 'verification_status_unavailable',
+      error: 'Unable to load verification status right now. Please try again shortly.',
+    }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

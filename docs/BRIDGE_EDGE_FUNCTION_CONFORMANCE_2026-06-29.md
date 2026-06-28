@@ -85,3 +85,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - standardized provider error extraction (`message` or `error`)
   - mapped Bridge failure classes to deterministic product-safe responses (`tos_required`, `endorsement_required`, `rate_limited`, `provider_unavailable`, etc.)
   - removed raw Bridge failure string leakage from client responses while preserving `bridge_request_id` + `bridge_status` + `correlation_id` for support tracing
+
+### 2026-06-29 — Batch I (completed)
+- Hardened `kyc-status` normalization for both individual and business:
+  - canonical mapping of raw provider statuses/aliases to `not_started|pending|under_review|approved|rejected`
+  - deterministic UI status derivation (`none|draft|under_review|approved|rejected`)
+  - business account path now normalizes from `bridge_kyb_status`; individual path supports `bridge_kyc_status` and compatibility fallback
+- Replaced raw internal error passthrough with product-safe failure response (`verification_status_unavailable`).
