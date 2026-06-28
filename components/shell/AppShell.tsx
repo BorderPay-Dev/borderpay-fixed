@@ -465,7 +465,7 @@ export function AppShell({
                 {onOpenWithdrawalWallets && (
                   <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onPrefetch={() => prefetchScreen('external-wallets')} onClick={() => closeDrawerThen(onOpenWithdrawalWallets)} tc={tc} />
                 )}
-                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => goFromDrawer('cards')}        tc={tc} badge="Locked" />
+                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Explore cards')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => goFromDrawer('cards')}        tc={tc} />
                 {isBusinessAccount && (
                   <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => goFromDrawer('team')}         tc={tc} />
                 )}
