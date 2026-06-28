@@ -9,7 +9,8 @@
 //
 //   NOTE: developer_fee is NOT accepted from the client. It is computed and
 //   enforced server-side from the canonical schedule in _shared/fees/schedule.ts
-//   (stablecoin 0.99% / fiat 2.5%). Any developer_fee in the body is ignored.
+//   (percent + USD flat band where applicable). Any developer_fee in the body
+//   is ignored.
 //
 // Feature-flag gate (P0.2):
 //
@@ -63,7 +64,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
+import {
+  bridgeDeveloperFeePercent,
+  bridgeTransferFlatFeeAmountUsd,
+  isUsdDenominatedCurrency,
+} from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -271,13 +276,27 @@ Deno.serve(async (req) => {
   }
 
   // BorderPay developer fee is enforced SERVER-SIDE and is NOT taken from the
-  // request body — a client could otherwise omit or lower it. Bridge deducts
-  // this percentage out of the transfer (its native developer_fee_percent):
+  // request body — a client could otherwise omit or lower it. Bridge deducts:
+  //   • developer_fee_percent (all supported rails)
+  //   • developer_fee_amount (flat USD bands, USD-denominated sources only)
+  //
+  // Percent schedule:
   //   • stablecoin rail (USDT/USDC/…) → 0.99% (fixed)
   //   • fiat rail (ach/wire/sepa)     → 2.5%
+  //
+  // Flat USD schedule:
+  //   • <= $50    -> $0.50
+  //   • <= $200   -> $1.00
+  //   • <= $1,000 -> $2.00
+  //   • >  $1,000 -> $3.50
+  //
   // The canonical schedule lives in _shared/fees/schedule.ts.
   const sourceRail    = body.source.payment_rail || "stablecoin";
   const devFeePercent = bridgeDeveloperFeePercent(sourceRail, body.source.currency);
+  const applyFlatUsdFee = isUsdDenominatedCurrency(body.source.currency);
+  const devFeeFlatAmount = applyFlatUsdFee
+    ? bridgeTransferFlatFeeAmountUsd(amount.numeric)
+    : undefined;
 
   try {
     fxLog("bridge_request_sent", {
@@ -287,6 +306,8 @@ Deno.serve(async (req) => {
       destination_payment_rail: body?.destination?.payment_rail ?? null,
       amount: amount.raw,
       currency: body.source.currency,
+      developer_fee_percent: devFeePercent,
+      developer_fee_flat_amount: devFeeFlatAmount ?? null,
     });
     const result = await bridgeProvider.createTransfer({
       on_behalf_of: profile.bridge_customer_id,
@@ -301,7 +322,10 @@ Deno.serve(async (req) => {
         amount:       amount.raw,
       },
       destination:     body.destination,
-      developer_fee:   { percentage: devFeePercent },
+      developer_fee:   {
+        percentage: devFeePercent,
+        ...(devFeeFlatAmount ? { flat_amount: devFeeFlatAmount } : {}),
+      },
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.

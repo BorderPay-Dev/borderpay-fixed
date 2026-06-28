@@ -33,6 +33,28 @@ export const BRIDGE_DEVELOPER_FEE_PERCENT = {
   stablecoin: 0.999,  // fixed trade rate
 } as const;
 
+/**
+ * Transfer flat-fee policy (USD) by source amount band.
+ *
+ * This fee is sent to Bridge as `developer_fee_amount` (flat amount) in
+ * addition to `developer_fee_percent`, for non-flexible transfer flows.
+ *
+ * IMPORTANT:
+ * - This policy is only applied on USD-denominated transfer sources
+ *   (USD / USDC / USDT / PYUSD / USDB) so "$ flat fee" semantics remain
+ *   deterministic.
+ * - For non-USD currencies, we keep percent-only developer fee.
+ */
+export const BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS: ReadonlyArray<{
+  upToInclusive: number;
+  flatUsd: number;
+}> = [
+  { upToInclusive: 50,   flatUsd: 0.50 },
+  { upToInclusive: 200,  flatUsd: 1.00 },
+  { upToInclusive: 1000, flatUsd: 2.00 },
+  { upToInclusive: Number.POSITIVE_INFINITY, flatUsd: 3.50 },
+] as const;
+
 export type FeePlanKey =
   | "individual_starter"
   | "individual_premium"
@@ -76,6 +98,23 @@ export function bridgeDeveloperFeePercent(
   return isStablecoin
     ? BRIDGE_DEVELOPER_FEE_PERCENT.stablecoin
     : BRIDGE_DEVELOPER_FEE_PERCENT.fiat;
+}
+
+/** Whether the source currency is USD-denominated for flat-$ policy usage. */
+export function isUsdDenominatedCurrency(currency: string | null | undefined): boolean {
+  const c = String(currency ?? "").toUpperCase();
+  return c === "USD" || c === "USDC" || c === "USDT" || c === "PYUSD" || c === "USDB";
+}
+
+/**
+ * Resolve flat transfer developer fee amount (USD) by source amount.
+ * Returns a 2dp decimal string for Bridge `developer_fee_amount`.
+ */
+export function bridgeTransferFlatFeeAmountUsd(sourceAmount: number): string {
+  const safe = Number.isFinite(sourceAmount) && sourceAmount > 0 ? sourceAmount : 0;
+  const band = BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS.find((b) => safe <= b.upToInclusive)
+    ?? BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS[BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS.length - 1];
+  return band.flatUsd.toFixed(2);
 }
 
 /**
