@@ -28,23 +28,23 @@ as $$
     select
       up.id as user_id,
       up.email,
-      coalesce(nullif(lower(up.account_type), ''), 'individual') as account_type,
+      coalesce(nullif(lower(up.account_type::text), ''), 'individual') as account_type,
       up.bridge_customer_id,
       up.created_at,
-      lower(coalesce(up.bridge_kyc_status, 'not_started')) as bridge_kyc_status,
+      lower(coalesce(up.bridge_kyc_status::text, 'not_started')) as bridge_kyc_status,
       lower(coalesce(up.bridge_kyc_link_id, '')) as bridge_kyc_link_id,
-      lower(coalesce(up.verification_status, 'not_started')) as verification_status
+      lower(coalesce(up.verification_status::text, 'not_started')) as verification_status
     from public.user_profiles up
     where up.bridge_customer_id is not null
       and up.created_at <= (now() - make_interval(days => greatest(p_age_days, 1)))
-      and lower(coalesce(up.bridge_kyc_status, 'not_started')) = 'not_started'
+      and lower(coalesce(up.bridge_kyc_status::text, 'not_started')) = 'not_started'
       and coalesce(up.bridge_kyc_link_id, '') = ''
-      and lower(coalesce(up.verification_status, 'not_started')) in ('not_started', 'pending')
+      and lower(coalesce(up.verification_status::text, 'not_started')) in ('not_started', 'pending')
   ),
   biz as (
     select
       bp.user_id,
-      lower(coalesce(bp.bridge_kyb_status, 'not_started')) as bridge_kyb_status,
+      lower(coalesce(bp.bridge_kyb_status::text, 'not_started')) as bridge_kyb_status,
       lower(coalesce(bp.bridge_kyb_link_id, '')) as bridge_kyb_link_id
     from public.business_profiles bp
   ),
