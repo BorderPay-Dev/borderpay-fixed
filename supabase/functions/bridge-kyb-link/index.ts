@@ -44,7 +44,7 @@ interface BridgeFetchResult {
   request_id?: string;
 }
 
-async function bridgePost(path: string, body: unknown, idemKey: string): Promise<BridgeFetchResult> {
+async function bridgePost(path: string, body: unknown, idemKey: string, correlationId?: string): Promise<BridgeFetchResult> {
   if (!BRIDGE_API_KEY) {
     return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
   }
@@ -55,6 +55,7 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
       "Accept":          "application/json",
       "Content-Type":    "application/json",
       "Idempotency-Key": idemKey,
+      ...(correlationId ? { "X-Correlation-Id": correlationId } : {}),
       "User-Agent":      "borderpay-edge/1.0",
     },
     body: JSON.stringify(body),
@@ -99,6 +100,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
+  const correlationId = crypto.randomUUID();
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -168,6 +170,7 @@ Deno.serve(async (req: Request) => {
     "/v0/kyc_links",
     reqBody,
     `borderpay:kyb:business:${idemSource}`,
+    correlationId,
   );
 
   let link = extractLink(r.data);
@@ -181,6 +184,7 @@ Deno.serve(async (req: Request) => {
       "/v0/kyc_links",
       fallbackBody,
       `borderpay:kyb:business:fallback:${user.id}`,
+      correlationId,
     );
     link = extractLink(r.data);
   }
@@ -193,6 +197,7 @@ Deno.serve(async (req: Request) => {
       error:   `Business verification link request failed [${r.status}]: ${r.error || "unknown"}`,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
+      correlation_id:    correlationId,
     }, 502);
   }
 
@@ -202,6 +207,7 @@ Deno.serve(async (req: Request) => {
       success: false,
       error:   `Business verification link response missing link URL`,
       bridge_request_id: r.request_id,
+      correlation_id: correlationId,
     }, 502);
   }
 
@@ -217,6 +223,7 @@ Deno.serve(async (req: Request) => {
       success: false,
       error:   `business_profiles update failed: ${updateErr.message}`,
       bridge_request_id: r.request_id,
+      correlation_id: correlationId,
     }, 500);
   }
 
@@ -239,6 +246,7 @@ Deno.serve(async (req: Request) => {
       tos_status: tos_status_raw,
       tos_required,
       expires_at,
+      correlation_id: correlationId,
       reused: !r.ok ? true : undefined,
     },
   });
