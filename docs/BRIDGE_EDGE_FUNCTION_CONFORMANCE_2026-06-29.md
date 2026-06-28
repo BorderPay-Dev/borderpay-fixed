@@ -175,3 +175,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-wallet` persistence failure response:
   - removed raw database error text leakage from `persistence_failed` response
   - kept deterministic user-safe message while preserving `bridge_wallet_id` for operator reconciliation
+
+### 2026-06-29 — Batch X (completed)
+- Hardened `bridge-transfer` persistence-failure response:
+  - removed raw RPC/database error leakage from `persistence_failed` client response
+  - retained `bridge_transfer_id` so status can be reconciled after provider acceptance

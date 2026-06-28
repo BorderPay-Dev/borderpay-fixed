@@ -372,7 +372,7 @@ Deno.serve(async (req) => {
       return json({
         success: false,
         code:    "persistence_failed",
-        error:   `Transfer accepted by provider (${result.transfer_id}) but local persistence failed: ${upsertErr.message}`,
+        error:   "Transfer was accepted but local sync failed. Please retry to refresh status.",
         bridge_transfer_id: result.transfer_id,
       }, 500);
     }
