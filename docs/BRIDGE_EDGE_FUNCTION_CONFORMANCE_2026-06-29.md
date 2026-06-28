@@ -58,3 +58,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - skips invalid `account_type` rows instead of attempting provider creation
   - skips businesses when `include_business=false`
   - skips business rows with incomplete profile (`company_name` missing) instead of sending malformed create payloads
+
+### 2026-06-29 — Batch E (completed)
+- Hardened `bridge-virtual-account` conformance and safety:
+  - removed legacy `settle_into` request shape from handler contract
+  - added `action=capabilities` to return country-eligible VA currencies (`USD/EUR/GBP`) from policy gate
+  - mapped key Bridge provider errors (`has_not_accepted_tos`, `requires_active_kyc_status`, endorsement errors) to deterministic product-safe responses
+  - replaced raw provider error passthrough with sanitized fallback error
