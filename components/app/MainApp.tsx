@@ -59,8 +59,42 @@ import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 const lazyImport = <T extends { default: React.ComponentType<any> }>(
   loader: () => Promise<T>
 ) => {
-  const Component = lazy(loader);
-  (Component as any).preload = loader;
+  const resilientLoader = async () => {
+    try {
+      return await loader();
+    } catch (error: any) {
+      const msg = String(error?.message || error || '').toLowerCase();
+      const isModuleLoadFailure =
+        msg.includes('importing a module script failed') ||
+        msg.includes('failed to fetch dynamically imported module') ||
+        msg.includes('dynamically imported module') ||
+        msg.includes('chunkloaderror') ||
+        msg.includes('loading chunk');
+
+      if (isModuleLoadFailure && typeof window !== 'undefined') {
+        const reloadKey = 'borderpay_module_reload_once_v1';
+        let alreadyRetried = false;
+        try {
+          alreadyRetried = sessionStorage.getItem(reloadKey) === '1';
+        } catch {
+          alreadyRetried = false;
+        }
+
+        if (!alreadyRetried) {
+          try { sessionStorage.setItem(reloadKey, '1'); } catch { /* noop */ }
+          const url = new URL(window.location.href);
+          url.searchParams.set('hard_refresh', String(Date.now()));
+          window.location.replace(url.toString());
+          await new Promise<never>(() => { /* wait for navigation */ });
+        }
+      }
+
+      throw error;
+    }
+  };
+
+  const Component = lazy(resilientLoader);
+  (Component as any).preload = resilientLoader;
   return Component;
 };
 
@@ -350,6 +384,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [stablecoinConfirmData, setStablecoinConfirmData] = useState<StablecoinConfirmData | null>(null);
+
+  // Clear one-time module-reload fuse once the app boots successfully.
+  useEffect(() => {
+    try { sessionStorage.removeItem('borderpay_module_reload_once_v1'); } catch { /* noop */ }
+  }, []);
 
   // ─── Subscription state ────────────────────────────────────────────────
   // Loaded once on mount; refreshed after a successful upgrade. Determines
