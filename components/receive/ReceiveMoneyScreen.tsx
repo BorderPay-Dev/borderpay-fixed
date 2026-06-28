@@ -171,7 +171,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       // Heavy provider sync/provision runs after first paint; never blocks route render.
       if (shouldRunProviderSync()) {
         void Promise.allSettled([
-          backendAPI.bridge.provisionStablecoins(),
           backendAPI.bridge.syncAccounts(),
         ]).then(async () => {
           try {

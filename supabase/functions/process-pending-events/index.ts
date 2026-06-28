@@ -642,15 +642,8 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
     }).eq("id", resolved);
   }
 
-  // Product requirement: auto-provision stablecoin wallets after approval.
-  // Any failure must surface so the queue retries safely with idempotent keys.
-  if (normalized === "approved") {
-    await ensureStablecoinWalletsProvisioned({
-      userId: resolved,
-      bridgeCustomerId: String(customer),
-      accountType: isKyb || account_type === "business" ? "business" : "individual",
-    });
-  }
+  // Stablecoin wallets are user-managed (manual add in Wallet/Dashboard).
+  // Do not auto-provision on approval events.
 
   await supabase.from("bridge_webhook_events")
     .update({ target_entity_type: isKyb ? "kyc_link" : "customer", target_entity_id: String(customer) })
@@ -752,14 +745,8 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
       } catch { /* best-effort: never fail the webhook on email */ }
     }
 
-    if (canonicalKyc === "verified") {
-      const owner = await resolveOwnerFromBridgeCustomer(String(customer));
-      await ensureStablecoinWalletsProvisioned({
-        userId: owner.resolved,
-        bridgeCustomerId: String(customer),
-        accountType: owner.account_type,
-      });
-    }
+    // Stablecoin wallets are user-managed (manual add in Wallet/Dashboard).
+    // Do not auto-provision on customer status events.
   }
   await supabase.from("bridge_webhook_events")
     .update({ target_entity_type: "customer", target_entity_id: String(customer) })
