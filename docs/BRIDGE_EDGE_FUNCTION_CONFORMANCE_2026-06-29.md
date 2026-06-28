@@ -164,3 +164,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - added staged trace writes (correlation id, status, request id, elapsed ms) into `bridge_kyc_traces`
   - added structured trace coverage for request/response/db-update/success stages
   - replaced raw `business_profiles` update error leakage with product-safe `profile_sync_failed` response
+
+### 2026-06-29 — Batch V (completed)
+- Hardened `bridge-external-account` provider failure surface:
+  - replaced raw Bridge error passthrough on create/list/delete/capabilities with deterministic product-safe mapping
+  - preserved `request_id` in failure responses for support traceability
+  - added explicit local mirror upsert error handling (`external_account_sync_failed`)

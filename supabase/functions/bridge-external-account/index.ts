@@ -102,6 +102,26 @@ type CreateInput = UsAccountInput | IbanAccountInput | ClabeAccountInput | PixAc
 
 const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 
+function mapExternalAccountProviderError(status: number, providerMessage?: string): { status: number; code: string; error: string } {
+  const msg = String(providerMessage || "").toLowerCase();
+  if (status === 429) {
+    return { status: 429, code: "rate_limited", error: "Too many requests. Please retry shortly." };
+  }
+  if (status === 400 || msg.includes("invalid") || msg.includes("missing")) {
+    return { status: 400, code: "invalid_external_account_payload", error: "External account details are invalid. Please review and retry." };
+  }
+  if (status === 401 || status === 403) {
+    return { status: 403, code: "external_account_not_allowed", error: "External account operation is not allowed for this profile yet." };
+  }
+  if (status === 404) {
+    return { status: 404, code: "external_account_not_found", error: "External account was not found." };
+  }
+  if (status >= 500 || status === 0) {
+    return { status: 502, code: "provider_unavailable", error: "External account service is temporarily unavailable. Please retry." };
+  }
+  return { status: 502, code: "provider_error", error: "Unable to process external account request right now." };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -149,7 +169,10 @@ Deno.serve(async (req) => {
       method: "DELETE",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}`,
     });
-    if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
+    if (!r.ok) {
+      const mapped = mapExternalAccountProviderError(r.status, r.error);
+      return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+    }
     await supa.from("bridge_external_accounts")
       .update({ active: false, status: "deleted", updated_at: new Date().toISOString() })
       .eq("user_id", user.id)
@@ -163,7 +186,10 @@ Deno.serve(async (req) => {
       method: "GET",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
-    if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
+    if (!r.ok) {
+      const mapped = mapExternalAccountProviderError(r.status, r.error);
+      return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+    }
     return json({ success: true, data: (r.data as any)?.data ?? r.data });
   }
 
@@ -173,7 +199,10 @@ Deno.serve(async (req) => {
       method: "GET",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
-    if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
+    if (!r.ok) {
+      const mapped = mapExternalAccountProviderError(r.status, r.error);
+      return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+    }
     const rows = ((r.data as any)?.data ?? r.data ?? []) as any[];
     const discovered = new Set<string>();
     for (const row of (Array.isArray(rows) ? rows : [])) {
@@ -357,14 +386,17 @@ Deno.serve(async (req) => {
     body:           bridgeBody,
     idempotencyKey: `borderpay:extacct:${user.id}:${acct.account_type}:${derivedLast4}`,
   });
-  if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
+  if (!r.ok) {
+    const mapped = mapExternalAccountProviderError(r.status, r.error);
+    return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+  }
 
   const data = (r.data as any)?.data ?? r.data;
   const extId = String(data?.id ?? "");
   if (!extId) return json({ success: false, error: "Provider response missing external account id" }, 502);
 
   // Mirror locally — descriptors only, never full account / routing / IBAN.
-  await supa.from("bridge_external_accounts").upsert({
+  const { error: upsertErr } = await supa.from("bridge_external_accounts").upsert({
     user_id:                    user.id,
     bridge_external_account_id: extId,
     bridge_customer_id:         customerId,
@@ -383,6 +415,13 @@ Deno.serve(async (req) => {
     metadata:                   { validated: data?.account_validation != null },
     updated_at:                 new Date().toISOString(),
   }, { onConflict: "bridge_external_account_id" });
+  if (upsertErr) {
+    return json({
+      success: false,
+      code: "external_account_sync_failed",
+      error: "External account was created but local sync failed. Please retry.",
+    }, 500);
+  }
 
   return json({
     success: true,
