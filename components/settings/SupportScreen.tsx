@@ -8,7 +8,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { HelpCircle, MessageSquare, ChevronRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { backendAPI, type SupportTicket, type SupportTicketMessage } from '../../utils/api/backendAPI';
+import { backendAPI, type SupportHealthStatus, type SupportTicket, type SupportTicketMessage } from '../../utils/api/backendAPI';
 
 interface SupportScreenProps {
   onBack: () => void;
@@ -45,6 +45,9 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const [adminReplyMessage, setAdminReplyMessage] = useState('');
   const [sendingAdminReply, setSendingAdminReply] = useState(false);
   const [adminStatusUpdating, setAdminStatusUpdating] = useState(false);
+  const [draftingAI, setDraftingAI] = useState(false);
+  const [supportHealth, setSupportHealth] = useState<SupportHealthStatus | null>(null);
+  const [loadingSupportHealth, setLoadingSupportHealth] = useState(false);
 
   const statusLabel = useMemo<Record<SupportTicket['status'], string>>(
     () => ({
@@ -88,10 +91,30 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     }
   }, []);
 
+  const loadSupportHealth = useCallback(async () => {
+    setLoadingSupportHealth(true);
+    try {
+      const res = await backendAPI.support.health();
+      if (res.success && res.data) {
+        setSupportHealth(res.data);
+      } else {
+        setSupportHealth(null);
+      }
+    } catch {
+      setSupportHealth(null);
+    } finally {
+      setLoadingSupportHealth(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadTickets();
     void loadAdminTickets();
   }, [loadTickets, loadAdminTickets]);
+
+  useEffect(() => {
+    if (isAdmin) void loadSupportHealth();
+  }, [isAdmin, loadSupportHealth]);
 
 
   const loadTicketThread = useCallback(async (ticketId: string) => {
@@ -199,6 +222,28 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       setAdminStatusUpdating(false);
     }
   }, [loadAdminTickets, selectedAdminTicketId]);
+
+  const generateAIDraft = useCallback(async () => {
+    if (!selectedAdminTicketId) return;
+    setDraftingAI(true);
+    try {
+      const res = await backendAPI.support.adminAIDraft(selectedAdminTicketId);
+      if (res.success && res.data?.draft) {
+        setAdminReplyMessage(res.data.draft);
+        toast.success(`AI draft ready (${res.data.provider})`);
+        return;
+      }
+      if ((res as any).code === 'human_handoff_required') {
+        toast.error('This ticket requires human handling. AI draft blocked.');
+        return;
+      }
+      toast.error(res.error || 'Could not generate AI draft');
+    } catch {
+      toast.error('Could not generate AI draft');
+    } finally {
+      setDraftingAI(false);
+    }
+  }, [selectedAdminTicketId]);
 
   const submitTicket = async () => {
     const body = message.trim();
@@ -404,6 +449,27 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
               <p className={`text-sm font-semibold ${tc.text}`}>Customer Support Queue</p>
               {loadingAdminTickets ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
             </div>
+            <div className={`mb-3 rounded-xl border ${tc.cardBorder} ${tc.bgAlt} px-3 py-2`}>
+              <div className="flex items-center justify-between gap-3">
+                <p className={`text-xs font-medium ${tc.text}`}>AI drafting status</p>
+                {loadingSupportHealth ? (
+                  <Loader2 size={13} className="animate-spin text-[#C7FF00]" />
+                ) : (
+                  <span
+                    className={`text-[11px] px-2 py-0.5 rounded-full ${
+                      supportHealth?.ready ? 'bg-[#C7FF00]/20 text-[#C7FF00]' : 'bg-orange-500/20 text-orange-300'
+                    }`}
+                  >
+                    {supportHealth?.ready ? 'Ready' : 'Unavailable'}
+                  </span>
+                )}
+              </div>
+              <p className={`text-[11px] mt-1 ${tc.textSecondary}`}>
+                {supportHealth
+                  ? `${supportHealth.provider === 'none' ? 'No provider configured' : `${supportHealth.provider} • ${supportHealth.model || 'model unset'}`}`
+                  : 'Health check unavailable'}
+              </p>
+            </div>
             {adminTickets.length === 0 ? (
               <p className={`text-sm ${tc.textSecondary}`}>No open tickets in queue.</p>
             ) : (
@@ -473,6 +539,14 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                     placeholder="Reply as support agent..."
                     className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
                   />
+                  <button
+                    onClick={() => void generateAIDraft()}
+                    disabled={draftingAI || !supportHealth?.ready}
+                    className={`w-full inline-flex items-center justify-center gap-2 rounded-xl border ${tc.cardBorder} ${tc.text} text-sm px-4 py-2.5 disabled:opacity-60`}
+                  >
+                    {draftingAI ? <Loader2 size={15} className="animate-spin" /> : null}
+                    Draft with AI
+                  </button>
                   <button
                     onClick={() => void sendAdminReply()}
                     disabled={sendingAdminReply}

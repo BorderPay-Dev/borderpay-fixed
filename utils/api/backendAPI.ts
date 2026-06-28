@@ -2349,6 +2349,18 @@ export interface SupportTicketMessage {
   created_at: string;
 }
 
+export interface SupportHealthStatus {
+  timestamp: string;
+  ai_enabled: boolean;
+  provider: 'azure_openai' | 'openai' | 'none';
+  model: string;
+  ready: boolean;
+  checks: {
+    azure_configured: boolean;
+    openai_configured: boolean;
+  };
+}
+
 export const supportAPI = {
   createTicket: async (input: {
     issue_type: 'account_access' | 'verification' | 'wallet_balances' | 'send_receive' | 'general';
@@ -2391,10 +2403,39 @@ export const supportAPI = {
       body: JSON.stringify({ action: 'admin_reply', ticket_id: ticketId, message }),
     }),
 
+  adminAIDraft: async (ticketId: string, operatorGuidance?: string) =>
+    apiCall<{ ticket_id: string; draft: string; provider: 'azure_openai' | 'openai'; model: string }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'admin_ai_draft',
+        ticket_id: ticketId,
+        ...(operatorGuidance?.trim() ? { operator_guidance: operatorGuidance.trim() } : {}),
+      }),
+    }) as Promise<{
+      success: boolean;
+      data?: { ticket_id: string; draft: string; provider: 'azure_openai' | 'openai'; model: string };
+      error?: string;
+      code?: string;
+    }>,
+
+  health: async () =>
+    apiCall<SupportHealthStatus>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'support_health' }),
+    }),
+
   adminUpdateStatus: async (ticketId: string, status: SupportTicket['status']) =>
     apiCall<{ ticket_id: string; status: SupportTicket['status'] }>('support-gateway', {
       method: 'POST',
       body: JSON.stringify({ action: 'admin_update_status', ticket_id: ticketId, status }),
+    }),
+};
+
+export const affiliateAPI = {
+  getSSOLink: async () =>
+    apiCall<{ url: string; correlation_id: string; ttl_seconds: number }>('affiliate-sso-link', {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
 };
 
@@ -2423,6 +2464,7 @@ export const backendAPI = {
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,
   admin:        adminAPI,
+  affiliate:    affiliateAPI,
   support:      supportAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,
