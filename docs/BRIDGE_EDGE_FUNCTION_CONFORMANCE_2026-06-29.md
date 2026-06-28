@@ -128,3 +128,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - `backendAPI.fx` now refreshes supported pairs from `bridge-fx-supported-pairs` with in-memory cache + safe fallback
   - `ExchangeScreen` now refreshes pair policy on mount and re-evaluates pair-rate path after policy load
   - replaced static hardcoded unsupported-pair copy with policy-neutral message
+
+### 2026-06-29 — Batch P (completed)
+- De-duplicated FX pair policy parsing/loading into shared provider helper:
+  - added `_shared/providers/bridge-fx-policy.ts`
+  - `bridge-transfer` and `bridge-fx-supported-pairs` now import the same parser + provider-settings loader
+  - single policy source eliminates parser drift between transfer execution and supported-pairs API output

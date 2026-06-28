@@ -70,6 +70,10 @@ import {
   isUsdDenominatedCurrency,
 } from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
+import {
+  BRIDGE_FX_FALLBACK_SUPPORTED_PAIRS,
+  loadSupportedFxPairsFromSettings,
+} from "../_shared/providers/bridge-fx-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
@@ -122,44 +126,6 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
   return { raw, numeric };
 }
 
-const SUPPORTED_FX_PAIRS = new Set([
-  "USD_BRL", "BRL_USD",
-  "USD_COP", "COP_USD",
-  "USD_EUR", "EUR_USD",
-  "USD_GBP", "GBP_USD",
-  "USD_MXN", "MXN_USD",
-  "USD_USDT", "USDT_USD",
-]);
-
-function parseSupportedFxPairsConfig(value: unknown): Set<string> | null {
-  // Supported shapes:
-  // 1) ["USD_EUR", "EUR_USD"]
-  // 2) { supported_pairs: ["USD_EUR", "EUR_USD"] }
-  // Invalid/malformed configured values intentionally fail-closed (empty set).
-  if (value == null) return null;
-  const source = Array.isArray(value)
-    ? value
-    : (value && typeof value === "object" && Array.isArray((value as any).supported_pairs))
-    ? (value as any).supported_pairs
-    : null;
-  if (!source) return new Set<string>();
-  const out = new Set<string>();
-  for (const raw of source) {
-    const normalized = String(raw || "").trim().toUpperCase();
-    if (/^[A-Z0-9]{2,10}_[A-Z0-9]{2,10}$/.test(normalized)) out.add(normalized);
-  }
-  return out;
-}
-
-async function loadSupportedFxPairsFromSettings(): Promise<Set<string> | null> {
-  const { data } = await supa
-    .from("provider_settings")
-    .select("value")
-    .eq("key", "bridge.fx.supported_pairs")
-    .maybeSingle();
-  return parseSupportedFxPairsConfig(data?.value ?? null);
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -207,8 +173,8 @@ Deno.serve(async (req) => {
   const dstCcy = String(body?.destination?.currency || "").toUpperCase();
   if (srcRail === "bridge_wallet" && dstRail === "bridge_wallet" && srcCcy !== dstCcy) {
     const pair = `${srcCcy}_${dstCcy}`;
-    const configuredPairs = await loadSupportedFxPairsFromSettings();
-    const allowedPairs = configuredPairs ?? SUPPORTED_FX_PAIRS; // fallback only when setting is absent
+    const configuredPairs = await loadSupportedFxPairsFromSettings(supa);
+    const allowedPairs = configuredPairs ?? BRIDGE_FX_FALLBACK_SUPPORTED_PAIRS; // fallback only when setting is absent
     if (!allowedPairs.has(pair)) {
       return json({
         success: false,
