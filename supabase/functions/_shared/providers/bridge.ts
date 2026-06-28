@@ -24,6 +24,26 @@ import type {
   TransferCreateInput, TransferResult,
 } from "./types.ts";
 
+export class BridgeProviderError extends Error {
+  status?: number;
+  request_id?: string;
+  bridge_code?: string;
+  bridge_error?: string;
+  raw_text?: string;
+  constructor(
+    message: string,
+    meta?: { status?: number; request_id?: string; bridge_code?: string; bridge_error?: string; raw_text?: string },
+  ) {
+    super(message);
+    this.name = "BridgeProviderError";
+    this.status = meta?.status;
+    this.request_id = meta?.request_id;
+    this.bridge_code = meta?.bridge_code;
+    this.bridge_error = meta?.bridge_error;
+    this.raw_text = meta?.raw_text;
+  }
+}
+
 const KYC_REDIRECT_URL =
   Deno.env.get("BORDERPAY_APP_URL")
     ? `${Deno.env.get("BORDERPAY_APP_URL")}/onboarding/kyc-complete`
@@ -106,14 +126,14 @@ export class BridgeProvider implements PaymentProvider {
       // Bubble up the full Bridge response (truncated) so the function
       // log + edge-function HTTP response have something diagnostic.
       const detail = r.raw_text ? r.raw_text.slice(0, 800) : r.error || `HTTP ${r.status}`;
-      throw new Error(`Bridge createKycLink failed [${r.status}]: ${detail}`);
+      throw new Error(`Verification link request failed [${r.status}]: ${detail}`);
     }
     const data = (r.data as any)?.data ?? r.data;
     const url  = data?.kyc_link?.url || data?.kyc_link || data?.url || data?.link;
     const id   = data?.kyc_link?.id  || data?.id;
     if (!url || !id) {
       throw new Error(
-        `Bridge createKycLink: missing link/url in response — keys=${Object.keys(data ?? {}).join(",")}`,
+        `Verification link response missing link URL — keys=${Object.keys(data ?? {}).join(",")}`,
       );
     }
     return {
@@ -128,15 +148,19 @@ export class BridgeProvider implements PaymentProvider {
   // stablecoin at that address. Sending a flat `{ currency }` (the old shape)
   // makes Bridge reject with "resubmit the following parameters … missing/invalid".
   async createVirtualAccount(input: VirtualAccountCreateInput): Promise<VirtualAccountResult> {
-    if (!input.destination?.address || !input.destination?.rail || !input.destination?.currency) {
+    if (!input.destination?.address || !input.destination?.payment_rail || !input.destination?.currency) {
       throw new Error("virtual account requires a destination stablecoin wallet (address + rail + currency)");
     }
+    if (!/^\d+(\.\d+)?$/.test(String(input.developer_fee_percent || "").trim())) {
+      throw new Error("virtual account requires developer_fee_percent as numeric string");
+    }
+    const feePercent = String(input.developer_fee_percent).trim();
     const body: Record<string, unknown> = {
-      developer_fee_percent: "0",
+      developer_fee_percent: feePercent,
       source:      { currency: input.currency.toLowerCase() },
       destination: {
         currency:     input.destination.currency.toLowerCase(),
-        payment_rail: input.destination.rail.toLowerCase(),
+        payment_rail: input.destination.payment_rail.toLowerCase(),
         address:      input.destination.address,
       },
     };
@@ -144,11 +168,30 @@ export class BridgeProvider implements PaymentProvider {
       method: "POST",
       path:   `/v0/customers/${encodeURIComponent(input.customer_id)}/virtual_accounts`,
       body,
-      idempotencyKey: `borderpay:va:${input.customer_id}:${input.currency}`,
+      idempotencyKey: input.idempotency_key || `borderpay:va:${input.customer_id}:${input.currency}`,
     });
     if (!r.ok) {
-      const detail = r.raw_text ? r.raw_text.slice(0, 600) : (r.error || `HTTP ${r.status}`);
-      throw new Error(`Bridge createVirtualAccount failed [${r.status}]: ${detail}`);
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode = typeof parsed.code === "string"
+        ? parsed.code
+        : typeof (parsed.error_code) === "string"
+        ? String(parsed.error_code)
+        : undefined;
+      const bridgeErr = typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+        ? parsed.message
+        : r.error;
+      throw new BridgeProviderError(
+        `Bridge createVirtualAccount failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
     }
     const data = (r.data as any)?.data ?? r.data;
     const sdi = data?.source_deposit_instructions ?? {};
@@ -166,6 +209,53 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Read-only sync helpers (GET — no money movement) ──────────────────────
+  /** Fetch canonical customer profile fields from Bridge. */
+  async getCustomerProfile(customerId: string): Promise<{
+    id: string;
+    country: string | null;
+    phone: string | null;
+    address_object: {
+      street_line_1: string | null;
+      street_line_2: string | null;
+      city: string | null;
+      state: string | null;
+      postal_code: string | null;
+      country: string | null;
+    } | null;
+    raw: unknown;
+  }> {
+    const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}` });
+    if (!r.ok) throw new Error(`Bridge getCustomerProfile failed: ${r.error || r.status}`);
+    const data = (r.data as any)?.data ?? r.data ?? {};
+    const addr = data?.residential_address ?? data?.address ?? data?.business_address ?? data?.registered_address ?? {};
+    const countryRaw =
+      addr?.country ??
+      data?.country ??
+      data?.country_code ??
+      data?.residential_address?.country ??
+      null;
+    const normalized = (v: unknown): string | null => {
+      const s = String(v ?? "").trim();
+      return s.length ? s.toUpperCase() : null;
+    };
+    return {
+      id: String(data?.id ?? customerId),
+      country: normalized(countryRaw),
+      phone: data?.phone ? String(data.phone) : null,
+      address_object: {
+        street_line_1: addr?.street_line_1 ? String(addr.street_line_1) : null,
+        street_line_2: addr?.street_line_2 ? String(addr.street_line_2) : null,
+        city: addr?.city ? String(addr.city) : null,
+        state: addr?.state ? String(addr.state) : null,
+        postal_code: (addr?.postal_code ?? addr?.postcode ?? addr?.zip)
+          ? String(addr?.postal_code ?? addr?.postcode ?? addr?.zip)
+          : null,
+        country: normalized(addr?.country),
+      },
+      raw: r.data,
+    };
+  }
+
   /** List the customer's custodial stablecoin wallets. */
   async listWallets(customerId: string): Promise<Array<{ wallet_id: string; currency: string; chain: string; address: string; balance?: string }>> {
     const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/wallets` });
@@ -225,7 +315,7 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   /** List the customer's USD/EUR/GBP virtual accounts. */
-  async listVirtualAccounts(customerId: string): Promise<Array<{ virtual_account_id: string; currency: string; rail?: string; status?: string; account_details: unknown }>> {
+  async listVirtualAccounts(customerId: string): Promise<Array<{ virtual_account_id: string; currency: string; rail?: string; status?: string; developer_fee_percent?: number; account_details: unknown }>> {
     const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts` });
     if (!r.ok) throw new Error(`Bridge listVirtualAccounts failed: ${r.error || r.status}`);
     const rows = (r.data as any)?.data ?? r.data ?? [];
@@ -234,6 +324,10 @@ export class BridgeProvider implements PaymentProvider {
       currency:  String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
       rail:      v?.source_deposit_instructions?.payment_rail || v?.rail,
       status:    v?.status,
+      developer_fee_percent:
+        v?.developer_fee_percent != null && Number.isFinite(Number(v.developer_fee_percent))
+          ? Number(v.developer_fee_percent)
+          : undefined,
       account_details: v?.source_deposit_instructions ?? v,
     }));
   }
@@ -266,17 +360,24 @@ export class BridgeProvider implements PaymentProvider {
   async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
     const body: Record<string, unknown> = {
       amount: input.source.amount,
+      ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),
       source: {
         payment_rail: input.source.payment_rail,
         currency:     String(input.source.currency).toLowerCase(),
         ...(input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
-        ...(input.source.customer_id ? { from_address: undefined, customer_id: input.source.customer_id } : {}),
+        ...(input.source.customer_id ? { customer_id: input.source.customer_id } : {}),
+        ...(input.source.from_address ? { from_address: input.source.from_address } : {}),
+        ...(input.source.bridge_wallet_id ? { bridge_wallet_id: input.source.bridge_wallet_id } : {}),
+        ...(input.source.external_account_id ? { external_account_id: input.source.external_account_id } : {}),
       },
       destination: {
         payment_rail: input.destination.payment_rail,
         currency:     String(input.destination.currency).toLowerCase(),
         ...(input.destination.chain    ? { chain:    input.destination.chain.toLowerCase() } : {}),
         ...(input.destination.address  ? { to_address: input.destination.address } : {}),
+        ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),
+        ...(input.destination.external_account_id ? { external_account_id: input.destination.external_account_id } : {}),
+        ...(input.destination.deposit_id ? { deposit_id: input.destination.deposit_id } : {}),
         ...(input.destination.bank_account ? {
           bank_account_number: input.destination.bank_account.account_number,
           bank_routing_number: input.destination.bank_account.routing_number,
@@ -285,7 +386,10 @@ export class BridgeProvider implements PaymentProvider {
         } : {}),
       },
       ...(input.developer_fee ? {
-        developer_fee_percent: input.developer_fee.percentage,
+        developer_fee_percent:
+          input.developer_fee.percentage == null
+            ? undefined
+            : String(input.developer_fee.percentage),
         developer_fee_amount:  input.developer_fee.flat_amount,
       } : {}),
     };

@@ -284,7 +284,7 @@ Deno.serve(async (req) => {
   //   • stablecoin rail (USDT/USDC/…) → 0.99% (fixed)
   //   • fiat rail (ach/wire/sepa)     → 2.5%
   //
-  // Flat USD schedule:
+  // Flat USD schedule (applies only from $10+):
   //   • $10–$50   -> $0.50
   //   • $51–$100  -> $1.00
   //   • $101–$500 -> $2.00

@@ -46,14 +46,15 @@ export const BRIDGE_DEVELOPER_FEE_PERCENT = {
  * - For non-USD currencies, we keep percent-only developer fee.
  */
 export const BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS: ReadonlyArray<{
+  minInclusive: number;
   upToInclusive: number;
   flatUsd: number;
 }> = [
-  { upToInclusive: 50,   flatUsd: 0.50 }, // $10–$50
-  { upToInclusive: 100,  flatUsd: 1.00 }, // $51–$100
-  { upToInclusive: 500,  flatUsd: 2.00 }, // $101–$500
-  { upToInclusive: 1000, flatUsd: 3.00 }, // $501–$1000
-  { upToInclusive: Number.POSITIVE_INFINITY, flatUsd: 4.00 }, // $1001+
+  { minInclusive: 10,   upToInclusive: 50,   flatUsd: 0.50 }, // $10–$50
+  { minInclusive: 51,   upToInclusive: 100,  flatUsd: 1.00 }, // $51–$100
+  { minInclusive: 101,  upToInclusive: 500,  flatUsd: 2.00 }, // $101–$500
+  { minInclusive: 501,  upToInclusive: 1000, flatUsd: 3.00 }, // $501–$1000
+  { minInclusive: 1001, upToInclusive: Number.POSITIVE_INFINITY, flatUsd: 4.00 }, // $1001+
 ] as const;
 
 export type FeePlanKey =
@@ -109,12 +110,16 @@ export function isUsdDenominatedCurrency(currency: string | null | undefined): b
 
 /**
  * Resolve flat transfer developer fee amount (USD) by source amount.
- * Returns a 2dp decimal string for Bridge `developer_fee_amount`.
+ * Returns:
+ * - 2dp decimal string for Bridge `developer_fee_amount` when amount is in-band
+ * - undefined when amount is below minimum configured threshold ($10)
  */
-export function bridgeTransferFlatFeeAmountUsd(sourceAmount: number): string {
+export function bridgeTransferFlatFeeAmountUsd(sourceAmount: number): string | undefined {
   const safe = Number.isFinite(sourceAmount) && sourceAmount > 0 ? sourceAmount : 0;
-  const band = BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS.find((b) => safe <= b.upToInclusive)
-    ?? BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS[BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS.length - 1];
+  const band = BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS.find((b) =>
+    safe >= b.minInclusive && safe <= b.upToInclusive
+  );
+  if (!band) return undefined;
   return band.flatUsd.toFixed(2);
 }
 
