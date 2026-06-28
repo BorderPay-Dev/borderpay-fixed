@@ -81,10 +81,12 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
   );
+  const stableWalletsLegacyCacheKey = 'borderpay_wallets_v1';
   const vaCacheKey = useMemo(
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
+  const vaLegacyCacheKey = 'borderpay_va_v1';
   const walletRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_wallet_refresh_ts_v1', { userId }),
     [userId],
@@ -92,10 +94,20 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const [stables, setStables] = useState<StableRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; }
+    try {
+      const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
+      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+      const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
+      return Array.isArray(legacy) ? legacy : [];
+    } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
+    try {
+      const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+      const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
+      return Array.isArray(legacy) ? legacy : [];
+    } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
   const vasRef = useRef<VaRow[]>(vas);
@@ -106,7 +118,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [balanceByCurrency, setBalanceByCurrency] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_${userId}`) || '{}'); } catch { return {}; }
   });
-  const [loading, setLoading] = useState(!hasCachedWalletRows);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
 
@@ -133,10 +145,23 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const refresh = async (force = false) => {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
-    const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => { try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; } })();
-    const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => { try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; } })();
+    const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
+        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+        const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
+        return Array.isArray(legacy) ? legacy : [];
+      } catch { return []; }
+    })();
+    const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+        const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
+        return Array.isArray(legacy) ? legacy : [];
+      } catch { return []; }
+    })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
-    if (isColdStart) setLoading(true);
     setRefreshing(true);
     try {
       const last = Number(localStorage.getItem(walletRefreshTsKey) || '0');

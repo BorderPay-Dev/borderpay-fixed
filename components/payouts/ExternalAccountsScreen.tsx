@@ -89,8 +89,12 @@ interface ExternalAccountsScreenProps {
 // with known data on the next visit, then refreshes in the background.
 const CACHE_KEY = 'borderpay_payout_accounts_v1';
 function readCache(cacheKey: string): ExternalAccountRow[] {
-  try { const v = JSON.parse(localStorage.getItem(cacheKey) || '[]'); return Array.isArray(v) ? v : []; }
-  catch { return []; }
+  try {
+    const scoped = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+    if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+    const legacy = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]');
+    return Array.isArray(legacy) ? legacy : [];
+  } catch { return []; }
 }
 
 export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
@@ -104,7 +108,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const rowsRef = useRef<ExternalAccountRow[]>(cached);
   const loadInFlightRef = useRef<Promise<void> | null>(null);
   // Only show skeletons when we have nothing cached to render instantly.
-  const [loading, setLoading] = useState(cached.length === 0);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
@@ -121,7 +125,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
     const run = (async () => {
     const seededRows = rowsRef.current.length > 0 ? rowsRef.current : readCache(cacheKey);
     const isColdStart = seededRows.length === 0;
-    if (isColdStart) setLoading(true);
+
     setError(null);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');

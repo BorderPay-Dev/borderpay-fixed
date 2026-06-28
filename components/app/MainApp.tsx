@@ -36,6 +36,7 @@ import { PreferencesScreen } from './PreferencesScreen';
 import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
 import { HelpCenterScreen } from '../settings/HelpCenterScreen';
 import { SupportScreen } from '../settings/SupportScreen';
+import { CardsScreen } from '../cards/CardsScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -98,7 +99,6 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
   return Component;
 };
 
-const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
@@ -110,7 +110,7 @@ const eagerPreload = () => Promise.resolve();
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
 // so any nav button can call it on hover/touchstart.
 const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
-  cards: (CardsScreen as any).preload,
+  cards: eagerPreload,
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
   exchange: eagerPreload,

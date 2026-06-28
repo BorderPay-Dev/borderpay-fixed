@@ -152,7 +152,7 @@ function BusinessTeamPanel({
   // Native-app pattern: seed the roster from the last-loaded cache so the panel
   // mounts INSTANTLY, then refresh in the background.
   const cachedRoster = readRosterCache();
-  const [loading, setLoading]   = useState(!cachedRoster);
+  const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
   const rosterRef = useRef<TeamRosterResponse | null>(cachedRoster);
@@ -182,7 +182,7 @@ function BusinessTeamPanel({
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
       if (!force && seededRoster && Number.isFinite(last) && Date.now() - last < 45_000) return;
     } catch { /* noop */ }
-    if (!seededRoster) setLoading(true);
+
     setError(null);
     try {
       const r = await withTimeout(
@@ -417,10 +417,10 @@ function BusinessTeamPanel({
           </div>
         )}
 
-        {/* Loading skeleton */}
+        {/* Background sync hint (non-blocking) */}
         {loading && (
-          <div className="space-y-2">
-            {[1,2,3].map(i => <div key={i} className={`h-16 rounded-2xl ${tc.bgAlt} animate-pulse`} />)}
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3`}> 
+            <p className={`text-xs ${tc.textMuted}`}>Syncing team…</p>
           </div>
         )}
 

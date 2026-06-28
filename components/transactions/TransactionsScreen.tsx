@@ -62,6 +62,9 @@ function readTxCache(cacheKey: string, userId: string): Transaction[] {
     const raw = localStorage.getItem(cacheKey);
     const primary = raw ? JSON.parse(raw) : [];
     if (Array.isArray(primary) && primary.length > 0) return primary;
+    const legacyRaw = localStorage.getItem(TX_CACHE_KEY);
+    const legacy = legacyRaw ? JSON.parse(legacyRaw) : [];
+    if (Array.isArray(legacy) && legacy.length > 0) return legacy;
   } catch { /* continue to fallback */ }
   try {
     const recent = JSON.parse(localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');
@@ -80,7 +83,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   // Seed from cache so the history paints instantly on open, then refreshes.
   const [transactions, setTransactions] = useState<Transaction[]>(() => seededRows);
   const transactionsRef = useRef<Transaction[]>(seededRows);
-  const [loading, setLoading] = useState(seededRows.length === 0);
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
   const [showFilters, setShowFilters] = useState(false);
@@ -129,7 +132,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     const hasCachedRows = transactionsRef.current.length > 0;
-    if (!hasCachedRows) setLoading(true);
+    
     setLoadError(false);
     // Re-open optimization: avoid hitting the API on every fast route hop.
     // Keep cache hot and refresh at most every 45s per user/session.
