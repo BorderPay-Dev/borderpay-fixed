@@ -28,6 +28,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ## Mismatch Summary (Server-Side)
 - No hard path mismatches were found in this pass for active `bridge-*` functions.
 - Remaining risk is **payload schema drift**, not endpoint path drift.
+- Known scope gaps against latest Bridge docs (intentionally not enabled in this patch set):
+  - Virtual Accounts docs include additional rails/currencies (e.g. MXN/BRL/COP) while `bridge-virtual-account` currently hard-gates to USD/EUR/GBP.
+  - External Accounts docs include regional variants (e.g. GBP FPS / COP rails in beta docs) while current create-path enforces `us|iban|clabe|pix`.
+  - These are kept fail-closed until corridor policy, compliance, and fee configuration are explicitly approved.
 
 ## Next Server-Side Patch Order (Bridge)
 1. `bridge-kyc-link` / `bridge-kyb-link`: response normalization + trace parity.
