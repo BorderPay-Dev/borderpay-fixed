@@ -74,9 +74,37 @@ export class BridgeProvider implements PaymentProvider {
       method: "POST", path: "/v0/customers", body,
       idempotencyKey: `borderpay:customer:${input.borderpay_user_id}`,
     });
-    if (!r.ok) throw new Error(`Bridge createCustomer failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode = typeof parsed.code === "string"
+        ? parsed.code
+        : typeof parsed.error_code === "string"
+        ? String(parsed.error_code)
+        : undefined;
+      const bridgeErr = typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+        ? parsed.message
+        : r.error;
+      throw new BridgeProviderError(
+        `Bridge createCustomer failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
     const id = (r.data as any)?.id || (r.data as any)?.data?.id;
-    if (!id) throw new Error("Bridge createCustomer: missing id");
+    if (!id) {
+      throw new BridgeProviderError("Bridge createCustomer response missing id", {
+        status: r.status,
+        request_id: r.request_id,
+        raw_text: r.raw_text?.slice(0, 1000),
+      });
+    }
     return { provider: this.name, provider_id: String(id), raw: r.data };
   }
 

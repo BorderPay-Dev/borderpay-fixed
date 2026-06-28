@@ -152,3 +152,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - account-type aware initial status persistence (`bridge_kyc_status` for individual, `bridge_kyb_status` for business)
   - explicit profile update error handling after provider customer creation
   - replaced raw provider exception passthrough with deterministic product-safe error mapping
+
+### 2026-06-29 — Batch T (completed)
+- Hardened shared provider customer creation error contract:
+  - `BridgeProvider.createCustomer` now throws `BridgeProviderError` with structured metadata (`status`, `request_id`, provider code/message)
+  - response validation now fails with structured provider error when customer id is missing
+  - removes generic error throw path and aligns create-customer behavior with other provider helpers
