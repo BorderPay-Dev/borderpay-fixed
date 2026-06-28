@@ -50,11 +50,14 @@ export const BRIDGE_TRANSFER_FLAT_FEE_USD_BANDS: ReadonlyArray<{
   upToInclusive: number;
   flatUsd: number;
 }> = [
-  { minInclusive: 10,   upToInclusive: 50,   flatUsd: 0.50 }, // $10–$50
-  { minInclusive: 51,   upToInclusive: 100,  flatUsd: 1.00 }, // $51–$100
-  { minInclusive: 101,  upToInclusive: 500,  flatUsd: 2.00 }, // $101–$500
-  { minInclusive: 501,  upToInclusive: 1000, flatUsd: 3.00 }, // $501–$1000
-  { minInclusive: 1001, upToInclusive: Number.POSITIVE_INFINITY, flatUsd: 4.00 }, // $1001+
+  { minInclusive: 10,    upToInclusive: 100,   flatUsd: 1.00 },  // $10–$100
+  { minInclusive: 101,   upToInclusive: 499,   flatUsd: 5.00 },  // $101–$499
+  { minInclusive: 500,   upToInclusive: 999,   flatUsd: 10.00 }, // $500–$999
+  { minInclusive: 1000,  upToInclusive: 2000,  flatUsd: 20.00 }, // $1000–$2000
+  { minInclusive: 2001,  upToInclusive: 2999,  flatUsd: 25.00 }, // $2001–$2999
+  { minInclusive: 3000,  upToInclusive: 5000,  flatUsd: 50.00 }, // $3000–$5000
+  { minInclusive: 5001,  upToInclusive: 9999,  flatUsd: 100.00 }, // $5001–$9999
+  { minInclusive: 10000, upToInclusive: 20000, flatUsd: 200.00 }, // $10000–$20000
 ] as const;
 
 export type FeePlanKey =
