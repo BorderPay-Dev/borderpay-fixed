@@ -66,7 +66,7 @@ as $$
       (
         select count(*)::integer
         from public.bridge_external_accounts ea
-        where ea.user_id = b.user_id or ea.business_user_id = b.user_id
+        where ea.user_id = b.user_id
       ) as external_count
     from base b
   )
