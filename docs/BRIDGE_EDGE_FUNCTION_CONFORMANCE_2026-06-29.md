@@ -110,3 +110,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - `listWallets` and `listVirtualAccounts` now use bounded paginated retrieval (`limit`, `starting_after`) with max-page guard
   - added loop-break safeguards for repeated first-page payloads when provider ignores pagination params
   - prevents silent truncation for multi-page customers while avoiding infinite pagination loops
+
+### 2026-06-29 — Batch M (completed)
+- Hardened FX pair policy enforcement in `bridge-transfer`:
+  - wallet→wallet cross-currency validation now reads `provider_settings.key='bridge.fx.supported_pairs'` when configured
+  - supports config shape `["USD_EUR", ...]` or `{ supported_pairs: [...] }`
+  - malformed configured policy fails closed (empty allow-list), while absent policy falls back to static documented pair set
