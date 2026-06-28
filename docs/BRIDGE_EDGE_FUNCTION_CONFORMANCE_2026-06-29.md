@@ -134,3 +134,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - added `_shared/providers/bridge-fx-policy.ts`
   - `bridge-transfer` and `bridge-fx-supported-pairs` now import the same parser + provider-settings loader
   - single policy source eliminates parser drift between transfer execution and supported-pairs API output
+
+### 2026-06-29 — Batch Q (completed)
+- Hardened `bridge-exchange-rates` provider error handling:
+  - removed raw provider error string passthrough from client responses
+  - added deterministic product-safe error mapping (`unsupported_pair`, `rate_limited`, `provider_unavailable`, etc.)
+  - preserved `request_id` passthrough for support tracing
