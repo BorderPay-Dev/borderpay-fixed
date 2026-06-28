@@ -22,6 +22,23 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+function mapBridgeCustomerError(error: unknown): { status: number; code: string; error: string } {
+  const message = String((error as Error)?.message || "").toLowerCase();
+  if (message.includes("has_not_accepted_tos")) {
+    return { status: 409, code: "tos_required", error: "You must accept terms before continuing verification." };
+  }
+  if (message.includes("requires_active_kyc_status")) {
+    return { status: 409, code: "verification_required", error: "Verification is required before account setup can continue." };
+  }
+  if (message.includes("429") || message.includes("rate")) {
+    return { status: 429, code: "rate_limited", error: "Too many requests. Please try again shortly." };
+  }
+  if (message.includes("timeout") || message.includes("network")) {
+    return { status: 502, code: "provider_unavailable", error: "Unable to reach verification services right now. Please retry." };
+  }
+  return { status: 502, code: "bridge_customer_failed", error: "Unable to initialize account setup right now. Please retry." };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -93,14 +110,26 @@ Deno.serve(async (req) => {
       borderpay_user_id:   user.id,
     });
 
-    await supa.from("user_profiles").update({
+    const verificationStatusUpdate =
+      profile.account_type === "business"
+        ? { bridge_kyb_status: "not_started" as const }
+        : { bridge_kyc_status: "not_started" as const };
+    const { error: profileUpdateErr } = await supa.from("user_profiles").update({
       bridge_customer_id: result.provider_id,
-      bridge_kyc_status:  "not_started",
+      ...verificationStatusUpdate,
       updated_at:         new Date().toISOString(),
     }).eq("id", user.id);
+    if (profileUpdateErr) {
+      return json({
+        success: false,
+        code: "profile_update_failed",
+        error: "Customer initialized but profile sync failed. Please retry.",
+      }, 500);
+    }
 
     return json({ success: true, data: { bridge_customer_id: result.provider_id, account_type: profile.account_type } });
   } catch (e) {
-    return json({ success: false, error: (e as Error).message }, 502);
+    const mapped = mapBridgeCustomerError(e);
+    return json({ success: false, code: mapped.code, error: mapped.error }, mapped.status);
   }
 });

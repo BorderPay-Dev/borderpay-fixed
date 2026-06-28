@@ -146,3 +146,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - individual rows now initialize `bridge_kyc_status=not_started`; business rows initialize `bridge_kyb_status=not_started`
   - added explicit DB update error checks for `user_profiles` and `business_profiles` writes
   - replaced raw exception leakage in sync results with deterministic operator-safe error codes/messages
+
+### 2026-06-29 — Batch S (completed)
+- Hardened `bridge-customer` customer initialization path:
+  - account-type aware initial status persistence (`bridge_kyc_status` for individual, `bridge_kyb_status` for business)
+  - explicit profile update error handling after provider customer creation
+  - replaced raw provider exception passthrough with deterministic product-safe error mapping
