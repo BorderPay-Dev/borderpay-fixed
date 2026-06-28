@@ -140,3 +140,10 @@ verify_jwt = false
 # submissions while preserving auth checks for non-public actions.
 [functions.support-gateway]
 verify_jwt = false
+
+# Bridge identity cleanup — machine-to-machine endpoint used for safe
+# batched deletion of stale bridge_customer_id records (5-day unverified,
+# no assets, no KYC/KYB attempt). Auth is in-function via
+# BRIDGE_IDENTITY_CLEANUP_SECRET (or ADMIN_BROADCAST_INTERNAL_TOKEN fallback).
+[functions.bridge-identity-cleanup]
+verify_jwt = false

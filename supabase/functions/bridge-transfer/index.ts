@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
   const profile = identity.context;
   const { data: maintenance } = await supa
     .from("user_profiles")
-    .select("maintenance_overdue,wallet_maintenance_overdue")
+    .select("maintenance_overdue,wallet_maintenance_overdue,maintenance_grace_expired")
     .eq("id", user.id)
     .maybeSingle();
   if (isBridgeBlocked(profile?.country)) {
@@ -213,6 +213,13 @@ Deno.serve(async (req) => {
       success: false,
       code:    "maintenance_due",
       error:   "Top up your wallet to cover account maintenance fees before sending. Outbound transfers are paused until then.",
+    }, 402);
+  }
+  if (maintenance?.maintenance_grace_expired === true) {
+    return json({
+      success: false,
+      code: "maintenance_grace_expired",
+      error: "Your account is restricted due to prolonged unpaid maintenance. Clear dues to restore outbound transfers.",
     }, 402);
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);

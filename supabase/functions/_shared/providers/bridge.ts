@@ -80,6 +80,16 @@ export class BridgeProvider implements PaymentProvider {
     return { provider: this.name, provider_id: String(id), raw: r.data };
   }
 
+  async deleteCustomer(customerId: string): Promise<{ deleted: boolean; raw: unknown }> {
+    const r = await bridgeFetch({
+      method: "DELETE",
+      path: `/v0/customers/${encodeURIComponent(customerId)}`,
+      idempotencyKey: `borderpay:delete-customer:${customerId}`,
+    });
+    if (!r.ok) throw new Error(`Bridge deleteCustomer failed: ${r.error || r.status}`);
+    return { deleted: true, raw: r.data };
+  }
+
   // ── Onboarding (KYC / KYB) ────────────────────────────────────────────────
   // Bridge `POST /v0/kyc_links`:
   //   • If customer_id is supplied, returns a KYC link for that existing

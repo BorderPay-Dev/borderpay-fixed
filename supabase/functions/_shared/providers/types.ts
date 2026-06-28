@@ -56,11 +56,13 @@ export interface KycLinkResult {
 export interface VirtualAccountCreateInput {
   customer_id:    string;
   currency:       Extract<FiatCurrency, "USD" | "EUR" | "GBP">;
+  developer_fee_percent: string;
+  idempotency_key?: string;
   // REQUIRED by the provider: where incoming fiat auto-converts to. The stablecoin
   // address + the blockchain rail it settles on. `rail` is a Bridge-canonical
   // chain string (e.g. "solana", "ethereum", "polygon", "tron", "base").
   destination:    {
-    rail:            string;
+    payment_rail:    string;
     currency:        string;          // stablecoin symbol e.g. "usdc" | "usdt"
     address:         string;          // the wallet address to receive at
   };
@@ -72,7 +74,12 @@ export interface ProviderWalletSummary {
 }
 /** A provider virtual account as returned by GET /v0/customers/{id}/virtual_accounts. */
 export interface ProviderVirtualAccountSummary {
-  virtual_account_id: string; currency: string; rail?: string; status?: string; account_details: unknown;
+  virtual_account_id: string;
+  currency: string;
+  rail?: string;
+  status?: string;
+  developer_fee_percent?: number;
+  account_details: unknown;
 }
 
 export interface VirtualAccountResult {
@@ -103,18 +110,27 @@ export interface WalletResult {
 }
 
 export interface TransferCreateInput {
+  // Bridge docs define this as the customer identifier for transfers executed
+  // on behalf of an end user.
+  on_behalf_of?: string;
   source: {
-    customer_id:    string;
-    payment_rail:   "stablecoin" | "ach" | "wire" | "sepa";
+    customer_id?:   string;
+    payment_rail:   string;
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
+    from_address?:  string;
+    bridge_wallet_id?: string;
+    external_account_id?: string;
     amount:         string;            // decimal as string
   };
   destination: {
-    payment_rail:   "stablecoin" | "ach" | "wire" | "sepa" | "mobile_money" | "local_bank";
+    payment_rail:   string;
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     address?:       string;            // crypto address
+    bridge_wallet_id?: string;
+    external_account_id?: string;
+    deposit_id?: string;
     bank_account?:  { account_number: string; routing_number?: string; iban?: string; bic?: string };
     mobile_money?:  { provider: string; phone: string };  // future
   };
@@ -137,6 +153,7 @@ export interface PaymentProvider {
 
   // Identity
   createCustomer(input: CustomerCreateInput): Promise<CustomerCreateResult>;
+  deleteCustomer(customerId: string): Promise<{ deleted: boolean; raw: unknown }>;
 
   // Onboarding
   createKycLink(input: KycLinkInput): Promise<KycLinkResult>;
