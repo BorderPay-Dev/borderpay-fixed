@@ -50,6 +50,11 @@ async function generateSupportDraft(input: {
   conversation: Array<{ sender_type: string; body: string; created_at?: string }>;
   operatorGuidance?: string;
 }): Promise<{ draft: string; provider: "azure_openai" | "openai"; model: string }> {
+  const supportAiEnabled = (Deno.env.get("SUPPORT_AI_ENABLED") ?? "true").toLowerCase() === "true";
+  if (!supportAiEnabled) {
+    throw new Error("AI support drafting is disabled");
+  }
+
   const systemPrompt = [
     "You are BorderPay customer support assistant for a live fintech product.",
     "Write a concise, human reply to the customer.",
@@ -77,34 +82,68 @@ async function generateSupportDraft(input: {
 
   const azureEndpoint = (Deno.env.get("AZURE_OPENAI_ENDPOINT") ?? "").trim();
   const azureKey = (Deno.env.get("AZURE_OPENAI_API_KEY") ?? "").trim();
-  const azureDeployment = (Deno.env.get("AZURE_OPENAI_DEPLOYMENT") ?? "").trim();
+  const azureDeployment = (
+    Deno.env.get("AZURE_OPENAI_DEPLOYMENT_NAME")
+    ?? Deno.env.get("AZURE_OPENAI_DEPLOYMENT")
+    ?? ""
+  ).trim();
   const azureApiVersion = (Deno.env.get("AZURE_OPENAI_API_VERSION") ?? "2024-10-21").trim();
 
   if (azureEndpoint && azureKey && azureDeployment) {
     const base = azureEndpoint.replace(/\/+$/, "");
-    const url = `${base}/openai/deployments/${encodeURIComponent(azureDeployment)}/chat/completions?api-version=${encodeURIComponent(azureApiVersion)}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": azureKey,
-      },
-      body: JSON.stringify({
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-    });
-    const raw = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const errMsg = typeof raw?.error?.message === "string" ? raw.error.message : `Azure OpenAI error (${res.status})`;
-      throw new Error(errMsg);
+    const useV1Responses =
+      /\/openai\/v1$/i.test(base) ||
+      (Deno.env.get("AZURE_OPENAI_API_STYLE") ?? "").toLowerCase() === "responses";
+
+    if (useV1Responses) {
+      const res = await fetch(`${base}/responses`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": azureKey,
+        },
+        body: JSON.stringify({
+          model: azureDeployment,
+          input: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.2,
+        }),
+      });
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = typeof raw?.error?.message === "string" ? raw.error.message : `Azure OpenAI error (${res.status})`;
+        throw new Error(errMsg);
+      }
+      const outText = String(raw?.output_text ?? "").trim();
+      if (!outText) throw new Error("Azure OpenAI returned an empty draft");
+      return { draft: outText, provider: "azure_openai", model: azureDeployment };
+    } else {
+      const url = `${base}/openai/deployments/${encodeURIComponent(azureDeployment)}/chat/completions?api-version=${encodeURIComponent(azureApiVersion)}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": azureKey,
+        },
+        body: JSON.stringify({
+          temperature: 0.2,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+      });
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = typeof raw?.error?.message === "string" ? raw.error.message : `Azure OpenAI error (${res.status})`;
+        throw new Error(errMsg);
+      }
+      const draft = String(raw?.choices?.[0]?.message?.content ?? "").trim();
+      if (!draft) throw new Error("Azure OpenAI returned an empty draft");
+      return { draft, provider: "azure_openai", model: azureDeployment };
     }
-    const draft = String(raw?.choices?.[0]?.message?.content ?? "").trim();
-    if (!draft) throw new Error("Azure OpenAI returned an empty draft");
-    return { draft, provider: "azure_openai", model: azureDeployment };
   }
 
   const openaiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
