@@ -268,9 +268,10 @@ export class BridgeProvider implements PaymentProvider {
 
   /** List the customer's custodial stablecoin wallets. */
   async listWallets(customerId: string): Promise<Array<{ wallet_id: string; currency: string; chain: string; address: string; balance?: string }>> {
-    const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/wallets` });
-    if (!r.ok) throw new Error(`Bridge listWallets failed: ${r.error || r.status}`);
-    const rows = (r.data as any)?.data ?? r.data ?? [];
+    const rows = await this.fetchBridgeListPaginated<any>({
+      path: `/v0/customers/${encodeURIComponent(customerId)}/wallets`,
+      context: "listWallets",
+    });
     // Bridge's wallet listing has historically returned slightly different
     // shapes (currency / symbol / coin / asset_code). Probe all of them and,
     // as a last resort, infer from the chain so the row never lands with an
@@ -326,9 +327,10 @@ export class BridgeProvider implements PaymentProvider {
 
   /** List the customer's USD/EUR/GBP virtual accounts. */
   async listVirtualAccounts(customerId: string): Promise<Array<{ virtual_account_id: string; currency: string; rail?: string; status?: string; developer_fee_percent?: number; account_details: unknown }>> {
-    const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts` });
-    if (!r.ok) throw new Error(`Bridge listVirtualAccounts failed: ${r.error || r.status}`);
-    const rows = (r.data as any)?.data ?? r.data ?? [];
+    const rows = await this.fetchBridgeListPaginated<any>({
+      path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts`,
+      context: "listVirtualAccounts",
+    });
     return (Array.isArray(rows) ? rows : []).map((v: any) => ({
       virtual_account_id: String(v?.id),
       currency:  String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
@@ -340,6 +342,60 @@ export class BridgeProvider implements PaymentProvider {
           : undefined,
       account_details: v?.source_deposit_instructions ?? v,
     }));
+  }
+
+  private async fetchBridgeListPaginated<T>(params: { path: string; context: string; pageSize?: number; maxPages?: number }): Promise<T[]> {
+    const pageSize = Math.max(1, Math.min(200, Number(params.pageSize ?? 100)));
+    const maxPages = Math.max(1, Math.min(50, Number(params.maxPages ?? 20)));
+    const out: T[] = [];
+
+    let cursor: string | undefined = undefined;
+    let page = 0;
+    let previousFirstId: string | null = null;
+    const seenCursors = new Set<string>();
+
+    while (page < maxPages) {
+      const query: Record<string, string | number | boolean | undefined> = {
+        limit: pageSize,
+        ...(cursor ? { starting_after: cursor } : {}),
+      };
+      const r = await bridgeFetch({ method: "GET", path: params.path, query });
+      if (!r.ok) throw new Error(`Bridge ${params.context} failed: ${r.error || r.status}`);
+
+      const payload: any = (r.data as any) ?? {};
+      const rows = Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload)
+        ? payload
+        : [];
+      out.push(...rows);
+
+      const hasMore = Boolean(payload?.has_more);
+      const nextCursorRaw = payload?.next_starting_after ?? payload?.next_cursor ?? null;
+      const nextCursor = nextCursorRaw != null ? String(nextCursorRaw) : null;
+      const firstId = rows.length > 0 ? String(rows[0]?.id ?? "") : "";
+      const lastId = rows.length > 0 ? String(rows[rows.length - 1]?.id ?? "") : "";
+
+      // Termination order matters: if provider does not paginate this endpoint,
+      // query params may be ignored and page 1 can repeat forever.
+      if (rows.length === 0) break;
+      if (rows.length < pageSize && !hasMore && !nextCursor) break;
+      if (nextCursor && seenCursors.has(nextCursor)) break;
+      if (!nextCursor && firstId && previousFirstId && firstId === previousFirstId) break;
+
+      previousFirstId = firstId || previousFirstId;
+      if (nextCursor) {
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      } else if (lastId) {
+        cursor = lastId;
+      } else {
+        break;
+      }
+      page += 1;
+    }
+
+    return out;
   }
 
   // ── Custodial stablecoin wallet ───────────────────────────────────────────

@@ -104,3 +104,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - removed hardcoded transfer transaction classification (`fx_conversion` / `stablecoin_sandwich`) for all transfer events
   - now classifies transfer metadata deterministically from source/destination rails and currencies (FX only for wallet→wallet cross-currency)
   - added explicit warning log when provider transfer state is unrecognized while preserving fail-closed pending mapping
+
+### 2026-06-29 — Batch L (completed)
+- Hardened Bridge list-sync pagination in provider adapter:
+  - `listWallets` and `listVirtualAccounts` now use bounded paginated retrieval (`limit`, `starting_after`) with max-page guard
+  - added loop-break safeguards for repeated first-page payloads when provider ignores pagination params
+  - prevents silent truncation for multi-page customers while avoiding infinite pagination loops
