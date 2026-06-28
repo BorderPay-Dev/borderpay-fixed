@@ -285,10 +285,11 @@ Deno.serve(async (req) => {
   //   • fiat rail (ach/wire/sepa)     → 2.5%
   //
   // Flat USD schedule:
-  //   • <= $50    -> $0.50
-  //   • <= $200   -> $1.00
-  //   • <= $1,000 -> $2.00
-  //   • >  $1,000 -> $3.50
+  //   • $10–$50   -> $0.50
+  //   • $51–$100  -> $1.00
+  //   • $101–$500 -> $2.00
+  //   • $501–$1000-> $3.00
+  //   • $1001+    -> $4.00
   //
   // The canonical schedule lives in _shared/fees/schedule.ts.
   const sourceRail    = body.source.payment_rail || "stablecoin";
