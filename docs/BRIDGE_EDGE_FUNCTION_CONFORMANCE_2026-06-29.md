@@ -43,3 +43,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - `requires_active_kyc_status` → `kyc_not_approved` (409)
   - endorsement/limits/idempotency/invalid-params/resource-conflict classes mapped to deterministic status+code.
 - Raw provider error text is no longer leaked to clients from this path; provider code and Bridge request id remain exposed for support/debug.
+
+### 2026-06-29 — Batch C (completed)
+- Expanded `mapBridgeTransferState` coverage for documented webhook/exception states to avoid unknown-state drift:
+  - Pending: `funds_scheduled`
+  - Failed terminal: `kyc_required`, `developer_kyb_required`, `underfunded`, `deactivated`

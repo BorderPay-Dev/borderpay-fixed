@@ -20,6 +20,7 @@ export interface BridgeTransferStateMapping {
 const BRIDGE_PENDING_STATES = new Set([
   "awaiting_funds",
   "in_review",
+  "funds_scheduled",
   "funds_received",
   "payment_submitted",
   "refund_in_flight",
@@ -32,6 +33,10 @@ const BRIDGE_COMPLETED_STATES = new Set([
 const BRIDGE_FAILED_STATES = new Set([
   "undeliverable",
   "returned",
+  "kyc_required",
+  "developer_kyb_required",
+  "underfunded",
+  "deactivated",
   "missing_return_policy",
   "refunded",
   "refund_failed",
