@@ -170,3 +170,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - replaced raw Bridge error passthrough on create/list/delete/capabilities with deterministic product-safe mapping
   - preserved `request_id` in failure responses for support traceability
   - added explicit local mirror upsert error handling (`external_account_sync_failed`)
+
+### 2026-06-29 — Batch W (completed)
+- Hardened `bridge-wallet` persistence failure response:
+  - removed raw database error text leakage from `persistence_failed` response
+  - kept deterministic user-safe message while preserving `bridge_wallet_id` for operator reconciliation

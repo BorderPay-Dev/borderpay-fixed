@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
       return json({
         success: false,
         code:    "persistence_failed",
-        error:   `Wallet created by provider (${result.wallet_id}) but local save failed: ${(bwErr || wErr)!.message}`,
+        error:   "Wallet was created but local sync failed. Please retry.",
         bridge_wallet_id: result.wallet_id,
       }, 500);
     }
