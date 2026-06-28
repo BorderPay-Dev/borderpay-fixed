@@ -136,6 +136,13 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      if (c.account_type !== "individual" && c.account_type !== "business") {
+        row.status = "skipped_invalid_account_type";
+        skipped += 1;
+        results.push(row);
+        continue;
+      }
+
       if (c.bridge_customer_id) {
         row.status = "already_exists";
         row.bridge_customer_id = c.bridge_customer_id;
@@ -146,7 +153,14 @@ Deno.serve(async (req) => {
 
       let companyName: string | undefined;
       let registrationNumber: string | undefined;
-      if (c.account_type === "business" && includeBusiness) {
+      if (c.account_type === "business" && !includeBusiness) {
+        row.status = "skipped_business_excluded";
+        skipped += 1;
+        results.push(row);
+        continue;
+      }
+
+      if (c.account_type === "business") {
         const { data: biz } = await supa
           .from("business_profiles")
           .select("company_name,registration_number")
@@ -154,6 +168,12 @@ Deno.serve(async (req) => {
           .maybeSingle();
         companyName = biz?.company_name || undefined;
         registrationNumber = biz?.registration_number || undefined;
+        if (!companyName) {
+          row.status = "skipped_business_incomplete";
+          skipped += 1;
+          results.push(row);
+          continue;
+        }
       }
 
       const createdCustomer = await bridgeProvider.createCustomer({

@@ -52,3 +52,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Expanded `mapBridgeTransferState` coverage for documented webhook/exception states to avoid unknown-state drift:
   - Pending: `funds_scheduled`
   - Failed terminal: `kyc_required`, `developer_kyb_required`, `underfunded`, `deactivated`
+
+### 2026-06-29 — Batch D (completed)
+- Hardened `bridge-sync-customers` onboarding-driven behavior:
+  - skips invalid `account_type` rows instead of attempting provider creation
+  - skips businesses when `include_business=false`
+  - skips business rows with incomplete profile (`company_name` missing) instead of sending malformed create payloads
