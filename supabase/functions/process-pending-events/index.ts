@@ -1251,6 +1251,11 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
 
   const amount   = Number(d?.amount ?? 0);
   const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
+  const sourceCurrency = String(d?.source?.currency ?? currency).toUpperCase();
+  const destinationCurrency = String(d?.destination?.currency ?? currency).toUpperCase();
+  if (!mappedState.recognized) {
+    console.warn(`bridge transfer unknown provider state transfer=${transferId} state=${mappedState.providerState}`);
+  }
 
   // 1) Bridge transfer projection + lifecycle state must flow via canonical RPC
   // (no direct runtime upsert on bridge_transfers).
@@ -1299,6 +1304,14 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   //    and tag metadata.account_type='business' — no business transaction
   //    schema invented here per CTO directive.
   if (owner.resolved) {
+    const transactionType =
+      normSource === "wallet" && normDest === "wallet" && sourceCurrency !== destinationCurrency
+        ? "fx_conversion"
+        : "transfer";
+    const flow =
+      transactionType === "fx_conversion"
+        ? "stablecoin_sandwich"
+        : `${normSource}_to_${normDest}`;
     const { error: txErr } = await supabase.rpc("upsert_bridge_transaction", {
       p_user_id:            owner.resolved,
       p_bridge_transfer_id: String(transferId),
@@ -1307,11 +1320,13 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       p_status:             mappedState.transactionStatus,
       p_metadata: {
         source:           "bridge",
-        transaction_type: "fx_conversion",
-        flow:             "stablecoin_sandwich",
+        transaction_type: transactionType,
+        flow,
         account_type:     owner.account_type,
         source_type:      normSource,
         destination_type: normDest,
+        source_currency:  sourceCurrency,
+        destination_currency: destinationCurrency,
         bridge_state:     mappedState.providerState,
         bridge_state_recognized: mappedState.recognized,
         raw:              d,
@@ -1334,6 +1349,10 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       provider_state: mappedState.providerState,
       internal_status: mappedState.transactionStatus,
       recognized: mappedState.recognized,
+      source_type: normSource,
+      destination_type: normDest,
+      source_currency: sourceCurrency,
+      destination_currency: destinationCurrency,
     },
   });
 }

@@ -98,3 +98,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - replay check now rejects future-dated timestamps beyond skew allowance (prevents accidental acceptance from `abs(now-ts)` logic)
   - removed internal RPC error message leakage from webhook HTTP responses
   - retained structured internal logs (`webhookLog`) for operator debugging
+
+### 2026-06-29 — Batch K (completed)
+- Hardened `process-pending-events` transfer projection semantics:
+  - removed hardcoded transfer transaction classification (`fx_conversion` / `stablecoin_sandwich`) for all transfer events
+  - now classifies transfer metadata deterministically from source/destination rails and currencies (FX only for wallet→wallet cross-currency)
+  - added explicit warning log when provider transfer state is unrecognized while preserving fail-closed pending mapping
