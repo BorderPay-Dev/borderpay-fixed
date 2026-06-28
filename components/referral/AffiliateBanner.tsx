@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { affiliateProgramUrl } from '../../utils/affiliate/config';
+import { backendAPI } from '../../utils/api/backendAPI';
 
 const DISMISSED_KEY = 'affiliate_banner_dismissed_v2';
 
@@ -16,6 +17,7 @@ interface AffiliateBannerProps {
 
 export function AffiliateBanner({ kycStatus }: AffiliateBannerProps) {
   const [visible, setVisible] = useState(false);
+  const [opening, setOpening] = useState(false);
   const tc = useThemeClasses();
 
   useEffect(() => {
@@ -28,10 +30,21 @@ export function AffiliateBanner({ kycStatus }: AffiliateBannerProps) {
     setVisible(false);
   };
 
-  const handleJoin = () => {
-    const url = affiliateProgramUrl('banner');
+  const handleJoin = async () => {
+    if (opening) return;
+    setOpening(true);
+    let url = affiliateProgramUrl('banner');
+    try {
+      const res = await backendAPI.affiliate.getSSOLink();
+      if (res.success && res.data?.url) {
+        url = res.data.url;
+      }
+    } catch {
+      // Fall back to public affiliate URL
+    } finally {
+      setOpening(false);
+    }
     const win = window.open(url, '_blank', 'noopener,noreferrer');
-    // Fallback path: open in current tab if popup/external open fails.
     if (!win) window.location.assign(url);
   };
 
@@ -54,10 +67,11 @@ export function AffiliateBanner({ kycStatus }: AffiliateBannerProps) {
 
         <button
           onClick={handleJoin}
+          disabled={opening}
           className="shrink-0 px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors hover:opacity-90 whitespace-nowrap"
           style={{ backgroundColor: '#C7FF00', color: '#06080C' }}
         >
-          Join beta
+          {opening ? 'Opening…' : 'Join beta'}
         </button>
 
         <button

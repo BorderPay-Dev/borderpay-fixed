@@ -2398,6 +2398,36 @@ export const supportAPI = {
     }),
 };
 
+export const affiliateAPI = {
+  getSSOLink: async () =>
+    apiCall<{
+      url: string;
+      token_expires_at: string;
+      verification_status: string;
+      affiliate_status: string;
+    }>('affiliate-sso-link', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  confirmPayout: async (input: {
+    affiliate_id?: string;
+    affiliate_email?: string;
+    reward_ids?: string[];
+    payout_reference?: string;
+    currency?: string;
+  }) =>
+    apiCall<{
+      affiliate_id: string;
+      affiliate_email: string;
+      rewards_paid_count: number;
+      rewards_paid_amount: number;
+      payout_reference: string | null;
+    }>('affiliate-payout-sync', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'confirm_payout', ...input }),
+    }),
+};
+
 export const backendAPI = {
   auth: authSecurityAPI,
   user: userAPI,
@@ -2422,6 +2452,7 @@ export const backendAPI = {
   subscription: subscriptionAPI,
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,
+  affiliate:    affiliateAPI,
   admin:        adminAPI,
   support:      supportAPI,
   team:         teamAPI,
