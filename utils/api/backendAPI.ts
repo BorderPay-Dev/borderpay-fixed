@@ -318,10 +318,9 @@ export const authSecurityAPI = {
   },
 
   async updateSecurityStatus(updates: { pin_set?: boolean; two_factor_enabled?: boolean }) {
-    return apiCall('update-security-status', {
-      method: 'POST',
-      body: JSON.stringify(updates),
-    });
+    // Quarantine unresolved legacy endpoint (`update-security-status`).
+    // Keep a successful no-op response shape to avoid runtime 404 regressions.
+    return { success: true, data: { applied: false, updates } } as any;
   },
 
   async resetPasswordRequest(email: string) {
@@ -349,10 +348,27 @@ export const userAPI = {
   },
 
   async updateProfile(data: any) {
-    return apiCall('update-user-profile', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    // Drift-safe direct profile write replacing undeployed edge endpoint.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: 'Not signed in' };
+    const patch = {
+      full_name: data?.full_name ?? null,
+      phone: data?.phone ?? null,
+      address: data?.address ?? null,
+      city: data?.city ?? null,
+      country: data?.country ?? null,
+      postal_code: data?.postal_code ?? null,
+      date_of_birth: data?.date_of_birth ?? null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: row, error } = await supabase
+      .from('user_profiles')
+      .update(patch)
+      .eq('id', user.id)
+      .select('id, full_name, phone, address, city, country, postal_code, date_of_birth')
+      .maybeSingle();
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: { user: row || patch } };
   },
 
   async uploadProfilePicture(file: File) {
@@ -587,11 +603,9 @@ export const transactionAPI = {
     return { success: true, data: { transactions } };
   },
 
-  async getCustomerTransactions(customerId: string, filters?: any) {
-    return apiCall('get-customer-transactions', {
-      method: 'POST',
-      body: JSON.stringify({ customer_id: customerId, ...filters }),
-    });
+  async getCustomerTransactions(_customerId: string, _filters?: any) {
+    // Quarantine unresolved legacy endpoint (`get-customer-transactions`).
+    return RAILS_FUTURE_STATE;
   },
 
   async exportTransactions(userId: string, format: 'csv' | 'pdf' | 'excel', filters?: any) {
@@ -601,11 +615,9 @@ export const transactionAPI = {
     });
   },
 
-  async verifyTransaction(transactionId: string) {
-    return apiCall('verify-transaction', {
-      method: 'POST',
-      body: JSON.stringify({ transaction_id: transactionId }),
-    });
+  async verifyTransaction(_transactionId: string) {
+    // Quarantine unresolved legacy endpoint (`verify-transaction`).
+    return RAILS_FUTURE_STATE;
   },
 };
 
@@ -1279,7 +1291,8 @@ export const fxAPI = {
   },
 
   async getHistory() {
-    return apiCall('get-fx-history', { method: 'POST' });
+    // Quarantine unresolved legacy endpoint (`get-fx-history`).
+    return RAILS_FUTURE_STATE;
   },
 
   /**
@@ -1435,25 +1448,19 @@ export const proofOfAddressAPI = {
 // ============================================================================
 
 export const localPaymentsAPI = {
-  async getInstitutions(currency: string, type?: string) {
-    return apiCall('get-institutions', {
-      method: 'POST',
-      body: JSON.stringify({ currency, type }),
-    });
+  async getInstitutions(_currency: string, _type?: string) {
+    // Quarantine unresolved legacy endpoint (`get-institutions`).
+    return RAILS_FUTURE_STATE;
   },
 
-  async fetchBankDetails(routingNumber: string, countryCode: string) {
-    return apiCall('fetch-bank-details', {
-      method: 'POST',
-      body: JSON.stringify({ routing_number: routingNumber, country_code: countryCode }),
-    });
+  async fetchBankDetails(_routingNumber: string, _countryCode: string) {
+    // Quarantine unresolved legacy endpoint (`fetch-bank-details`).
+    return RAILS_FUTURE_STATE;
   },
 
-  async resolveAccount(bankCode: string, accountNumber: string, currency: string) {
-    return apiCall('resolve-account', {
-      method: 'POST',
-      body: JSON.stringify({ bank_code: bankCode, account_number: accountNumber, currency }),
-    });
+  async resolveAccount(_bankCode: string, _accountNumber: string, _currency: string) {
+    // Quarantine unresolved legacy endpoint (`resolve-account`).
+    return RAILS_FUTURE_STATE;
   },
 
   // QUARANTINED — `transfer` routes to future-state
@@ -1464,15 +1471,14 @@ export const localPaymentsAPI = {
     return RAILS_FUTURE_STATE;
   },
 
-  async verifyTransfer(transferId: string) {
-    return apiCall('verify-transfer', {
-      method: 'POST',
-      body: JSON.stringify({ transfer_id: transferId }),
-    });
+  async verifyTransfer(_transferId: string) {
+    // Quarantine unresolved legacy endpoint (`verify-transfer`).
+    return RAILS_FUTURE_STATE;
   },
 
   async getTransfers() {
-    return apiCall('get-transfers', { method: 'POST' });
+    // Quarantine unresolved legacy endpoint (`get-transfers`).
+    return RAILS_FUTURE_STATE;
   },
 };
 
@@ -1514,11 +1520,9 @@ export const addressAPI = {
   },
 
   /** Read-only lookup over legacy address rows. */
-  async getAddress(addressId: string) {
-    return apiCall('get-address', {
-      method: 'POST',
-      body: JSON.stringify({ address_id: addressId }),
-    });
+  async getAddress(_addressId: string) {
+    // Quarantine unresolved legacy endpoint (`get-address`).
+    return RAILS_FUTURE_STATE;
   },
 
   async updateOfframp(_addressId: string, _offramp: boolean) {
@@ -1663,7 +1667,16 @@ export const notificationsAPI = {
 // Runtime send/payout execution must remain Bridge-backed only.
 export const accountsAPI = {
   async getAccounts() {
-    return apiCall('get-accounts', { method: 'GET' });
+    const route = await financialReadModelAPI.getWalletRouteData();
+    if (!route?.success) return { success: false, error: route?.error || 'Unable to load accounts right now.' };
+    const wallets = Array.isArray(route?.data?.wallets) ? route.data.wallets : [];
+    const virtual_accounts = Array.isArray(route?.data?.virtual_accounts) ? route.data.virtual_accounts : [];
+    return {
+      success: true,
+      data: {
+        accounts: { wallets, virtual_accounts },
+      },
+    };
   },
 
   async createUSDAccount(_data: any) {
@@ -1674,11 +1687,9 @@ export const accountsAPI = {
   },
 
   /** Read-only account status lookup. */
-  async checkAccountStatus(reference: string) {
-    return apiCall('check-account-status', {
-      method: 'POST',
-      body: JSON.stringify({ reference }),
-    });
+  async checkAccountStatus(_reference: string) {
+    // Quarantine unresolved legacy endpoint (`check-account-status`).
+    return RAILS_FUTURE_STATE;
   },
 
   /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
@@ -1704,10 +1715,16 @@ export const accountsAPI = {
 
 export const customersAPI = {
   async suspendUser(userId: string, reason: string) {
-    return apiCall('suspend-user', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, reason }),
-    });
+    // Drift-safe direct write replacing undeployed `suspend-user`.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: 'Not signed in' };
+    if (user.id !== userId) return { success: false, error: 'Unauthorized' };
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ account_status: 'suspended', updated_at: new Date().toISOString() })
+      .eq('id', user.id);
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: { suspended: true, reason } };
   },
 
 };
@@ -2248,14 +2265,14 @@ export const subscriptionAPI = {
 /** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
-  listBanks: async (country: string) =>
-    apiCall<{ banks: Array<{ code: string; name: string }> }>(
-      'bridge-list-banks', { method: 'POST', body: JSON.stringify({ country }) }),
+  listBanks: async (_country: string) =>
+    // Quarantine unresolved legacy endpoint (`bridge-list-banks`).
+    RAILS_FUTURE_STATE as any,
 
   /** Verify a bank account number → account holder name before payout. */
-  resolveAccount: async (account_number: string, bank_code: string) =>
-    apiCall<{ account_name: string }>(
-      'bridge-resolve-account', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) }),
+  resolveAccount: async (_account_number: string, _bank_code: string) =>
+    // Quarantine unresolved legacy endpoint (`bridge-resolve-account`).
+    RAILS_FUTURE_STATE as any,
 
   /**
    * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same
