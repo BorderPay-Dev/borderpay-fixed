@@ -19,7 +19,6 @@ interface State {
   errorInfo: React.ErrorInfo | null;
   showDetails: boolean;
   copied: boolean;
-  recovering: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -31,7 +30,6 @@ export class ErrorBoundary extends Component<Props, State> {
       errorInfo: null,
       showDetails: false,
       copied: false,
-      recovering: false,
     };
   }
 
@@ -44,27 +42,6 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('[BorderPay ErrorBoundary] Component stack:', errorInfo.componentStack);
     this.setState({ errorInfo });
     this.props.onError?.(error, errorInfo);
-
-    const msg = String(error?.message || '').toLowerCase();
-    const isModuleLoadFailure =
-      msg.includes('importing a module script failed') ||
-      msg.includes('failed to fetch dynamically imported module') ||
-      msg.includes('dynamically imported module') ||
-      msg.includes('chunkloaderror') ||
-      msg.includes('loading chunk');
-
-    if (isModuleLoadFailure && typeof window !== 'undefined') {
-      const key = 'borderpay_error_boundary_reload_once_v1';
-      let alreadyTried = false;
-      try { alreadyTried = sessionStorage.getItem(key) === '1'; } catch { alreadyTried = false; }
-      if (!alreadyTried) {
-        try { sessionStorage.setItem(key, '1'); } catch { /* noop */ }
-        this.setState({ recovering: true });
-        window.setTimeout(() => {
-          this.handleReload();
-        }, 120);
-      }
-    }
   }
 
   purgeClientCaches = async () => {
@@ -116,14 +93,7 @@ export class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
 
-      const { error, showDetails, copied, recovering } = this.state;
-      const msg = String(error?.message || '').toLowerCase();
-      const isModuleLoadFailure =
-        msg.includes('importing a module script failed') ||
-        msg.includes('failed to fetch dynamically imported module') ||
-        msg.includes('dynamically imported module') ||
-        msg.includes('chunkloaderror') ||
-        msg.includes('loading chunk');
+      const { error, showDetails, copied } = this.state;
 
       return (
         <div className="fixed inset-0 bg-[#0B0E11] flex items-center justify-center p-5 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -159,8 +129,8 @@ export class ErrorBoundary extends Component<Props, State> {
                   Something Went Wrong
                 </h1>
                 <p className="text-sm text-white/50 leading-relaxed mb-6 max-w-[280px] mx-auto">
-                  {isModuleLoadFailure
-                    ? 'A new app version was detected while this tab was open. Reloading now…'
+                  {error?.message?.includes('chunk')
+                    ? 'A loading error occurred. This usually fixes itself with a refresh.'
                     : 'An unexpected error occurred in the application. Your data is safe — no funds or personal information have been affected.'
                   }
                 </p>
@@ -171,7 +141,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   className="w-full bg-[#C7FF00] text-black py-3.5 rounded-2xl font-bold text-sm hover:bg-[#B8F000] transition-all active:scale-[0.97] flex items-center justify-center gap-2 mb-3"
                 >
                   <RefreshCw size={16} />
-                  {recovering ? 'Reloading…' : 'Reload App'}
+                  Reload App
                 </button>
 
                 {/* Secondary action */}
