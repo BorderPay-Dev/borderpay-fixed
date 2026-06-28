@@ -29,6 +29,7 @@ const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const PUBLIC_KEY_PEM        = Deno.env.get("BRIDGE_WEBHOOK_PUBLIC_KEY") ?? "";
 const REPLAY_WINDOW_MS      = 10 * 60 * 1000;
+const FUTURE_SKEW_MS        = 60 * 1000;
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -146,8 +147,11 @@ Deno.serve(async (req) => {
     return json({ error: "missing or malformed X-Webhook-Signature", reason_code: evalRes.reason_code }, 401);
   }
 
-  const ageMs = Math.abs(Date.now() - parsed.ts);
-  if (ageMs > REPLAY_WINDOW_MS) {
+  const nowMs = Date.now();
+  const ageMs = nowMs - parsed.ts;
+  // Reject old events beyond replay window and timestamps too far in the future.
+  // Using absolute age can accidentally accept future-dated timestamps.
+  if (ageMs > REPLAY_WINDOW_MS || parsed.ts - nowMs > FUTURE_SKEW_MS) {
     const evalRes = evaluateBridgeIngressEvent({
       source: "bridge",
       eventIdRaw: null,
@@ -219,7 +223,11 @@ Deno.serve(async (req) => {
   });
   if (rpcErr) {
     webhookLog("ingest_failed", { event_id: eventId, event_type: ingress.derived_event_type, error: rpcErr.message });
-    return json({ error: "ingest failed", detail: rpcErr.message }, 500);
+    return json({
+      error: "ingest failed",
+      reason_code: "ingest_error",
+      event_id: eventId,
+    }, 500);
   }
   // RPC returns one row with shape { was_duplicate, was_rejected, queued, pending_id }
   const row = Array.isArray(ingest) ? ingest[0] : ingest;

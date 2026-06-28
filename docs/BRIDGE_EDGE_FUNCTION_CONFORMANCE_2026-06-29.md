@@ -92,3 +92,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - deterministic UI status derivation (`none|draft|under_review|approved|rejected`)
   - business account path now normalizes from `bridge_kyb_status`; individual path supports `bridge_kyc_status` and compatibility fallback
 - Replaced raw internal error passthrough with product-safe failure response (`verification_status_unavailable`).
+
+### 2026-06-29 — Batch J (completed)
+- Hardened `bridge-webhook` ingress safety:
+  - replay check now rejects future-dated timestamps beyond skew allowance (prevents accidental acceptance from `abs(now-ts)` logic)
+  - removed internal RPC error message leakage from webhook HTTP responses
+  - retained structured internal logs (`webhookLog`) for operator debugging
