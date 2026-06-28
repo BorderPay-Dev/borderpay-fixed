@@ -73,3 +73,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-sync-accounts` account mirroring:
   - no longer defaults unknown wallet currency to `USDC` (prevents silent misclassification)
   - now skips malformed provider rows with empty currency for wallets/virtual-accounts and logs explicit warning
+
+### 2026-06-29 — Batch G (completed)
+- Hardened `bridge-kyc-link` failure handling:
+  - standardized provider error extraction (`message` or `error`)
+  - mapped Bridge failure classes to deterministic product-safe responses (`tos_required`, `endorsement_required`, `rate_limited`, `provider_unavailable`, etc.)
+  - removed raw Bridge failure string leakage from client responses while preserving `bridge_request_id` + `bridge_status` + `correlation_id` for support tracing
