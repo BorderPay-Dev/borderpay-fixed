@@ -194,7 +194,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       // Provider provisioning/sync is background-only; never block first paint.
       if (shouldRunProviderSync()) {
         void Promise.allSettled([
-          backendAPI.bridge.provisionStablecoins(),
           backendAPI.bridge.syncAccounts(),
         ]).then(async () => {
           try {

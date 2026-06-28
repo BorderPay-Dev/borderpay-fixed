@@ -2,9 +2,7 @@
  * BridgeWalletsCard — list + create custodial stablecoin wallets.
  *
  * Reads public.bridge_wallets for this user (or business) and shows
- * deposit address + chain. Provides a single Create button for the default
- * stablecoin (USDC on Base). Other stablecoin/chain pairs can be added
- * later under explicit product rollout.
+ * deposit address + chain. Users can manually add supported stablecoin wallets.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -36,7 +34,10 @@ interface Props {
   isBusiness?:   boolean;
 }
 
-const DEFAULT_STABLECOIN = { symbol: 'usdc', chain: 'base', label: 'USDC on Base' };
+const MANUAL_STABLECOINS = [
+  { symbol: 'usdc', chain: 'base', label: 'USDC on Base' },
+  { symbol: 'usdt', chain: 'tron', label: 'USDT on Tron' },
+] as const;
 
 export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: Props) {
   const { t } = useThemeLanguage();
@@ -88,7 +89,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
       try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
       try { localStorage.setItem(walletRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
-      // Local-first paint. Provision/sync in background, then requery so newly
+      // Local-first paint. Sync in background, then requery so newly
       // created wallets appear without blocking initial render.
       if (forceSync || next.length === 0) {
         try {
@@ -98,7 +99,6 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
             return;
           }
         } catch { /* noop */ }
-        try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
         try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
         try { localStorage.setItem(walletSyncTsKey, String(Date.now())); } catch { /* noop */ }
         const q2 = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
@@ -147,23 +147,23 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     return () => { alive = false; };
   }, [userId, isBusiness, kycApproved]);
 
-  const handleCreate = async () => {
+  const handleCreate = async (symbol: string, chain: string, label: string) => {
     if (!walletsSupported) {
       showToast.error('Stablecoin wallets are not available for your country.');
       return;
     }
     setCreating(true);
-    const r = await backendAPI.bridge.wallet.create({ symbol: DEFAULT_STABLECOIN.symbol, chain: DEFAULT_STABLECOIN.chain });
+    const r = await backendAPI.bridge.wallet.create({ symbol, chain });
     setCreating(false);
     if (!r.success) {
       showToast.error(friendlyError(r.error, tt('dash.wallet.create.failed', 'Could not create wallet.')));
       return;
     }
-    showToast.success(tt('dash.wallet.create.success', `${DEFAULT_STABLECOIN.label} wallet created`));
+    showToast.success(tt('dash.wallet.create.success', `${label} wallet created`));
     refresh(true);
   };
-
-  const hasDefault = rows.some(r => r.currency.toLowerCase() === DEFAULT_STABLECOIN.symbol && r.chain.toLowerCase() === DEFAULT_STABLECOIN.chain);
+  const hasWallet = (symbol: string, chain: string) =>
+    rows.some(r => r.currency.toLowerCase() === symbol && r.chain.toLowerCase() === chain);
 
   return (
     <motion.div
@@ -237,21 +237,27 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
             </ul>
           )}
 
-          {!hasDefault && (
-            <button
-              disabled={!isApproved || !walletsSupported || creating}
-              onClick={handleCreate}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition
-                ${isApproved && walletsSupported
-                  ? 'bg-[#C7FF00] text-black hover:opacity-90'
-                  : `${tc.bgAlt} ${tc.textMuted} cursor-not-allowed`}`}
-            >
-              {creating
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <Plus className="w-3.5 h-3.5" />}
-              {tt('dash.wallet.add', 'Add')} {DEFAULT_STABLECOIN.label}
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {MANUAL_STABLECOINS.map((opt) => {
+              if (hasWallet(opt.symbol, opt.chain)) return null;
+              return (
+                <button
+                  key={`${opt.symbol}:${opt.chain}`}
+                  disabled={!isApproved || !walletsSupported || creating}
+                  onClick={() => handleCreate(opt.symbol, opt.chain, opt.label)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition
+                    ${isApproved && walletsSupported
+                      ? 'bg-[#C7FF00] text-black hover:opacity-90'
+                      : `${tc.bgAlt} ${tc.textMuted} cursor-not-allowed`}`}
+                >
+                  {creating
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Plus className="w-3.5 h-3.5" />}
+                  {tt('dash.wallet.add', 'Add')} {opt.label}
+                </button>
+              );
+            })}
+          </div>
         </>
       )}
 

@@ -804,10 +804,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       } else {
         toast.success('Payment received — confirming your activation…');
         handleRefresh();
-        // Best-effort: provision base stablecoins now that they're activated so a
-        // virtual account has a settlement wallet ready. No-ops if the webhook
-        // hasn't flipped the plan yet; the dashboard wallets card retries on load.
-        backendAPI.bridge.provisionStablecoins?.().catch(() => { /* noop */ });
       }
       const url = new URL(window.location.href);
       ['activation', 'status', 'tx_ref', 'transaction_id'].forEach(k => url.searchParams.delete(k));
