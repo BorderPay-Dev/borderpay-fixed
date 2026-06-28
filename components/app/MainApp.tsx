@@ -36,7 +36,7 @@ import { PreferencesScreen } from './PreferencesScreen';
 import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
 import { HelpCenterScreen } from '../settings/HelpCenterScreen';
 import { SupportScreen } from '../settings/SupportScreen';
-import { ProofOfAddressScreen } from '../settings/ProofOfAddressScreen';
+import { CardsScreen } from '../cards/CardsScreen';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
@@ -65,28 +65,18 @@ const lazyImport = <T extends { default: React.ComponentType<any> }>(
   return Component;
 };
 
-const CardsScreen = lazyImport(() => import('../cards/CardsScreen').then(m => ({ default: m.CardsScreen })));
 const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ default: m.PINSetup })));
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
-const PaymentMethods = lazyImport(() => import('../settings/PaymentMethods').then(m => ({ default: m.PaymentMethods })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
-const USDAccountScreen = lazyImport(() => import('../accounts/USDAccountScreen').then(m => ({ default: m.USDAccountScreen })));
-const MomoCollectionScreen = lazyImport(() => import('../momo/MomoCollectionScreen').then(m => ({ default: m.MomoCollectionScreen })));
-const CreateCounterpartyScreen = lazyImport(() => import('../counterparty/CreateCounterpartyScreen').then(m => ({ default: m.CreateCounterpartyScreen })));
-const StablecoinDepositScreen = lazyImport(() => import('../wallets/StablecoinDepositScreen').then(m => ({ default: m.StablecoinDepositScreen })));
-const StablecoinConfirmScreen = lazyImport(() => import('../wallets/StablecoinConfirmScreen').then(m => ({ default: m.StablecoinConfirmScreen })));
-const ReferralScreen = lazyImport(() => import('../referral/ReferralScreen').then(m => ({ default: m.ReferralScreen })));
 const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
-const BusinessBroadcastScreen = lazyImport(() => import('../admin/BusinessBroadcastScreen').then(m => ({ default: m.BusinessBroadcastScreen })));
-const IndividualBroadcastScreen = lazyImport(() => import('../admin/IndividualBroadcastScreen').then(m => ({ default: m.IndividualBroadcastScreen })));
 const eagerPreload = () => Promise.resolve();
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
 // so any nav button can call it on hover/touchstart.
 const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
-  cards: (CardsScreen as any).preload,
+  cards: eagerPreload,
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
   exchange: eagerPreload,
@@ -100,20 +90,12 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   profile: eagerPreload,
   'change-pin': eagerPreload,
   'change-password': eagerPreload,
-  'payment-methods': (PaymentMethods as any).preload,
   'country-eligibility': eagerPreload,
   'terms-of-service': eagerPreload,
   'privacy-policy': eagerPreload,
   preferences: eagerPreload,
-  'usd-account': (USDAccountScreen as any).preload,
-  'momo-collect': (MomoCollectionScreen as any).preload,
-  'create-counterparty': (CreateCounterpartyScreen as any).preload,
-  'stablecoin-deposit': (StablecoinDepositScreen as any).preload,
-  'stablecoin-confirm': (StablecoinConfirmScreen as any).preload,
   'help-center': eagerPreload,
   support: eagerPreload,
-  'proof-of-address': eagerPreload,
-  referral: (ReferralScreen as any).preload,
   pricing:       (PricingScreen as any).preload,
   team:          eagerPreload,
   notifications: eagerPreload,
@@ -122,8 +104,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
-  'admin-broadcast-business': (BusinessBroadcastScreen as any).preload,
-  'admin-broadcast-individual': (IndividualBroadcastScreen as any).preload,
 };
 
 export function prefetchScreen(name: string) {
@@ -233,6 +213,23 @@ function writeCachedUnreadCount(userId: string, count: number): void {
   } catch { /* ignore notification cache write */ }
 }
 
+const SHELL_SYNC_COOLDOWN_MS = 45_000;
+
+function shouldRunShellSync(userId: string, channel: 'profile' | 'unread'): boolean {
+  try {
+    const key = `borderpay_shell_sync_v1:${channel}:${userId}`;
+    const now = Date.now();
+    const last = Number(sessionStorage.getItem(key) || 0);
+    if (Number.isFinite(last) && now - last < SHELL_SYNC_COOLDOWN_MS) {
+      return false;
+    }
+    sessionStorage.setItem(key, String(now));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 // ─── Skeleton Fallback (no spinner!) ───────────────────────────────────
 // Shown only on the first navigation to a screen, while its chunk loads.
 // Subsequent navigations to the same screen render instantly.
@@ -272,7 +269,6 @@ export type AppScreen =
   | 'pin-setup'
   | 'change-pin'
   | 'change-password'
-  | 'payment-methods'
   | 'country-eligibility'
   | 'kyc'
   | 'settings'
@@ -280,16 +276,9 @@ export type AppScreen =
   | 'terms-of-service'
   | 'privacy-policy'
   | 'preferences'
-  | 'usd-account'
-  | 'momo-collect'
-  | 'create-counterparty'
-  | 'stablecoin-deposit'
-  | 'stablecoin-confirm'
-  | 'referral'
   | 'biometric-setup'
   | 'help-center'
   | 'support'
-  | 'proof-of-address'
   | 'pricing'
   | 'team'
   | 'notifications'
@@ -297,9 +286,7 @@ export type AppScreen =
   | 'external-wallets'
   | 'bulk-payout'
   | 'payroll'
-  | 'add-external-account'
-  | 'admin-broadcast-business'
-  | 'admin-broadcast-individual';
+  | 'add-external-account';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
 // The shell speaks `AppRoute` (Home/Send/Receive/Account + drawer items).
@@ -382,7 +369,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // get-profile + notifications calls below.
   const [shellUserName, setShellUserName] = useState<string>(() => {
     try {
+      const directBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      if (directBusinessName) {
+        return directBusinessName;
+      }
       const inferredBusiness =
         String(cached?.account_type || '').toLowerCase() === 'business' || hasBusinessAccountCached();
       return getBusinessDisplayName({
@@ -410,6 +401,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // user_profiles to flip to 'business' if the user is a business account.
   const [accountType, setAccountType] = useState<'individual' | 'business'>(() => {
     try {
+      const directBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
+      if (directBusinessName) return 'business';
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
       if (cached?.account_type === 'business') return 'business';
       if (cached?.account_type === 'individual') return 'individual';
@@ -433,17 +426,30 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let syncInFlight = false;
+    const syncProfile = async (force = false) => {
+      if (syncInFlight) return;
+      if (!force && !shouldRunShellSync(userId, 'profile')) return;
+      syncInFlight = true;
       try {
         const r = await backendAPI.user.getProfile();
         if (cancelled) return;
         if (r?.success && r.data?.user) {
           const u: any = r.data.user;
-          const t = u.account_type === 'business' ? 'business' : 'individual';
           let cached: any = {};
           try { cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}'); } catch { cached = {}; }
+          const cachedBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
+          const hasBusinessSignal =
+            u.account_type === 'business' ||
+            String(cached?.account_type || '').toLowerCase() === 'business' ||
+            String(cached?.company_name || '').trim().length > 0 ||
+            cachedBusinessName.length > 0;
+          const t: 'individual' | 'business' = hasBusinessSignal ? 'business' : 'individual';
           if (t === 'business' && !u.company_name && cached?.company_name) {
             u.company_name = cached.company_name;
+          }
+          if (t === 'business' && !u.company_name && cachedBusinessName) {
+            u.company_name = cachedBusinessName;
           }
           if (t !== accountType) setAccountType(t);
           // Shell display props — kept in MainApp so AppShell stays presentational.
@@ -458,8 +464,20 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           } catch { /* ignore */ }
         }
       } catch { /* keep cached */ }
-    })();
-    return () => { cancelled = true; };
+      finally { syncInFlight = false; }
+    };
+    void syncProfile(true);
+    const onFocus = () => { void syncProfile(false); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void syncProfile(false);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
@@ -468,7 +486,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // tiny values it actually needs for first-navigation responsiveness.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let syncInFlight = false;
+    const syncUnread = async (force = false) => {
+      if (syncInFlight) return;
+      if (!force && !shouldRunShellSync(userId, 'unread')) return;
+      syncInFlight = true;
       try {
         const unreadRes = await backendAPI.notifications.getUnreadCount();
         if (cancelled) return;
@@ -478,9 +500,21 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           if (Number.isFinite(n)) updateUnreadCount(n);
         }
       } catch { /* non-fatal */ }
-    })();
-    return () => { cancelled = true; };
-  }, [userId, refreshKey, updateUnreadCount]);
+      finally { syncInFlight = false; }
+    };
+    void syncUnread(true);
+    const onFocus = () => { void syncUnread(false); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void syncUnread(false);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [userId, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
   // Reads user_subscriptions via the subscription-current edge function. If
@@ -575,6 +609,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // user's first navigation is instant. Runs once per session, in background.
   React.useEffect(() => {
     let cancelled = false;
+    const prewarmKey = `borderpay_mainapp_route_prewarm_v1:${userId}:${accountType}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return () => { cancelled = true; };
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
     const idle = (cb: () => void) => {
       const ric = (window as any).requestIdleCallback;
       if (typeof ric === 'function') ric(cb, { timeout: 1500 });
@@ -582,111 +622,118 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     };
     idle(() => {
       if (cancelled) return;
-      // Warm all primary dashboard quick actions so first tap does not wait on
-      // lazy chunk fetch.
-      [
-        'transactions',
-        'send-money',
-        'receive-money',
-        'exchange',
-        'wallet-detail',
-        'external-wallets',
-        'bulk-payout',
-        'payroll',
-        'team',
-        'external-accounts',
-        'notifications',
-        'profile',
-        'settings',
-        'change-pin',
-        'change-password',
-        'two-factor-setup',
-        'biometric-setup',
-        'help-center',
-        'terms-of-service',
-        'privacy-policy',
-        'preferences',
-        'kyc',
-        'pricing',
-      ].forEach(prefetchScreen);
+      // Keep runtime light: warm only highest-traffic routes. Other screens are
+      // prefetched on intent (tap/hover) via AppShell/route controls.
+      ['wallet-detail', 'receive-money', 'send-money', 'transactions', 'notifications', 'profile']
+        .forEach(prefetchScreen);
+      if (hasBusinessAccountCached() || accountType === 'business') {
+        ['team', 'external-accounts', 'bulk-payout', 'payroll'].forEach(prefetchScreen);
+      }
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [accountType, userId]);
 
   // Warm shared financial route data in the background so first opens of
   // Wallet / Receive / Transactions / External Accounts render from cache.
   React.useEffect(() => {
     let cancelled = false;
+    const warmTsKey = financialCacheKey('borderpay_financial_warm_ts_v1', { userId });
+    const walletsKey = financialCacheKey('borderpay_wallets_v1', { userId });
+    const vaKey = financialCacheKey('borderpay_va_v1', { userId });
+    const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
+    const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
     const warm = async () => {
+      // Avoid re-running heavy warm fan-out on every app resume / quick session
+      // re-entry. Route screens now own their own revalidation throttles.
       try {
-        const walletRoute: any = await backendAPI.financial.getWalletRouteData();
-        if (!cancelled && walletRoute?.success) {
-          const data = walletRoute?.data || {};
-          const walletsKey = financialCacheKey('borderpay_wallets_v1', { userId });
-          const vaKey = financialCacheKey('borderpay_va_v1', { userId });
-          try { localStorage.setItem(walletsKey, JSON.stringify(Array.isArray(data?.stablecoin_wallets) ? data.stablecoin_wallets : [])); } catch {}
-          try { localStorage.setItem(vaKey, JSON.stringify(Array.isArray(data?.virtual_accounts) ? data.virtual_accounts : [])); } catch {}
-          const rows: any[] = Array.isArray(data?.wallets) ? data.wallets : [];
-          if (rows.length > 0) {
-            const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
-              const c = String(w?.currency || '').toUpperCase();
-              if (!c) return acc;
-              acc[c] = Number(w?.balance || 0);
-              return acc;
-            }, {});
-            try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch {}
-            try {
-              const total = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
-              localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total));
-            } catch {}
+        const last = Number(localStorage.getItem(warmTsKey) || '0');
+        if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
+      } catch { /* noop */ }
+
+      try {
+        const hasWalletCache = (() => {
+          try {
+            return !!localStorage.getItem(walletsKey) || !!localStorage.getItem(vaKey);
+          } catch { return false; }
+        })();
+        if (!hasWalletCache) {
+          const walletRoute: any = await backendAPI.financial.getWalletRouteData();
+          if (!cancelled && walletRoute?.success) {
+            const data = walletRoute?.data || {};
+            try { localStorage.setItem(walletsKey, JSON.stringify(Array.isArray(data?.stablecoin_wallets) ? data.stablecoin_wallets : [])); } catch {}
+            try { localStorage.setItem(vaKey, JSON.stringify(Array.isArray(data?.virtual_accounts) ? data.virtual_accounts : [])); } catch {}
+            const rows: any[] = Array.isArray(data?.wallets) ? data.wallets : [];
+            if (rows.length > 0) {
+              const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
+                const c = String(w?.currency || '').toUpperCase();
+                if (!c) return acc;
+                acc[c] = Number(w?.balance || 0);
+                return acc;
+              }, {});
+              try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch {}
+              try {
+                const total = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+                localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total));
+              } catch {}
+            }
           }
         }
       } catch {}
 
       try {
-        const txRes: any = await backendAPI.transactions.getTransactions(100, 0);
-        if (!cancelled && txRes?.success) {
-          const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
-          const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
-          try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
+        const hasTxCache = (() => {
+          try { return !!localStorage.getItem(txKey); } catch { return false; }
+        })();
+        if (!hasTxCache) {
+          const txRes: any = await backendAPI.transactions.getTransactions(100, 0);
+          if (!cancelled && txRes?.success) {
+            const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
+            try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
+          }
         }
       } catch {}
 
       try {
-        const extRes: any = await backendAPI.bridge.externalAccount.list();
-        if (!cancelled && extRes?.success) {
-          const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
-          const extRows = Array.isArray(extRes?.data?.external_accounts) ? extRes.data.external_accounts : [];
-          const normalized = extRows.map((row: any, idx: number) => {
-            const rawType = String(row?.account_type || '').toLowerCase();
-            const accountType =
-              rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
-            const rawCurrency = String(row?.currency || '');
-            const currency = rawCurrency
-              ? rawCurrency.toUpperCase()
-              : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
-            const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
-            const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
-            return {
-              id: String(row?.id || externalId || `ext_${idx}`),
-              bridge_external_account_id: externalId,
-              account_type: accountType,
-              currency,
-              account_owner_name: row?.account_owner_name ?? null,
-              bank_name: row?.bank_name ?? null,
-              last_4: last4 ? String(last4) : null,
-              rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
-              status: String(row?.status || 'active'),
-            };
-          }).filter((r: any) => !!r.bridge_external_account_id);
-          try { localStorage.setItem(extKey, JSON.stringify(normalized)); } catch {}
+        const hasExternalCache = (() => {
+          try { return !!localStorage.getItem(extKey); } catch { return false; }
+        })();
+        if (!hasExternalCache) {
+          const extRes: any = await backendAPI.bridge.externalAccount.list();
+          if (!cancelled && extRes?.success) {
+            const extRows = Array.isArray(extRes?.data?.external_accounts) ? extRes.data.external_accounts : [];
+            const normalized = extRows.map((row: any, idx: number) => {
+              const rawType = String(row?.account_type || '').toLowerCase();
+              const accountType =
+                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+              const rawCurrency = String(row?.currency || '');
+              const currency = rawCurrency
+                ? rawCurrency.toUpperCase()
+                : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+              const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
+              const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
+              return {
+                id: String(row?.id || externalId || `ext_${idx}`),
+                bridge_external_account_id: externalId,
+                account_type: accountType,
+                currency,
+                account_owner_name: row?.account_owner_name ?? null,
+                bank_name: row?.bank_name ?? null,
+                last_4: last4 ? String(last4) : null,
+                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+                status: String(row?.status || 'active'),
+              };
+            }).filter((r: any) => !!r.bridge_external_account_id);
+            try { localStorage.setItem(extKey, JSON.stringify(normalized)); } catch {}
+          }
         }
       } catch {}
+
+      try { localStorage.setItem(warmTsKey, String(Date.now())); } catch { /* noop */ }
     };
 
     const ric = (window as any).requestIdleCallback;
-    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1200 });
-    else setTimeout(() => { void warm(); }, 500);
+    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1800 });
+    else setTimeout(() => { void warm(); }, 900);
     return () => { cancelled = true; };
   }, [userId]);
 
@@ -870,9 +917,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'change-password':
         return <ChangePassword onBack={navigateBack} />;
 
-      case 'payment-methods':
-        return <PaymentMethods onBack={navigateBack} />;
-
       case 'country-eligibility':
         return <CountryEligibilityScreen onBack={navigateBack} />;
 
@@ -885,71 +929,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'preferences':
         return <PreferencesScreen onBack={navigateBack} />;
 
-      case 'usd-account':
-        return (
-          <USDAccountScreen
-            onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
-          />
-        );
-
-      case 'momo-collect':
-        return (
-          <MomoCollectionScreen
-            onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
-          />
-        );
-
-      case 'create-counterparty':
-        return (
-          <CreateCounterpartyScreen
-            userId={userId}
-            onBack={navigateBack}
-            onSuccess={() => { navigateBack(); handleRefresh(); }}
-          />
-        );
-
-      case 'stablecoin-deposit':
-        return (
-          <StablecoinDepositScreen
-            onBack={navigateBack}
-            onConfirm={(data: StablecoinConfirmData) => {
-              setStablecoinConfirmData(data);
-              navigateTo('stablecoin-confirm');
-            }}
-          />
-        );
-
-      case 'stablecoin-confirm':
-        return stablecoinConfirmData ? (
-          <StablecoinConfirmScreen
-            onBack={navigateBack}
-            onDone={() => {
-              setStablecoinConfirmData(null);
-              navigateTo('dashboard');
-              handleRefresh();
-            }}
-            txType={stablecoinConfirmData.txType}
-            currency={stablecoinConfirmData.currency}
-            amount={stablecoinConfirmData.amount}
-            network={stablecoinConfirmData.network}
-            address={stablecoinConfirmData.address}
-            txHash={stablecoinConfirmData.txHash}
-          />
-        ) : null;
-
       case 'help-center':
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
       case 'support':
         return <SupportScreen onBack={navigateBack} onNavigate={navigateTo} />;
-
-      case 'proof-of-address':
-        return <ProofOfAddressScreen onBack={navigateBack} />;
-
-      case 'referral':
-        return <ReferralScreen onBack={navigateBack} />;
 
       case 'pricing':
         return (
@@ -973,12 +957,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'notifications':
         return <NotificationsScreen onBack={navigateBack} onUnreadCountChange={updateUnreadCount} />;
-
-      case 'admin-broadcast-business':
-        return <BusinessBroadcastScreen onBack={navigateBack} />;
-
-      case 'admin-broadcast-individual':
-        return <IndividualBroadcastScreen onBack={navigateBack} />;
 
       case 'dashboard':
       case 'home':

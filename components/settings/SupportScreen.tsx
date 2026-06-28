@@ -92,6 +92,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     void loadAdminTickets();
   }, [loadTickets, loadAdminTickets]);
 
+
   const loadTicketThread = useCallback(async (ticketId: string) => {
     setLoadingTicketThread(true);
     try {
@@ -125,6 +126,11 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       setLoadingAdminThread(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (selectedTicketId || tickets.length === 0) return;
+    void loadTicketThread(tickets[0].id);
+  }, [tickets, selectedTicketId, loadTicketThread]);
 
   const sendReply = useCallback(async () => {
     if (!selectedTicketId) return;
@@ -193,27 +199,26 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   }, [loadAdminTickets, selectedAdminTicketId]);
 
   const submitTicket = async () => {
-    if (!subject.trim()) {
-      toast.error('Please add a subject');
+    const body = message.trim();
+    if (!body) {
+      toast.error('Please type your message');
       return;
     }
-    if (!message.trim()) {
-      toast.error('Please describe your issue');
-      return;
-    }
+    const issueLabel = ISSUE_TYPES.find((x) => x.key === issueType)?.label || 'General';
+    const autoSubject = `${issueLabel}: ${body.slice(0, 56)}`;
     setCreating(true);
     try {
       const res = await backendAPI.support.createTicket({
         issue_type: issueType,
-        subject: subject.trim(),
-        message: message.trim(),
+        subject: subject.trim() || autoSubject,
+        message: body,
         source: 'app',
       });
       if (!res.success) {
         toast.error(res.error || 'Could not create support ticket');
         return;
       }
-      toast.success('Support ticket created');
+      toast.success('Chat started');
       setSubject('');
       setMessage('');
       await loadTickets();
@@ -231,7 +236,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
         <div className="flex items-center justify-between px-6 py-4 pt-safe">
           <div className="w-10" />
-          <h1 className={`text-lg font-bold ${tc.text}`}>Support</h1>
+          <h1 className={`text-lg font-bold ${tc.text}`}>Support chat</h1>
           <div className="w-10" />
         </div>
       </div>
@@ -254,7 +259,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
         <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 space-y-3`}>
           <div className="flex items-center gap-2">
             <MessageSquare size={16} className="text-[#C7FF00]" />
-            <p className={`text-sm font-semibold ${tc.text}`}>Contact support</p>
+            <p className={`text-sm font-semibold ${tc.text}`}>Live chat with support</p>
           </div>
 
           <div>
@@ -270,13 +275,12 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
             </select>
           </div>
 
-          <div>
-            <label className={`block text-xs ${tc.textSecondary} mb-1`}>Subject</label>
+          <div className="hidden">
             <input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Short title for your issue"
-              className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
+              className="hidden"
+              aria-hidden="true"
             />
           </div>
 
@@ -286,7 +290,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               rows={4}
-              placeholder="Describe your issue briefly..."
+              placeholder="Type your message…"
               className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
             />
           </div>
@@ -298,7 +302,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
             >
               {creating ? <Loader2 size={15} className="animate-spin" /> : null}
-              Submit ticket
+              Start chat
             </button>
             <button
               onClick={() => void loadTickets()}
@@ -312,11 +316,11 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
 
         <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
           <div className="flex items-center justify-between mb-3">
-            <p className={`text-sm font-semibold ${tc.text}`}>Your tickets</p>
+            <p className={`text-sm font-semibold ${tc.text}`}>Recent chats</p>
             {loadingTickets ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
           </div>
           {tickets.length === 0 ? (
-            <p className={`text-sm ${tc.textSecondary}`}>No support tickets yet.</p>
+            <p className={`text-sm ${tc.textSecondary}`}>No chats yet. Start one below.</p>
           ) : (
             <div className="space-y-2">
               {tickets.map((t) => (
@@ -343,7 +347,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
         {selectedTicketId ? (
           <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
             <div className="flex items-center justify-between mb-3">
-              <p className={`text-sm font-semibold ${tc.text}`}>Ticket conversation</p>
+              <p className={`text-sm font-semibold ${tc.text}`}>Live conversation</p>
               {loadingTicketThread ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
             </div>
 
@@ -377,7 +381,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                 value={replyMessage}
                 onChange={(e) => setReplyMessage(e.target.value)}
                 rows={3}
-                placeholder="Reply to support..."
+                placeholder="Type your reply…"
                 className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
               />
               <button
@@ -386,7 +390,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                 className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
               >
                 {sendingReply ? <Loader2 size={15} className="animate-spin" /> : null}
-                Send reply
+                Send
               </button>
             </div>
           </div>

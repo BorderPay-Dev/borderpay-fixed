@@ -1,33 +1,83 @@
 /**
  * ExternalAccountsScreen — list & manage fiat payout (offramp) destinations.
  *
- * Reads the local RLS-protected mirror (public.bridge_external_accounts via
- * backendAPI.bridge.externalAccount.list) — no edge round-trip for a read.
+ * Reads via canonical snapshot (backendAPI.financial.getSnapshot) so payout
+ * destinations stay in the same read model as balances/transactions.
  * Remove proxies the `bridge-external-account` edge function.
  *
  * Reached only when EXTERNAL_ACCOUNTS_LIVE is true (gated in MainApp).
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { Plus, Banknote, Loader2, Trash2, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { FloatingBackButton } from '../common/FloatingBackButton';
-import { useVerification } from '../../utils/verification/useVerification';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 interface ExternalAccountRow {
   id: string;
   bridge_external_account_id: string;
-  account_type: 'us' | 'iban';
+  account_type: 'us' | 'iban' | 'clabe' | 'pix';
   currency: string;
   account_owner_name: string | null;
   bank_name: string | null;
   last_4: string | null;
   rail: string | null;
   status: string;
+}
+
+function isApproved(value?: string | null): boolean {
+  if (typeof value !== 'string') return false;
+  return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
+}
+
+function readCachedVerified(): boolean {
+  try {
+    const u = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    const accountType = String(u?.account_type || 'individual').toLowerCase();
+    const kycApproved = isApproved(u?.bridge_kyc_status);
+    const kybApproved = isApproved(u?.bridge_kyb_status);
+    const accountApproved = isApproved(u?.bridge_account_status);
+    return accountType === 'business'
+      ? (kybApproved || kycApproved || accountApproved)
+      : (kycApproved || accountApproved);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeExternalAccounts(payload: any): ExternalAccountRow[] {
+  const rows = Array.isArray(payload?.external_accounts)
+    ? payload.external_accounts
+    : Array.isArray(payload)
+      ? payload
+      : [];
+  return rows.map((row: any, idx: number) => {
+    const rawType = String(row?.account_type || '').toLowerCase();
+    const accountType: ExternalAccountRow['account_type'] =
+      rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+    const rawCurrency = String(row?.currency || '');
+    const currency = rawCurrency
+      ? rawCurrency.toUpperCase()
+      : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+    const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
+    const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
+    return {
+      id: String(row?.id || externalId || `ext_${idx}`),
+      bridge_external_account_id: externalId,
+      account_type: accountType,
+      currency,
+      account_owner_name: row?.account_owner_name ?? null,
+      bank_name: row?.bank_name ?? null,
+      last_4: last4 ? String(last4) : null,
+      rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+      status: String(row?.status || 'active'),
+    } as ExternalAccountRow;
+  }).filter((r: ExternalAccountRow) => !!r.bridge_external_account_id);
 }
 
 interface ExternalAccountsScreenProps {
@@ -38,53 +88,94 @@ interface ExternalAccountsScreenProps {
 // Native-app pattern: cache the last-loaded list so the screen mounts INSTANTLY
 // with known data on the next visit, then refreshes in the background.
 const CACHE_KEY = 'borderpay_payout_accounts_v1';
-function readCache(): ExternalAccountRow[] {
-  try { const v = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); return Array.isArray(v) ? v : []; }
-  catch { return []; }
+function readCache(cacheKey: string): ExternalAccountRow[] {
+  try {
+    const scoped = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+    if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+    const legacy = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]');
+    return Array.isArray(legacy) ? legacy : [];
+  } catch { return []; }
 }
 
 export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
   const tc = useThemeClasses();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
-  const verification = useVerification(userId);
-  const cached = readCache();
+  const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
+  const cacheKey = financialCacheKey(CACHE_KEY, { userId });
+  const refreshTsKey = financialCacheKey('borderpay_external_accounts_refresh_ts_v1', { userId });
+  const cached = readCache(cacheKey);
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
+  const rowsRef = useRef<ExternalAccountRow[]>(cached);
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
   // Only show skeletons when we have nothing cached to render instantly.
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+
   // Background refresh — never blanks the cached view; no setLoading(true) here.
-  const load = async () => {
+  const load = async (force = false) => {
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
+    const seededRows = rowsRef.current.length > 0 ? rowsRef.current : readCache(cacheKey);
+    const isColdStart = seededRows.length === 0;
+
     setError(null);
     try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const r: any = await backendAPI.bridge.externalAccount.list();
       if (r?.success) {
-        const next = (r.data?.external_accounts || []) as ExternalAccountRow[];
+        const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
         setRows(next);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
-      } else if (rows.length === 0) {
+        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
+      } else if (seededRows.length === 0) {
         setError(friendlyError(r?.error, 'Could not load payout accounts'));
       }
     } catch (e: any) {
-      if (rows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
+      if (seededRows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
     } finally {
       setLoading(false);
+    }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) {
+        loadInFlightRef.current = null;
+      }
     }
   };
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['add-external-account', 'send-money', 'wallet-detail', 'transactions', 'settings'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    const prewarmKey = `borderpay_external_accounts_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['add-external-account', 'send-money', 'wallet-detail', 'transactions', 'settings'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
 
     load();
     const onFocus = () => { void load(); };
@@ -98,6 +189,8 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
+  useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
+
   const remove = async (extId: string) => {
     setRemoving(extId);
     try {
@@ -106,7 +199,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         toast.success('Payout account removed.');
         setRows(prev => {
           const next = prev.filter(x => x.bridge_external_account_id !== extId);
-          try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+          try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
           return next;
         });
       } else {
@@ -120,11 +213,17 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   };
 
   const railLabel = (row: ExternalAccountRow) =>
-    row.account_type === 'us' ? 'ACH · Wire' : 'SEPA';
+    row.account_type === 'us'
+      ? 'ACH · Wire'
+      : row.account_type === 'iban'
+        ? 'SEPA'
+        : row.account_type === 'clabe'
+          ? 'SPEI'
+          : 'PIX';
 
   // Lock door: payout destinations are only available once the user is
   // verified/activated (same gate as Receive / Send / Add money).
-  if (!verification.isVerified) {
+  if (!isVerified) {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
         <FloatingBackButton onBack={onBack} />
@@ -154,7 +253,16 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
       >
         <h1 className={`text-base font-semibold ${tc.text}`}>External Accounts</h1>
-        <button onClick={onAdd} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold">
+        <button
+          onPointerDown={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+          onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+          onTouchStart={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+          onClick={() => {
+            try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
+            onAdd();
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-[#C7FF00] text-black text-xs font-bold"
+        >
           <Plus className="w-3.5 h-3.5" /> Add
         </button>
       </header>
@@ -173,7 +281,15 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
             ))}
           </div>
         ) : error ? (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-300">{error}</div>
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
+            <p className="text-sm text-red-300">{error}</p>
+            <button
+              onClick={() => load(true)}
+              className="mt-3 inline-flex items-center gap-2 text-[12px] font-semibold text-[#C7FF00]"
+            >
+              Retry
+            </button>
+          </div>
         ) : rows.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-[#C7FF00]/10 flex items-center justify-center mb-4">
@@ -181,7 +297,16 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
             </div>
             <p className={`text-sm font-semibold ${tc.text} mb-1`}>No external accounts yet</p>
             <p className={`text-xs ${tc.textMuted} mb-5`}>Add a bank account to receive payouts through BorderPay.</p>
-            <button onClick={onAdd} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold">
+            <button
+              onPointerDown={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+              onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+              onTouchStart={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
+              onClick={() => {
+                try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ }
+                onAdd();
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold"
+            >
               <Plus className="w-4 h-4" /> Add payout account
             </button>
           </div>

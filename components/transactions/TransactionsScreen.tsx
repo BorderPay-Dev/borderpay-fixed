@@ -4,7 +4,7 @@
  * i18n + theme-aware
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Filter, Download, Search, ArrowUpRight, ArrowDownLeft, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,7 +15,6 @@ import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -40,43 +39,81 @@ interface Transaction {
 
 const TX_CACHE_KEY = 'borderpay_tx_history_v1';
 const TX_REFRESH_TS_KEY = 'borderpay_tx_refresh_ts_v1';
-function readTxCache(cacheKey: string): Transaction[] {
-  try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
-  catch { return []; }
+const DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1';
+const BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1';
+function normalizeTxRows(rows: any[]): Transaction[] {
+  return rows
+    .map((r: any) => ({
+      id: String(r?.id || ''),
+      type: String(r?.type || r?.transaction_type || ''),
+      amount: Number(r?.amount || 0),
+      currency: String(r?.currency || '').toUpperCase(),
+      description: String(r?.description || r?.memo || 'Transaction'),
+      status: (String(r?.status || 'pending').toLowerCase() as Transaction['status']),
+      created_at: String(r?.created_at || new Date().toISOString()),
+      recipient: r?.recipient || undefined,
+      sender: r?.sender || undefined,
+      metadata: r?.metadata || undefined,
+    }))
+    .filter((r: Transaction) => !!r.id);
+}
+function readTxCache(cacheKey: string, userId: string): Transaction[] {
+  try {
+    const raw = localStorage.getItem(cacheKey);
+    const primary = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(primary) && primary.length > 0) return primary;
+    const legacyRaw = localStorage.getItem(TX_CACHE_KEY);
+    const legacy = legacyRaw ? JSON.parse(legacyRaw) : [];
+    if (Array.isArray(legacy) && legacy.length > 0) return legacy;
+  } catch { /* continue to fallback */ }
+  try {
+    const recent = JSON.parse(localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');
+    if (Array.isArray(recent) && recent.length > 0) return normalizeTxRows(recent);
+    const bizKey = financialCacheKey(BIZ_DASH_TX_KEY, { userId, accountType: 'business' });
+    const biz = JSON.parse(localStorage.getItem(bizKey) || '[]');
+    if (Array.isArray(biz) && biz.length > 0) return normalizeTxRows(biz);
+  } catch { /* noop */ }
+  return [];
 }
 
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
   const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey(TX_REFRESH_TS_KEY, { userId });
+  const seededRows = readTxCache(cacheKey, userId);
   // Seed from cache so the history paints instantly on open, then refreshes.
-  const [transactions, setTransactions] = useState<Transaction[]>(() => readTxCache(cacheKey));
+  const [transactions, setTransactions] = useState<Transaction[]>(() => seededRows);
+  const transactionsRef = useRef<Transaction[]>(seededRows);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const refreshInFlightRef = useRef(false);
   const { t, language } = useThemeLanguage();
   const tc = useThemeClasses();
 
   useEffect(() => {
-    navPerfTrackCache('transactions', transactions.length > 0);
-  }, [transactions.length]);
-
-  useEffect(() => {
     loadTransactions();
     // Warm common next hops from Activity so drawer transitions feel instant.
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['settings', 'profile', 'notifications', 'team'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 900 });
-      else setTimeout(warm, 180);
-    }
+    const prewarmKey = `borderpay_transactions_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['settings', 'profile', 'notifications', 'team'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 900 });
+          else setTimeout(warm, 180);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
     const onFocus = () => { void loadTransactions(); };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void loadTransactions();
@@ -91,15 +128,17 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadTransactions = async () => {
-    const hasCachedRows = transactions.length > 0;
-    if (!hasCachedRows) setLoading(true);
+  const loadTransactions = async (force = false) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    const hasCachedRows = transactionsRef.current.length > 0;
+    
     setLoadError(false);
     // Re-open optimization: avoid hitting the API on every fast route hop.
     // Keep cache hot and refresh at most every 45s per user/session.
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
         setLoading(false);
         return;
       }
@@ -122,14 +161,15 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
         setTransactions(list);
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (transactions.length === 0) {
+      } else if (transactionsRef.current.length === 0) {
         // Only surface an error if we have nothing cached to show.
         setLoadError(true);
       }
     } catch (error) {
-      if (transactions.length === 0) setLoadError(true);
+      if (transactionsRef.current.length === 0) setLoadError(true);
     } finally {
       setLoading(false);
+      refreshInFlightRef.current = false;
     }
   };
 
@@ -293,7 +333,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
             variant="server"
             title={t('transactions.title')}
             message="Could not load your transactions. Please try again."
-            onRetry={loadTransactions}
+            onRetry={() => loadTransactions(true)}
             compact
           />
         ) : loading && transactions.length === 0 ? (

@@ -20,7 +20,7 @@
  *     the drawer entry), so the notice is the safety net.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
 import {
@@ -29,7 +29,6 @@ import {
 } from 'lucide-react';
 import { backendAPI, type TeamMemberRow, type TeamRosterResponse, type TeamRole } from '../../utils/api/backendAPI';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 export interface TeamScreenProps {
   onBack: () => void;
@@ -51,7 +50,8 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 2_000;
+const TEAM_LOAD_TIMEOUT_MS = 6_000;
+const TEAM_REFRESH_TS_KEY_PREFIX = 'borderpay_team_refresh_ts_v1';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -94,7 +94,14 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   const inferredBusiness = useMemo(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-      return String(cached?.account_type || '').toLowerCase() === 'business';
+      if (String(cached?.account_type || '').toLowerCase() === 'business') return true;
+      if (String(cached?.company_name || '').trim().length > 0) return true;
+      const cachedId = String(cached?.id || '').trim();
+      if (cachedId) {
+        const cachedBizName = String(localStorage.getItem(`borderpay_business_name_v1:${cachedId}`) || '').trim();
+        if (cachedBizName) return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -113,8 +120,6 @@ export function TeamScreen({ onBack, onManagePlans, accountType }: TeamScreenPro
   }, []);
   const effectiveAccountType: 'individual' | 'business' =
     accountType === 'business' || inferredBusiness || inferredBusinessFromAuthToken ? 'business' : 'individual';
-
-  // ── Individual-account placeholder ────────────────────────────────────
   if (effectiveAccountType !== 'business') {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
@@ -150,6 +155,8 @@ function BusinessTeamPanel({
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
+  const rosterRef = useRef<TeamRosterResponse | null>(cachedRoster);
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
   const [busyId, setBusyId]     = useState<string | null>(null);
 
   // Invite form
@@ -159,11 +166,23 @@ function BusinessTeamPanel({
   const [inviting, setInviting]     = useState(false);
 
   useEffect(() => {
-    navPerfTrackCache('team', cachedRoster !== null);
-  }, [cachedRoster]);
+    rosterRef.current = roster;
+  }, [roster]);
 
   // Background refresh — does not blank the cached roster (no setLoading(true)).
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
+    const refreshTsKey = `${TEAM_REFRESH_TS_KEY_PREFIX}:${currentTeamCacheKey()}`;
+    const seededRoster = rosterRef.current ?? readRosterCache();
+    try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (!force && seededRoster && Number.isFinite(last) && Date.now() - last < 45_000) return;
+    } catch { /* noop */ }
+
     setError(null);
     try {
       const r = await withTimeout(
@@ -174,18 +193,48 @@ function BusinessTeamPanel({
       if (r.success && r.data) {
         setRoster(r.data);
         writeRosterCache(r.data);
-      } else if (!roster) {
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
+      } else if (!seededRoster) {
         setError(friendlyError(r.error, 'Could not load team'));
       }
     } catch (e: any) {
-      if (!roster) setError(friendlyError(e, 'Could not load team'));
+      if (!seededRoster) setError(friendlyError(e, 'Could not load team'));
     } finally {
       setLoading(false);
+    }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) {
+        loadInFlightRef.current = null;
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    // Warm likely next hops from Team so drawer/settings transitions stay instant.
+    try {
+      const prewarmKey = `borderpay_team_prewarm_v1:${currentTeamCacheKey()}`;
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['settings', 'profile', 'pricing', 'notifications'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 900 });
+          else setTimeout(warm, 180);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
+
     load();
     const onFocus = () => { void load(); };
     const onVisibility = () => {
@@ -215,7 +264,7 @@ function BusinessTeamPanel({
       if (r.success) {
         setEmail('');
         setInviteOpen(false);
-        await load();
+        await load(true);
       } else {
         // 402 plan_required is auto-intercepted globally → UpgradeModal opens.
         // Surface other errors inline.
@@ -235,7 +284,7 @@ function BusinessTeamPanel({
     try {
       const r = await backendAPI.team.remove(memberId);
       if (r.success) {
-        await load();
+        await load(true);
       } else {
         setError(friendlyError(r.error, 'Could not remove member'));
       }
@@ -286,7 +335,7 @@ function BusinessTeamPanel({
               <p className={`text-xs ${tc.text}`}>{error}</p>
               <button
                 type="button"
-                onClick={load}
+                onClick={() => load(true)}
                 className="mt-2 text-xs font-semibold text-red-200 hover:text-white"
               >
                 Retry
@@ -368,10 +417,10 @@ function BusinessTeamPanel({
           </div>
         )}
 
-        {/* Loading skeleton */}
+        {/* Background sync hint (non-blocking) */}
         {loading && (
-          <div className="space-y-2">
-            {[1,2,3].map(i => <div key={i} className={`h-16 rounded-2xl ${tc.bgAlt} animate-pulse`} />)}
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3`}> 
+            <p className={`text-xs ${tc.textMuted}`}>Syncing team…</p>
           </div>
         )}
 

@@ -15,7 +15,7 @@
  * the "where do I tap?" friction.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Shield, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, Plus, RefreshCw,
@@ -37,7 +37,6 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { showToast } from '../common/StatusToast';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface WalletScreenProps {
   userId:     string;
@@ -82,18 +81,37 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
   );
+  const stableWalletsLegacyCacheKey = 'borderpay_wallets_v1';
   const vaCacheKey = useMemo(
     () => financialCacheKey('borderpay_va_v1', { userId }),
+    [userId],
+  );
+  const vaLegacyCacheKey = 'borderpay_va_v1';
+  const walletRefreshTsKey = useMemo(
+    () => financialCacheKey('borderpay_wallet_refresh_ts_v1', { userId }),
     [userId],
   );
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const [stables, setStables] = useState<StableRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]'); } catch { return []; }
+    try {
+      const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
+      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+      const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
+      return Array.isArray(legacy) ? legacy : [];
+    } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
-    try { return JSON.parse(localStorage.getItem(vaCacheKey) || '[]'); } catch { return []; }
+    try {
+      const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+      const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
+      return Array.isArray(legacy) ? legacy : [];
+    } catch { return []; }
   });
+  const stablesRef = useRef<StableRow[]>(stables);
+  const vasRef = useRef<VaRow[]>(vas);
+  const hasCachedWalletRows = stables.length > 0 || vas.length > 0;
   const [totalUsd, setTotalUsd] = useState<number>(() => {
     try { const r = localStorage.getItem(`borderpay_wallet_total_${userId}`); return r ? Number(r) : 0; } catch { return 0; }
   });
@@ -106,6 +124,10 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
+  const refreshInFlightRef = useRef(false);
+
+  useEffect(() => { stablesRef.current = stables; }, [stables]);
+  useEffect(() => { vasRef.current = vas; }, [vas]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -120,13 +142,32 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     }
   };
 
-  useEffect(() => {
-    navPerfTrackCache('wallet-detail', stables.length > 0 || vas.length > 0);
-  }, [stables.length, vas.length]);
-
-  const refresh = async () => {
+  const refresh = async (force = false) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
+        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+        const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
+        return Array.isArray(legacy) ? legacy : [];
+      } catch { return []; }
+    })();
+    const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
+        const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
+        return Array.isArray(legacy) ? legacy : [];
+      } catch { return []; }
+    })();
+    const isColdStart = seededStables.length === 0 && seededVas.length === 0;
     setRefreshing(true);
     try {
+      const last = Number(localStorage.getItem(walletRefreshTsKey) || '0');
+      if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const routeData: any = await backendAPI.financial.getWalletRouteData();
       const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
       const vList = (routeData?.data?.virtual_accounts as VaRow[]) ?? [];
@@ -134,6 +175,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       setVas(vList);
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
+      try { localStorage.setItem(walletRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
       const rows: any[] = Array.isArray(routeData?.data?.wallets) ? routeData.data.wallets : [];
       if (rows.length > 0) {
@@ -187,21 +229,29 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     } finally {
       setLoading(false);
       setRefreshing(false);
+      refreshInFlightRef.current = false;
     }
   };
 
   useEffect(() => {
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['receive-money', 'send-money', 'transactions', 'exchange', 'external-wallets', 'external-accounts'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
-    }
+    const prewarmKey = `borderpay_wallet_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['receive-money', 'send-money', 'transactions', 'exchange', 'external-wallets', 'external-accounts'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+          else setTimeout(warm, 220);
+        }
+        sessionStorage.setItem(prewarmKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
 
     if (isVerified) refresh();
     const onFocus = () => { if (isVerified) void refresh(); };
@@ -214,7 +264,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  /* eslint-disable-next-line */ }, [userId, isVerified]);
+  /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
 
   // ── Missing VA currencies (the "deposit chooser") ────────────────────────
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
@@ -273,7 +323,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
             {tt('wallet.title', 'Accounts & Wallets')}
           </p>
-          <button onClick={refresh} aria-label="Refresh"
+          <button onClick={() => refresh(true)} aria-label="Refresh"
             className={`p-2 rounded-full ${tc.hoverBg} ${refreshing ? 'opacity-60' : ''}`}>
             <RefreshCw className={`w-4 h-4 ${tc.textMuted} ${refreshing ? 'animate-spin' : ''}`} />
           </button>
