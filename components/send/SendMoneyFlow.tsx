@@ -245,9 +245,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     [externalAccounts, selectedExternalAccountId],
   );
 
-  // BorderPay Network Fee — corridor-aware, via the revenue fee engine.
-  // Provider stays invisible; the total is fully disclosed to the user.
-  const networkFee = useMemo(() => {
+  // Instant fallback fee — shown immediately on first paint.
+  const fallbackNetworkFee = useMemo(() => {
     const num = parseFloat(amount);
     if (!num || num <= 0) return null;
     // The crypto withdrawal track forces the stablecoin route (flat 1.00%),
@@ -262,6 +261,68 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
   }, [amount, selectedCurrency, accountType, method]);
+  const [policyFeeQuote, setPolicyFeeQuote] = useState<{
+    totalFee: number;
+    feePercent: number;
+  } | null>(null);
+  const [policyFeeLoading, setPolicyFeeLoading] = useState(false);
+  const feeQuoteReqRef = useRef(0);
+
+  // Background fee refresh from server policy. This never blocks render.
+  useEffect(() => {
+    const num = parseFloat(amount);
+    if (!num || num <= 0) {
+      setPolicyFeeQuote(null);
+      setPolicyFeeLoading(false);
+      return;
+    }
+    // For now we only quote bank payouts from this screen.
+    if (method !== 'us_ach_wire') {
+      setPolicyFeeQuote(null);
+      setPolicyFeeLoading(false);
+      return;
+    }
+    const reqId = feeQuoteReqRef.current + 1;
+    feeQuoteReqRef.current = reqId;
+    setPolicyFeeLoading(true);
+    (async () => {
+      try {
+        const r: any = await backendAPI.payouts.feeQuote({
+          direction: 'payout',
+          channel: 'bank',
+          currency: selectedCurrency,
+          amount: num,
+        });
+        if (feeQuoteReqRef.current !== reqId) return;
+        if (r?.success && r?.data) {
+          const totalFee = Number(r.data.total_fee || 0);
+          const pct = num > 0 ? (totalFee / num) * 100 : 0;
+          setPolicyFeeQuote({
+            totalFee: Number.isFinite(totalFee) ? totalFee : 0,
+            feePercent: Number.isFinite(pct) ? pct : 0,
+          });
+        } else {
+          setPolicyFeeQuote(null);
+        }
+      } catch {
+        if (feeQuoteReqRef.current === reqId) setPolicyFeeQuote(null);
+      } finally {
+        if (feeQuoteReqRef.current === reqId) setPolicyFeeLoading(false);
+      }
+    })();
+  }, [amount, method, selectedCurrency]);
+
+  const networkFee = useMemo(() => {
+    if (!fallbackNetworkFee) return null;
+    if (policyFeeQuote && method === 'us_ach_wire') {
+      return {
+        ...fallbackNetworkFee,
+        feePercent: policyFeeQuote.feePercent,
+        totalFee: policyFeeQuote.totalFee,
+      };
+    }
+    return fallbackNetworkFee;
+  }, [fallbackNetworkFee, policyFeeQuote, method]);
   const [limitError, setLimitError] = useState<string | null>(null);
 
   // PIN & result
@@ -1329,6 +1390,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>
                       BorderPay Network Fee{networkFee.feePercent > 0 ? ` (${networkFee.feePercent.toFixed(networkFee.feePercent < 1 ? 2 : 3)}%)` : ''}
+                      {policyFeeLoading ? ' · updating…' : ''}
                     </span>
                     <span className={networkFee.totalFee === 0 ? 'text-[#C7FF00]' : tc.text}>
                       {networkFee.totalFee === 0

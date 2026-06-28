@@ -2276,6 +2276,28 @@ export const payoutsAPI = {
       results: Array<{ row: number; label: string | null; transfer_id?: string; state: string; error?: string; replayed?: boolean }>;
       summary: { total: number; submitted: number; failed: number; total_amount: number; currency: string };
     }>('bridge-bulk-payout', { method: 'POST', body: JSON.stringify(payload) }),
+
+  /** Server-side corridor fee quote (non-blocking UI hint for payout review). */
+  feeQuote: async (input: {
+    direction: 'payout' | 'receive';
+    channel: 'bank' | 'mobile_money';
+    currency: string;
+    amount: number | string;
+  }) =>
+    apiCall<{
+      direction: 'payout' | 'receive';
+      channel: 'bank' | 'mobile_money';
+      currency: string;
+      amount: number;
+      product: string;
+      provider_fee: number;
+      markup_fee: number;
+      total_fee: number;
+      effective_multiplier: number;
+      hard_cap_multiplier: number | null;
+      pricing_version: string;
+      quoted_at: string;
+    }>('flutterwave-fee-quote', { method: 'POST', body: JSON.stringify(input) }),
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */
