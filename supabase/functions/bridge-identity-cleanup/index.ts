@@ -103,6 +103,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
+  // Fail-closed by default. This endpoint is destructive and must be
+  // explicitly enabled for a controlled maintenance window.
+  const enabled = (Deno.env.get("BRIDGE_IDENTITY_CLEANUP_ENABLED") || "").toLowerCase() === "true";
+  if (!enabled) {
+    return json({
+      success: false,
+      code: "cleanup_disabled",
+      error: "Bridge identity cleanup is disabled.",
+    }, 503);
+  }
+
   const secret =
     Deno.env.get("BRIDGE_IDENTITY_CLEANUP_SECRET") ||
     Deno.env.get("ADMIN_BROADCAST_INTERNAL_TOKEN");
