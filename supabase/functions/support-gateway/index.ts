@@ -28,6 +28,7 @@ type Action =
   | "admin_list_tickets"
   | "admin_reply"
   | "admin_ai_draft"
+  | "support_health"
   | "admin_assign_ticket"
   | "admin_handoff_to_human"
   | "admin_update_status";
@@ -215,6 +216,43 @@ async function generateSupportDraft(input: {
   }
 
   throw new Error("AI provider not configured");
+}
+
+function supportHealthSnapshot() {
+  const supportAiEnabled = (Deno.env.get("SUPPORT_AI_ENABLED") ?? "true").toLowerCase() === "true";
+  const azureEndpoint = (Deno.env.get("AZURE_OPENAI_ENDPOINT") ?? "").trim();
+  const azureKey = (Deno.env.get("AZURE_OPENAI_API_KEY") ?? "").trim();
+  const azureDeployment = (
+    Deno.env.get("AZURE_OPENAI_DEPLOYMENT_NAME")
+    ?? Deno.env.get("AZURE_OPENAI_DEPLOYMENT")
+    ?? ""
+  ).trim();
+  const openaiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
+  const openaiModel = (Deno.env.get("OPENAI_MODEL") ?? "gpt-4o").trim();
+
+  const azureConfigured = Boolean(azureEndpoint && azureKey && azureDeployment);
+  const openaiConfigured = Boolean(openaiKey);
+  let provider: "azure_openai" | "openai" | "none" = "none";
+  let model = "";
+  if (azureConfigured) {
+    provider = "azure_openai";
+    model = azureDeployment;
+  } else if (openaiConfigured) {
+    provider = "openai";
+    model = openaiModel;
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    ai_enabled: supportAiEnabled,
+    provider,
+    model,
+    ready: supportAiEnabled && provider !== "none",
+    checks: {
+      azure_configured: azureConfigured,
+      openai_configured: openaiConfigured,
+    },
+  };
 }
 
 Deno.serve(async (req) => {
@@ -588,6 +626,11 @@ Deno.serve(async (req) => {
       });
       return json({ success: false, error: message }, 502);
     }
+  }
+
+  if (action === "support_health") {
+    if (!isAdmin) return json({ success: false, error: "Forbidden" }, 403);
+    return json({ success: true, data: supportHealthSnapshot() });
   }
 
   if (action === "admin_update_status") {
