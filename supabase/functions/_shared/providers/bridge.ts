@@ -407,7 +407,31 @@ export class BridgeProvider implements PaymentProvider {
       method: "POST", path: "/v0/transfers", body,
       idempotencyKey: input.idempotency_key,
     });
-    if (!r.ok) throw new Error(`Bridge createTransfer failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode =
+        typeof parsed.code === "string"
+          ? parsed.code
+          : typeof parsed.error_code === "string"
+          ? String(parsed.error_code)
+          : undefined;
+      const bridgeErr =
+        typeof parsed.message === "string"
+          ? parsed.message
+          : typeof parsed.error === "string"
+          ? parsed.error
+          : r.error;
+      throw new BridgeProviderError(
+        `Bridge createTransfer failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
     const data = (r.data as any)?.data ?? r.data;
     const state = String(data?.state || data?.status || "pending").toLowerCase();
     return {

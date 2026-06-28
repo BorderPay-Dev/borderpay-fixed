@@ -34,3 +34,12 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 2. `bridge-transfer`: transfer-state mapping and error-code normalization against latest transfer docs.
 3. `bridge-virtual-account` + `bridge-external-account`: payload-field alignment audit vs latest request examples.
 4. `bridge-sync-customers`: status-field and pagination audit.
+
+## Patch Log
+### 2026-06-29 — Batch B (completed)
+- `bridge-transfer` now consumes structured Bridge error metadata (`status`, `code`, `request_id`) from provider transport.
+- `bridge-transfer` now maps documented transfer error classes into stable product-safe API responses:
+  - `has_not_accepted_tos` → `tos_required` (409)
+  - `requires_active_kyc_status` → `kyc_not_approved` (409)
+  - endorsement/limits/idempotency/invalid-params/resource-conflict classes mapped to deterministic status+code.
+- Raw provider error text is no longer leaked to clients from this path; provider code and Bridge request id remain exposed for support/debug.

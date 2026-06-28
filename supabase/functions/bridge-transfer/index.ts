@@ -63,7 +63,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
 import {
   bridgeDeveloperFeePercent,
   bridgeTransferFlatFeeAmountUsd,
@@ -399,6 +399,69 @@ Deno.serve(async (req) => {
       },
     });
   } catch (e) {
+    if (e instanceof BridgeProviderError) {
+      const bridgeCode = String(e.bridge_code || "").toLowerCase();
+      const bridgeStatus = Number(e.status || 0);
+      fxLog("bridge_request_failed_mapped", {
+        user_id: user.id,
+        idempotency_key: idem,
+        bridge_code: bridgeCode || null,
+        bridge_status: bridgeStatus || null,
+        request_id: e.request_id ?? null,
+      });
+
+      const mapped = (() => {
+        switch (bridgeCode) {
+          case "has_not_accepted_tos":
+            return { status: 409, code: "tos_required", error: "Please accept Terms of Service before sending funds." };
+          case "requires_active_kyc_status":
+            return { status: 409, code: "kyc_not_approved", error: "Identity verification is required before sending funds." };
+          case "deactivated_external_account":
+            return { status: 409, code: "external_account_deactivated", error: "The selected destination account is deactivated. Choose another destination." };
+          case "missing_required_endorsements":
+          case "endorsement_requirements_not_met":
+          case "cards_endorsement_approval_required":
+            return { status: 403, code: "endorsement_required", error: "This transfer route is not enabled for your account yet." };
+          case "developer_limits_exceeded":
+            return { status: 403, code: "limits_exceeded", error: "Transfer limit reached for this account. Try a smaller amount or retry later." };
+          case "duplicate_record":
+          case "not_truly_idempotent":
+            return { status: 409, code: "idempotency_conflict", error: "Duplicate transfer request detected. Please retry from the latest confirmation state." };
+          case "invalid_parameters":
+          case "invalid_json":
+          case "bad_request":
+          case "unprocessable_entity":
+            return { status: 400, code: bridgeCode || "invalid_request", error: "Transfer details are invalid. Please review the fields and try again." };
+          case "resource_state_conflict":
+            return { status: 409, code: "resource_state_conflict", error: "This transfer cannot be processed in its current state. Please retry shortly." };
+          case "external_dependency_failed":
+            return { status: 502, code: "provider_dependency_failed", error: "Transfer provider is temporarily unavailable. Please try again shortly." };
+          case "not_allowed":
+            return { status: 403, code: "route_not_enabled", error: "This transfer route is not enabled for your account." };
+          default:
+            break;
+        }
+        if (bridgeStatus >= 500 || bridgeStatus === 424 || bridgeStatus === 503) {
+          return { status: 502, code: "provider_unavailable", error: "Transfer service is temporarily unavailable. Please retry." };
+        }
+        if (bridgeStatus >= 400 && bridgeStatus < 500) {
+          return { status: 400, code: "transfer_rejected", error: "Transfer request was rejected. Please review details and try again." };
+        }
+        return { status: 502, code: "provider_error", error: "Unable to process transfer right now. Please retry." };
+      })();
+
+      return json(
+        {
+          success: false,
+          code: mapped.code,
+          error: mapped.error,
+          provider_code: bridgeCode || undefined,
+          bridge_request_id: e.request_id || undefined,
+        },
+        mapped.status,
+      );
+    }
+
     fxLog("bridge_request_failed", {
       user_id: user.id,
       idempotency_key: idem,
