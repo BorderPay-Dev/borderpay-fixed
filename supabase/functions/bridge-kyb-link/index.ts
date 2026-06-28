@@ -68,7 +68,7 @@ async function bridgePost(path: string, body: unknown, idemKey: string, correlat
     status:     res.status,
     data:       parsed,
     raw_text:   text,
-    error:      res.ok ? undefined : (parsed?.message || `HTTP ${res.status}`),
+    error:      res.ok ? undefined : (parsed?.message || parsed?.error || `HTTP ${res.status}`),
     request_id: res.headers.get("x-request-id") || undefined,
   };
 }
@@ -94,6 +94,37 @@ function isVerifiedStatus(value: string | null | undefined): boolean {
   return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(
     String(value || "").toLowerCase(),
   );
+}
+
+function mapKybLinkFailure(status: number, parsed: any): { status: number; code: string; error: string; provider_code?: string } {
+  const providerCode = String(parsed?.code || parsed?.error_code || "").toLowerCase();
+  switch (providerCode) {
+    case "has_not_accepted_tos":
+      return { status: 409, code: "tos_required", error: "Please accept Terms of Service before starting verification.", provider_code: providerCode };
+    case "requires_active_kyc_status":
+      return { status: 409, code: "kyb_not_approved", error: "Business verification is not active for this account yet.", provider_code: providerCode };
+    case "missing_required_endorsements":
+    case "endorsement_requirements_not_met":
+      return { status: 403, code: "endorsement_required", error: "Business verification route is not enabled for this account.", provider_code: providerCode };
+    case "invalid_parameters":
+    case "invalid_json":
+    case "bad_request":
+      return { status: 400, code: providerCode || "invalid_request", error: "Unable to start business verification. Please review your business profile and try again.", provider_code: providerCode || undefined };
+    case "not_allowed":
+      return { status: 403, code: "route_not_enabled", error: "Business verification is not enabled for this account.", provider_code: providerCode };
+    default:
+      break;
+  }
+  if (status === 429) {
+    return { status: 429, code: "rate_limited", error: "Too many verification attempts. Please wait and try again." };
+  }
+  if (status >= 500 || status === 424 || status === 503) {
+    return { status: 502, code: "provider_unavailable", error: "Business verification service is temporarily unavailable. Please try again shortly." };
+  }
+  if (status >= 400 && status < 500) {
+    return { status: 400, code: "verification_rejected", error: "Unable to start business verification right now. Please try again." };
+  }
+  return { status: 502, code: "provider_error", error: "Unable to start business verification right now. Please try again." };
 }
 
 Deno.serve(async (req: Request) => {
@@ -192,13 +223,16 @@ Deno.serve(async (req: Request) => {
   if (!r.ok && !link) {
     const detail = (r.raw_text || "").slice(0, 800);
     console.error(`bridge-kyb-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
+    const mapped = mapKybLinkFailure(r.status, r.data);
     return json({
       success: false,
-      error:   `Business verification link request failed [${r.status}]: ${r.error || "unknown"}`,
+      code: mapped.code,
+      error: mapped.error,
+      provider_code: mapped.provider_code,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
       correlation_id:    correlationId,
-    }, 502);
+    }, mapped.status);
   }
 
   if (!link || (!link.link_url && !link.tos_link_url)) {

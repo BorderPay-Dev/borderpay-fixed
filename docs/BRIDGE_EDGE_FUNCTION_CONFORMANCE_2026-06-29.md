@@ -79,3 +79,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - standardized provider error extraction (`message` or `error`)
   - mapped Bridge failure classes to deterministic product-safe responses (`tos_required`, `endorsement_required`, `rate_limited`, `provider_unavailable`, etc.)
   - removed raw Bridge failure string leakage from client responses while preserving `bridge_request_id` + `bridge_status` + `correlation_id` for support tracing
+
+### 2026-06-29 — Batch H (completed)
+- Hardened `bridge-kyb-link` failure handling to parity with KYC:
+  - standardized provider error extraction (`message` or `error`)
+  - mapped Bridge failure classes to deterministic product-safe responses (`tos_required`, `endorsement_required`, `rate_limited`, `provider_unavailable`, etc.)
+  - removed raw Bridge failure string leakage from client responses while preserving `bridge_request_id` + `bridge_status` + `correlation_id` for support tracing
