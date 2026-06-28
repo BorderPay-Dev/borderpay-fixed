@@ -147,3 +147,8 @@ verify_jwt = false
 # BRIDGE_IDENTITY_CLEANUP_SECRET (or ADMIN_BROADCAST_INTERNAL_TOKEN fallback).
 [functions.bridge-identity-cleanup]
 verify_jwt = false
+
+# Flutterwave fee quote endpoint — authenticated pricing lookup used by
+# receive/payout flows to show executable corridor fees from fee_schedule.
+[functions.flutterwave-fee-quote]
+verify_jwt = true
