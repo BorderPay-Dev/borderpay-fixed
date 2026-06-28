@@ -1,9 +1,11 @@
 // bridge-external-account — manage a customer's fiat payout (offramp) destinations.
 //
-// v1 supports two Bridge external-account types:
+// v1 supports Bridge external-account types documented in Orchestration:
 //   • us   — USD bank account (account_number + routing_number). Usable for
 //            ACH / ACH same-day / Wire payouts (rail chosen at transfer time).
 //   • iban — EUR bank account (IBAN + BIC). SEPA.
+//   • clabe — MXN SPEI account.
+//   • pix  — BRL Pix key or BR code.
 //
 // Actions (single POST endpoint, switched on body.action):
 //   • create  → POST   /v0/customers/{customerId}/external_accounts
@@ -27,7 +29,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
-import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
+import {
+  isBridgeBlocked,
+  bridgeCountryBlockResponse,
+  logControlledBridgeTraffic,
+} from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 
@@ -46,14 +52,21 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 interface UsAccountInput {
   account_type: "us";
   account_owner_name: string;
+  account_owner_type?: "individual" | "business";
+  account_name?: string;
+  first_name?: string;
+  last_name?: string;
+  business_name?: string;
   account_number: string;
   routing_number: string;
+  checking_or_savings?: "checking" | "savings";
   bank_name?: string;
   address: { street_line_1: string; city: string; state?: string; postal_code: string; country: string };
 }
 interface IbanAccountInput {
   account_type: "iban";
   account_owner_name: string;
+  account_name?: string;
   account_owner_type: "individual" | "business";
   iban_number: string;
   bic_swift: string;
@@ -62,8 +75,30 @@ interface IbanAccountInput {
   first_name?: string;
   last_name?: string;
   business_name?: string;
+  address?: { street_line_1: string; city: string; postal_code: string; country: string; state?: string };
 }
-type CreateInput = UsAccountInput | IbanAccountInput;
+interface ClabeAccountInput {
+  account_type: "clabe";
+  account_owner_name: string;
+  clabe_number: string;
+  bank_name?: string;
+  account_name?: string;
+  account_owner_type?: "individual" | "business";
+  first_name?: string;
+  last_name?: string;
+  business_name?: string;
+  address: { street_line_1: string; city: string; state: string; postal_code: string; country: string };
+}
+interface PixAccountInput {
+  account_type: "pix";
+  account_owner_name: string;
+  account_name?: string;
+  bank_name?: string;
+  pix_key?: string;
+  br_code?: string;
+  document_number: string;
+}
+type CreateInput = UsAccountInput | IbanAccountInput | ClabeAccountInput | PixAccountInput;
 
 const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 
@@ -91,7 +126,7 @@ Deno.serve(async (req) => {
   }
   logControlledBridgeTraffic("bridge-external-account", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
-    return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
+    return json({ success: false, error: "Complete account setup before adding payout destinations", code: "no_customer" }, 409);
   }
   if (profile.verification_status !== "approved") {
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
@@ -132,6 +167,26 @@ Deno.serve(async (req) => {
     return json({ success: true, data: (r.data as any)?.data ?? r.data });
   }
 
+  // ── capabilities (Bridge response only; no country heuristics) ─────────
+  if (action === "capabilities") {
+    const r = await bridgeFetch({
+      method: "GET",
+      path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
+    });
+    if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
+    const rows = ((r.data as any)?.data ?? r.data ?? []) as any[];
+    const discovered = new Set<string>();
+    for (const row of (Array.isArray(rows) ? rows : [])) {
+      const t = String(row?.account_type || "").toLowerCase();
+      if (t) discovered.add(t);
+    }
+    // If Bridge has no existing accounts yet, expose documented account types
+    // so users can still start with first account creation.
+    const supported_account_types =
+      discovered.size > 0 ? Array.from(discovered) : ["us", "iban", "clabe", "pix"];
+    return json({ success: true, data: { supported_account_types } });
+  }
+
   // ── create ──────────────────────────────────────────────────────────
   // Paid gate: adding a payout destination is a money feature — requires an
   // activated (paid) plan. (list/delete stay open so users can always view /
@@ -145,15 +200,15 @@ Deno.serve(async (req) => {
     if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
   const acct = body.account;
-  if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban")) {
-    return json({ success: false, error: "account.account_type must be 'us' or 'iban'" }, 400);
+  if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban" && acct.account_type !== "clabe" && acct.account_type !== "pix")) {
+    return json({ success: false, error: "account.account_type must be 'us' | 'iban' | 'clabe' | 'pix'" }, 400);
   }
   if (!acct.account_owner_name) {
     return json({ success: false, error: "account_owner_name required" }, 400);
   }
 
   let bridgeBody: Record<string, unknown>;
-  let currency: "USD" | "EUR";
+  let currency: "USD" | "EUR" | "MXN" | "BRL";
   let railLabel: string;
   let derivedLast4: string;
 
@@ -172,8 +227,22 @@ Deno.serve(async (req) => {
       currency:           "usd",
       account_type:       "us",
       account_owner_name: a.account_owner_name,
+      ...(a.account_owner_type ? { account_owner_type: a.account_owner_type } : {}),
+      ...(a.account_name ? { account_name: a.account_name } : {}),
+      ...(a.account_owner_type === "individual"
+        ? {
+            ...(a.first_name ? { first_name: a.first_name } : {}),
+            ...(a.last_name ? { last_name: a.last_name } : {}),
+          }
+        : a.account_owner_type === "business"
+        ? { ...(a.business_name ? { business_name: a.business_name } : {}) }
+        : {}),
       ...(a.bank_name ? { bank_name: a.bank_name } : {}),
-      account: { account_number: a.account_number, routing_number: a.routing_number },
+      account: {
+        account_number: a.account_number,
+        routing_number: a.routing_number,
+        ...(a.checking_or_savings ? { checking_or_savings: a.checking_or_savings } : {}),
+      },
       address: {
         street_line_1: a.address.street_line_1,
         city:          a.address.city,
@@ -182,7 +251,7 @@ Deno.serve(async (req) => {
         country:       a.address.country,
       },
     };
-  } else {
+  } else if (acct.account_type === "iban") {
     const a = acct as IbanAccountInput;
     if (!a.iban_number || !a.bic_swift || !a.iban_country) {
       return json({ success: false, error: "iban_number, bic_swift, and iban_country required for IBAN accounts" }, 400);
@@ -204,11 +273,81 @@ Deno.serve(async (req) => {
       account_type:       "iban",
       account_owner_name: a.account_owner_name,
       account_owner_type: a.account_owner_type,
+      ...(a.account_name ? { account_name: a.account_name } : {}),
       ...(a.bank_name ? { bank_name: a.bank_name } : {}),
       ...(a.account_owner_type === "individual"
         ? { first_name: a.first_name, last_name: a.last_name }
         : { business_name: a.business_name }),
       iban: { account_number: a.iban_number, bic: a.bic_swift, country: a.iban_country },
+      ...(a.address
+        ? {
+            address: {
+              street_line_1: a.address.street_line_1,
+              city: a.address.city,
+              postal_code: a.address.postal_code,
+              country: a.address.country,
+              ...(a.address.state ? { state: a.address.state } : {}),
+            },
+          }
+        : {}),
+    };
+  } else if (acct.account_type === "clabe") {
+    const a = acct as ClabeAccountInput;
+    if (!a.clabe_number) {
+      return json({ success: false, error: "clabe_number required for CLABE accounts" }, 400);
+    }
+    if (!a.address?.street_line_1 || !a.address?.city || !a.address?.state || !a.address?.postal_code || !a.address?.country) {
+      return json({ success: false, error: "full address required for CLABE accounts" }, 400);
+    }
+    currency = "MXN";
+    railLabel = "spei";
+    derivedLast4 = last4(a.clabe_number);
+    bridgeBody = {
+      currency:           "mxn",
+      account_type:       "clabe",
+      account_owner_name: a.account_owner_name,
+      ...(a.bank_name ? { bank_name: a.bank_name } : {}),
+      ...(a.account_name ? { account_name: a.account_name } : {}),
+      ...(a.account_owner_type ? { account_owner_type: a.account_owner_type } : {}),
+      ...(a.account_owner_type === "individual"
+        ? { first_name: a.first_name, last_name: a.last_name }
+        : a.account_owner_type === "business"
+        ? { business_name: a.business_name }
+        : {}),
+      clabe: { account_number: a.clabe_number },
+      address: {
+        street_line_1: a.address.street_line_1,
+        city:          a.address.city,
+        state:         a.address.state,
+        postal_code:   a.address.postal_code,
+        country:       a.address.country,
+      },
+    };
+  } else {
+    const a = acct as PixAccountInput;
+    const hasPixKey = !!a.pix_key?.trim();
+    const hasBrCode = !!a.br_code?.trim();
+    if (!hasPixKey && !hasBrCode) {
+      return json({ success: false, error: "pix_key or br_code required for Pix accounts" }, 400);
+    }
+    if (hasPixKey && hasBrCode) {
+      return json({ success: false, error: "Provide only one of pix_key or br_code" }, 400);
+    }
+    if (!a.document_number?.trim()) {
+      return json({ success: false, error: "document_number required for Pix accounts" }, 400);
+    }
+    currency = "BRL";
+    railLabel = "pix";
+    derivedLast4 = last4(a.document_number);
+    bridgeBody = {
+      currency:           "brl",
+      account_type:       "pix",
+      account_owner_name: a.account_owner_name,
+      ...(a.account_name ? { account_name: a.account_name } : {}),
+      ...(a.bank_name ? { bank_name: a.bank_name } : {}),
+      ...(hasPixKey
+        ? { pix_key: { pix_key: a.pix_key, document_number: a.document_number } }
+        : { br_code: { br_code: a.br_code, document_number: a.document_number } }),
     };
   }
 
@@ -222,7 +361,7 @@ Deno.serve(async (req) => {
 
   const data = (r.data as any)?.data ?? r.data;
   const extId = String(data?.id ?? "");
-  if (!extId) return json({ success: false, error: "Bridge response missing external account id" }, 502);
+  if (!extId) return json({ success: false, error: "Provider response missing external account id" }, 502);
 
   // Mirror locally — descriptors only, never full account / routing / IBAN.
   await supa.from("bridge_external_accounts").upsert({
@@ -234,7 +373,7 @@ Deno.serve(async (req) => {
     account_owner_name:         acct.account_owner_name,
     account_owner_type:         (acct as IbanAccountInput).account_owner_type ?? profile.account_type ?? null,
     bank_name:                  (acct as any).bank_name ?? data?.bank_name ?? null,
-    last_4:                     data?.account?.last_4 ?? data?.iban?.last_4 ?? derivedLast4,
+    last_4:                     data?.account?.last_4 ?? data?.iban?.last_4 ?? data?.clabe?.last_4 ?? data?.pix_key?.document_number_last4 ?? data?.br_code?.document_number_last4 ?? derivedLast4,
     rail:                       railLabel,
     status:                     "active",
     active:                     true,
@@ -252,7 +391,7 @@ Deno.serve(async (req) => {
       account_type:        acct.account_type,
       currency,
       rail:                railLabel,
-      last_4:              data?.account?.last_4 ?? data?.iban?.last_4 ?? derivedLast4,
+      last_4:              data?.account?.last_4 ?? data?.iban?.last_4 ?? data?.clabe?.last_4 ?? data?.pix_key?.document_number_last4 ?? data?.br_code?.document_number_last4 ?? derivedLast4,
       bank_name:           (acct as any).bank_name ?? data?.bank_name ?? null,
     },
   });
