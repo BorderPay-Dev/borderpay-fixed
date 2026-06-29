@@ -62,7 +62,13 @@ function mapBridgeCustomerError(
     };
   }
   if (message.includes("429") || message.includes("rate")) {
-    return { status: 429, code: "rate_limited", error: "Too many requests. Please try again shortly." };
+    return {
+      status: 429,
+      code: "rate_limited",
+      error: "Too many requests. Please try again shortly.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
   }
   if (message.includes("timeout") || message.includes("network")) {
     return {

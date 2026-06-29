@@ -616,3 +616,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DO (completed)
 - Hardened `bridge-ping` response envelope contract:
   - added explicit `success` boolean while preserving legacy `ok` for backward compatibility
+
+### 2026-06-29 — Batch DP (completed)
+- Hardened `bridge-customer` rate-limit diagnostics contract:
+  - preserved provider metadata (`provider_code`, `bridge_request_id`) on mapped `rate_limited` responses
