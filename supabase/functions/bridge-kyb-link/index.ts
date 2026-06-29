@@ -322,6 +322,7 @@ Deno.serve(async (req: Request) => {
     return json({
       success: true,
       code: "kyb_already_approved",
+      summary: { bridge_kyb_status: "approved", already_approved: true },
       data: { already_approved: true, bridge_kyb_status: "approved" },
     });
   }
@@ -503,6 +504,11 @@ Deno.serve(async (req: Request) => {
   return json({
     success: true,
     code: "kyb_link_ready",
+    summary: {
+      tos_required,
+      reused: !r.ok ? true : false,
+      expires_at: expires_at ?? null,
+    },
     data: {
       link_id: link.link_id,
       link_url: link.link_url,
