@@ -35,6 +35,7 @@ import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { BridgeProviderError } from "../_shared/providers/bridge.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -68,6 +69,26 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
   const numeric = Number(raw);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   return { raw, numeric };
+}
+
+function mapBulkItemFailure(error: unknown): { code: string; message: string; provider_code?: string } {
+  if (error instanceof BridgeProviderError) {
+    const bridgeCode = String(error.bridge_code || "").toLowerCase();
+    switch (bridgeCode) {
+      case "has_not_accepted_tos":
+        return { code: "tos_required", message: "Terms of Service acceptance is required before sending payouts.", provider_code: bridgeCode };
+      case "requires_active_kyc_status":
+        return { code: "kyc_not_approved", message: "Identity verification is required before sending payouts.", provider_code: bridgeCode };
+      case "deactivated_external_account":
+        return { code: "external_account_deactivated", message: "Destination account is deactivated. Choose another destination.", provider_code: bridgeCode };
+      case "insufficient_funds":
+      case "insufficient_balance":
+        return { code: "insufficient_funds", message: "Insufficient balance for this payout.", provider_code: bridgeCode };
+      default:
+        return { code: "provider_error", message: "Unable to process this payout item right now.", provider_code: bridgeCode || undefined };
+    }
+  }
+  return { code: "item_failed", message: "Unable to process this payout item right now." };
 }
 
 Deno.serve(async (req) => {
@@ -221,7 +242,7 @@ Deno.serve(async (req) => {
       });
       if (upsertErr) {
         results.push({ row, label: it.label ?? null, state: "persistence_failed",
-          transfer_id: result.transfer_id, error: upsertErr.message });
+          transfer_id: result.transfer_id, error: "Transfer accepted but local sync failed for this item." });
         failed++;
         continue;
       }
@@ -235,7 +256,15 @@ Deno.serve(async (req) => {
       });
       submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
     } catch (e) {
-      results.push({ row, label: it.label ?? null, state: "failed", error: (e as Error).message });
+      const mapped = mapBulkItemFailure(e);
+      results.push({
+        row,
+        label: it.label ?? null,
+        state: "failed",
+        code: mapped.code,
+        error: mapped.message,
+        ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
+      });
       failed++;
     }
   }

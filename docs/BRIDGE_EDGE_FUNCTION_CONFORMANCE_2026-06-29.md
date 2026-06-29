@@ -211,3 +211,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - removed raw provider/database exception text from per-candidate API responses
   - added top-level deterministic internal failure contract (`cleanup_internal_error`)
   - preserved detailed failure context only in internal cleanup audit records
+
+### 2026-06-29 — Batch AE (completed)
+- Hardened `bridge-bulk-payout` per-item failure surface:
+  - removed raw DB/provider exception text leakage from item-level results
+  - added deterministic per-item error mapping (`tos_required`, `kyc_not_approved`, `insufficient_funds`, etc.)
+  - kept payout processing behavior (partial-success batch) unchanged
