@@ -245,6 +245,12 @@ export const authSecurityAPI = {
     });
   },
 
+  async getBridgeSupportedCountries() {
+    return apiCallPublic('bridge-supported-countries', {
+      method: 'GET',
+    });
+  },
+
   async signup(data: {
     email:        string;
     password:     string;
