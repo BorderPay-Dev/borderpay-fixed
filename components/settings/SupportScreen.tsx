@@ -51,6 +51,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const [adminTargetEmail, setAdminTargetEmail] = useState('');
   const [adminControlBusy, setAdminControlBusy] = useState(false);
   const [adminControlResult, setAdminControlResult] = useState<string>('');
+  const [adminControlDryRun, setAdminControlDryRun] = useState(true);
 
   const statusLabel = useMemo<Record<SupportTicket['status'], string>>(
     () => ({
@@ -258,7 +259,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     }
     setAdminControlBusy(true);
     try {
-      const res = await backendAPI.admin.customerControls({ action, target_email: targetEmail });
+      const res = await backendAPI.admin.customerControls({ action, target_email: targetEmail, dry_run: adminControlDryRun });
       if (!res.success) {
         toast.error(res.error || 'Admin action failed');
         setAdminControlResult('');
@@ -512,6 +513,15 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                 className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
               />
               <div className="grid grid-cols-1 gap-2 mt-2">
+                <label className={`inline-flex items-center gap-2 text-xs ${tc.textSecondary}`}>
+                  <input
+                    type="checkbox"
+                    checked={adminControlDryRun}
+                    onChange={(e) => setAdminControlDryRun(e.target.checked)}
+                    className="rounded border-white/20 bg-transparent"
+                  />
+                  Dry run (no provider/local revoke)
+                </label>
                 <button
                   onClick={() => void runAdminCustomerControl('inspect_customer_assets')}
                   disabled={adminControlBusy}
