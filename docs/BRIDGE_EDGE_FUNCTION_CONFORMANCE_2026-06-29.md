@@ -269,6 +269,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - replaced local generic validation throws with structured `BridgeProviderError` (`bridge_code=invalid_parameters`)
   - keeps downstream error mapping deterministic even for pre-provider request validation failures
 
+### 2026-06-29 — Batch AO (completed)
+- Hardened `bridge-sync-customers` provider error mapping:
+  - now prioritizes structured provider status (`error.status`) for unavailable-provider classification
+  - reduces reliance on brittle message parsing for timeout/network classes
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
