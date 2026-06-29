@@ -856,3 +856,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FW (completed)
 - Hardened `bridge-kyb-link` summary metadata contract:
   - added deterministic `summary.code` for approved/link-ready success outcomes
+
+### 2026-06-29 — Batch FX (completed)
+- Hardened `bridge-provision-stablecoins` summary metadata contract:
+  - added deterministic `summary.code` for completed success outcome
