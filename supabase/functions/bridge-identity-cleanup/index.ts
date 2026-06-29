@@ -187,22 +187,35 @@ Deno.serve(async (req) => {
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        const providerCode = e instanceof BridgeProviderError ? e.bridge_code || null : null;
+        const providerCode = e instanceof BridgeProviderError ? String(e.bridge_code || "") : "";
+        const providerStatus = e instanceof BridgeProviderError ? Number(e.status || 0) : 0;
         const bridgeRequestId = e instanceof BridgeProviderError ? e.request_id || null : null;
+        const lowerMsg = msg.toLowerCase();
+        const resultCode =
+          providerCode.toLowerCase() === "resource_not_found" || providerStatus === 404
+            ? "bridge_customer_not_found"
+            : providerStatus === 429 || lowerMsg.includes("rate")
+            ? "rate_limited"
+            : providerStatus >= 500 || providerStatus === 0 || lowerMsg.includes("timeout") || lowerMsg.includes("network")
+            ? "provider_unavailable"
+            : "delete_failed";
         await audit(c, "delete_bridge_customer", "failed", "delete_failed", {
           error: msg,
-          provider_code: providerCode,
+          provider_code: providerCode || null,
+          provider_status: providerStatus || null,
           bridge_request_id: bridgeRequestId,
+          result_code: resultCode,
         });
         failedCount += 1;
         out.push({
           user_id: c.user_id,
           bridge_customer_id: c.bridge_customer_id,
           action: "failed",
-          result_code: "delete_failed",
-          code: "delete_failed",
+          result_code: resultCode,
+          code: resultCode,
           error: "Unable to process this cleanup candidate right now.",
-          provider_code: providerCode,
+          provider_code: providerCode || null,
+          provider_status: providerStatus || null,
           bridge_request_id: bridgeRequestId,
         });
       }
