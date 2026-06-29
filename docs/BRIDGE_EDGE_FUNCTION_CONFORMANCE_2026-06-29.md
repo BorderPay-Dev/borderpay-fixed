@@ -237,6 +237,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - replaced currency-interpolated denial strings with deterministic user-safe messages
   - preserved `currency` and `country` as structured context fields where needed
 
+### 2026-06-29 — Batch AL (completed)
+- Hardened `bridge-exchange-rates` input validation contract:
+  - replaced generic invalid pair input response with deterministic coded contract (`invalid_pair_input`)
+  - returned structured pair context fields (`from`, `to`) for deterministic client handling
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

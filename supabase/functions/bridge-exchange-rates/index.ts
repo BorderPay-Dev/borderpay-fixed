@@ -61,7 +61,13 @@ Deno.serve(async (req) => {
   const from = normalizeCurrency(body?.from);
   const to = normalizeCurrency(body?.to);
   if (!from || !to || from === to) {
-    return json({ success: false, error: "from/to are required and must be different" }, 400);
+    return json({
+      success: false,
+      code: "invalid_pair_input",
+      error: "Source and destination currencies are required and must be different.",
+      from: from || null,
+      to: to || null,
+    }, 400);
   }
 
   const r = await bridgeFetch({
