@@ -58,7 +58,7 @@ interface Wallet {
 interface ExternalAccountOption {
   id: string;
   bridge_external_account_id: string;
-  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  account_type: 'us' | 'iban';
   currency: string;
   account_owner_name: string | null;
   bank_name: string | null;
@@ -237,8 +237,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, []);
 
   // Bridge-backed capability gate for external bank accounts.
-  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
-    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban'>>(
+    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban')
   );
   const selectedExternalAccount = useMemo(
     () => externalAccounts.find((x) => x.bridge_external_account_id === selectedExternalAccountId) || null,
@@ -373,12 +373,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const ext = Array.isArray(res?.data?.external_accounts)
           ? res.data.external_accounts.map((row: any, idx: number) => {
               const rawType = String(row?.account_type || '').toLowerCase();
-              const accountType: ExternalAccountOption['account_type'] =
-                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+              const accountType: ExternalAccountOption['account_type'] = rawType === 'iban' ? 'iban' : 'us';
               const rawCurrency = String(row?.currency || '');
               const currency = rawCurrency
                 ? rawCurrency.toUpperCase()
-                : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+                : (accountType === 'iban' ? 'EUR' : 'USD');
               const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
               return {
                 id: String(row?.id || externalId || `ext_${idx}`),
@@ -388,13 +387,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 account_owner_name: row?.account_owner_name ?? null,
                 bank_name: row?.bank_name ?? null,
                 last_4: row?.last_4 ? String(row.last_4) : null,
-                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : 'ach'),
                 status: String(row?.status || 'active'),
               } as ExternalAccountOption;
             }).filter((x: ExternalAccountOption) => !!x.bridge_external_account_id)
           : [];
         setWallets(list);
-        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban'));
         setExternalAccounts(ext);
         try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
         if (!selectedExternalAccountId && ext.length > 0) {
@@ -618,8 +617,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         const destinationRail =
           selectedExternalAccount.account_type === 'iban' ? 'sepa'
-          : selectedExternalAccount.account_type === 'clabe' ? 'spei'
-          : selectedExternalAccount.account_type === 'pix' ? 'pix'
           : 'ach';
         result = await backendAPI.bridge.transfer.create({
           idempotency_key: transferIdempotencyKey,

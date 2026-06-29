@@ -742,14 +742,13 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             const extRows = Array.isArray(extRes?.data?.external_accounts) ? extRes.data.external_accounts : [];
             const normalized = extRows.map((row: any, idx: number) => {
               const rawType = String(row?.account_type || '').toLowerCase();
-              const accountType =
-                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+              const accountType = rawType === 'iban' ? 'iban' : 'us';
               const rawCurrency = String(row?.currency || '');
               const currency = rawCurrency
                 ? rawCurrency.toUpperCase()
-                : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+                : (accountType === 'iban' ? 'EUR' : 'USD');
               const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
-              const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
+              const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || null;
               return {
                 id: String(row?.id || externalId || `ext_${idx}`),
                 bridge_external_account_id: externalId,
@@ -758,7 +757,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 account_owner_name: row?.account_owner_name ?? null,
                 bank_name: row?.bank_name ?? null,
                 last_4: last4 ? String(last4) : null,
-                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : 'ach'),
                 status: String(row?.status || 'active'),
               };
             }).filter((r: any) => !!r.bridge_external_account_id);
