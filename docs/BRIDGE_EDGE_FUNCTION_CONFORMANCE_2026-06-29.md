@@ -274,6 +274,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - now prioritizes structured provider status (`error.status`) for unavailable-provider classification
   - reduces reliance on brittle message parsing for timeout/network classes
 
+### 2026-06-29 — Batch AP (completed)
+- Hardened `bridge-customer` customer-init conformance:
+  - removed implicit fallback country (`NG`) and now fails closed when profile country is missing/invalid ISO-2
+  - provider error mapping now prioritizes structured provider status (`error.status`) for rate-limit/unavailable classification
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
