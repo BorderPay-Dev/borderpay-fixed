@@ -74,13 +74,25 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
 function mapBulkItemFailure(
   error: unknown,
   options?: { isBusiness?: boolean },
-): { code: string; message: string; provider_code?: string; expected_verification_status?: "approved" } {
+): {
+  code: string;
+  message: string;
+  provider_code?: string;
+  bridge_request_id?: string;
+  expected_verification_status?: "approved";
+} {
   const isBusiness = options?.isBusiness === true;
   if (error instanceof BridgeProviderError) {
     const bridgeCode = String(error.bridge_code || "").toLowerCase();
+    const bridgeRequestId = error.request_id || undefined;
     switch (bridgeCode) {
       case "has_not_accepted_tos":
-        return { code: "tos_required", message: "Terms of Service acceptance is required before sending payouts.", provider_code: bridgeCode };
+        return {
+          code: "tos_required",
+          message: "Terms of Service acceptance is required before sending payouts.",
+          provider_code: bridgeCode,
+          ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+        };
       case "requires_active_kyc_status":
         return {
           code: "kyc_not_approved",
@@ -88,15 +100,31 @@ function mapBulkItemFailure(
             ? "Business verification is required before sending payouts."
             : "Identity verification is required before sending payouts.",
           provider_code: bridgeCode,
+          ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
           expected_verification_status: "approved",
         };
       case "deactivated_external_account":
-        return { code: "external_account_deactivated", message: "Destination account is deactivated. Choose another destination.", provider_code: bridgeCode };
+        return {
+          code: "external_account_deactivated",
+          message: "Destination account is deactivated. Choose another destination.",
+          provider_code: bridgeCode,
+          ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+        };
       case "insufficient_funds":
       case "insufficient_balance":
-        return { code: "insufficient_funds", message: "Insufficient balance for this payout.", provider_code: bridgeCode };
+        return {
+          code: "insufficient_funds",
+          message: "Insufficient balance for this payout.",
+          provider_code: bridgeCode,
+          ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+        };
       default:
-        return { code: "provider_error", message: "Unable to process this payout item right now.", provider_code: bridgeCode || undefined };
+        return {
+          code: "provider_error",
+          message: "Unable to process this payout item right now.",
+          provider_code: bridgeCode || undefined,
+          ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+        };
     }
   }
   return { code: "item_failed", message: "Unable to process this payout item right now." };
@@ -344,6 +372,7 @@ Deno.serve(async (req) => {
           ? { expected_verification_status: mapped.expected_verification_status }
           : {}),
         ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
+        ...(mapped.bridge_request_id ? { bridge_request_id: mapped.bridge_request_id } : {}),
       });
       failed++;
     }

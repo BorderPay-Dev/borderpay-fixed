@@ -592,3 +592,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DI (completed)
 - Hardened `bridge-virtual-account` provider diagnostics contract:
   - surfaced `bridge_request_id` on TOS/KYC/endorsement provider rejection responses
+
+### 2026-06-29 — Batch DJ (completed)
+- Hardened `bridge-bulk-payout` per-item diagnostics contract:
+  - propagated `bridge_request_id` from BridgeProviderError into failed row outputs for deterministic support tracing
