@@ -941,3 +941,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GR (completed)
 - Hardened `bridge-virtual-account` error metadata contract:
   - added deterministic `summary` mirrors for method/auth/payload/currency-validation outcomes
+
+### 2026-06-29 — Batch GS (completed)
+- Hardened `bridge-external-account` error metadata contract:
+  - added deterministic `summary` mirrors for method/auth/payload gate outcomes
