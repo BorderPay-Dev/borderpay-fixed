@@ -491,3 +491,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CK (completed)
 - Hardened `bridge-bulk-payout` verification guard messaging:
   - normalized `kyc_not_approved` message to account-type aware wording (KYC vs KYB)
+
+### 2026-06-29 — Batch CL (completed)
+- Hardened `bridge-bulk-payout` provider rejection mapping:
+  - normalized `requires_active_kyc_status` payout-item failure message to account-type aware wording (Identity vs Business verification)

@@ -71,14 +71,24 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
   return { raw, numeric };
 }
 
-function mapBulkItemFailure(error: unknown): { code: string; message: string; provider_code?: string } {
+function mapBulkItemFailure(
+  error: unknown,
+  options?: { isBusiness?: boolean },
+): { code: string; message: string; provider_code?: string } {
+  const isBusiness = options?.isBusiness === true;
   if (error instanceof BridgeProviderError) {
     const bridgeCode = String(error.bridge_code || "").toLowerCase();
     switch (bridgeCode) {
       case "has_not_accepted_tos":
         return { code: "tos_required", message: "Terms of Service acceptance is required before sending payouts.", provider_code: bridgeCode };
       case "requires_active_kyc_status":
-        return { code: "kyc_not_approved", message: "Identity verification is required before sending payouts.", provider_code: bridgeCode };
+        return {
+          code: "kyc_not_approved",
+          message: isBusiness
+            ? "Business verification is required before sending payouts."
+            : "Identity verification is required before sending payouts.",
+          provider_code: bridgeCode,
+        };
       case "deactivated_external_account":
         return { code: "external_account_deactivated", message: "Destination account is deactivated. Choose another destination.", provider_code: bridgeCode };
       case "insufficient_funds":
@@ -221,8 +231,9 @@ Deno.serve(async (req) => {
       required_state: "bridge_customer_created",
     }, 409);
   }
+  const isBusiness = profile.account_type === "business";
   if (profile.verification_status !== "approved") {
-    const verificationLabel = profile.account_type === "business" ? "KYB" : "KYC";
+    const verificationLabel = isBusiness ? "KYB" : "KYC";
     return json({
       success: false,
       code: "kyc_not_approved",
@@ -231,7 +242,6 @@ Deno.serve(async (req) => {
     }, 409);
   }
   {
-    const isBusiness = profile.account_type === "business";
     const gate = await requireMinimumWalletBalance(supa, user.id, {
       isBusiness,
       bridgeCustomerId: profile.bridge_customer_id,
@@ -322,7 +332,7 @@ Deno.serve(async (req) => {
       });
       submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
     } catch (e) {
-      const mapped = mapBulkItemFailure(e);
+      const mapped = mapBulkItemFailure(e, { isBusiness });
       results.push({
         row,
         label: it.label ?? null,
