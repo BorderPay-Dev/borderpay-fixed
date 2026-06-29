@@ -8,8 +8,8 @@
  * This sheet:
  *   • Shows the exact required messaging.
  *   • Shows current balance vs the $20 minimum (when known).
- *   • Surfaces the user's auto-provisioned USDC/USDT deposit addresses so they
- *     can fund right from this sheet (copy address + open Wallet for the QR).
+ *   • Shows any manually-added stablecoin deposit addresses so users can fund
+ *     right from this sheet (copy address + open Wallet for the QR).
  *   • Closes silently once balance reaches the minimum.
  */
 
@@ -154,7 +154,7 @@ export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType
                   <div className="py-6 text-center"><Loader2 className={`w-5 h-5 ${tc.textMuted} animate-spin mx-auto`} /></div>
                 ) : stables.length === 0 ? (
                   <div className={`rounded-2xl border ${tc.cardBorder} ${tc.bgAlt} p-4 text-center`}>
-                    <p className={`text-sm ${tc.textMuted}`}>Your stablecoin wallets are being set up. Refresh in a moment.</p>
+                    <p className={`text-sm ${tc.textMuted}`}>No stablecoin wallet yet. Open Wallet and add USDC/USDT manually.</p>
                   </div>
                 ) : (
                   <div className={`rounded-2xl border ${tc.cardBorder} ${tc.bgAlt} overflow-hidden`}>

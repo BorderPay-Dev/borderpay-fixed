@@ -274,115 +274,6 @@ interface PendingEvent {
   max_attempts: number;
 }
 
-const DEFAULT_STABLECOIN_WALLETS: ReadonlyArray<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }> = [
-  { symbol: "USDC", chain: "BASE" },
-  { symbol: "USDT", chain: "TRON" },
-];
-
-const PROVISIONING_LOCK_STALE_SECONDS = 180;
-
-async function sha256Hex(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function provisioningLockEventId(customerId: string, symbol: string, chain: string): string {
-  return `provlock:wallet:${customerId}:${symbol.toUpperCase()}:${chain.toLowerCase()}`;
-}
-
-type ProvisioningLockResult =
-  | { state: "acquired" | "stale_acquired"; lockEventId: string }
-  | { state: "busy" | "already_completed"; lockEventId: string };
-
-async function tryAcquireProvisioningLock(customerId: string, symbol: string, chain: string): Promise<ProvisioningLockResult> {
-  const lockEventId = provisioningLockEventId(customerId, symbol, chain);
-  const nowIso = new Date().toISOString();
-  const payloadHash = await sha256Hex(lockEventId);
-  const marker = `worker=${WORKER_ID};symbol=${symbol};chain=${chain.toLowerCase()}`;
-
-  const { error: insertErr } = await supabase
-    .from("webhook_logs")
-    .insert({
-      event_id: lockEventId,
-      source: "bridge",
-      event_type: "provisioning.wallet",
-      status: "processing",
-      signature_ok: true,
-      payload_hash: payloadHash,
-      attempts: 1,
-      last_error: `${marker};state=started`,
-      received_at: nowIso,
-      queued_at: nowIso,
-      completed_at: null,
-    });
-  if (!insertErr) return { state: "acquired", lockEventId };
-
-  // 23505 = unique violation (event_id already exists).
-  if ((insertErr as any)?.code !== "23505") {
-    throw new Error(`provisioning lock insert failed: ${insertErr.message}`);
-  }
-
-  const { data: row, error: readErr } = await supabase
-    .from("webhook_logs")
-    .select("status, received_at, attempts")
-    .eq("event_id", lockEventId)
-    .maybeSingle();
-  if (readErr) throw new Error(`provisioning lock read failed: ${readErr.message}`);
-  const status = String(row?.status || "").toLowerCase();
-  if (status === "completed") return { state: "already_completed", lockEventId };
-
-  // If another worker currently holds this lock, don't compete.
-  const receivedAt = row?.received_at ? new Date(String(row.received_at)) : new Date(0);
-  const staleBefore = new Date(Date.now() - PROVISIONING_LOCK_STALE_SECONDS * 1000);
-  if (status === "processing" && receivedAt > staleBefore) {
-    return { state: "busy", lockEventId };
-  }
-
-  // Stale or failed lock row: takeover with CAS-like predicates.
-  const staleIso = staleBefore.toISOString();
-  const attempts = Number(row?.attempts || 0) + 1;
-  const { data: taken, error: takeoverErr } = await supabase
-    .from("webhook_logs")
-    .update({
-      status: "processing",
-      attempts,
-      last_error: `${marker};state=takeover`,
-      received_at: nowIso,
-      queued_at: nowIso,
-      completed_at: null,
-    })
-    .eq("event_id", lockEventId)
-    .eq("status", status || "failed")
-    .lte("received_at", staleIso)
-    .select("event_id")
-    .maybeSingle();
-  if (takeoverErr) throw new Error(`provisioning lock takeover failed: ${takeoverErr.message}`);
-  if (taken?.event_id) return { state: "stale_acquired", lockEventId };
-  return { state: "busy", lockEventId };
-}
-
-async function completeProvisioningLock(lockEventId: string, note: string): Promise<void> {
-  await supabase
-    .from("webhook_logs")
-    .update({
-      status: "completed",
-      completed_at: new Date().toISOString(),
-      last_error: note.slice(0, 512),
-    })
-    .eq("event_id", lockEventId);
-}
-
-async function failProvisioningLock(lockEventId: string, errorText: string): Promise<void> {
-  await supabase
-    .from("webhook_logs")
-    .update({
-      status: "failed",
-      last_error: errorText.slice(0, 512),
-      completed_at: null,
-    })
-    .eq("event_id", lockEventId);
-}
-
 // ── Top-level router (source-aware) ──────────────────────────────────────
 //
 // BorderPay has one active provider path in this worker. Unknown source values
@@ -1357,84 +1248,14 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   });
 }
 
-async function ensureStablecoinWalletsProvisioned(input: {
+async function ensureStablecoinWalletsProvisioned(_input: {
   userId: string;
   bridgeCustomerId: string;
   accountType: "individual" | "business";
 }): Promise<void> {
-  const { data: operatorRow } = await supabase
-    .from("operator_bridge_accounts")
-    .select("bridge_customer_id")
-    .eq("bridge_customer_id", input.bridgeCustomerId)
-    .eq("active", true)
-    .maybeSingle();
-  if (operatorRow?.bridge_customer_id) {
-    // Imported Bridge operator/admin accounts are not BorderPay customer
-    // lifecycle subjects. Skip auto-provisioning entirely.
-    return;
-  }
-
-  const profileTable = input.accountType === "business" ? "business_profiles" : "user_profiles";
-  const idCol = input.accountType === "business" ? "user_id" : "id";
-  const statusCol = input.accountType === "business" ? "bridge_kyb_status" : "bridge_kyc_status";
-  const { data: profile } = await supabase
-    .from(profileTable)
-    .select(`country, ${statusCol}`)
-    .eq(idCol, input.userId)
-    .maybeSingle();
-
-  let country = String(profile?.country || "");
-  if (!country && input.accountType === "business") {
-    const { data: userProfile } = await supabase
-      .from("user_profiles")
-      .select("country")
-      .eq("id", input.userId)
-      .maybeSingle();
-    country = String(userProfile?.country || "");
-  }
-  if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
-  if (String(profile?.[statusCol] || "").toLowerCase() !== "approved") return;
-
-  for (const { symbol, chain } of DEFAULT_STABLECOIN_WALLETS) {
-    const chainLc = chain.toLowerCase();
-    const lock = await tryAcquireProvisioningLock(input.bridgeCustomerId, symbol, chainLc);
-    if (lock.state === "already_completed" || lock.state === "busy") continue;
-
-    try {
-      const { data: existing } = await supabase
-        .from("bridge_wallets")
-        .select("bridge_wallet_id,address")
-        .eq("bridge_customer_id", input.bridgeCustomerId)
-        .ilike("currency", symbol)
-        .ilike("chain", chainLc)
-        .maybeSingle();
-      if (existing?.bridge_wallet_id) {
-        await completeProvisioningLock(lock.lockEventId, "already_exists");
-        continue;
-      }
-
-      const created = await bridgeProvider.createWallet({
-        customer_id: input.bridgeCustomerId,
-        symbol,
-        chain,
-      });
-      await supabase.from("bridge_wallets").upsert({
-        bridge_wallet_id:   created.wallet_id,
-        bridge_customer_id: input.bridgeCustomerId,
-        user_id:            input.accountType === "individual" ? input.userId : null,
-        business_user_id:   input.accountType === "business" ? input.userId : null,
-        currency:           symbol,
-        chain:              chainLc,
-        address:            created.deposit_address,
-        status:             "active",
-        updated_at:         new Date().toISOString(),
-      }, { onConflict: "bridge_wallet_id" });
-      await completeProvisioningLock(lock.lockEventId, "provisioned");
-    } catch (e) {
-      await failProvisioningLock(lock.lockEventId, (e as Error).message || "provision_failed");
-      throw e;
-    }
-  }
+  // Product contract lock: stablecoin wallets are manual-add only.
+  // Never auto-provision from webhook/customer lifecycle workers.
+  return;
 }
 
 async function syncCountryFromBridgeCustomer(
