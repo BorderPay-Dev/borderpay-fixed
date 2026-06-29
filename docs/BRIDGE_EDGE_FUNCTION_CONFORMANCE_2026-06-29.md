@@ -554,3 +554,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CZ (completed)
 - Hardened `bridge-sync-customers` provider diagnostics contract:
   - mapped BridgeProviderError metadata into deterministic per-row failure fields (`provider_code`, `bridge_request_id`)
+
+### 2026-06-29 — Batch DA (completed)
+- Hardened `bridge-provision-stablecoins` best-effort skip context:
+  - added deterministic `required_state=bridge_customer_created` on `no_customer` skips
+  - added explicit `country` context on `country_unsupported` skips

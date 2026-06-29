@@ -80,7 +80,11 @@ Deno.serve(async (req) => {
   const isBusiness = profile.account_type === "business";
 
   // Silent no-ops for ineligible users — never an error, never a 402.
-  if (!profile.bridge_customer_id) return noop("no_customer");
+  if (!profile.bridge_customer_id) {
+    return noop("no_customer", {
+      required_state: "bridge_customer_created",
+    });
+  }
   const verification = profile.verification_status;
   if (verification !== "approved") {
     const verificationLabel = isBusiness ? "KYB" : "KYC";
@@ -89,7 +93,11 @@ Deno.serve(async (req) => {
       verification_label: verificationLabel,
     });
   }
-  if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
+  if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) {
+    return noop("country_unsupported", {
+      country: profile?.country || null,
+    });
+  }
 
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
   const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];
