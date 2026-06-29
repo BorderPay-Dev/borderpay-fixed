@@ -243,6 +243,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - propagated provider metadata (`status`, `bridge_code`, `bridge_error`, `request_id`) for deterministic downstream mapping
   - standardized missing-link-id/url response failure into provider error contract
 
+### 2026-06-29 — Batch AJ (completed)
+- Hardened shared provider `deleteCustomer` error contract:
+  - replaced generic delete failure throw with structured `BridgeProviderError`
+  - aligned metadata propagation (`status`, `bridge_code`, `bridge_error`, `request_id`) with other Bridge provider calls
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
