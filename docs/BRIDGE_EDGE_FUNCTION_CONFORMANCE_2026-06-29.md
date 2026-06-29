@@ -503,3 +503,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CN (completed)
 - Hardened `bridge-external-account` provider rejection mapping:
   - mapped `requires_active_kyc_status` provider failures to deterministic `kyc_not_approved` with account-type aware wording (Identity vs Business verification)
+
+### 2026-06-29 — Batch CO (completed)
+- Hardened `bridge-transfer` verification failure contract:
+  - added explicit `expected_verification_status=approved` on provider-side `kyc_not_approved` responses for parity with precheck guard

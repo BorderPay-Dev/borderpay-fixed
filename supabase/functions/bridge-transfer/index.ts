@@ -466,6 +466,7 @@ Deno.serve(async (req) => {
               error: isBusiness
                 ? "Business verification is required before sending funds."
                 : "Identity verification is required before sending funds.",
+              expected_verification_status: "approved",
             };
           case "deactivated_external_account":
             return { status: 409, code: "external_account_deactivated", error: "The selected destination account is deactivated. Choose another destination." };
@@ -506,6 +507,9 @@ Deno.serve(async (req) => {
           success: false,
           code: mapped.code,
           error: mapped.error,
+          ...(mapped.expected_verification_status
+            ? { expected_verification_status: mapped.expected_verification_status }
+            : {}),
           provider_code: bridgeCode || undefined,
           bridge_request_id: e.request_id || undefined,
         },
