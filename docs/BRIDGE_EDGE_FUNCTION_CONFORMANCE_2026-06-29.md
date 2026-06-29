@@ -387,6 +387,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized account-type/owner-field/address validation failures with explicit deterministic error codes
   - normalized provider-missing-id failure with explicit `provider_external_account_id_missing` code
 
+### 2026-06-29 — Batch BP (completed)
+- Hardened `bridge-kyb-link` account-type guard contract:
+  - normalized wrong-account-type response with deterministic messaging
+  - exposed explicit `expected_account_type=business` context field
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
