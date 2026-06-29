@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "country_rail_not_supported",
-      error: `${currency} virtual accounts are not available for your country through BorderPay.`,
+      error: "This virtual account currency is not available for your country.",
       country: productCountry,
       currency,
     }, 403);
@@ -293,7 +293,8 @@ Deno.serve(async (req) => {
         return json({
           success: false,
           code: "endorsement_required",
-          error: `${currency} accounts are not enabled for your profile yet.`,
+          error: "This virtual account currency is not enabled for your profile yet.",
+          currency,
         }, 403);
       }
     } else {
@@ -332,7 +333,7 @@ Deno.serve(async (req) => {
       return json({
         success: false,
         code:    "va_grant_pending",
-        error:   `${currency} accounts are not enabled for your profile yet. Your request was sent for review — you’ll get an email once it’s approved (usually a few business days).`,
+        error:   "Virtual account request is pending review. You will receive an email once approved.",
         currency,
       }, 202);  // accepted, pending review
     }
