@@ -267,10 +267,18 @@ Deno.serve(async (req) => {
   }
   const acct = body.account;
   if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban" && acct.account_type !== "clabe" && acct.account_type !== "pix")) {
-    return json({ success: false, error: "account.account_type must be 'us' | 'iban' | 'clabe' | 'pix'" }, 400);
+    return json({
+      success: false,
+      code: "invalid_account_type",
+      error: "account.account_type must be 'us' | 'iban' | 'clabe' | 'pix'",
+    }, 400);
   }
   if (!acct.account_owner_name) {
-    return json({ success: false, error: "account_owner_name required" }, 400);
+    return json({
+      success: false,
+      code: "account_owner_name_required",
+      error: "account_owner_name required",
+    }, 400);
   }
 
   let bridgeBody: Record<string, unknown>;
@@ -281,10 +289,18 @@ Deno.serve(async (req) => {
   if (acct.account_type === "us") {
     const a = acct as UsAccountInput;
     if (!a.account_number || !a.routing_number) {
-      return json({ success: false, error: "account_number and routing_number required for US accounts" }, 400);
+      return json({
+        success: false,
+        code: "us_account_number_routing_required",
+        error: "account_number and routing_number required for US accounts",
+      }, 400);
     }
     if (!a.address?.street_line_1 || !a.address?.city || !a.address?.postal_code || !a.address?.country) {
-      return json({ success: false, error: "full address required for US accounts" }, 400);
+      return json({
+        success: false,
+        code: "us_full_address_required",
+        error: "full address required for US accounts",
+      }, 400);
     }
     currency = "USD";
     railLabel = "ach";
@@ -320,16 +336,32 @@ Deno.serve(async (req) => {
   } else if (acct.account_type === "iban") {
     const a = acct as IbanAccountInput;
     if (!a.iban_number || !a.bic_swift || !a.iban_country) {
-      return json({ success: false, error: "iban_number, bic_swift, and iban_country required for IBAN accounts" }, 400);
+      return json({
+        success: false,
+        code: "iban_fields_required",
+        error: "iban_number, bic_swift, and iban_country required for IBAN accounts",
+      }, 400);
     }
     if (a.account_owner_type !== "individual" && a.account_owner_type !== "business") {
-      return json({ success: false, error: "account_owner_type must be 'individual' or 'business'" }, 400);
+      return json({
+        success: false,
+        code: "invalid_account_owner_type",
+        error: "account_owner_type must be 'individual' or 'business'",
+      }, 400);
     }
     if (a.account_owner_type === "individual" && (!a.first_name || !a.last_name)) {
-      return json({ success: false, error: "first_name and last_name required for individual IBAN accounts" }, 400);
+      return json({
+        success: false,
+        code: "iban_individual_name_required",
+        error: "first_name and last_name required for individual IBAN accounts",
+      }, 400);
     }
     if (a.account_owner_type === "business" && !a.business_name) {
-      return json({ success: false, error: "business_name required for business IBAN accounts" }, 400);
+      return json({
+        success: false,
+        code: "iban_business_name_required",
+        error: "business_name required for business IBAN accounts",
+      }, 400);
     }
     currency = "EUR";
     railLabel = "sepa";
@@ -360,10 +392,18 @@ Deno.serve(async (req) => {
   } else if (acct.account_type === "clabe") {
     const a = acct as ClabeAccountInput;
     if (!a.clabe_number) {
-      return json({ success: false, error: "clabe_number required for CLABE accounts" }, 400);
+      return json({
+        success: false,
+        code: "clabe_number_required",
+        error: "clabe_number required for CLABE accounts",
+      }, 400);
     }
     if (!a.address?.street_line_1 || !a.address?.city || !a.address?.state || !a.address?.postal_code || !a.address?.country) {
-      return json({ success: false, error: "full address required for CLABE accounts" }, 400);
+      return json({
+        success: false,
+        code: "clabe_full_address_required",
+        error: "full address required for CLABE accounts",
+      }, 400);
     }
     currency = "MXN";
     railLabel = "spei";
@@ -394,13 +434,25 @@ Deno.serve(async (req) => {
     const hasPixKey = !!a.pix_key?.trim();
     const hasBrCode = !!a.br_code?.trim();
     if (!hasPixKey && !hasBrCode) {
-      return json({ success: false, error: "pix_key or br_code required for Pix accounts" }, 400);
+      return json({
+        success: false,
+        code: "pix_or_br_code_required",
+        error: "pix_key or br_code required for Pix accounts",
+      }, 400);
     }
     if (hasPixKey && hasBrCode) {
-      return json({ success: false, error: "Provide only one of pix_key or br_code" }, 400);
+      return json({
+        success: false,
+        code: "pix_br_code_mutually_exclusive",
+        error: "Provide only one of pix_key or br_code",
+      }, 400);
     }
     if (!a.document_number?.trim()) {
-      return json({ success: false, error: "document_number required for Pix accounts" }, 400);
+      return json({
+        success: false,
+        code: "pix_document_number_required",
+        error: "document_number required for Pix accounts",
+      }, 400);
     }
     currency = "BRL";
     railLabel = "pix";
@@ -430,7 +482,13 @@ Deno.serve(async (req) => {
 
   const data = (r.data as any)?.data ?? r.data;
   const extId = String(data?.id ?? "");
-  if (!extId) return json({ success: false, error: "Provider response missing external account id" }, 502);
+  if (!extId) {
+    return json({
+      success: false,
+      code: "provider_external_account_id_missing",
+      error: "Provider response missing external account id",
+    }, 502);
+  }
 
   // Mirror locally — descriptors only, never full account / routing / IBAN.
   const { error: upsertErr } = await supa.from("bridge_external_accounts").upsert({

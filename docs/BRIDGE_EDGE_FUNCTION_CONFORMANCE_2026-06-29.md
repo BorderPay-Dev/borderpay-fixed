@@ -382,6 +382,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized missing external account id with explicit `external_account_id_required` code
   - normalized local ownership miss to deterministic `external_account_not_found` contract
 
+### 2026-06-29 — Batch BO (completed)
+- Hardened `bridge-external-account` create-path validation contracts:
+  - normalized account-type/owner-field/address validation failures with explicit deterministic error codes
+  - normalized provider-missing-id failure with explicit `provider_external_account_id_missing` code
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
