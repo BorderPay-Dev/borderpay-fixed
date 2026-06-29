@@ -323,6 +323,7 @@ Deno.serve(async (req) => {
           error: isBusiness
             ? "Business verification is required before creating an account."
             : "Identity verification is required before creating an account.",
+          expected_verification_status: "approved",
         }, 409);
       }
       if (code === "missing_required_endorsements" || code === "endorsement_requirements_not_met") {
