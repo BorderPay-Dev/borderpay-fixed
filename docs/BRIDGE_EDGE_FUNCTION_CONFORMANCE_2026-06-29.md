@@ -576,3 +576,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DE (completed)
 - Hardened `bridge-webhook` response-shape contract:
   - added explicit `success` boolean on all major accept/reject/duplicate/error responses for deterministic webhook monitor handling
+
+### 2026-06-29 — Batch DF (completed)
+- Hardened `bridge-exchange-rates` request-id naming contract:
+  - normalized Bridge trace field to `bridge_request_id` for cross-endpoint consistency

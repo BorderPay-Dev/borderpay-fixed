@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
       from,
       to,
       provider_code: mapped.provider_code,
-      request_id: r.request_id ?? null,
+      bridge_request_id: r.request_id ?? null,
     }, mapped.status);
   }
 
