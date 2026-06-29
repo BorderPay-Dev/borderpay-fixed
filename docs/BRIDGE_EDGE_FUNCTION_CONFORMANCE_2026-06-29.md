@@ -301,6 +301,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - removed implicit country defaults in profile/business seed rows (`NG` fallback removed)
   - ensures downstream Bridge identity/KYC flows never inherit assumed country metadata
 
+### 2026-06-29 — Batch AU (completed)
+- Hardened `bridge-sync-customers` rate-limit classification:
+  - provider error mapping now prioritizes structured provider status (`429`) for `rate_limited`
+  - reduces dependence on brittle free-text message matching for throttling classification
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
