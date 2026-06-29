@@ -840,3 +840,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FS (completed)
 - Hardened `bridge-external-account` summary metadata contract:
   - added deterministic `summary.code` for delete/list/capabilities/create success outcomes
+
+### 2026-06-29 — Batch FT (completed)
+- Hardened `bridge-fx-supported-pairs` summary metadata contract:
+  - added deterministic `summary.code` for supported-pairs readiness outcome
