@@ -137,6 +137,10 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "POST",
+      },
     }, 405);
   }
   if (!isAuthorized(req.headers.get("Authorization"))) {
@@ -144,6 +148,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "unauthorized_admin_access",
       error: "Unauthorized",
+      summary: {
+        code: "unauthorized_admin_access",
+      },
     }, 401);
   }
 
