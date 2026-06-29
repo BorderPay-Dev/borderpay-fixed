@@ -306,6 +306,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - provider error mapping now prioritizes structured provider status (`429`) for `rate_limited`
   - reduces dependence on brittle free-text message matching for throttling classification
 
+### 2026-06-29 — Batch AV (completed)
+- Hardened `bridge-customer` provider-auth classification:
+  - explicit provider-status mapping for `401/403` to deterministic `provider_auth_error`
+  - avoids ambiguous fallback `bridge_customer_failed` responses on provider auth-side outages
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
