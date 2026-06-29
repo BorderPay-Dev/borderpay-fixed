@@ -32,6 +32,11 @@ type SyncBody = {
 const INTERNAL_DOMAIN = "@borderpayafrica.com";
 const INTERNAL_ALLOWLIST = new Set(["founder@borderpayafrica.com"]);
 
+function normalizeCountryCode(value: unknown): string | null {
+  const v = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(v) ? v : null;
+}
+
 function mapSyncCustomerError(
   error: unknown,
   options?: { accountType?: "individual" | "business" | null },
@@ -243,6 +248,15 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const countryCode = normalizeCountryCode(c.country);
+      if (!countryCode) {
+        row.status = "skipped_missing_country";
+        row.result_code = "skipped_missing_country";
+        skipped += 1;
+        results.push(row);
+        continue;
+      }
+
       let companyName: string | undefined;
       let registrationNumber: string | undefined;
       if (c.account_type === "business" && !includeBusiness) {
@@ -276,7 +290,7 @@ Deno.serve(async (req) => {
         full_name: c.full_name || undefined,
         company_name: companyName,
         registration_number: registrationNumber,
-        country_code: String(c.country || "NG").toUpperCase(),
+        country_code: countryCode,
         phone_e164: c.phone || undefined,
         borderpay_user_id: c.id,
       });
