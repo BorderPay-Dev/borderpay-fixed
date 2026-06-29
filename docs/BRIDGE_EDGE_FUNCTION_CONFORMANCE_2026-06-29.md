@@ -246,6 +246,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-bulk-payout` top-level payload validation contract:
   - replaced generic missing payload fields response with deterministic coded contract (`invalid_batch_payload`)
 
+### 2026-06-29 — Batch AN (completed)
+- Hardened `bridge-wallet` auth/method/parser edge contracts:
+  - standardized method/auth/json failures with explicit stable error codes
+  - aligned wallet endpoint failure shape with other Bridge function contracts
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
