@@ -26,11 +26,24 @@ const json = (b: unknown, s = 200) =>
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ ok: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      ok: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+    }, 405);
+  }
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ ok: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({
+      ok: false,
+      code: "missing_bearer_token",
+      error: "Authentication required",
+    }, 401);
+  }
 
   const SUPABASE_URL          = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -44,14 +57,26 @@ Deno.serve(async (req) => {
     });
 
     const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
-    if (authErr || !userInfo?.user) return json({ ok: false, error: "Unauthorized" }, 401);
+    if (authErr || !userInfo?.user) {
+      return json({
+        ok: false,
+        code: "invalid_auth_token",
+        error: "Unauthorized",
+      }, 401);
+    }
 
     const { data: adminRow } = await supa
       .from("admin_users")
       .select("user_id")
       .eq("user_id", userInfo.user.id)
       .maybeSingle();
-    if (!adminRow) return json({ ok: false, error: "admin only" }, 403);
+    if (!adminRow) {
+      return json({
+        ok: false,
+        code: "admin_only",
+        error: "Admin access required",
+      }, 403);
+    }
   }
 
   const apiKey  = Deno.env.get("BRIDGE_API_KEY") ?? "";
