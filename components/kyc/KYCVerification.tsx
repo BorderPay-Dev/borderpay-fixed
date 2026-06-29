@@ -170,6 +170,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [verifying, setVerifying] = useState(false);
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
+  const resumeAfterTosLocalKey = useMemo(() => `borderpay_resume_verification_after_tos_v1:${userId}`, [userId]);
+  const autoStartKey = 'borderpay_auto_start_verification_v1';
 
   const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
@@ -193,10 +195,17 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   useEffect(() => {
     let cancelled = false;
     const shouldResume = (() => {
-      try { return sessionStorage.getItem(resumeAfterTosKey) === '1'; } catch { return false; }
+      try {
+        if (sessionStorage.getItem(resumeAfterTosKey) === '1') return true;
+        const ts = Number(localStorage.getItem(resumeAfterTosLocalKey) || '0');
+        return Number.isFinite(ts) && ts > 0 && (Date.now() - ts) < 30 * 60 * 1000;
+      } catch { return false; }
     })();
     if (!shouldResume) return;
-    try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
+    try {
+      sessionStorage.removeItem(resumeAfterTosKey);
+      localStorage.removeItem(resumeAfterTosLocalKey);
+    } catch { /* noop */ }
     const timer = window.setTimeout(async () => {
       if (cancelled) return;
       await startVerification(true);
@@ -206,7 +215,27 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeAfterTosKey]);
+  }, [resumeAfterTosKey, resumeAfterTosLocalKey]);
+
+  // Setup step deep-link: if user tapped "Complete identity/business verification"
+  // from dashboard setup widget, start hosted verification immediately.
+  useEffect(() => {
+    let cancelled = false;
+    const shouldAutoStart = (() => {
+      try { return sessionStorage.getItem(autoStartKey) === '1'; } catch { return false; }
+    })();
+    if (!shouldAutoStart) return;
+    try { sessionStorage.removeItem(autoStartKey); } catch { /* noop */ }
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
+      await startVerification(false);
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStartKey]);
 
   const startVerification = async (isResume = false) => {
     setVerifying(true);
@@ -238,7 +267,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (r?.success && r.data?.tos_link_url) {
         // Bridge may require ToS acceptance before issuing a KYC/KYB link.
         // Open ToS first, then auto-resume verification on return.
-        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
+        try {
+          sessionStorage.setItem(resumeAfterTosKey, '1');
+          localStorage.setItem(resumeAfterTosLocalKey, String(Date.now()));
+        } catch { /* noop */ }
         if (!isResume) {
           toast.info('Please accept Terms first, then we will continue verification.');
         }
