@@ -917,3 +917,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GL (completed)
 - Hardened `bridge-sync-customers` error metadata contract:
   - added deterministic `summary` mirror for candidate-query-failed outcome
+
+### 2026-06-29 — Batch GM (completed)
+- Hardened `bridge-supported-countries` response contract:
+  - standardized country identity fields to include `code` + `alpha2` + `alpha3` deterministically

@@ -95,8 +95,9 @@ Deno.serve(async (req) => {
         (code2 ? null : getCode3(row?.code));
       if (!name && !code2 && !code3) return null;
       return {
-        code: code2,
-        code3,
+        code: code2 ?? code3 ?? null,
+        alpha2: code2,
+        alpha3: code3,
         name,
       };
     })
