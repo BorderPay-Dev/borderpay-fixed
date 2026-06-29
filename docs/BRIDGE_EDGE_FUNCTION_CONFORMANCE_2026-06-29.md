@@ -185,3 +185,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-sync-customers` query failure response:
   - removed raw Supabase query error leakage from sync endpoint
   - replaced with deterministic operator-safe error contract (`sync_query_failed`)
+
+### 2026-06-29 — Batch Z (completed)
+- Hardened `bridge-test-webhook` ingest failure response:
+  - removed raw RPC error leakage from synthetic webhook endpoint
+  - replaced with deterministic failure contract (`synthetic_ingest_failed`, `ingest_failed`)
