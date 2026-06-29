@@ -154,7 +154,11 @@ Deno.serve(async (req) => {
     .eq("provider", "bridge")
     .maybeSingle();
   if (existing?.bridge_wallet_id) {
-    return json({ success: true, data: { wallet_id: existing.bridge_wallet_id, symbol, chain, already_exists: true } });
+    return json({
+      success: true,
+      code: "wallet_already_exists",
+      data: { wallet_id: existing.bridge_wallet_id, symbol, chain, already_exists: true },
+    });
   }
 
   try {
@@ -201,6 +205,7 @@ Deno.serve(async (req) => {
 
     return json({
       success: true,
+      code: "wallet_created",
       data: { wallet_id: result.wallet_id, deposit_address: result.deposit_address, symbol, chain },
     });
   } catch (e) {
