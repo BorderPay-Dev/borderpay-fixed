@@ -1020,3 +1020,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `auth-signup` deterministic error contract:
   - standardized method/validation/auth-create/protection/unhandled error exits with stable `code` + `summary.code`
   - no change to signup lifecycle (Bridge identity still deferred to KYC/KYB start)
+
+### 2026-06-29 — Batch BK (completed)
+- Hardened shared country-block contract:
+  - `bridgeCountryBlockResponse()` now includes deterministic `summary` (`code`, `reason`, `country`)
+  - all Bridge endpoints consuming this helper inherit consistent blocked-country response shape
