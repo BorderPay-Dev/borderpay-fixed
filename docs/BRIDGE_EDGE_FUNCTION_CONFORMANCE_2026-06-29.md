@@ -550,3 +550,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CY (completed)
 - Hardened `bridge-customer` provider diagnostics contract:
   - mapped BridgeProviderError metadata into deterministic API fields (`provider_code`, `bridge_request_id`) on failure responses
+
+### 2026-06-29 — Batch CZ (completed)
+- Hardened `bridge-sync-customers` provider diagnostics contract:
+  - mapped BridgeProviderError metadata into deterministic per-row failure fields (`provider_code`, `bridge_request_id`)

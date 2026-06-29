@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { BridgeProviderError } from "../_shared/providers/bridge-client.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -34,18 +35,35 @@ const INTERNAL_ALLOWLIST = new Set(["founder@borderpayafrica.com"]);
 function mapSyncCustomerError(
   error: unknown,
   options?: { accountType?: "individual" | "business" | null },
-): { code: string; message: string; expected_verification_status?: "approved" } {
+): {
+  code: string;
+  message: string;
+  provider_code?: string;
+  bridge_request_id?: string;
+  expected_verification_status?: "approved";
+} {
   const message = String((error as Error)?.message || "").toLowerCase();
+  const providerCode = error instanceof BridgeProviderError
+    ? String(error.bridge_code || "").toLowerCase()
+    : undefined;
+  const bridgeRequestId = error instanceof BridgeProviderError ? error.request_id || undefined : undefined;
   const isBusiness = options?.accountType === "business";
-  if (message.includes("has_not_accepted_tos")) {
-    return { code: "tos_required", message: "Customer must accept terms of service before provisioning can continue." };
+  if (providerCode === "has_not_accepted_tos" || message.includes("has_not_accepted_tos")) {
+    return {
+      code: "tos_required",
+      message: "Customer must accept terms of service before provisioning can continue.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
   }
-  if (message.includes("requires_active_kyc_status")) {
+  if (providerCode === "requires_active_kyc_status" || message.includes("requires_active_kyc_status")) {
     return {
       code: "kyc_not_approved",
       message: isBusiness
         ? "Business verification is required before this operation can continue."
         : "Identity verification is required before this operation can continue.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
       expected_verification_status: "approved",
     };
   }
@@ -53,9 +71,19 @@ function mapSyncCustomerError(
     return { code: "rate_limited", message: "Provider rate limit reached. Retry later." };
   }
   if (message.includes("timeout") || message.includes("network")) {
-    return { code: "provider_unavailable", message: "Provider is temporarily unavailable. Retry later." };
+    return {
+      code: "provider_unavailable",
+      message: "Provider is temporarily unavailable. Retry later.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
   }
-  return { code: "sync_failed", message: "Unable to sync customer at this time." };
+  return {
+    code: "sync_failed",
+    message: "Unable to sync customer at this time.",
+    ...(providerCode ? { provider_code: providerCode } : {}),
+    ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+  };
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -273,6 +301,8 @@ Deno.serve(async (req) => {
       });
       row.error_code = mapped.code;
       row.error = mapped.message;
+      if (mapped.provider_code) row.provider_code = mapped.provider_code;
+      if (mapped.bridge_request_id) row.bridge_request_id = mapped.bridge_request_id;
       if (mapped.expected_verification_status) {
         row.expected_verification_status = mapped.expected_verification_status;
       }
