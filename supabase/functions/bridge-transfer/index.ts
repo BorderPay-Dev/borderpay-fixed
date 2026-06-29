@@ -128,7 +128,9 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({ success: false, code: "method_not_allowed", error: "POST only" }, 405);
+  }
 
   // Hard server gate. Fail closed before any auth or Bridge call so we
   // can't leak side effects (idempotency rows, log lines) while disabled.
@@ -142,14 +144,20 @@ Deno.serve(async (req) => {
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({ success: false, code: "authorization_required", error: "Authorization required" }, 401);
+  }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
-  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (authErr || !user) {
+    return json({ success: false, code: "unauthorized", error: "Unauthorized" }, 401);
+  }
   fxLog("request_received", { user_id: user.id, method: req.method });
 
   let body: any;
-  try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
+  try { body = await req.json(); } catch {
+    return json({ success: false, code: "invalid_json", error: "Invalid JSON" }, 400);
+  }
   if (!body?.source?.amount || !body?.source?.currency || !body?.destination?.currency) {
     return json({ success: false, error: "source.amount, source.currency, destination.currency required" }, 400);
   }
