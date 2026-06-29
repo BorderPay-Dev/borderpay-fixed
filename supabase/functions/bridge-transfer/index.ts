@@ -452,7 +452,7 @@ Deno.serve(async (req) => {
         idempotency_key: idem,
         bridge_code: bridgeCode || null,
         bridge_status: bridgeStatus || null,
-        request_id: e.request_id ?? null,
+        bridge_request_id: e.request_id ?? null,
       });
 
       const mapped = (() => {

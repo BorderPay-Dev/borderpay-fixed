@@ -596,3 +596,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DJ (completed)
 - Hardened `bridge-bulk-payout` per-item diagnostics contract:
   - propagated `bridge_request_id` from BridgeProviderError into failed row outputs for deterministic support tracing
+
+### 2026-06-29 — Batch DK (completed)
+- Hardened `bridge-transfer` internal diagnostics naming:
+  - normalized transfer failure log field from `request_id` to `bridge_request_id` for cross-function log schema consistency
