@@ -124,7 +124,10 @@ Deno.serve(async (req) => {
     p_payload_hash: payloadHash,
   });
   if (rpcErr) {
-    return json({ error: "synthetic_ingest_failed", code: "ingest_failed" }, 500);
+    return json({
+      error: "Synthetic ingest failed",
+      code: "synthetic_ingest_failed",
+    }, 500);
   }
   const row = Array.isArray(ingest) ? ingest[0] : ingest;
   const queueEventId = `bridge:${bridgeEventId}`;
