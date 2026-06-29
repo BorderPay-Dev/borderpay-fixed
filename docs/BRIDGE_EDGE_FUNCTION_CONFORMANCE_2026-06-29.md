@@ -217,3 +217,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - removed raw DB/provider exception text leakage from item-level results
   - added deterministic per-item error mapping (`tos_required`, `kyc_not_approved`, `insufficient_funds`, etc.)
   - kept payout processing behavior (partial-success batch) unchanged
+
+### 2026-06-29 — Batch AF (completed)
+- Hardened `bridge-transfer` non-provider exception fallback:
+  - removed raw exception message leakage from terminal fallback response
+  - replaced with deterministic `transfer_internal_error` contract

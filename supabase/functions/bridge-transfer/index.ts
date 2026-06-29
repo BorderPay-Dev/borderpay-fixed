@@ -465,6 +465,10 @@ Deno.serve(async (req) => {
       idempotency_key: idem,
       error: (e as Error).message,
     });
-    return json({ success: false, error: (e as Error).message }, 502);
+    return json({
+      success: false,
+      code: "transfer_internal_error",
+      error: "Unable to process transfer right now. Please retry.",
+    }, 502);
   }
 });
