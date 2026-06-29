@@ -548,7 +548,29 @@ export class BridgeProvider implements PaymentProvider {
       body,
       idempotencyKey: `borderpay:wallet:${input.customer_id}:${input.symbol}:${input.chain}`,
     });
-    if (!r.ok) throw new Error(`Bridge createWallet failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode = typeof parsed.code === "string"
+        ? parsed.code
+        : typeof parsed.error_code === "string"
+        ? String(parsed.error_code)
+        : undefined;
+      const bridgeErr = typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+        ? parsed.message
+        : r.error;
+      throw new BridgeProviderError(
+        `Bridge createWallet failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
     const data = (r.data as any)?.data ?? r.data;
     return {
       provider:        this.name,
