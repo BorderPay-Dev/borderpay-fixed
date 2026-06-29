@@ -792,3 +792,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FG (completed)
 - Hardened `bridge-test-webhook` success metadata contract:
   - added deterministic top-level `summary` mirrors for duplicate/queued synthetic ingest outcomes
+
+### 2026-06-29 — Batch FH (completed)
+- Hardened `bridge-identity-cleanup` success metadata contract:
+  - added deterministic outcome counters in `summary` (`deleted_count`, `skipped_count`, `failed_count`)

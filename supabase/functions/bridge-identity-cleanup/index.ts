@@ -141,10 +141,14 @@ Deno.serve(async (req) => {
 
     const candidates = await loadCandidates(limit);
     const out: Array<Record<string, unknown>> = [];
+    let skippedCount = 0;
+    let deletedCount = 0;
+    let failedCount = 0;
 
     for (const c of candidates) {
       if (isInternalEmail(c.email)) {
         await audit(c, "skip", "success", "internal_account_excluded");
+        skippedCount += 1;
         out.push({ user_id: c.user_id, bridge_customer_id: c.bridge_customer_id, action: "skip", reason: "internal_account_excluded" });
         continue;
       }
@@ -157,6 +161,7 @@ Deno.serve(async (req) => {
         await audit(c, "delete_bridge_customer", "success", dryRun ? "dry_run" : "deleted_and_cleared", {
           dry_run: dryRun,
         });
+        deletedCount += 1;
         out.push({
           user_id: c.user_id,
           bridge_customer_id: c.bridge_customer_id,
@@ -172,6 +177,7 @@ Deno.serve(async (req) => {
           provider_code: providerCode,
           bridge_request_id: bridgeRequestId,
         });
+        failedCount += 1;
         out.push({
           user_id: c.user_id,
           bridge_customer_id: c.bridge_customer_id,
@@ -191,6 +197,9 @@ Deno.serve(async (req) => {
         dry_run: dryRun,
         scanned: candidates.length,
         processed: out.length,
+        deleted_count: deletedCount,
+        skipped_count: skippedCount,
+        failed_count: failedCount,
       },
       dry_run: dryRun,
       scanned: candidates.length,
