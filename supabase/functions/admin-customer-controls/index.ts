@@ -75,6 +75,7 @@ Deno.serve(async (req) => {
   }
 
   const action = norm(body?.action) as Action;
+  const dryRun = body?.dry_run === true;
   if (!action) return json({ success: false, code: "action_required", error: "action is required" }, 400);
   if (!["inspect_customer_assets", "revoke_virtual_accounts", "revoke_stablecoin_wallets", "revoke_cards"].includes(action)) {
     return json({ success: false, code: "invalid_action", error: "Unsupported action" }, 400);
@@ -107,6 +108,7 @@ Deno.serve(async (req) => {
         virtual_accounts: vaRows || [],
         stablecoin_wallets: walletRows || [],
         cards: [],
+        dry_run: dryRun,
         notes: [
           "Cards are globally locked in BorderPay runtime; card revoke is not currently required.",
         ],
@@ -120,6 +122,7 @@ Deno.serve(async (req) => {
       code: "cards_locked_globally",
       data: {
         target_user_id: target.id,
+        dry_run: dryRun,
         notes: [
           "Cards are globally locked in BorderPay runtime.",
           "No provider-level card revocation call was executed.",
@@ -134,6 +137,10 @@ Deno.serve(async (req) => {
     for (const va of active) {
       const vaId = String(va.bridge_virtual_account_id || "");
       if (!vaId) continue;
+      if (dryRun) {
+        results.push({ bridge_virtual_account_id: vaId, status: "would_revoke" });
+        continue;
+      }
       const provider = await bridgeFetch({
         method: "POST",
         path: `/v0/virtual_accounts/${encodeURIComponent(vaId)}/deactivate`,
@@ -161,7 +168,7 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "virtual_accounts_revoke_completed",
-      data: { target_user_id: target.id, processed: active.length, results },
+      data: { target_user_id: target.id, dry_run: dryRun, processed: active.length, results },
     });
   }
 
@@ -169,7 +176,7 @@ Deno.serve(async (req) => {
   // current BorderPay-integrated scope, so we close local access deterministically.
   const activeWallets = (walletRows || []).filter((r: any) => String(r.status || "active").toLowerCase() === "active");
   const walletIds = activeWallets.map((w: any) => String(w.bridge_wallet_id || "")).filter(Boolean);
-  if (walletIds.length > 0) {
+  if (walletIds.length > 0 && !dryRun) {
     await supa
       .from("bridge_wallets")
       .update({ status: "closed", updated_at: new Date().toISOString() })
@@ -184,6 +191,7 @@ Deno.serve(async (req) => {
     code: "stablecoin_wallets_revoke_completed",
     data: {
       target_user_id: target.id,
+      dry_run: dryRun,
       processed: activeWallets.length,
       notes: [
         "Stablecoin wallet access closed locally.",
