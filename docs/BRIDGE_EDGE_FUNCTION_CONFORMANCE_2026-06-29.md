@@ -945,3 +945,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GS (completed)
 - Hardened `bridge-external-account` error metadata contract:
   - added deterministic `summary` mirrors for method/auth/payload gate outcomes
+
+### 2026-06-29 — Batch GT (completed)
+- Hardened `bridge-wallet` error metadata contract:
+  - added deterministic `summary` mirrors for method/auth/payload/validation/provider-failure outcomes

@@ -42,6 +42,10 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "POST",
+      },
     }, 405);
   }
 
@@ -52,6 +56,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "missing_bearer_token",
       error: "Authentication required",
+      summary: {
+        code: "missing_bearer_token",
+      },
     }, 401);
   }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
@@ -61,6 +68,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_auth_token",
       error: "Unauthorized",
+      summary: {
+        code: "invalid_auth_token",
+      },
     }, 401);
   }
 
@@ -70,6 +80,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_json_payload",
       error: "Invalid JSON payload",
+      summary: {
+        code: "invalid_json_payload",
+      },
     }, 400);
   }
   const symbol = String(body.symbol || "USDC").toUpperCase() as StablecoinSymbol;
@@ -80,6 +93,10 @@ Deno.serve(async (req) => {
       code: "invalid_symbol",
       error: "Unsupported stablecoin symbol.",
       supported_symbols: [...SYMS],
+      summary: {
+        code: "invalid_symbol",
+        symbol: symbol || null,
+      },
     }, 400);
   }
   if (!CHAINS.includes(chain)) {
@@ -88,6 +105,10 @@ Deno.serve(async (req) => {
       code: "invalid_chain",
       error: "Unsupported stablecoin chain.",
       supported_chains: [...CHAINS],
+      summary: {
+        code: "invalid_chain",
+        chain: chain || null,
+      },
     }, 400);
   }
 
@@ -124,6 +145,10 @@ Deno.serve(async (req) => {
       code: "wallet_country_not_supported",
       error: "Stablecoin wallets are not available for your country through BorderPay.",
       country: productCountry,
+      summary: {
+        code: "wallet_country_not_supported",
+        country: productCountry || null,
+      },
     }, 403);
   }
   logControlledBridgeTraffic("bridge-wallet", productCountry, user.id);
@@ -133,6 +158,10 @@ Deno.serve(async (req) => {
       code: "no_customer",
       error: "Complete account setup before creating a wallet",
       required_state: "bridge_customer_created",
+      summary: {
+        code: "no_customer",
+        required_state: "bridge_customer_created",
+      },
     }, 409);
   }
   if (verificationStatus !== "approved") {
@@ -141,6 +170,10 @@ Deno.serve(async (req) => {
       code: "kyc_not_approved",
       error: isBusiness ? "KYB not approved yet" : "KYC not approved yet",
       expected_verification_status: "approved",
+      summary: {
+        code: "kyc_not_approved",
+        expected_verification_status: "approved",
+      },
     }, 409);
   }
 
@@ -234,6 +267,10 @@ Deno.serve(async (req) => {
           error: "Please accept Terms of Service before creating a wallet.",
           provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
+          summary: {
+            code: "tos_required",
+            bridge_request_id: e.request_id || null,
+          },
         }, 409);
       }
       if (code === "requires_active_kyc_status") {
@@ -246,6 +283,11 @@ Deno.serve(async (req) => {
           expected_verification_status: "approved",
           provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
+          summary: {
+            code: "kyc_not_approved",
+            expected_verification_status: "approved",
+            bridge_request_id: e.request_id || null,
+          },
         }, 409);
       }
       if (code === "missing_required_endorsements" || code === "endorsement_requirements_not_met") {
@@ -255,6 +297,10 @@ Deno.serve(async (req) => {
           error: "Wallet creation is not enabled for your account yet.",
           provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
+          summary: {
+            code: "endorsement_required",
+            bridge_request_id: e.request_id || null,
+          },
         }, 403);
       }
       return json({
@@ -263,12 +309,19 @@ Deno.serve(async (req) => {
         error: "Unable to create wallet right now. Please try again shortly.",
         provider_code: code || undefined,
         bridge_request_id: e.request_id || undefined,
+        summary: {
+          code: "wallet_provider_error",
+          bridge_request_id: e.request_id || null,
+        },
       }, 502);
     }
     return json({
       success: false,
       code: "wallet_provision_failed",
       error: "Unable to create wallet right now. Please try again shortly.",
+      summary: {
+        code: "wallet_provision_failed",
+      },
     }, 502);
   }
 });
