@@ -56,6 +56,11 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     code: "fx_supported_pairs_ready",
+    summary: {
+      provider: "bridge",
+      source: configuredPairs ? "provider_settings" : "fallback_default",
+      pair_count: effectivePairs.size,
+    },
     data: {
       provider: "bridge",
       source: configuredPairs ? "provider_settings" : "fallback_default",
