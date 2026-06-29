@@ -441,6 +441,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized missing Bridge API key response with explicit `bridge_api_key_missing` code
   - normalized network exception response with explicit `bridge_network_unreachable` code
 
+### 2026-06-29 — Batch CA (completed)
+- Hardened `bridge-test-webhook` ingest failure contracts:
+  - normalized evaluator reject path with explicit `synthetic_event_rejected` code
+  - normalized ingest rejection and non-queued branches with explicit deterministic codes
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

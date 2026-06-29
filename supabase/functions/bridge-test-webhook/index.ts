@@ -89,7 +89,11 @@ Deno.serve(async (req) => {
   });
   assertBridgeIngressDecision(evalRes);
   if (evalRes.decision === "reject") {
-    return json({ error: "rejected", reason_code: evalRes.reason_code }, 400);
+    return json({
+      error: "Rejected synthetic event",
+      code: "synthetic_event_rejected",
+      reason_code: evalRes.reason_code,
+    }, 400);
   }
 
   const bridgeEventId = `test:${testCaseId}:${bridgeEventIdRaw}`;
@@ -125,13 +129,21 @@ Deno.serve(async (req) => {
   const row = Array.isArray(ingest) ? ingest[0] : ingest;
   const queueEventId = `bridge:${bridgeEventId}`;
   if (row?.was_rejected) {
-    return json({ error: "synthetic_ingest_rejected", bridge_event_id: bridgeEventId }, 401);
+    return json({
+      error: "Synthetic ingest rejected",
+      code: "synthetic_ingest_rejected",
+      bridge_event_id: bridgeEventId,
+    }, 401);
   }
   if (row?.was_duplicate) {
     return json({ status: "duplicate", bridge_event_id: bridgeEventId, queue_event_id: queueEventId }, 200);
   }
   if (!row?.queued) {
-    return json({ error: "synthetic_ingest_not_queued", bridge_event_id: bridgeEventId }, 500);
+    return json({
+      error: "Synthetic ingest not queued",
+      code: "synthetic_ingest_not_queued",
+      bridge_event_id: bridgeEventId,
+    }, 500);
   }
 
   return json({
