@@ -237,6 +237,12 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - now fails closed and marks candidate `skipped_missing_country` for invalid/missing ISO-2 country
   - prevents creating Bridge customers with assumed country metadata
 
+### 2026-06-29 — Batch AI (completed)
+- Hardened shared provider `createKycLink` error contract:
+  - replaced generic thrown `Error` strings with structured `BridgeProviderError`
+  - propagated provider metadata (`status`, `bridge_code`, `bridge_error`, `request_id`) for deterministic downstream mapping
+  - standardized missing-link-id/url response failure into provider error contract
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
