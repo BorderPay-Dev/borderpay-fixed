@@ -254,6 +254,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - removed generic thrown `Error` strings from read/sync helper paths
   - aligned read-helper metadata propagation (`status`, `bridge_code`, `bridge_error`, `request_id`) for deterministic downstream mapping
 
+### 2026-06-29 — Batch AL (completed)
+- Hardened shared provider `createWallet` error contract:
+  - replaced generic wallet-create failure throw with structured `BridgeProviderError`
+  - aligned metadata propagation (`status`, `bridge_code`, `bridge_error`, `request_id`) with other Bridge provider methods
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
