@@ -287,6 +287,12 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized missing user profile, missing profile email, and incomplete business profile responses
   - removed legacy free-text edge responses to align with deterministic API contracts
 
+### 2026-06-29 — Batch AV (completed)
+- Hardened `bridge-kyc-link` edge and profile-contract failures:
+  - standardized method/auth failures with explicit stable error codes
+  - normalized missing user profile and missing profile email responses
+  - removed legacy free-text edge responses to align with deterministic API contracts
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

@@ -271,7 +271,14 @@ function mapKycLinkFailure(status: number, parsed: any): { status: number; code:
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+    }, 405);
+  }
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
 
   const correlationId = crypto.randomUUID();
@@ -280,10 +287,22 @@ Deno.serve(async (req: Request) => {
   const elapsed = () => Date.now() - startedAtMs;
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({
+      success: false,
+      code: "missing_bearer_token",
+      error: "Authentication required",
+    }, 401);
+  }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
-  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (authErr || !user) {
+    return json({
+      success: false,
+      code: "invalid_auth_token",
+      error: "Unauthorized",
+    }, 401);
+  }
   await writeTrace(correlationId, "invoked", {
     executionTimestamp,
     userId: user.id,
@@ -329,7 +348,11 @@ Deno.serve(async (req: Request) => {
       : "individual";
     const fallbackEmail = user.email || null;
     if (!fallbackEmail) {
-      return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
+      return json({
+        success: false,
+        code: "profile_email_missing",
+        error: "Profile email is required to start verification",
+      }, 400);
     }
     const upsertPayload: Record<string, unknown> = {
       id: user.id,
@@ -367,7 +390,13 @@ Deno.serve(async (req: Request) => {
     }
     profile = seeded as any;
   }
-  if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
+  if (!profile) {
+    return json({
+      success: false,
+      code: "profile_not_found",
+      error: "User profile was not found",
+    }, 404);
+  }
   if (profile.account_type === "business") {
     return json({ success: false, error: "KYC is only for individual accounts. Use bridge-kyb-link.", code: "wrong_account_type" }, 403);
   }
@@ -376,7 +405,11 @@ Deno.serve(async (req: Request) => {
   }
   logControlledBridgeTraffic("bridge-kyc-link", profile.country, user.id);
   if (!profile.email) {
-    return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
+    return json({
+      success: false,
+      code: "profile_email_missing",
+      error: "Profile email is required to start verification",
+    }, 400);
   }
 
   if (isVerifiedStatus(profile.bridge_kyc_status) || isVerifiedStatus(profile.bridge_account_status)) {
