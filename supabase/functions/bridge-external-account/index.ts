@@ -221,7 +221,15 @@ Deno.serve(async (req) => {
 
   // Shared customer/KYC/country guard.
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
-  if (!identity.ok) return json({ success: false, ...identity.failure }, 409);
+  if (!identity.ok) {
+    return json({
+      success: false,
+      ...identity.failure,
+      summary: {
+        code: identity.failure.code ?? "identity_invariant_violation",
+      },
+    }, 409);
+  }
   const profile = identity.context;
   if (isBridgeBlocked(profile?.country)) {
     return json(bridgeCountryBlockResponse(profile!.country!), 403);
@@ -233,6 +241,9 @@ Deno.serve(async (req) => {
       code: "no_customer",
       error: "Complete account setup before adding payout destinations",
       required_state: "bridge_customer_created",
+      summary: {
+        code: "no_customer",
+      },
     }, 409);
   }
   if (profile.verification_status !== "approved") {
@@ -242,6 +253,9 @@ Deno.serve(async (req) => {
       code: "kyc_not_approved",
       error: `${verificationLabel} not approved yet`,
       expected_verification_status: "approved",
+      summary: {
+        code: "kyc_not_approved",
+      },
     }, 409);
   }
   const customerId = profile.bridge_customer_id;
@@ -254,6 +268,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "external_account_id_required",
         error: "external_account_id required",
+        summary: {
+          code: "external_account_id_required",
+        },
       }, 400);
     }
     // Confirm ownership against the local mirror before touching Bridge.
@@ -268,6 +285,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "external_account_not_found",
         error: "External account was not found.",
+        summary: {
+          code: "external_account_not_found",
+        },
       }, 404);
     }
     const r = await bridgeFetch({
@@ -281,6 +301,9 @@ Deno.serve(async (req) => {
         success: false,
         code: mapped.code,
         error: mapped.error,
+        summary: {
+          code: mapped.code,
+        },
         ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
@@ -316,6 +339,9 @@ Deno.serve(async (req) => {
         success: false,
         code: mapped.code,
         error: mapped.error,
+        summary: {
+          code: mapped.code,
+        },
         ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
@@ -359,6 +385,9 @@ Deno.serve(async (req) => {
         success: false,
         code: mapped.code,
         error: mapped.error,
+        summary: {
+          code: mapped.code,
+        },
         ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
@@ -406,6 +435,9 @@ Deno.serve(async (req) => {
       code: "invalid_account_type",
       error: "account.account_type must be 'us' | 'iban' | 'clabe' | 'pix'",
       supported_account_types: ["us", "iban", "clabe", "pix"],
+      summary: {
+        code: "invalid_account_type",
+      },
     }, 400);
   }
   if (!acct.account_owner_name) {
@@ -413,6 +445,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "account_owner_name_required",
       error: "account_owner_name required",
+      summary: {
+        code: "account_owner_name_required",
+      },
     }, 400);
   }
 
@@ -428,6 +463,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "us_account_number_routing_required",
         error: "account_number and routing_number required for US accounts",
+        summary: {
+          code: "us_account_number_routing_required",
+        },
       }, 400);
     }
     if (!a.address?.street_line_1 || !a.address?.city || !a.address?.postal_code || !a.address?.country) {
@@ -435,6 +473,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "us_full_address_required",
         error: "full address required for US accounts",
+        summary: {
+          code: "us_full_address_required",
+        },
       }, 400);
     }
     currency = "USD";
@@ -475,6 +516,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "iban_fields_required",
         error: "iban_number, bic_swift, and iban_country required for IBAN accounts",
+        summary: {
+          code: "iban_fields_required",
+        },
       }, 400);
     }
     if (a.account_owner_type !== "individual" && a.account_owner_type !== "business") {
@@ -482,6 +526,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "invalid_account_owner_type",
         error: "account_owner_type must be 'individual' or 'business'",
+        summary: {
+          code: "invalid_account_owner_type",
+        },
       }, 400);
     }
     if (a.account_owner_type === "individual" && (!a.first_name || !a.last_name)) {
@@ -489,6 +536,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "iban_individual_name_required",
         error: "first_name and last_name required for individual IBAN accounts",
+        summary: {
+          code: "iban_individual_name_required",
+        },
       }, 400);
     }
     if (a.account_owner_type === "business" && !a.business_name) {
@@ -496,6 +546,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "iban_business_name_required",
         error: "business_name required for business IBAN accounts",
+        summary: {
+          code: "iban_business_name_required",
+        },
       }, 400);
     }
     currency = "EUR";
@@ -531,6 +584,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "clabe_number_required",
         error: "clabe_number required for CLABE accounts",
+        summary: {
+          code: "clabe_number_required",
+        },
       }, 400);
     }
     if (!a.address?.street_line_1 || !a.address?.city || !a.address?.state || !a.address?.postal_code || !a.address?.country) {
@@ -538,6 +594,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "clabe_full_address_required",
         error: "full address required for CLABE accounts",
+        summary: {
+          code: "clabe_full_address_required",
+        },
       }, 400);
     }
     currency = "MXN";
@@ -573,6 +632,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "pix_or_br_code_required",
         error: "pix_key or br_code required for Pix accounts",
+        summary: {
+          code: "pix_or_br_code_required",
+        },
       }, 400);
     }
     if (hasPixKey && hasBrCode) {
@@ -580,6 +642,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "pix_br_code_mutually_exclusive",
         error: "Provide only one of pix_key or br_code",
+        summary: {
+          code: "pix_br_code_mutually_exclusive",
+        },
       }, 400);
     }
     if (!a.document_number?.trim()) {
@@ -587,6 +652,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "pix_document_number_required",
         error: "document_number required for Pix accounts",
+        summary: {
+          code: "pix_document_number_required",
+        },
       }, 400);
     }
     currency = "BRL";
@@ -617,6 +685,9 @@ Deno.serve(async (req) => {
       success: false,
       code: mapped.code,
       error: mapped.error,
+      summary: {
+        code: mapped.code,
+      },
       ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
       ...(mapped.expected_verification_status
         ? { expected_verification_status: mapped.expected_verification_status }

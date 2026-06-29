@@ -978,3 +978,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-virtual-account` deterministic summary contracts:
   - added stable summary codes on identity/country/customer/verification gates
   - normalized mapped provider failures and pending-review outcomes with deterministic summary payloads
+
+### 2026-06-29 — Batch BB (completed)
+- Hardened `bridge-external-account` deterministic summary contracts:
+  - normalized identity/customer/verification/mapped-provider failure exits with stable summary codes
+  - standardized create/delete validation failures (US/IBAN/CLABE/PIX) for deterministic client handling
