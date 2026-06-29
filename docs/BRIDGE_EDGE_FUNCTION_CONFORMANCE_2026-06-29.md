@@ -624,3 +624,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DQ (completed)
 - Hardened `bridge-sync-customers` rate-limit diagnostics contract:
   - preserved provider metadata (`provider_code`, `bridge_request_id`) on mapped `rate_limited` row failures
+
+### 2026-06-29 — Batch DR (completed)
+- Hardened `bridge-external-account` provider diagnostics contract:
+  - propagated Bridge payload `provider_code` on all mapped provider error responses (create/list/delete/verify paths)

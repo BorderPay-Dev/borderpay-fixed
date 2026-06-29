@@ -105,36 +105,65 @@ const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 function mapExternalAccountProviderError(
   status: number,
   providerMessage?: string,
+  providerCode?: string,
   options?: { accountType?: "individual" | "business" | null },
-): { status: number; code: string; error: string; expected_verification_status?: "approved" } {
+): {
+  status: number;
+  code: string;
+  error: string;
+  provider_code?: string;
+  expected_verification_status?: "approved";
+} {
   const msg = String(providerMessage || "").toLowerCase();
+  const code = String(providerCode || "").toLowerCase();
   const isBusiness = options?.accountType === "business";
   if (status === 429) {
-    return { status: 429, code: "rate_limited", error: "Too many requests. Please retry shortly." };
+    return { status: 429, code: "rate_limited", error: "Too many requests. Please retry shortly.", provider_code: code || undefined };
   }
-  if (msg.includes("requires_active_kyc_status")) {
+  if (code === "requires_active_kyc_status" || msg.includes("requires_active_kyc_status")) {
     return {
       status: 409,
       code: "kyc_not_approved",
       error: isBusiness
         ? "Business verification is required before managing external accounts."
         : "Identity verification is required before managing external accounts.",
+      provider_code: code || undefined,
       expected_verification_status: "approved",
     };
   }
   if (status === 400 || msg.includes("invalid") || msg.includes("missing")) {
-    return { status: 400, code: "invalid_external_account_payload", error: "External account details are invalid. Please review and retry." };
+    return {
+      status: 400,
+      code: "invalid_external_account_payload",
+      error: "External account details are invalid. Please review and retry.",
+      provider_code: code || undefined,
+    };
   }
   if (status === 401 || status === 403) {
-    return { status: 403, code: "external_account_not_allowed", error: "External account operation is not allowed for this profile yet." };
+    return {
+      status: 403,
+      code: "external_account_not_allowed",
+      error: "External account operation is not allowed for this profile yet.",
+      provider_code: code || undefined,
+    };
   }
   if (status === 404) {
-    return { status: 404, code: "external_account_not_found", error: "External account was not found." };
+    return { status: 404, code: "external_account_not_found", error: "External account was not found.", provider_code: code || undefined };
   }
   if (status >= 500 || status === 0) {
-    return { status: 502, code: "provider_unavailable", error: "External account service is temporarily unavailable. Please retry." };
+    return {
+      status: 502,
+      code: "provider_unavailable",
+      error: "External account service is temporarily unavailable. Please retry.",
+      provider_code: code || undefined,
+    };
   }
-  return { status: 502, code: "provider_error", error: "Unable to process external account request right now." };
+  return {
+    status: 502,
+    code: "provider_error",
+    error: "Unable to process external account request right now.",
+    provider_code: code || undefined,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -233,11 +262,13 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}`,
     });
     if (!r.ok) {
-      const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
+      const providerCode = String((r.data as any)?.code || (r.data as any)?.error_code || "").toLowerCase();
+      const mapped = mapExternalAccountProviderError(r.status, r.error, providerCode, { accountType: profile.account_type });
       return json({
         success: false,
         code: mapped.code,
         error: mapped.error,
+        ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
           : {}),
@@ -258,11 +289,13 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
     if (!r.ok) {
-      const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
+      const providerCode = String((r.data as any)?.code || (r.data as any)?.error_code || "").toLowerCase();
+      const mapped = mapExternalAccountProviderError(r.status, r.error, providerCode, { accountType: profile.account_type });
       return json({
         success: false,
         code: mapped.code,
         error: mapped.error,
+        ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
           : {}),
@@ -279,11 +312,13 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
     if (!r.ok) {
-      const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
+      const providerCode = String((r.data as any)?.code || (r.data as any)?.error_code || "").toLowerCase();
+      const mapped = mapExternalAccountProviderError(r.status, r.error, providerCode, { accountType: profile.account_type });
       return json({
         success: false,
         code: mapped.code,
         error: mapped.error,
+        ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
           : {}),
@@ -527,11 +562,13 @@ Deno.serve(async (req) => {
     idempotencyKey: `borderpay:extacct:${user.id}:${acct.account_type}:${derivedLast4}`,
   });
   if (!r.ok) {
-    const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
+    const providerCode = String((r.data as any)?.code || (r.data as any)?.error_code || "").toLowerCase();
+    const mapped = mapExternalAccountProviderError(r.status, r.error, providerCode, { accountType: profile.account_type });
     return json({
       success: false,
       code: mapped.code,
       error: mapped.error,
+      ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
       ...(mapped.expected_verification_status
         ? { expected_verification_status: mapped.expected_verification_status }
         : {}),
