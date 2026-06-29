@@ -122,7 +122,13 @@ Deno.serve(async (req) => {
   if (action === "capabilities") {
     const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
     if (!identity.ok) {
-      return json({ success: false, ...identity.failure }, 409);
+      return json({
+        success: false,
+        ...identity.failure,
+        summary: {
+          code: identity.failure.code ?? "identity_invariant_violation",
+        },
+      }, 409);
     }
     const profile = identity.context;
     const productCountry = profile.country;
@@ -159,7 +165,13 @@ Deno.serve(async (req) => {
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
-    return json({ success: false, ...identity.failure }, 409);
+    return json({
+      success: false,
+      ...identity.failure,
+      summary: {
+        code: identity.failure.code ?? "identity_invariant_violation",
+      },
+    }, 409);
   }
   const profile = identity.context;
   const isBusiness = profile.account_type === "business";
@@ -176,6 +188,11 @@ Deno.serve(async (req) => {
       error: "This virtual account currency is not available for your country.",
       country: productCountry,
       currency,
+      summary: {
+        code: "country_rail_not_supported",
+        country: productCountry || null,
+        currency,
+      },
     }, 403);
   }
   logControlledBridgeTraffic("bridge-virtual-account", productCountry, user.id);
@@ -185,6 +202,9 @@ Deno.serve(async (req) => {
       code: "no_customer",
       error: "Complete account setup before creating a virtual account",
       required_state: "bridge_customer_created",
+      summary: {
+        code: "no_customer",
+      },
     }, 409);
   }
   if (verificationStatus !== "approved") {
@@ -193,6 +213,9 @@ Deno.serve(async (req) => {
       code: "kyc_not_approved",
       error: isBusiness ? "KYB not approved yet" : "KYC not approved yet",
       expected_verification_status: "approved",
+      summary: {
+        code: "kyc_not_approved",
+      },
     }, 409);
   }
 
@@ -353,6 +376,9 @@ Deno.serve(async (req) => {
           error: "Please accept Terms of Service before creating an account.",
           provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
+          summary: {
+            code: "tos_required",
+          },
         }, 409);
       }
       if (code === "requires_active_kyc_status") {
@@ -365,6 +391,9 @@ Deno.serve(async (req) => {
           expected_verification_status: "approved",
           provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
+          summary: {
+            code: "kyc_not_approved",
+          },
         }, 409);
       }
       if (code === "missing_required_endorsements" || code === "endorsement_requirements_not_met") {
@@ -375,6 +404,10 @@ Deno.serve(async (req) => {
           currency,
           provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
+          summary: {
+            code: "endorsement_required",
+            currency,
+          },
         }, 403);
       }
     } else {
@@ -415,12 +448,19 @@ Deno.serve(async (req) => {
         code:    "va_grant_pending",
         error:   "Virtual account request is pending review. You will receive an email once approved.",
         currency,
+        summary: {
+          code: "va_grant_pending",
+          currency,
+        },
       }, 202);  // accepted, pending review
     }
     return json({
       success: false,
       code: "virtual_account_provision_failed",
       error: "Unable to create the account right now. Please try again shortly.",
+      summary: {
+        code: "virtual_account_provision_failed",
+      },
     }, 502);
   }
 });

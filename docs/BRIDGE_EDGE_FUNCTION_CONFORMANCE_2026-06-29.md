@@ -973,3 +973,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch AZ (completed)
 - Hardened `bridge-wallet` identity invariant failure contract:
   - ensured invariant-gate failures include deterministic `summary.code` for stable client branching
+
+### 2026-06-29 — Batch BA (completed)
+- Hardened `bridge-virtual-account` deterministic summary contracts:
+  - added stable summary codes on identity/country/customer/verification gates
+  - normalized mapped provider failures and pending-review outcomes with deterministic summary payloads
