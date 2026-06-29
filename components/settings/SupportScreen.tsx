@@ -261,8 +261,10 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     try {
       const res = await backendAPI.admin.customerControls({ action, target_email: targetEmail, dry_run: adminControlDryRun });
       if (!res.success) {
-        toast.error(res.error || 'Admin action failed');
-        setAdminControlResult('');
+        const code = (res as any)?.code ? ` [${(res as any).code}]` : '';
+        const msg = `${res.error || 'Admin action failed'}${code}`;
+        toast.error(msg);
+        setAdminControlResult(msg);
         return;
       }
       const summary = (res as any)?.code
