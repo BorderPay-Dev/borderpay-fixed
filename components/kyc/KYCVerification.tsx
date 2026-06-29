@@ -169,9 +169,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   // secure hosted verification flow; Bridge returns them to /?screen=kyc.
   const [verifying, setVerifying] = useState(false);
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
-  const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
-  const resumeAfterTosLocalKey = useMemo(() => `borderpay_resume_verification_after_tos_v1:${userId}`, [userId]);
-  const autoStartKey = 'borderpay_auto_start_verification_v1';
+  const [pendingTosUrl, setPendingTosUrl] = useState<string | null>(null);
+  const [pendingVerifyStep, setPendingVerifyStep] = useState(false);
+  const pendingTosKey = useMemo(() => `borderpay_pending_tos_url:${userId}`, [userId]);
+  const pendingVerifyKey = useMemo(() => `borderpay_pending_verify_step:${userId}`, [userId]);
 
   const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
@@ -190,54 +191,27 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     window.location.href = url;
   }, [userId]);
 
-  // If the previous attempt required Bridge ToS, resume automatically on return
-  // to fetch/open the actual hosted KYC/KYB link.
+  // Restore explicit step state so users always see:
+  // 1) Accept Terms  2) Continue verification.
   useEffect(() => {
-    let cancelled = false;
-    const shouldResume = (() => {
-      try {
-        if (sessionStorage.getItem(resumeAfterTosKey) === '1') return true;
-        const ts = Number(localStorage.getItem(resumeAfterTosLocalKey) || '0');
-        return Number.isFinite(ts) && ts > 0 && (Date.now() - ts) < 30 * 60 * 1000;
-      } catch { return false; }
-    })();
-    if (!shouldResume) return;
     try {
-      sessionStorage.removeItem(resumeAfterTosKey);
-      localStorage.removeItem(resumeAfterTosLocalKey);
+      const tos = localStorage.getItem(pendingTosKey);
+      const step = localStorage.getItem(pendingVerifyKey) === '1';
+      if (tos) setPendingTosUrl(tos);
+      if (step || Boolean(tos)) setPendingVerifyStep(true);
     } catch { /* noop */ }
-    const timer = window.setTimeout(async () => {
-      if (cancelled) return;
-      await startVerification(true);
-    }, 200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeAfterTosKey, resumeAfterTosLocalKey]);
+  }, [pendingTosKey, pendingVerifyKey]);
 
-  // Setup step deep-link: if user tapped "Complete identity/business verification"
-  // from dashboard setup widget, start hosted verification immediately.
-  useEffect(() => {
-    let cancelled = false;
-    const shouldAutoStart = (() => {
-      try { return sessionStorage.getItem(autoStartKey) === '1'; } catch { return false; }
-    })();
-    if (!shouldAutoStart) return;
-    try { sessionStorage.removeItem(autoStartKey); } catch { /* noop */ }
-    const timer = window.setTimeout(async () => {
-      if (cancelled) return;
-      await startVerification(false);
-    }, 120);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStartKey]);
+  const clearPendingVerifyState = useCallback(() => {
+    setPendingVerifyStep(false);
+    setPendingTosUrl(null);
+    try {
+      localStorage.removeItem(pendingTosKey);
+      localStorage.removeItem(pendingVerifyKey);
+    } catch { /* noop */ }
+  }, [pendingTosKey, pendingVerifyKey]);
 
-  const startVerification = async (isResume = false) => {
+  const startVerification = async () => {
     setVerifying(true);
     try {
       // Android/PWA reliability: avoid a blocking profile fetch before opening
@@ -264,20 +238,21 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       const r: any = currentAccountType === 'business'
         ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
         : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
-      if (r?.success && r.data?.tos_link_url) {
-        // Bridge may require ToS acceptance before issuing a KYC/KYB link.
-        // Open ToS first, then auto-resume verification on return.
+      if (r?.success && r.data?.tos_required && r.data?.tos_link_url) {
+        // Explicit 2-step UX:
+        // 1) Accept Terms of Service
+        // 2) Continue verification
+        setPendingTosUrl(r.data.tos_link_url);
+        setPendingVerifyStep(true);
         try {
-          sessionStorage.setItem(resumeAfterTosKey, '1');
-          localStorage.setItem(resumeAfterTosLocalKey, String(Date.now()));
+          localStorage.setItem(pendingTosKey, r.data.tos_link_url);
+          localStorage.setItem(pendingVerifyKey, '1');
         } catch { /* noop */ }
-        if (!isResume) {
-          toast.info('Please accept Terms first, then we will continue verification.');
-        }
-        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
+        toast.info('Step 1: Accept Terms of Service. Then return and tap Continue verification.');
         return;
       }
       if (r?.success && r.data?.link_url) {
+        clearPendingVerifyState();
         // Product contract: route users directly to hosted verification URL.
         openHostedVerificationUrl(r.data.link_url);
         return;
@@ -382,10 +357,40 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             </div>
           </div>
 
+          {pendingVerifyStep && (
+            <div className={`mt-5 rounded-2xl border ${tc.borderLight} ${tc.bgAlt} p-4 space-y-3`}>
+              <p className={`text-xs font-semibold ${tc.text}`}>One last step remains</p>
+              <p className={`text-xs ${tc.textMuted}`}>
+                Step 1: Accept Terms of Service. Step 2: Continue verification.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!pendingTosUrl) {
+                    toast.error('Terms link is unavailable. Tap Continue verification to refresh.');
+                    return;
+                  }
+                  openHostedVerificationUrl(pendingTosUrl, { cacheAsVerifyUrl: false });
+                }}
+                className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-full border border-white/20 text-white text-sm font-semibold hover:bg-white/5"
+              >
+                Accept Terms of Service
+              </button>
+              <button
+                type="button"
+                onClick={() => { void startVerification(); }}
+                disabled={verifying}
+                className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-full bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
+              >
+                {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue verification <ArrowRight className="w-4 h-4" /></>}
+              </button>
+            </div>
+          )}
+
           {/* Free in-app start/continue — allow users in not_started OR pending
               to (re)open the hosted verification link. Bridge handles link reuse
               / regeneration idempotently server-side. */}
-          {(status === 'not_started' || status === 'pending') && (
+          {(status === 'not_started' || status === 'pending') && !pendingVerifyStep && (
             <button
               onClick={() => { void startVerification(); }}
               disabled={verifying}
