@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { BridgeProviderError } from "../_shared/providers/bridge-client.ts";
+import { BridgeProviderError } from "../_shared/providers/bridge.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
