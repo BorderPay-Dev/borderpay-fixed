@@ -159,7 +159,11 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "bridge_customer_already_exists",
-      summary: { account_type: profile.account_type, already_exists: true },
+      summary: {
+        code: "bridge_customer_already_exists",
+        account_type: profile.account_type,
+        already_exists: true,
+      },
       data: { bridge_customer_id: profile.bridge_customer_id, account_type: profile.account_type, already_exists: true },
     });
   }
@@ -209,7 +213,11 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "bridge_customer_created",
-      summary: { account_type: profile.account_type, already_exists: false },
+      summary: {
+        code: "bridge_customer_created",
+        account_type: profile.account_type,
+        already_exists: false,
+      },
       data: { bridge_customer_id: result.provider_id, account_type: profile.account_type },
     });
   } catch (e) {

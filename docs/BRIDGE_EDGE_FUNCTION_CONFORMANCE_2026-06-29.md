@@ -816,3 +816,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FM (completed)
 - Hardened `bridge-bulk-payout` summary metadata contract:
   - added deterministic `summary.code` for top-level and nested success summaries
+
+### 2026-06-29 — Batch FN (completed)
+- Hardened `bridge-customer` summary metadata contract:
+  - added deterministic `summary.code` for idempotent/create success outcomes
