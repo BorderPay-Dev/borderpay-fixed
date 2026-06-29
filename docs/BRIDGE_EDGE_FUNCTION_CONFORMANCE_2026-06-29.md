@@ -248,6 +248,12 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - replaced generic delete failure throw with structured `BridgeProviderError`
   - aligned metadata propagation (`status`, `bridge_code`, `bridge_error`, `request_id`) with other Bridge provider calls
 
+### 2026-06-29 — Batch AK (completed)
+- Hardened shared provider read-helper error contracts:
+  - `getCustomerProfile`, `getWalletBalances`, and paginated list fetches now throw structured `BridgeProviderError`
+  - removed generic thrown `Error` strings from read/sync helper paths
+  - aligned read-helper metadata propagation (`status`, `bridge_code`, `bridge_error`, `request_id`) for deterministic downstream mapping
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
