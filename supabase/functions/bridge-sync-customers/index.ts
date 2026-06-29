@@ -31,13 +31,23 @@ type SyncBody = {
 const INTERNAL_DOMAIN = "@borderpayafrica.com";
 const INTERNAL_ALLOWLIST = new Set(["founder@borderpayafrica.com"]);
 
-function mapSyncCustomerError(error: unknown): { code: string; message: string } {
+function mapSyncCustomerError(
+  error: unknown,
+  options?: { accountType?: "individual" | "business" | null },
+): { code: string; message: string; expected_verification_status?: "approved" } {
   const message = String((error as Error)?.message || "").toLowerCase();
+  const isBusiness = options?.accountType === "business";
   if (message.includes("has_not_accepted_tos")) {
     return { code: "tos_required", message: "Customer must accept terms of service before provisioning can continue." };
   }
   if (message.includes("requires_active_kyc_status")) {
-    return { code: "verification_required", message: "Customer verification is required before this operation can continue." };
+    return {
+      code: "kyc_not_approved",
+      message: isBusiness
+        ? "Business verification is required before this operation can continue."
+        : "Identity verification is required before this operation can continue.",
+      expected_verification_status: "approved",
+    };
   }
   if (message.includes("rate") || message.includes("429")) {
     return { code: "rate_limited", message: "Provider rate limit reached. Retry later." };
@@ -258,9 +268,14 @@ Deno.serve(async (req) => {
       results.push(row);
     } catch (e) {
       row.status = "failed";
-      const mapped = mapSyncCustomerError(e);
+      const mapped = mapSyncCustomerError(e, {
+        accountType: c.account_type as "individual" | "business",
+      });
       row.error_code = mapped.code;
       row.error = mapped.message;
+      if (mapped.expected_verification_status) {
+        row.expected_verification_status = mapped.expected_verification_status;
+      }
       failed += 1;
       results.push(row);
     }
