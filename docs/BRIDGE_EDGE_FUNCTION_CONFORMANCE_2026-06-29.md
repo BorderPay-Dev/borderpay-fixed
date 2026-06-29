@@ -688,3 +688,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EG (completed)
 - Hardened `bridge-provision-stablecoins` success contracts:
   - added deterministic success codes for skip/completed outcomes (`stablecoin_provisioning_skipped`, `stablecoin_provisioning_completed`)
+
+### 2026-06-29 — Batch EH (completed)
+- Hardened `bridge-fx-supported-pairs` success contract:
+  - added deterministic success code for pair-discovery response (`fx_supported_pairs_ready`)
