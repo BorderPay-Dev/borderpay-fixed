@@ -838,6 +838,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         return <ReceiveMoneyScreen onBack={navigateBack} />;
 
       case 'external-accounts':
+        if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
         return (
           <ExternalAccountsScreen
             onBack={navigateBack}
@@ -872,6 +873,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'add-external-account':
+        if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
         return (
           <AddExternalAccountScreen
             onBack={navigateBack}
