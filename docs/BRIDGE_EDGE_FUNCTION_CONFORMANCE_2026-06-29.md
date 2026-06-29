@@ -276,6 +276,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - standardized method/auth/json failures with explicit stable error codes
   - aligned bulk-payout endpoint edge failures with transfer/wallet contract style
 
+### 2026-06-29 — Batch AT (completed)
+- Hardened `bridge-customer` auth/method edge contracts:
+  - standardized method/auth failures with explicit stable error codes
+  - aligned customer endpoint edge failures with transfer/wallet/virtual-account contract style
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

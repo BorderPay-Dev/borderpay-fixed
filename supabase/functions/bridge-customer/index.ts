@@ -41,16 +41,22 @@ function mapBridgeCustomerError(error: unknown): { status: number; code: string;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({ success: false, code: "method_not_allowed", error: "POST only" }, 405);
+  }
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({ success: false, code: "authorization_required", error: "Authorization required" }, 401);
+  }
 
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
-  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (authErr || !user) {
+    return json({ success: false, code: "unauthorized", error: "Unauthorized" }, 401);
+  }
 
   // Stepped verification gate (#4 + #5): require a PAID plan + admin
   // authorization before any billable Bridge call. The env pause remains the
