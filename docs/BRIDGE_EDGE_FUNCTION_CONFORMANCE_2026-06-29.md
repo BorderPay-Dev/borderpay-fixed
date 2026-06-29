@@ -992,3 +992,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch BD (completed)
 - Hardened `bridge-identity-cleanup` top-level failure contract:
   - added deterministic `summary.code` for cleanup internal failures
+
+### 2026-06-29 — Batch BE (completed)
+- Hardened `bridge-provision-stablecoins` deterministic summary contracts:
+  - standardized method/auth failures and identity-invariant hard-failure path with stable summary codes
