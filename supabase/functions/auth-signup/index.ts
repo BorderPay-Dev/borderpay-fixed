@@ -78,7 +78,16 @@ async function verifySignupCaptcha(
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "POST only",
+      summary: {
+        code: "method_not_allowed",
+      },
+    }, 405);
+  }
 
   try {
     const body = (await req.json()) as SignupBody;
@@ -86,13 +95,27 @@ Deno.serve(async (req: Request) => {
             account_type, company_name, registration_number, captcha_token } = body;
 
     if (!email || !password || !full_name) {
-      return json({ success: false, error: "Email, password, and full name are required" }, 400);
+      return json({
+        success: false,
+        code: "invalid_signup_payload",
+        error: "Email, password, and full name are required",
+        summary: {
+          code: "invalid_signup_payload",
+        },
+      }, 400);
     }
 
     const normalizedAccountType: "individual" | "business" =
       account_type === "business" ? "business" : "individual";
     if (normalizedAccountType === "business" && !company_name) {
-      return json({ success: false, error: "company_name is required for business accounts" }, 400);
+      return json({
+        success: false,
+        code: "business_company_name_required",
+        error: "company_name is required for business accounts",
+        summary: {
+          code: "business_company_name_required",
+        },
+      }, 400);
     }
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
@@ -114,7 +137,14 @@ Deno.serve(async (req: Request) => {
       // Fail-open only for migration/schema drift where the RPC does not exist
       // in this environment. Other abuse-gate failures remain fail-closed.
       if (!/could not find the function public\.enforce_signup_abuse_protection/i.test(m)) {
-        return json({ success: false, error: `Signup protection check failed: ${m}` }, 500);
+        return json({
+          success: false,
+          code: "signup_protection_check_failed",
+          error: `Signup protection check failed: ${m}`,
+          summary: {
+            code: "signup_protection_check_failed",
+          },
+        }, 500);
       }
       enforceAbuseDecision = false;
       console.warn(`auth-signup abuse gate RPC missing; continuing without gate for this request: ${m}`);
@@ -162,7 +192,14 @@ Deno.serve(async (req: Request) => {
       const msg = authError.message.includes("already registered")
         ? "An account with this email already exists"
         : authError.message;
-      return json({ success: false, error: msg }, 400);
+      return json({
+        success: false,
+        code: authError.message.includes("already registered") ? "email_already_exists" : "auth_signup_failed",
+        error: msg,
+        summary: {
+          code: authError.message.includes("already registered") ? "email_already_exists" : "auth_signup_failed",
+        },
+      }, 400);
     }
 
     const userId = authData.user!.id;
@@ -366,6 +403,13 @@ Deno.serve(async (req: Request) => {
       userMessage = "Please enter a valid email address and try again.";
     }
     console.error("auth-signup unhandled error", { message: raw });
-    return json({ success: false, error: userMessage }, 500);
+    return json({
+      success: false,
+      code: "signup_unhandled_error",
+      error: userMessage,
+      summary: {
+        code: "signup_unhandled_error",
+      },
+    }, 500);
   }
 });
