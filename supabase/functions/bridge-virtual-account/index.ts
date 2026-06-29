@@ -358,6 +358,9 @@ Deno.serve(async (req) => {
   } catch (e) {
     const err = e as Error;
     const msg = err.message || "";
+    const providerCode = e instanceof BridgeProviderError ? String(e.bridge_code || "").toLowerCase() : "";
+    const providerErrorText = e instanceof BridgeProviderError ? String(e.bridge_error || "") : "";
+    const classifierText = `${msg} ${providerErrorText}`.toLowerCase();
     if (e instanceof BridgeProviderError) {
       console.error(JSON.stringify({
         tag: "bridge_va_provision_error",
@@ -424,8 +427,12 @@ Deno.serve(async (req) => {
     // Bridge returns errors like "endorsement_not_granted" / "capability_not_granted"
     // when the customer hasn't been approved for SEPA / Faster Payments / etc. yet.
     // Queue the request for admin review instead of leaking a raw failure.
-    const lower = msg.toLowerCase();
+    const lower = classifierText;
     const isGrantPending =
+      providerCode.includes("endorsement") ||
+      providerCode.includes("capability") ||
+      providerCode.includes("not_granted") ||
+      providerCode.includes("not_eligible") ||
       lower.includes("endorsement") ||
       lower.includes("not granted") ||
       lower.includes("not_granted") ||
