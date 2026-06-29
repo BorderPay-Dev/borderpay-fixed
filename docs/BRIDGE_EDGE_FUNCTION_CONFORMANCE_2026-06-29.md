@@ -458,6 +458,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-test-webhook` RPC ingest error contract:
   - normalized RPC ingest failure to explicit `synthetic_ingest_failed` code
 
+### 2026-06-29 — Batch CE (completed)
+- Hardened `bridge-external-account` account-type validation contract:
+  - added explicit `supported_account_types` context on `invalid_account_type`
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

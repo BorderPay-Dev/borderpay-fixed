@@ -281,6 +281,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_account_type",
       error: "account.account_type must be 'us' | 'iban' | 'clabe' | 'pix'",
+      supported_account_types: ["us", "iban", "clabe", "pix"],
     }, 400);
   }
   if (!acct.account_owner_name) {
