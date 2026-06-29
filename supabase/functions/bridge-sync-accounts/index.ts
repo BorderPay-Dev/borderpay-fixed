@@ -104,6 +104,7 @@ Deno.serve(async (req) => {
     : { user_id: user.id };
   const canonicalVaDeveloperFee =
     normalizeDeveloperFeePercent(await loadVirtualAccountDeveloperFeePercent(supa));
+  const warnings: Array<{ code: string; message: string }> = [];
 
   // ── Customer profile sync (Bridge source-of-truth) ───────────────────────
   // Keep both user_profiles.country and business_profiles.country hydrated from
@@ -148,6 +149,10 @@ Deno.serve(async (req) => {
     }
   } catch (e) {
     console.warn(`bridge-sync-accounts customer_profile: ${(e as Error).message}`);
+    warnings.push({
+      code: "customer_profile_sync_failed",
+      message: "Customer profile sync failed during account mirror refresh.",
+    });
   }
 
   // ── Wallets ───────────────────────────────────────────────────────────────
@@ -184,6 +189,10 @@ Deno.serve(async (req) => {
   } catch (e) {
     // Non-fatal: still try VAs, surface a soft note.
     console.warn(`bridge-sync-accounts wallets: ${(e as Error).message}`);
+    warnings.push({
+      code: "wallet_mirror_sync_failed",
+      message: "Wallet mirror sync failed during account refresh.",
+    });
   }
 
   // ── Virtual accounts ───────────────────────────────────────────────────────
@@ -217,6 +226,10 @@ Deno.serve(async (req) => {
     }
   } catch (e) {
     console.warn(`bridge-sync-accounts virtual_accounts: ${(e as Error).message}`);
+    warnings.push({
+      code: "virtual_account_mirror_sync_failed",
+      message: "Virtual account mirror sync failed during account refresh.",
+    });
   }
 
   // Return internal normalized state (not provider payload) so UI/product
@@ -246,7 +259,13 @@ Deno.serve(async (req) => {
       code: "sync_accounts_completed",
       wallet_count: (wallets ?? []).length,
       virtual_account_count: (virtualAccounts ?? []).length,
+      warning_count: warnings.length,
     },
-    data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [] },
+    data: {
+      wallets: wallets ?? [],
+      virtual_accounts: virtualAccounts ?? [],
+      warnings,
+      warning_count: warnings.length,
+    },
   });
 });

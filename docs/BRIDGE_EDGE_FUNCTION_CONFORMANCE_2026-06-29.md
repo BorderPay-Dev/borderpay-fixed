@@ -1000,3 +1000,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch BF (completed)
 - Hardened `bridge-webhook` deterministic summary contracts:
   - standardized webhook rejection/ingest-failure responses with explicit summary codes and reason codes
+
+### 2026-06-29 — Batch BG (completed)
+- Hardened `bridge-sync-accounts` partial-sync contract:
+  - added deterministic non-fatal warning codes for customer-profile, wallet, and virtual-account mirror sync failures
+  - exposed `warning_count` and warnings array in response summary/data for operator-safe client handling
