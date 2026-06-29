@@ -20,6 +20,8 @@ import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody, verificationGate, 
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
 const APP_URL         = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
+const SUPABASE_URL    = Deno.env.get("SUPABASE_URL") ?? "";
+const SEND_EMAIL_INTERNAL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -163,6 +165,65 @@ function isVerifiedStatus(value: string | null | undefined): boolean {
   return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(
     String(value || "").toLowerCase(),
   );
+}
+
+type DeclaredOwner = {
+  full_name: string;
+  email: string;
+  role: "control_person" | "beneficial_owner";
+};
+
+function parseDeclaredOwners(raw: unknown): DeclaredOwner[] {
+  if (!raw || typeof raw !== "object") return [];
+  const input = (raw as Record<string, unknown>).declared_owners;
+  if (!Array.isArray(input)) return [];
+  const out: DeclaredOwner[] = [];
+  for (const it of input) {
+    if (!it || typeof it !== "object") continue;
+    const full_name = String((it as Record<string, unknown>).full_name || "").trim();
+    const email = String((it as Record<string, unknown>).email || "").trim().toLowerCase();
+    if (!email) continue;
+    const role = String((it as Record<string, unknown>).role || "") === "beneficial_owner"
+      ? "beneficial_owner"
+      : "control_person";
+    out.push({ full_name, email, role });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+async function sendOwnerInviteEmail(input: {
+  businessUserId: string;
+  companyName: string;
+  ownerName: string;
+  ownerEmail: string;
+  verificationUrl: string;
+  correlationId: string;
+}) {
+  if (!SUPABASE_URL || !SEND_EMAIL_INTERNAL_TOKEN) return;
+  try {
+    await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_INTERNAL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: "business.verification_authorized",
+        to: input.ownerEmail,
+        user_id: input.businessUserId,
+        idempotency_key: `kyb-owner-invite:${input.businessUserId}:${input.ownerEmail}:${new Date().toISOString().slice(0, 10)}`,
+        props: {
+          full_name: input.ownerName || "Business owner",
+          company_name: input.companyName,
+          verification_url: input.verificationUrl,
+          correlation_id: input.correlationId,
+        },
+      }),
+    });
+  } catch {
+    // non-blocking: invite email should never block KYB link creation
+  }
 }
 
 function mapKybLinkFailure(
@@ -325,7 +386,7 @@ Deno.serve(async (req: Request) => {
   // link.
   const { data: biz } = await supa
     .from("business_profiles")
-    .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, bridge_kyb_link_id, bridge_kyb_link_url")
+    .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, bridge_kyb_link_id, bridge_kyb_link_url, metadata")
     .eq("user_id", user.id)
     .maybeSingle();
   if (!biz?.company_name) {
@@ -517,6 +578,25 @@ Deno.serve(async (req: Request) => {
     link.tos_link_url &&
     String(tos_status_raw || "").toLowerCase() !== "accepted",
   );
+
+  // Best-effort multi-owner assistance: if the business declared additional
+  // UBOs at signup, notify them with the same verification entry URL so both
+  // required owners can complete the workflow.
+  const declaredOwners = parseDeclaredOwners(biz.metadata);
+  const primaryEmail = String(profile.email || "").trim().toLowerCase();
+  const inviteUrl = link.link_url || `${APP_URL}/dashboard`;
+  for (const owner of declaredOwners) {
+    if (!owner.email || owner.email === primaryEmail) continue;
+    await sendOwnerInviteEmail({
+      businessUserId: user.id,
+      companyName: String(biz.company_name || "your business"),
+      ownerName: owner.full_name,
+      ownerEmail: owner.email,
+      verificationUrl: inviteUrl,
+      correlationId,
+    });
+  }
+
   await writeTrace(correlationId, "returned_success", {
     executionTimestamp,
     userId: user.id,
@@ -532,6 +612,7 @@ Deno.serve(async (req: Request) => {
       tos_required,
       expires_at: expires_at ?? null,
       reused: !r.ok ? true : false,
+      declared_owner_count: declaredOwners.length,
     },
     elapsedMs: elapsed(),
   });

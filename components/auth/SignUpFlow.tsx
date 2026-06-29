@@ -68,6 +68,8 @@ interface SignUpData {
   // Business-only (collected when accountType === 'business')
   companyName: string;
   registrationNumber: string;
+  secondaryUboName: string;
+  secondaryUboEmail: string;
   // Step 2: Identity
   dateOfBirth: string; // DD-MM-YYYY
   idType: 'NIN' | 'PASSPORT' | 'VOTERS_CARD' | 'DRIVERS_LICENSE' | '';
@@ -128,6 +130,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     accountType: 'individual', // default = unchanged behaviour
     companyName: '',
     registrationNumber: '',
+    secondaryUboName: '',
+    secondaryUboEmail: '',
     dateOfBirth: '',
     idType: '',
     idNumber: '',
@@ -228,6 +232,20 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         ...(accountType === 'business' ? {
           company_name:        companyName.trim(),
           registration_number: registrationNumber.trim() || undefined,
+          business_owners: [
+            {
+              full_name: fullName.trim(),
+              email: email.trim().toLowerCase(),
+              role: 'control_person',
+            },
+            ...(formData.secondaryUboEmail.trim() || formData.secondaryUboName.trim()
+              ? [{
+                  full_name: formData.secondaryUboName.trim() || undefined,
+                  email: formData.secondaryUboEmail.trim().toLowerCase() || undefined,
+                  role: 'beneficial_owner',
+                }]
+              : []),
+          ],
         } : {}),
       } as any, ANON_KEY);
 
@@ -246,6 +264,20 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
           company_name:        companyName.trim(),
           registration_number: registrationNumber.trim() || null,
           country:             selectedCountry?.code || null,
+          business_owners: [
+            {
+              full_name: fullName.trim(),
+              email: email.trim().toLowerCase(),
+              role: 'control_person',
+            },
+            ...(formData.secondaryUboEmail.trim() || formData.secondaryUboName.trim()
+              ? [{
+                  full_name: formData.secondaryUboName.trim() || null,
+                  email: formData.secondaryUboEmail.trim().toLowerCase() || null,
+                  role: 'beneficial_owner',
+                }]
+              : []),
+          ],
         } : null,
       }));
 
@@ -888,6 +920,24 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
               onChange={(e) => updateForm({ registrationNumber: e.target.value })}
               placeholder="RC-1234567"
             />
+            <FormInput
+              label="Additional UBO / Owner (optional)"
+              icon={User}
+              value={formData.secondaryUboName}
+              onChange={(e) => updateForm({ secondaryUboName: e.target.value })}
+              placeholder="Second owner full name"
+            />
+            <FormInput
+              label="Additional UBO Email (optional)"
+              icon={Mail}
+              type="email"
+              value={formData.secondaryUboEmail}
+              onChange={(e) => updateForm({ secondaryUboEmail: e.target.value })}
+              placeholder="owner2@company.com"
+            />
+            <p className="text-[11px] text-gray-500 -mt-2">
+              If your business has multiple owners, add one additional owner now. BorderPay will notify them to complete verification.
+            </p>
           </>
         )}
 

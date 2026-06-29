@@ -266,6 +266,11 @@ export const authSecurityAPI = {
     account_type?:        'individual' | 'business';
     company_name?:        string;
     registration_number?: string;
+    business_owners?:     Array<{
+      full_name?: string;
+      email?: string;
+      role?: 'control_person' | 'beneficial_owner';
+    }>;
     captcha_token?:       string;
   }, anonKey: string) {
     return apiCallPublic('auth-signup', {

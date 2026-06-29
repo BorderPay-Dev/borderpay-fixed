@@ -44,7 +44,26 @@ interface SignupBody {
   account_type?:        "individual" | "business";
   company_name?:        string;
   registration_number?: string;
+  business_owners?:     Array<{
+    full_name?: string;
+    email?: string;
+    role?: "control_person" | "beneficial_owner";
+  }>;
   captcha_token?:       string;
+}
+
+function normalizeBusinessOwners(input: SignupBody["business_owners"]): Array<{ full_name: string; email: string; role: "control_person" | "beneficial_owner" }> {
+  if (!Array.isArray(input)) return [];
+  const out: Array<{ full_name: string; email: string; role: "control_person" | "beneficial_owner" }> = [];
+  for (const item of input) {
+    const full_name = String(item?.full_name || "").trim();
+    const email = String(item?.email || "").trim().toLowerCase();
+    const role = String(item?.role || "").trim() === "beneficial_owner" ? "beneficial_owner" : "control_person";
+    if (!email) continue;
+    out.push({ full_name, email, role });
+    if (out.length >= 3) break;
+  }
+  return out;
 }
 
 function normalizeCountryCode(value: unknown): string | null {
@@ -97,7 +116,7 @@ Deno.serve(async (req: Request) => {
   try {
     const body = (await req.json()) as SignupBody;
     const { email, password, full_name, phone_number, country_code,
-            account_type, company_name, registration_number, captcha_token } = body;
+            account_type, company_name, registration_number, business_owners, captcha_token } = body;
     const normalizedCountryCode = normalizeCountryCode(country_code);
 
     if (!email || !password || !full_name) {
@@ -133,6 +152,9 @@ Deno.serve(async (req: Request) => {
         },
       }, 400);
     }
+    const normalizedOwners = normalizedAccountType === "business"
+      ? normalizeBusinessOwners(business_owners)
+      : [];
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -288,6 +310,7 @@ Deno.serve(async (req: Request) => {
           status:              "active",
           bridge_customer_id:  null,
           bridge_kyb_status:   "not_started",
+          metadata:            { declared_owners: normalizedOwners },
         },
         { onConflict: "user_id" },
       );
