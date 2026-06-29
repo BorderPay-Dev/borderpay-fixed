@@ -427,6 +427,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized missing-customer response with explicit `required_state=bridge_customer_created`
   - normalized verification guard response with explicit `expected_verification_status=approved`
 
+### 2026-06-29 — Batch BX (completed)
+- Hardened `bridge-wallet` symbol/chain validation contracts:
+  - added explicit `supported_symbols` context on `invalid_symbol`
+  - added explicit `supported_chains` context on `invalid_chain`
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
