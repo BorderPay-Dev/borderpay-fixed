@@ -436,6 +436,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-virtual-account` currency validation contract:
   - added explicit `supported_currencies` context on `invalid_currency`
 
+### 2026-06-29 — Batch BZ (completed)
+- Hardened `bridge-ping` operational failure contracts:
+  - normalized missing Bridge API key response with explicit `bridge_api_key_missing` code
+  - normalized network exception response with explicit `bridge_network_unreachable` code
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

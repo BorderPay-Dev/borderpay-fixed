@@ -81,7 +81,13 @@ Deno.serve(async (req) => {
 
   const apiKey  = Deno.env.get("BRIDGE_API_KEY") ?? "";
   const baseUrl = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
-  if (!apiKey) return json({ ok: false, error: "BRIDGE_API_KEY not set on this project" }, 500);
+  if (!apiKey) {
+    return json({
+      ok: false,
+      code: "bridge_api_key_missing",
+      error: "Bridge API key is not configured on this project.",
+    }, 500);
+  }
 
   // Surface only a prefix and the inferred environment — never the full key.
   const keyPrefix = apiKey.slice(0, 8) + "…";
@@ -101,10 +107,14 @@ Deno.serve(async (req) => {
         "User-Agent": "borderpay-edge/bridge-ping",
       },
     });
-  } catch (e) {
+  } catch {
     return json({
-      ok: false, key_prefix: keyPrefix, key_kind: keyKind,
-      stage: "network", error: (e as Error).message,
+      ok: false,
+      code: "bridge_network_unreachable",
+      key_prefix: keyPrefix,
+      key_kind: keyKind,
+      stage: "network",
+      error: "Unable to reach Bridge endpoint right now.",
       latency_ms: Date.now() - t0,
     }, 502);
   }
