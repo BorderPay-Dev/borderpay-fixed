@@ -181,7 +181,13 @@ Deno.serve(async (req) => {
   // ── delete ────────────────────────────────────────────────────────────
   if (action === "delete") {
     const extId = String(body.external_account_id || "");
-    if (!extId) return json({ success: false, error: "external_account_id required" }, 400);
+    if (!extId) {
+      return json({
+        success: false,
+        code: "external_account_id_required",
+        error: "external_account_id required",
+      }, 400);
+    }
     // Confirm ownership against the local mirror before touching Bridge.
     const { data: owned } = await supa
       .from("bridge_external_accounts")
@@ -189,7 +195,13 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .eq("bridge_external_account_id", extId)
       .maybeSingle();
-    if (!owned) return json({ success: false, error: "not found", code: "not_found" }, 404);
+    if (!owned) {
+      return json({
+        success: false,
+        code: "external_account_not_found",
+        error: "External account was not found.",
+      }, 404);
+    }
     const r = await bridgeFetch({
       method: "DELETE",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}`,

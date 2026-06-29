@@ -377,6 +377,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized missing required transfer fields with explicit `invalid_transfer_payload` code
   - normalized invalid amount format with explicit `invalid_amount_format` code
 
+### 2026-06-29 — Batch BN (completed)
+- Hardened `bridge-external-account` delete-path validation contracts:
+  - normalized missing external account id with explicit `external_account_id_required` code
+  - normalized local ownership miss to deterministic `external_account_not_found` contract
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
