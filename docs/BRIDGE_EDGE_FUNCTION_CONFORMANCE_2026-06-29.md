@@ -672,3 +672,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EC (completed)
 - Hardened `bridge-virtual-account` success contracts:
   - added deterministic success codes for capabilities/idempotent/create outcomes (`virtual_account_supported_currencies_ready`, `virtual_account_already_exists`, `virtual_account_created`)
+
+### 2026-06-29 — Batch ED (completed)
+- Hardened `bridge-transfer` success contracts:
+  - added deterministic success codes for replay/create outcomes (`transfer_replayed`, `transfer_created`)
