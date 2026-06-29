@@ -226,6 +226,10 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     code: "sync_accounts_completed",
+    summary: {
+      wallet_count: (wallets ?? []).length,
+      virtual_account_count: (virtualAccounts ?? []).length,
+    },
     data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [] },
   });
 });

@@ -724,3 +724,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EP (completed)
 - Hardened `bridge-identity-cleanup` success metadata contract:
   - added deterministic `summary` object while preserving existing top-level fields for backward compatibility
+
+### 2026-06-29 — Batch EQ (completed)
+- Hardened `bridge-sync-accounts` success metadata contract:
+  - added deterministic `summary` object (`wallet_count`, `virtual_account_count`) for fast client checks
