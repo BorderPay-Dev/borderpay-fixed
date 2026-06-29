@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
       provider: "bridge",
       source: configuredPairs ? "provider_settings" : "fallback_default",
       supported_pairs: Array.from(effectivePairs).sort(),
+      pair_count: effectivePairs.size,
     },
   });
 });

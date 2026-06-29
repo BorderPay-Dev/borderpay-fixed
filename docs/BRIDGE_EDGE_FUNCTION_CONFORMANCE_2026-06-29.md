@@ -708,3 +708,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EL (completed)
 - Hardened `bridge-sync-accounts` no-customer context:
   - added deterministic `required_state=bridge_customer_created` in `sync_accounts_no_customer` outcome
+
+### 2026-06-29 — Batch EM (completed)
+- Hardened `bridge-fx-supported-pairs` metadata contract:
+  - added deterministic `pair_count` to success payload for client validation/telemetry
