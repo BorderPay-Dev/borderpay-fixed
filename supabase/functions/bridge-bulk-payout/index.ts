@@ -125,19 +125,40 @@ Deno.serve(async (req) => {
   const seenKeys = new Set<string>();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
+    const row = i + 1;
     if (!it?.amount || !it?.destination?.currency) {
-      return json({ success: false, error: `Row ${i + 1}: amount and destination.currency are required` }, 400);
+      return json({
+        success: false,
+        code: "invalid_batch_row_required_fields",
+        error: "Each payout row requires amount and destination currency.",
+        row,
+      }, 400);
     }
     const parsedAmount = parsePositiveAmount(it.amount);
     if (!parsedAmount) {
-      return json({ success: false, error: `Row ${i + 1}: amount must be a positive decimal (up to 12 dp, no exponent)` }, 400);
+      return json({
+        success: false,
+        code: "invalid_batch_row_amount",
+        error: "Amount must be a positive decimal value.",
+        row,
+      }, 400);
     }
     it.__parsedAmount = parsedAmount;
     if (!isValidIdempotencyKey(it.idempotency_key)) {
-      return json({ success: false, error: `Row ${i + 1}: a unique idempotency_key (8-128 printable ASCII) is required` }, 400);
+      return json({
+        success: false,
+        code: "invalid_batch_row_idempotency_key",
+        error: "Each payout row requires a valid idempotency key.",
+        row,
+      }, 400);
     }
     if (seenKeys.has(it.idempotency_key)) {
-      return json({ success: false, error: `Row ${i + 1}: duplicate idempotency_key in batch` }, 400);
+      return json({
+        success: false,
+        code: "duplicate_batch_row_idempotency_key",
+        error: "Duplicate idempotency key in payout batch.",
+        row,
+      }, 400);
     }
     seenKeys.add(it.idempotency_key);
   }

@@ -231,3 +231,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch AH (completed)
 - Hardened `bridge-virtual-account` input validation contract:
   - replaced dynamic invalid-currency validation message with deterministic coded response (`invalid_currency`)
+
+### 2026-06-29 — Batch AI (completed)
+- Hardened `bridge-bulk-payout` row-validation contract:
+  - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
+  - normalized malformed row failures (`invalid_batch_row_*`, `duplicate_batch_row_idempotency_key`) for stable client handling
