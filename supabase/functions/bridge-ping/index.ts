@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
       key_prefix: keyPrefix,
       key_kind:   keyKind,
       base_url:   baseUrl,
-      request_id: requestId,
+      bridge_request_id: requestId,
       provider_code: providerCode,
       latency_ms: latencyMs,
       hint: res.status === 401 ? "Bridge rejected the key. Verify the secret value matches the intended environment."
@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
     key_prefix:   keyPrefix,
     key_kind:     keyKind,
     base_url:     baseUrl,
-    request_id:   requestId,
+    bridge_request_id: requestId,
     latency_ms:   latencyMs,
     sample_count: sampleCount,
   });

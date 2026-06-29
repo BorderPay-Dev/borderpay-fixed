@@ -580,3 +580,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DF (completed)
 - Hardened `bridge-exchange-rates` request-id naming contract:
   - normalized Bridge trace field to `bridge_request_id` for cross-endpoint consistency
+
+### 2026-06-29 — Batch DG (completed)
+- Hardened `bridge-ping` request-id naming contract:
+  - normalized Bridge trace field to `bridge_request_id` for cross-endpoint consistency
