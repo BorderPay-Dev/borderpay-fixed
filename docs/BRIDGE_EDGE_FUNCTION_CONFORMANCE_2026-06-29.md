@@ -397,6 +397,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized wrong-account-type response with deterministic messaging
   - exposed explicit `expected_account_type=individual` context field
 
+### 2026-06-29 — Batch BR (completed)
+- Hardened `bridge-webhook` downstream-ingest rejection contracts:
+  - normalized invalid-signature responses with explicit `invalid_signature` code
+  - normalized missing queue confirmation with explicit `queue_confirmation_missing` code
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

@@ -214,7 +214,11 @@ Deno.serve(async (req) => {
   assertBridgeIngressDecision(ingress);
   if (ingress.decision === "reject") {
     webhookLog("signature_rejected", { event_type: ingress.derived_event_type, reason_code: ingress.reason_code });
-    return json({ error: "invalid signature", reason_code: ingress.reason_code }, 401);
+    return json({
+      error: "Invalid signature",
+      code: "invalid_signature",
+      reason_code: ingress.reason_code,
+    }, 401);
   }
   if (ingress.routing_target !== "queue") {
     webhookLog("event_ignored", {
@@ -252,7 +256,10 @@ Deno.serve(async (req) => {
   const row = Array.isArray(ingest) ? ingest[0] : ingest;
   if (row?.was_rejected) {
     webhookLog("ingest_rejected", { event_id: eventId, event_type: ingress.derived_event_type });
-    return json({ error: "invalid signature" }, 401);
+    return json({
+      error: "Invalid signature",
+      code: "invalid_signature",
+    }, 401);
   }
   if (row?.was_duplicate) {
     const duplicate = evaluateBridgeIngressEvent({
@@ -280,7 +287,10 @@ Deno.serve(async (req) => {
   }
   if (!row?.queued) {
     webhookLog("queue_missing", { event_id: eventId, event_type: ingress.derived_event_type });
-    return json({ error: "ingest returned no queue confirmation" }, 500);
+    return json({
+      error: "Ingest returned no queue confirmation",
+      code: "queue_confirmation_missing",
+    }, 500);
   }
 
   webhookLog("webhook_received", {
