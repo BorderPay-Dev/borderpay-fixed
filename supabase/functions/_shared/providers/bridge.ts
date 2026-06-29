@@ -161,17 +161,39 @@ export class BridgeProvider implements PaymentProvider {
       idempotencyKey: `borderpay:kyc:${input.account_type}:${idemSource}`,
     });
     if (!r.ok) {
-      // Bubble up the full Bridge response (truncated) so the function
-      // log + edge-function HTTP response have something diagnostic.
-      const detail = r.raw_text ? r.raw_text.slice(0, 800) : r.error || `HTTP ${r.status}`;
-      throw new Error(`Verification link request failed [${r.status}]: ${detail}`);
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode = typeof parsed.code === "string"
+        ? parsed.code
+        : typeof parsed.error_code === "string"
+        ? String(parsed.error_code)
+        : undefined;
+      const bridgeErr = typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+        ? parsed.message
+        : r.error;
+      throw new BridgeProviderError(
+        `Bridge createKycLink failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
     }
     const data = (r.data as any)?.data ?? r.data;
     const url  = data?.kyc_link?.url || data?.kyc_link || data?.url || data?.link;
     const id   = data?.kyc_link?.id  || data?.id;
     if (!url || !id) {
-      throw new Error(
-        `Verification link response missing link URL — keys=${Object.keys(data ?? {}).join(",")}`,
+      throw new BridgeProviderError(
+        "Bridge createKycLink response missing link id/url",
+        {
+          status: r.status,
+          request_id: r.request_id,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
       );
     }
     return {
