@@ -99,7 +99,11 @@ Deno.serve(async (req) => {
 
   const currency = String(body.currency || "").toUpperCase();
   if (!ALLOWED_CURRENCIES.has(currency)) {
-    return json({ success: false, error: `currency must be USD, EUR, or GBP (got ${currency})` }, 400);
+    return json({
+      success: false,
+      code: "invalid_currency",
+      error: "Unsupported virtual account currency.",
+    }, 400);
   }
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);

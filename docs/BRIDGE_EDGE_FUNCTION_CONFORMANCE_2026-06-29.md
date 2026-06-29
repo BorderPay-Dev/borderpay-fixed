@@ -227,3 +227,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-wallet` input validation contract:
   - replaced dynamic unsupported symbol/chain validation messages with deterministic coded responses
   - added explicit error codes (`invalid_symbol`, `invalid_chain`) for stable client handling
+
+### 2026-06-29 — Batch AH (completed)
+- Hardened `bridge-virtual-account` input validation contract:
+  - replaced dynamic invalid-currency validation message with deterministic coded response (`invalid_currency`)
