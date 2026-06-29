@@ -290,6 +290,9 @@ Deno.serve(async (req: Request) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+      },
     }, 405);
   }
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
@@ -305,6 +308,9 @@ Deno.serve(async (req: Request) => {
       success: false,
       code: "missing_bearer_token",
       error: "Authentication required",
+      summary: {
+        code: "missing_bearer_token",
+      },
     }, 401);
   }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
@@ -314,6 +320,9 @@ Deno.serve(async (req: Request) => {
       success: false,
       code: "invalid_auth_token",
       error: "Unauthorized",
+      summary: {
+        code: "invalid_auth_token",
+      },
     }, 401);
   }
   await writeTrace(correlationId, "invoked", {
@@ -365,6 +374,9 @@ Deno.serve(async (req: Request) => {
         success: false,
         code: "profile_email_missing",
         error: "Profile email is required to start verification",
+        summary: {
+          code: "profile_email_missing",
+        },
       }, 400);
     }
     const upsertPayload: Record<string, unknown> = {
@@ -399,6 +411,9 @@ Deno.serve(async (req: Request) => {
         success: false,
         code: "profile_bootstrap_failed",
         error: "Unable to initialize your profile for verification. Please retry.",
+        summary: {
+          code: "profile_bootstrap_failed",
+        },
       }, 500);
     }
     profile = seeded as any;
@@ -408,6 +423,9 @@ Deno.serve(async (req: Request) => {
       success: false,
       code: "profile_not_found",
       error: "User profile was not found",
+      summary: {
+        code: "profile_not_found",
+      },
     }, 404);
   }
   if (profile.account_type === "business") {
@@ -416,6 +434,9 @@ Deno.serve(async (req: Request) => {
       code: "wrong_account_type",
       error: "Identity verification is only available for individual accounts.",
       expected_account_type: "individual",
+      summary: {
+        code: "wrong_account_type",
+      },
     }, 403);
   }
   if (isBridgeBlocked(profile.country)) {
@@ -427,6 +448,9 @@ Deno.serve(async (req: Request) => {
       success: false,
       code: "profile_email_missing",
       error: "Profile email is required to start verification",
+      summary: {
+        code: "profile_email_missing",
+      },
     }, 400);
   }
 
@@ -546,6 +570,9 @@ Deno.serve(async (req: Request) => {
       success: false,
       code: mapped.code,
       error: mapped.error,
+      summary: {
+        code: mapped.code,
+      },
       ...(mapped.expected_verification_status
         ? { expected_verification_status: mapped.expected_verification_status }
         : {}),
@@ -574,6 +601,9 @@ Deno.serve(async (req: Request) => {
       code: "missing_verification_link",
       error: "Verification link is temporarily unavailable. Please retry.",
       bridge_request_id: r.request_id,
+      summary: {
+        code: "missing_verification_link",
+      },
     }, 502);
   }
 

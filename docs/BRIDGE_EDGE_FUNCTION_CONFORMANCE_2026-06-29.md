@@ -955,3 +955,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - added explicit `summary` blocks for transfer edge failures (method/auth/json/payload/amount/idempotency)
   - normalized policy/gating failures (`unsupported_pair`, maintenance/identity/customer/kyc gates) with deterministic summary codes
   - aligned provider-mapped transfer failures to always return stable summary codes for client handling
+
+### 2026-06-29 — Batch AW (completed)
+- Hardened `bridge-kyc-link` deterministic summary contracts:
+  - standardized summary blocks for auth/account/profile/bootstrap failure exits
+  - aligned mapped provider failures and missing-link failures with stable summary codes
