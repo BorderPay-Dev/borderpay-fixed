@@ -190,3 +190,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-test-webhook` ingest failure response:
   - removed raw RPC error leakage from synthetic webhook endpoint
   - replaced with deterministic failure contract (`synthetic_ingest_failed`, `ingest_failed`)
+
+### 2026-06-29 — Batch AA (completed)
+- Hardened `bridge-kyc-link` profile bootstrap failure response:
+  - removed raw `user_profiles` bootstrap database error leakage from client response
+  - replaced with deterministic product-safe contract (`profile_bootstrap_failed`)

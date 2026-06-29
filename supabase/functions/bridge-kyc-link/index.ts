@@ -359,7 +359,11 @@ Deno.serve(async (req: Request) => {
         errorBody: seedErr.message,
         elapsedMs: elapsed(),
       });
-      return json({ success: false, error: `user_profiles bootstrap failed: ${seedErr.message}` }, 500);
+      return json({
+        success: false,
+        code: "profile_bootstrap_failed",
+        error: "Unable to initialize your profile for verification. Please retry.",
+      }, 500);
     }
     profile = seeded as any;
   }
