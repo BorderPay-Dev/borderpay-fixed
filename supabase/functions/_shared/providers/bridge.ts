@@ -231,10 +231,22 @@ export class BridgeProvider implements PaymentProvider {
   // makes Bridge reject with "resubmit the following parameters … missing/invalid".
   async createVirtualAccount(input: VirtualAccountCreateInput): Promise<VirtualAccountResult> {
     if (!input.destination?.address || !input.destination?.payment_rail || !input.destination?.currency) {
-      throw new Error("virtual account requires a destination stablecoin wallet (address + rail + currency)");
+      throw new BridgeProviderError(
+        "Bridge createVirtualAccount request invalid: destination wallet fields are required",
+        {
+          bridge_code: "invalid_parameters",
+          bridge_error: "virtual account requires a destination stablecoin wallet (address + rail + currency)",
+        },
+      );
     }
     if (!/^\d+(\.\d+)?$/.test(String(input.developer_fee_percent || "").trim())) {
-      throw new Error("virtual account requires developer_fee_percent as numeric string");
+      throw new BridgeProviderError(
+        "Bridge createVirtualAccount request invalid: developer_fee_percent must be numeric",
+        {
+          bridge_code: "invalid_parameters",
+          bridge_error: "virtual account requires developer_fee_percent as numeric string",
+        },
+      );
     }
     const feePercent = String(input.developer_fee_percent).trim();
     const body: Record<string, unknown> = {
