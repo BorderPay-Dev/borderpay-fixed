@@ -13,6 +13,37 @@ const json = (body: unknown, status = 200) =>
     headers: { ...CORS, "Content-Type": "application/json" },
   });
 
+function mapCountriesProviderError(status: number, providerMessage?: string, providerCode?: string) {
+  const msg = String(providerMessage || "").toLowerCase();
+  const code = String(providerCode || "").toLowerCase();
+  if (status === 429) {
+    return {
+      status: 429,
+      code: "rate_limited",
+      error: "Country list is temporarily busy. Please retry in a moment.",
+    };
+  }
+  if (status === 401 || status === 403) {
+    return {
+      status: 502,
+      code: "provider_auth_error",
+      error: "Country list is temporarily unavailable. Please try again shortly.",
+    };
+  }
+  if (status >= 500 || status === 0 || msg.includes("timeout") || code === "service_unavailable") {
+    return {
+      status: 502,
+      code: "provider_unavailable",
+      error: "Supported countries are temporarily unavailable.",
+    };
+  }
+  return {
+    status: status || 502,
+    code: "provider_error",
+    error: "Supported countries are temporarily unavailable.",
+  };
+}
+
 function getCode2(input: unknown): string | null {
   const value = String(input ?? "").trim().toUpperCase();
   return /^[A-Z]{2}$/.test(value) ? value : null;
@@ -55,16 +86,22 @@ Deno.serve(async (req) => {
   });
 
   if (!providerRes.ok) {
+    const mapped = mapCountriesProviderError(
+      providerRes.status,
+      providerRes.error,
+      String((providerRes.data as any)?.code || (providerRes.data as any)?.error_code || ""),
+    );
     return json({
       success: false,
-      code: "bridge_countries_unavailable",
-      error: "Supported countries are temporarily unavailable.",
+      code: mapped.code,
+      error: mapped.error,
       bridge_request_id: providerRes.request_id ?? null,
+      bridge_status: providerRes.status || null,
       summary: {
-        code: "bridge_countries_unavailable",
+        code: mapped.code,
         bridge_request_id: providerRes.request_id ?? null,
       },
-    }, 502);
+    }, mapped.status);
   }
 
   const raw = asArray(providerRes.data);
