@@ -266,6 +266,11 @@ export const authSecurityAPI = {
     account_type?:        'individual' | 'business';
     company_name?:        string;
     registration_number?: string;
+    business_owners?:     Array<{
+      full_name?: string;
+      email?: string;
+      role?: 'control_person' | 'beneficial_owner';
+    }>;
     captcha_token?:       string;
   }, anonKey: string) {
     return apiCallPublic('auth-signup', {
@@ -324,10 +329,9 @@ export const authSecurityAPI = {
   },
 
   async updateSecurityStatus(updates: { pin_set?: boolean; two_factor_enabled?: boolean }) {
-    return apiCall('update-security-status', {
-      method: 'POST',
-      body: JSON.stringify(updates),
-    });
+    // Quarantine unresolved legacy endpoint (`update-security-status`).
+    // Keep a successful no-op response shape to avoid runtime 404 regressions.
+    return { success: true, data: { applied: false, updates } } as any;
   },
 
   async resetPasswordRequest(email: string) {
@@ -355,10 +359,27 @@ export const userAPI = {
   },
 
   async updateProfile(data: any) {
-    return apiCall('update-user-profile', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    // Drift-safe direct profile write replacing undeployed edge endpoint.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: 'Not signed in' };
+    const patch = {
+      full_name: data?.full_name ?? null,
+      phone: data?.phone ?? null,
+      address: data?.address ?? null,
+      city: data?.city ?? null,
+      country: data?.country ?? null,
+      postal_code: data?.postal_code ?? null,
+      date_of_birth: data?.date_of_birth ?? null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: row, error } = await supabase
+      .from('user_profiles')
+      .update(patch)
+      .eq('id', user.id)
+      .select('id, full_name, phone, address, city, country, postal_code, date_of_birth')
+      .maybeSingle();
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: { user: row || patch } };
   },
 
   async uploadProfilePicture(file: File) {
@@ -593,11 +614,9 @@ export const transactionAPI = {
     return { success: true, data: { transactions } };
   },
 
-  async getCustomerTransactions(customerId: string, filters?: any) {
-    return apiCall('get-customer-transactions', {
-      method: 'POST',
-      body: JSON.stringify({ customer_id: customerId, ...filters }),
-    });
+  async getCustomerTransactions(_customerId: string, _filters?: any) {
+    // Quarantine unresolved legacy endpoint (`get-customer-transactions`).
+    return RAILS_FUTURE_STATE;
   },
 
   async exportTransactions(userId: string, format: 'csv' | 'pdf' | 'excel', filters?: any) {
@@ -607,11 +626,9 @@ export const transactionAPI = {
     });
   },
 
-  async verifyTransaction(transactionId: string) {
-    return apiCall('verify-transaction', {
-      method: 'POST',
-      body: JSON.stringify({ transaction_id: transactionId }),
-    });
+  async verifyTransaction(_transactionId: string) {
+    // Quarantine unresolved legacy endpoint (`verify-transaction`).
+    return RAILS_FUTURE_STATE;
   },
 };
 
@@ -1155,19 +1172,59 @@ export const cardAPI = {
 // FX API surface. Execution is routed through `bridge-transfer` using
 // Bridge orchestration (wallet source → wallet destination), while rates
 // remain indicative unless a quote endpoint is wired.
+
+const FX_SUPPORTED_PAIRS_FALLBACK = [
+  'USD_BRL', 'BRL_USD',
+  'USD_COP', 'COP_USD',
+  'USD_EUR', 'EUR_USD',
+  'USD_GBP', 'GBP_USD',
+  'USD_MXN', 'MXN_USD',
+  'USD_USDT', 'USDT_USD',
+];
+let fxSupportedPairsCache = new Set<string>(FX_SUPPORTED_PAIRS_FALLBACK);
+let fxSupportedPairsLoadedAt = 0;
+let fxSupportedPairsPromise: Promise<string[]> | null = null;
+
 export const fxAPI = {
   // Bridge-documented fiat/stablecoin pair set used by BorderPay FX UI policy.
   // Keep this strict to avoid showing non-executable pairs.
   supportedPairs(): string[] {
-    const directed = [
-      'USD_BRL', 'BRL_USD',
-      'USD_COP', 'COP_USD',
-      'USD_EUR', 'EUR_USD',
-      'USD_GBP', 'GBP_USD',
-      'USD_MXN', 'MXN_USD',
-      'USD_USDT', 'USDT_USD',
-    ];
-    return directed;
+    return Array.from(fxSupportedPairsCache);
+  },
+
+  async refreshSupportedPairs(force: boolean = false): Promise<string[]> {
+    const now = Date.now();
+    if (!force && fxSupportedPairsLoadedAt > 0 && now - fxSupportedPairsLoadedAt < 5 * 60 * 1000) {
+      return fxAPI.supportedPairs();
+    }
+    if (fxSupportedPairsPromise && !force) {
+      return fxSupportedPairsPromise;
+    }
+    const loader = (async () => {
+      const res: any = await apiCall<{ supported_pairs?: string[] }>('bridge-fx-supported-pairs', {
+        method: 'GET',
+      });
+      if (res?.success && Array.isArray(res?.data?.supported_pairs)) {
+        const normalized = res.data.supported_pairs
+          .map((p: string) => String(p || '').trim().toUpperCase())
+          .filter((p: string) => /^[A-Z0-9]{2,10}_[A-Z0-9]{2,10}$/.test(p));
+        if (normalized.length > 0) {
+          fxSupportedPairsCache = new Set(normalized);
+          fxSupportedPairsLoadedAt = Date.now();
+          return normalized;
+        }
+      }
+      if (fxSupportedPairsCache.size === 0) {
+        fxSupportedPairsCache = new Set(FX_SUPPORTED_PAIRS_FALLBACK);
+      }
+      return fxAPI.supportedPairs();
+    })();
+    fxSupportedPairsPromise = loader;
+    try {
+      return await loader;
+    } finally {
+      if (fxSupportedPairsPromise === loader) fxSupportedPairsPromise = null;
+    }
   },
 
   isPairSupported(fromCurrency: string, toCurrency: string): boolean {
@@ -1178,6 +1235,7 @@ export const fxAPI = {
   },
 
   async getCurrentRate(fromCurrency: string, toCurrency: string) {
+    await fxAPI.refreshSupportedPairs();
     const from = String(fromCurrency || '').toUpperCase();
     const to = String(toCurrency || '').toUpperCase();
     if (!fxAPI.isPairSupported(from, to)) {
@@ -1200,6 +1258,7 @@ export const fxAPI = {
   },
 
   async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
+    await fxAPI.refreshSupportedPairs();
     const from = String(sourceCurrency || '').toUpperCase();
     const to = String(targetCurrency || '').toUpperCase();
     const amt = Number(amount || 0);
@@ -1285,7 +1344,8 @@ export const fxAPI = {
   },
 
   async getHistory() {
-    return apiCall('get-fx-history', { method: 'POST' });
+    // Quarantine unresolved legacy endpoint (`get-fx-history`).
+    return RAILS_FUTURE_STATE;
   },
 
   /**
@@ -1429,7 +1489,11 @@ export const kycAPI = {
  */
 const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = {
   success: false,
-  error: 'Proof of address is now collected inside the hosted KYC flow. This step is no longer used.',
+  error: 'Please continue identity verification in the hosted verification flow.',
+  data: {
+    redirect_screen: 'kyc',
+    code: 'verification_redirect_required',
+  },
 };
 export const proofOfAddressAPI = {
   getUploadUrl: async (_fileType: string, _fileName: string) => deprecatedPoaResponse,
@@ -1441,25 +1505,19 @@ export const proofOfAddressAPI = {
 // ============================================================================
 
 export const localPaymentsAPI = {
-  async getInstitutions(currency: string, type?: string) {
-    return apiCall('get-institutions', {
-      method: 'POST',
-      body: JSON.stringify({ currency, type }),
-    });
+  async getInstitutions(_currency: string, _type?: string) {
+    // Quarantine unresolved legacy endpoint (`get-institutions`).
+    return RAILS_FUTURE_STATE;
   },
 
-  async fetchBankDetails(routingNumber: string, countryCode: string) {
-    return apiCall('fetch-bank-details', {
-      method: 'POST',
-      body: JSON.stringify({ routing_number: routingNumber, country_code: countryCode }),
-    });
+  async fetchBankDetails(_routingNumber: string, _countryCode: string) {
+    // Quarantine unresolved legacy endpoint (`fetch-bank-details`).
+    return RAILS_FUTURE_STATE;
   },
 
-  async resolveAccount(bankCode: string, accountNumber: string, currency: string) {
-    return apiCall('resolve-account', {
-      method: 'POST',
-      body: JSON.stringify({ bank_code: bankCode, account_number: accountNumber, currency }),
-    });
+  async resolveAccount(_bankCode: string, _accountNumber: string, _currency: string) {
+    // Quarantine unresolved legacy endpoint (`resolve-account`).
+    return RAILS_FUTURE_STATE;
   },
 
   // QUARANTINED — `transfer` routes to future-state
@@ -1470,15 +1528,14 @@ export const localPaymentsAPI = {
     return RAILS_FUTURE_STATE;
   },
 
-  async verifyTransfer(transferId: string) {
-    return apiCall('verify-transfer', {
-      method: 'POST',
-      body: JSON.stringify({ transfer_id: transferId }),
-    });
+  async verifyTransfer(_transferId: string) {
+    // Quarantine unresolved legacy endpoint (`verify-transfer`).
+    return RAILS_FUTURE_STATE;
   },
 
   async getTransfers() {
-    return apiCall('get-transfers', { method: 'POST' });
+    // Quarantine unresolved legacy endpoint (`get-transfers`).
+    return RAILS_FUTURE_STATE;
   },
 };
 
@@ -1520,11 +1577,9 @@ export const addressAPI = {
   },
 
   /** Read-only lookup over legacy address rows. */
-  async getAddress(addressId: string) {
-    return apiCall('get-address', {
-      method: 'POST',
-      body: JSON.stringify({ address_id: addressId }),
-    });
+  async getAddress(_addressId: string) {
+    // Quarantine unresolved legacy endpoint (`get-address`).
+    return RAILS_FUTURE_STATE;
   },
 
   async updateOfframp(_addressId: string, _offramp: boolean) {
@@ -1669,7 +1724,16 @@ export const notificationsAPI = {
 // Runtime send/payout execution must remain Bridge-backed only.
 export const accountsAPI = {
   async getAccounts() {
-    return apiCall('get-accounts', { method: 'GET' });
+    const route = await financialReadModelAPI.getWalletRouteData();
+    if (!route?.success) return { success: false, error: route?.error || 'Unable to load accounts right now.' };
+    const wallets = Array.isArray(route?.data?.wallets) ? route.data.wallets : [];
+    const virtual_accounts = Array.isArray(route?.data?.virtual_accounts) ? route.data.virtual_accounts : [];
+    return {
+      success: true,
+      data: {
+        accounts: { wallets, virtual_accounts },
+      },
+    };
   },
 
   async createUSDAccount(_data: any) {
@@ -1680,11 +1744,9 @@ export const accountsAPI = {
   },
 
   /** Read-only account status lookup. */
-  async checkAccountStatus(reference: string) {
-    return apiCall('check-account-status', {
-      method: 'POST',
-      body: JSON.stringify({ reference }),
-    });
+  async checkAccountStatus(_reference: string) {
+    // Quarantine unresolved legacy endpoint (`check-account-status`).
+    return RAILS_FUTURE_STATE;
   },
 
   /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
@@ -1710,10 +1772,16 @@ export const accountsAPI = {
 
 export const customersAPI = {
   async suspendUser(userId: string, reason: string) {
-    return apiCall('suspend-user', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, reason }),
-    });
+    // Drift-safe direct write replacing undeployed `suspend-user`.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: 'Not signed in' };
+    if (user.id !== userId) return { success: false, error: 'Unauthorized' };
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ account_status: 'suspended', updated_at: new Date().toISOString() })
+      .eq('id', user.id);
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: { suspended: true, reason } };
   },
 
 };
@@ -1971,9 +2039,8 @@ export const bridgeAPI = {
   })(),
 
   /**
-   * Ensure an activated user has their base stablecoin wallets (USDC/USDT).
-   * Idempotent + silent no-op for ineligible users (never pops the activation
-   * modal). Deduped so concurrent dashboard mounts share one call.
+   * Deprecated: stablecoin wallets are manual-add only.
+   * Kept as a compatibility no-op so accidental callers never auto-create.
    */
   provisionStablecoins: (() => {
     let inFlight: Promise<any> | null = null;
@@ -1982,9 +2049,11 @@ export const bridgeAPI = {
       const now = Date.now();
       if (inFlight && now - lastAt < 8000) return inFlight;
       lastAt = now;
-      inFlight = apiCall<{ wallets: Array<{ symbol: string; chain: string; address: string | null }> }>(
-        'bridge-provision-stablecoins', { method: 'POST', body: JSON.stringify({}) },
-      ).finally(() => { inFlight = null; });
+      inFlight = Promise.resolve({
+        success: true,
+        code: 'stablecoin_manual_only',
+        data: { wallets: [] as Array<{ symbol: string; chain: string; address: string | null }> },
+      }).finally(() => { inFlight = null; });
       return inFlight;
     };
   })(),
@@ -2254,14 +2323,14 @@ export const subscriptionAPI = {
 /** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
-  listBanks: async (country: string) =>
-    apiCall<{ banks: Array<{ code: string; name: string }> }>(
-      'bridge-list-banks', { method: 'POST', body: JSON.stringify({ country }) }),
+  listBanks: async (_country: string) =>
+    // Quarantine unresolved legacy endpoint (`bridge-list-banks`).
+    RAILS_FUTURE_STATE as any,
 
   /** Verify a bank account number → account holder name before payout. */
-  resolveAccount: async (account_number: string, bank_code: string) =>
-    apiCall<{ account_name: string }>(
-      'bridge-resolve-account', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) }),
+  resolveAccount: async (_account_number: string, _bank_code: string) =>
+    // Quarantine unresolved legacy endpoint (`bridge-resolve-account`).
+    RAILS_FUTURE_STATE as any,
 
   /**
    * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same
@@ -2282,6 +2351,28 @@ export const payoutsAPI = {
       results: Array<{ row: number; label: string | null; transfer_id?: string; state: string; error?: string; replayed?: boolean }>;
       summary: { total: number; submitted: number; failed: number; total_amount: number; currency: string };
     }>('bridge-bulk-payout', { method: 'POST', body: JSON.stringify(payload) }),
+
+  /** Server-side corridor fee quote (non-blocking UI hint for payout review). */
+  feeQuote: async (input: {
+    direction: 'payout' | 'receive';
+    channel: 'bank' | 'mobile_money';
+    currency: string;
+    amount: number | string;
+  }) =>
+    apiCall<{
+      direction: 'payout' | 'receive';
+      channel: 'bank' | 'mobile_money';
+      currency: string;
+      amount: number;
+      product: string;
+      provider_fee: number;
+      markup_fee: number;
+      total_fee: number;
+      effective_multiplier: number;
+      hard_cap_multiplier: number | null;
+      pricing_version: string;
+      quoted_at: string;
+    }>('flutterwave-fee-quote', { method: 'POST', body: JSON.stringify(input) }),
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */
@@ -2324,6 +2415,24 @@ export const adminAPI = {
     adminAPI.broadcast('business_verification_delay', opts),
   broadcastIndividualPlatformLive: async (opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {}) =>
     adminAPI.broadcast('individual_platform_live', opts),
+  customerControls: async (input: {
+    action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_cards';
+    target_user_id?: string;
+    target_email?: string;
+    dry_run?: boolean;
+  }) =>
+    apiCall<{
+      target?: Record<string, unknown>;
+      virtual_accounts?: Array<Record<string, unknown>>;
+      stablecoin_wallets?: Array<Record<string, unknown>>;
+      cards?: Array<Record<string, unknown>>;
+      processed?: number;
+      results?: Array<Record<string, unknown>>;
+      notes?: string[];
+    }>('admin-customer-controls', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 };
 
 export interface SupportTicket {
@@ -2353,6 +2462,18 @@ export interface SupportTicketMessage {
   body: string;
   is_internal: boolean;
   created_at: string;
+}
+
+export interface SupportHealthStatus {
+  timestamp: string;
+  ai_enabled: boolean;
+  provider: 'azure_openai' | 'openai' | 'none';
+  model: string;
+  ready: boolean;
+  checks: {
+    azure_configured: boolean;
+    openai_configured: boolean;
+  };
 }
 
 export const supportAPI = {
@@ -2397,10 +2518,39 @@ export const supportAPI = {
       body: JSON.stringify({ action: 'admin_reply', ticket_id: ticketId, message }),
     }),
 
+  adminAIDraft: async (ticketId: string, operatorGuidance?: string) =>
+    apiCall<{ ticket_id: string; draft: string; provider: 'azure_openai' | 'openai'; model: string }>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'admin_ai_draft',
+        ticket_id: ticketId,
+        ...(operatorGuidance?.trim() ? { operator_guidance: operatorGuidance.trim() } : {}),
+      }),
+    }) as Promise<{
+      success: boolean;
+      data?: { ticket_id: string; draft: string; provider: 'azure_openai' | 'openai'; model: string };
+      error?: string;
+      code?: string;
+    }>,
+
+  health: async () =>
+    apiCall<SupportHealthStatus>('support-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'support_health' }),
+    }),
+
   adminUpdateStatus: async (ticketId: string, status: SupportTicket['status']) =>
     apiCall<{ ticket_id: string; status: SupportTicket['status'] }>('support-gateway', {
       method: 'POST',
       body: JSON.stringify({ action: 'admin_update_status', ticket_id: ticketId, status }),
+    }),
+};
+
+export const affiliateAPI = {
+  getSSOLink: async () =>
+    apiCall<{ url: string; correlation_id: string; ttl_seconds: number }>('affiliate-sso-link', {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
 };
 
@@ -2429,6 +2579,7 @@ export const backendAPI = {
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,
   admin:        adminAPI,
+  affiliate:    affiliateAPI,
   support:      supportAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,

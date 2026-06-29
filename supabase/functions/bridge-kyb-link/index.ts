@@ -20,6 +20,8 @@ import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody, verificationGate, 
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
 const APP_URL         = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
+const SUPABASE_URL    = Deno.env.get("SUPABASE_URL") ?? "";
+const SEND_EMAIL_INTERNAL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -44,7 +46,76 @@ interface BridgeFetchResult {
   request_id?: string;
 }
 
-async function bridgePost(path: string, body: unknown, idemKey: string): Promise<BridgeFetchResult> {
+type KybTraceStage =
+  | "invoked"
+  | "profile_loaded"
+  | "bridge_request_sent"
+  | "bridge_response_received"
+  | "bridge_response_rejected"
+  | "bridge_response_missing_link"
+  | "db_update_success"
+  | "db_update_failed"
+  | "returned_success";
+
+function maskEmail(email?: string | null): string | null {
+  if (!email) return null;
+  const [local, domain] = String(email).split("@");
+  if (!domain) return null;
+  const localMasked =
+    local.length <= 2 ? `${local[0] || "*"}*` : `${local.slice(0, 2)}***`;
+  return `${localMasked}@${domain}`;
+}
+
+function sanitizeErrorBody(value?: string | null): string | null {
+  if (!value) return null;
+  let out = String(value);
+  out = out.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted_email]");
+  out = out.replace(/bearer\s+[a-z0-9._-]+/gi, "bearer [redacted_token]");
+  out = out.replace(/(api[-_ ]?key["'\s:=]+)[a-z0-9._-]+/gi, "$1[redacted_key]");
+  out = out.replace(/(authorization["'\s:=]+)[^\s,"'}]+/gi, "$1[redacted_auth]");
+  out = out.replace(/\b[a-z0-9]{24,}\b/gi, "[redacted_opaque]");
+  return out.slice(0, 600);
+}
+
+async function writeTrace(
+  correlationId: string,
+  stage: KybTraceStage,
+  fields: {
+    executionTimestamp?: string;
+    userId?: string | null;
+    email?: string | null;
+    bridgeEndpoint?: string | null;
+    httpStatus?: number | null;
+    bridgeRequestId?: string | null;
+    responseBody?: Record<string, unknown> | null;
+    errorBody?: string | null;
+    dbUpdateOk?: boolean | null;
+    dbUpdateError?: string | null;
+    elapsedMs?: number | null;
+  } = {},
+): Promise<void> {
+  try {
+    await supa.from("bridge_kyc_traces").insert({
+      correlation_id: correlationId,
+      execution_timestamp: fields.executionTimestamp || new Date().toISOString(),
+      user_id: fields.userId || null,
+      email: maskEmail(fields.email || null),
+      stage,
+      bridge_endpoint: fields.bridgeEndpoint || null,
+      http_status: fields.httpStatus ?? null,
+      bridge_request_id: fields.bridgeRequestId || null,
+      response_body: fields.responseBody || null,
+      error_body: sanitizeErrorBody(fields.errorBody || null),
+      db_update_ok: fields.dbUpdateOk ?? null,
+      db_update_error: sanitizeErrorBody(fields.dbUpdateError || null),
+      elapsed_ms: fields.elapsedMs ?? null,
+    });
+  } catch {
+    // tracing must never break KYB flow
+  }
+}
+
+async function bridgePost(path: string, body: unknown, idemKey: string, correlationId?: string): Promise<BridgeFetchResult> {
   if (!BRIDGE_API_KEY) {
     return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
   }
@@ -55,6 +126,7 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
       "Accept":          "application/json",
       "Content-Type":    "application/json",
       "Idempotency-Key": idemKey,
+      ...(correlationId ? { "X-Correlation-Id": correlationId } : {}),
       "User-Agent":      "borderpay-edge/1.0",
     },
     body: JSON.stringify(body),
@@ -67,12 +139,12 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
     status:     res.status,
     data:       parsed,
     raw_text:   text,
-    error:      res.ok ? undefined : (parsed?.message || `HTTP ${res.status}`),
+    error:      res.ok ? undefined : (parsed?.message || parsed?.error || `HTTP ${res.status}`),
     request_id: res.headers.get("x-request-id") || undefined,
   };
 }
 
-function extractLink(parsed: any): { link_url: string; link_id: string; customer_id?: string } | null {
+function extractLink(parsed: any): { link_url: string | null; link_id: string | null; customer_id?: string; tos_link_url?: string | null } | null {
   if (!parsed) return null;
   const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
   for (const c of candidates) {
@@ -83,7 +155,8 @@ function extractLink(parsed: any): { link_url: string; link_id: string; customer
       c?.link;
     const link_id: string | null  = c?.kyc_link?.id || c?.id;
     const customer_id: string | undefined = c?.customer_id || c?.kyc_link?.customer_id;
-    if (link_url && link_id) return { link_url, link_id, customer_id };
+    const tos_link_url: string | null = c?.tos_link?.url || c?.tos_link || c?.data?.tos_link?.url || null;
+    if (link_url || tos_link_url) return { link_url, link_id, customer_id, tos_link_url };
   }
   return null;
 }
@@ -94,17 +167,154 @@ function isVerifiedStatus(value: string | null | undefined): boolean {
   );
 }
 
+type DeclaredOwner = {
+  full_name: string;
+  email: string;
+  role: "control_person" | "beneficial_owner";
+};
+
+function parseDeclaredOwners(raw: unknown): DeclaredOwner[] {
+  if (!raw || typeof raw !== "object") return [];
+  const input = (raw as Record<string, unknown>).declared_owners;
+  if (!Array.isArray(input)) return [];
+  const out: DeclaredOwner[] = [];
+  for (const it of input) {
+    if (!it || typeof it !== "object") continue;
+    const full_name = String((it as Record<string, unknown>).full_name || "").trim();
+    const email = String((it as Record<string, unknown>).email || "").trim().toLowerCase();
+    if (!email) continue;
+    const role = String((it as Record<string, unknown>).role || "") === "beneficial_owner"
+      ? "beneficial_owner"
+      : "control_person";
+    out.push({ full_name, email, role });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+async function sendOwnerInviteEmail(input: {
+  businessUserId: string;
+  companyName: string;
+  ownerName: string;
+  ownerEmail: string;
+  verificationUrl: string;
+  correlationId: string;
+}) {
+  if (!SUPABASE_URL || !SEND_EMAIL_INTERNAL_TOKEN) return;
+  try {
+    await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_INTERNAL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: "business.verification_authorized",
+        to: input.ownerEmail,
+        user_id: input.businessUserId,
+        idempotency_key: `kyb-owner-invite:${input.businessUserId}:${input.ownerEmail}:${new Date().toISOString().slice(0, 10)}`,
+        props: {
+          full_name: input.ownerName || "Business owner",
+          company_name: input.companyName,
+          verification_url: input.verificationUrl,
+          correlation_id: input.correlationId,
+        },
+      }),
+    });
+  } catch {
+    // non-blocking: invite email should never block KYB link creation
+  }
+}
+
+function mapKybLinkFailure(
+  status: number,
+  parsed: any,
+): { status: number; code: string; error: string; provider_code?: string; expected_verification_status?: "approved" } {
+  const providerCode = String(parsed?.code || parsed?.error_code || "").toLowerCase();
+  switch (providerCode) {
+    case "has_not_accepted_tos":
+      return { status: 409, code: "tos_required", error: "Please accept Terms of Service before starting verification.", provider_code: providerCode };
+    case "requires_active_kyc_status":
+      return {
+        status: 409,
+        code: "kyb_not_approved",
+        error: "Business verification is not active for this account yet.",
+        provider_code: providerCode,
+        expected_verification_status: "approved",
+      };
+    case "missing_required_endorsements":
+    case "endorsement_requirements_not_met":
+      return { status: 403, code: "endorsement_required", error: "Business verification route is not enabled for this account.", provider_code: providerCode };
+    case "invalid_parameters":
+    case "invalid_json":
+    case "bad_request":
+      return { status: 400, code: providerCode || "invalid_request", error: "Unable to start business verification. Please review your business profile and try again.", provider_code: providerCode || undefined };
+    case "not_allowed":
+      return { status: 403, code: "route_not_enabled", error: "Business verification is not enabled for this account.", provider_code: providerCode };
+    default:
+      break;
+  }
+  if (status === 429) {
+    return { status: 429, code: "rate_limited", error: "Too many verification attempts. Please wait and try again." };
+  }
+  if (status >= 500 || status === 424 || status === 503) {
+    return { status: 502, code: "provider_unavailable", error: "Business verification service is temporarily unavailable. Please try again shortly." };
+  }
+  if (status >= 400 && status < 500) {
+    return { status: 400, code: "verification_rejected", error: "Unable to start business verification right now. Please try again." };
+  }
+  return { status: 502, code: "provider_error", error: "Unable to start business verification right now. Please try again." };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+      },
+    }, 405);
+  }
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
+  const correlationId = crypto.randomUUID();
+  const executionTimestamp = new Date().toISOString();
+  const startedAtMs = Date.now();
+  const elapsed = () => Date.now() - startedAtMs;
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({
+      success: false,
+      code: "missing_bearer_token",
+      error: "Authentication required",
+      summary: {
+        code: "missing_bearer_token",
+      },
+    }, 401);
+  }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
-  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (authErr || !user) {
+    return json({
+      success: false,
+      code: "invalid_auth_token",
+      error: "Unauthorized",
+      summary: {
+        code: "invalid_auth_token",
+      },
+    }, 401);
+  }
+  await writeTrace(correlationId, "invoked", {
+    executionTimestamp,
+    userId: user.id,
+    email: user.email ?? null,
+    elapsedMs: elapsed(),
+  });
 
   // Stepped verification gate (#4 + #5): require a PAID plan + admin
   // authorization before any billable Bridge call. The env pause remains the
@@ -122,16 +332,50 @@ Deno.serve(async (req: Request) => {
     .select("id, email, account_type, country")
     .eq("id", user.id)
     .maybeSingle();
-  if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
+  await writeTrace(correlationId, "profile_loaded", {
+    executionTimestamp,
+    userId: user.id,
+    email: user.email ?? null,
+    responseBody: {
+      has_profile: Boolean(profile),
+      account_type: profile?.account_type ?? null,
+    },
+    elapsedMs: elapsed(),
+  });
+  if (!profile) {
+    return json({
+      success: false,
+      code: "profile_not_found",
+      error: "User profile was not found",
+      summary: {
+        code: "profile_not_found",
+      },
+    }, 404);
+  }
   if (profile.account_type !== "business") {
-    return json({ success: false, error: "KYB is only for business accounts. Use bridge-kyc-link.", code: "wrong_account_type" }, 403);
+    return json({
+      success: false,
+      code: "wrong_account_type",
+      error: "Business verification is only available for business accounts.",
+      expected_account_type: "business",
+      summary: {
+        code: "wrong_account_type",
+      },
+    }, 403);
   }
   if (isBridgeBlocked(profile.country)) {
     return json(bridgeCountryBlockResponse(profile.country!), 403);
   }
   logControlledBridgeTraffic("bridge-kyb-link", profile.country, user.id);
   if (!profile.email) {
-    return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
+    return json({
+      success: false,
+      code: "profile_email_missing",
+      error: "Profile email is required to start verification",
+      summary: {
+        code: "profile_email_missing",
+      },
+    }, 400);
   }
 
   // business_profiles uses bridge_kyb_link_* (KYB-prefixed) columns;
@@ -142,13 +386,31 @@ Deno.serve(async (req: Request) => {
   // link.
   const { data: biz } = await supa
     .from("business_profiles")
-    .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, bridge_kyb_link_id, bridge_kyb_link_url")
+    .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, bridge_kyb_link_id, bridge_kyb_link_url, metadata")
     .eq("user_id", user.id)
     .maybeSingle();
-  if (!biz?.company_name) return json({ success: false, error: "business_profiles missing company_name" }, 404);
+  if (!biz?.company_name) {
+    return json({
+      success: false,
+      code: "business_profile_incomplete",
+      error: "Business profile is incomplete. Add company details before verification.",
+      summary: {
+        code: "business_profile_incomplete",
+      },
+    }, 404);
+  }
 
   if (isVerifiedStatus(biz.bridge_kyb_status)) {
-    return json({ success: true, data: { already_approved: true, bridge_kyb_status: "approved" } });
+    return json({
+      success: true,
+      code: "kyb_already_approved",
+      summary: {
+        code: "kyb_already_approved",
+        bridge_kyb_status: "approved",
+        already_approved: true,
+      },
+      data: { already_approved: true, bridge_kyb_status: "approved" },
+    });
   }
   // Do not short-circuit to cached link_url: old links can expire and trap users
   // in repeated verification errors. Always ask Bridge for the current link state.
@@ -163,10 +425,22 @@ Deno.serve(async (req: Request) => {
   if (biz.bridge_customer_id) reqBody.customer_id = biz.bridge_customer_id;
 
   const idemSource = biz.bridge_customer_id || user.id;
+  await writeTrace(correlationId, "bridge_request_sent", {
+    executionTimestamp,
+    userId: user.id,
+    email: profile.email,
+    bridgeEndpoint: "/v0/kyc_links",
+    responseBody: {
+      type: "business",
+      has_customer_id: Boolean(biz.bridge_customer_id),
+    },
+    elapsedMs: elapsed(),
+  });
   let r = await bridgePost(
     "/v0/kyc_links",
     reqBody,
     `borderpay:kyb:business:${idemSource}`,
+    correlationId,
   );
 
   let link = extractLink(r.data);
@@ -180,27 +454,81 @@ Deno.serve(async (req: Request) => {
       "/v0/kyc_links",
       fallbackBody,
       `borderpay:kyb:business:fallback:${user.id}`,
+      correlationId,
     );
     link = extractLink(r.data);
   }
 
+  await writeTrace(correlationId, "bridge_response_received", {
+    executionTimestamp,
+    userId: user.id,
+    email: profile.email,
+    bridgeEndpoint: "/v0/kyc_links",
+    httpStatus: r.status,
+    bridgeRequestId: r.request_id ?? null,
+    responseBody: {
+      has_data: Boolean(r.data),
+      has_link: Boolean(link?.link_url || link?.tos_link_url),
+      code: r.data?.code ?? null,
+      message: r.data?.message ?? null,
+    },
+    errorBody: r.ok ? null : (r.raw_text || "").slice(0, 1200),
+    elapsedMs: elapsed(),
+  });
+
   if (!r.ok && !link) {
     const detail = (r.raw_text || "").slice(0, 800);
     console.error(`bridge-kyb-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
+    await writeTrace(correlationId, "bridge_response_rejected", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      bridgeEndpoint: "/v0/kyc_links",
+      httpStatus: r.status,
+      bridgeRequestId: r.request_id ?? null,
+      responseBody: { code: r.data?.code ?? null, message: r.data?.message ?? null },
+      errorBody: detail,
+      elapsedMs: elapsed(),
+    });
+    const mapped = mapKybLinkFailure(r.status, r.data);
     return json({
       success: false,
-      error:   `Business verification link request failed [${r.status}]: ${r.error || "unknown"}`,
+      code: mapped.code,
+      error: mapped.error,
+      summary: {
+        code: mapped.code,
+      },
+      ...(mapped.expected_verification_status
+        ? { expected_verification_status: mapped.expected_verification_status }
+        : {}),
+      provider_code: mapped.provider_code,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
-    }, 502);
+      correlation_id:    correlationId,
+    }, mapped.status);
   }
 
-  if (!link) {
+  if (!link || (!link.link_url && !link.tos_link_url)) {
     console.error(`bridge-kyb-link: missing link/url body=${(r.raw_text || "").slice(0, 800)}`);
+    await writeTrace(correlationId, "bridge_response_missing_link", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      bridgeEndpoint: "/v0/kyc_links",
+      httpStatus: r.status,
+      bridgeRequestId: r.request_id ?? null,
+      errorBody: (r.raw_text || "").slice(0, 1200),
+      elapsedMs: elapsed(),
+    });
     return json({
       success: false,
-      error:   `Business verification link response missing link URL`,
+      code: "missing_verification_link",
+      error: "Business verification link is temporarily unavailable. Please retry.",
       bridge_request_id: r.request_id,
+      correlation_id: correlationId,
+      summary: {
+        code: "missing_verification_link",
+      },
     }, 502);
   }
 
@@ -212,16 +540,100 @@ Deno.serve(async (req: Request) => {
   }).eq("user_id", user.id);
   if (updateErr) {
     console.error(`bridge-kyb-link: business_profiles update failed for user=${user.id}: ${updateErr.message}`);
+    await writeTrace(correlationId, "db_update_failed", {
+      executionTimestamp,
+      userId: user.id,
+      email: profile.email,
+      dbUpdateOk: false,
+      dbUpdateError: updateErr.message,
+      elapsedMs: elapsed(),
+    });
     return json({
       success: false,
-      error:   `business_profiles update failed: ${updateErr.message}`,
+      code: "profile_sync_failed",
+      error: "Verification link created but profile sync failed. Please retry.",
       bridge_request_id: r.request_id,
+      correlation_id: correlationId,
+      summary: {
+        code: "profile_sync_failed",
+      },
     }, 500);
   }
+  await writeTrace(correlationId, "db_update_success", {
+    executionTimestamp,
+    userId: user.id,
+    email: profile.email,
+    dbUpdateOk: true,
+    responseBody: { link_id_present: Boolean(link.link_id), link_url_present: Boolean(link.link_url), customer_id_present: Boolean(link.customer_id) },
+    elapsedMs: elapsed(),
+  });
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
+  const tos_status_raw =
+    r.data?.data?.tos_status ||
+    r.data?.tos_status ||
+    r.data?.existing_kyc_link?.tos_status ||
+    null;
+  const tos_required = Boolean(
+    link.tos_link_url &&
+    String(tos_status_raw || "").toLowerCase() !== "accepted",
+  );
+
+  // Best-effort multi-owner assistance: if the business declared additional
+  // UBOs at signup, notify them with the same verification entry URL so both
+  // required owners can complete the workflow.
+  const declaredOwners = parseDeclaredOwners(biz.metadata);
+  const primaryEmail = String(profile.email || "").trim().toLowerCase();
+  const inviteUrl = link.link_url || `${APP_URL}/dashboard`;
+  for (const owner of declaredOwners) {
+    if (!owner.email || owner.email === primaryEmail) continue;
+    await sendOwnerInviteEmail({
+      businessUserId: user.id,
+      companyName: String(biz.company_name || "your business"),
+      ownerName: owner.full_name,
+      ownerEmail: owner.email,
+      verificationUrl: inviteUrl,
+      correlationId,
+    });
+  }
+
+  await writeTrace(correlationId, "returned_success", {
+    executionTimestamp,
+    userId: user.id,
+    email: profile.email,
+    bridgeEndpoint: "/v0/kyc_links",
+    httpStatus: r.status,
+    bridgeRequestId: r.request_id ?? null,
+    responseBody: {
+      link_id: link.link_id,
+      link_url_present: Boolean(link.link_url),
+      tos_link_present: Boolean(link.tos_link_url),
+      tos_status: tos_status_raw,
+      tos_required,
+      expires_at: expires_at ?? null,
+      reused: !r.ok ? true : false,
+      declared_owner_count: declaredOwners.length,
+    },
+    elapsedMs: elapsed(),
+  });
   return json({
     success: true,
-    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined },
+    code: "kyb_link_ready",
+    summary: {
+      code: "kyb_link_ready",
+      tos_required,
+      reused: !r.ok ? true : false,
+      expires_at: expires_at ?? null,
+    },
+    data: {
+      link_id: link.link_id,
+      link_url: link.link_url,
+      tos_link_url: link.tos_link_url ?? null,
+      tos_status: tos_status_raw,
+      tos_required,
+      expires_at,
+      correlation_id: correlationId,
+      reused: !r.ok ? true : undefined,
+    },
   });
 });
