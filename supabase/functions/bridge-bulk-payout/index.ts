@@ -212,8 +212,22 @@ Deno.serve(async (req) => {
       error: "Your account is restricted due to prolonged unpaid maintenance. Clear dues to restore outbound transfers." }, 402);
   }
   logControlledBridgeTraffic("bridge-bulk-payout", profile?.country, user.id);
-  if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Complete account setup before sending payouts" }, 409);
-  if (profile.verification_status !== "approved") return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
+  if (!profile.bridge_customer_id) {
+    return json({
+      success: false,
+      code: "no_customer",
+      error: "Complete account setup before sending payouts",
+      required_state: "bridge_customer_created",
+    }, 409);
+  }
+  if (profile.verification_status !== "approved") {
+    return json({
+      success: false,
+      code: "kyc_not_approved",
+      error: "KYC not approved yet",
+      expected_verification_status: "approved",
+    }, 409);
+  }
   {
     const isBusiness = profile.account_type === "business";
     const gate = await requireMinimumWalletBalance(supa, user.id, {
