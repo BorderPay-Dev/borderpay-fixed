@@ -204,9 +204,16 @@ Deno.serve(async (req: Request) => {
 
     const userId = authData.user!.id;
 
-    const rollbackAuthUser = async (reason: string) => {
+    const rollbackAuthUser = async (code: string, reason: string) => {
       try { await supabaseAdmin.auth.admin.deleteUser(userId); } catch { /* best effort */ }
-      return json({ success: false, error: reason }, 500);
+      return json({
+        success: false,
+        code,
+        error: reason,
+        summary: {
+          code,
+        },
+      }, 500);
     };
 
     // ── Persist legacy users + canonical user_profiles, atomically ───────
@@ -224,7 +231,7 @@ Deno.serve(async (req: Request) => {
         kyc_status:       "unverified",
         wallet_activated: false,
       });
-      if (usersErr) return rollbackAuthUser(`users upsert failed: ${usersErr.message}`);
+      if (usersErr) return rollbackAuthUser("users_upsert_failed", `users upsert failed: ${usersErr.message}`);
     }
     {
       // Same enum rule for user_profiles.kyc_status. address_verification_status
@@ -241,7 +248,7 @@ Deno.serve(async (req: Request) => {
         bridge_customer_id:          null,
         bridge_kyc_status:           "not_started",
       });
-      if (profileErr) return rollbackAuthUser(`user_profiles upsert failed: ${profileErr.message}`);
+      if (profileErr) return rollbackAuthUser("user_profiles_upsert_failed", `user_profiles upsert failed: ${profileErr.message}`);
     }
     {
       const [{ data: uRow }, { data: pRow }] = await Promise.all([
@@ -250,6 +257,7 @@ Deno.serve(async (req: Request) => {
       ]);
       if (!uRow || !pRow) {
         return rollbackAuthUser(
+          "profile_rows_missing_after_upsert",
           `profile rows missing after upsert (users=${!!uRow} user_profiles=${!!pRow})`,
         );
       }
@@ -267,7 +275,7 @@ Deno.serve(async (req: Request) => {
         },
         { onConflict: "user_id" },
       );
-      if (bizErr) return rollbackAuthUser(`business_profiles create failed: ${bizErr.message}`);
+      if (bizErr) return rollbackAuthUser("business_profiles_create_failed", `business_profiles create failed: ${bizErr.message}`);
     }
 
     // Bridge identity is intentionally deferred to explicit hosted KYC/KYB start.
@@ -297,7 +305,7 @@ Deno.serve(async (req: Request) => {
       p_ua:          ua,
     });
     if (tokenErr || !tokenData) {
-      return rollbackAuthUser(`token issue failed: ${tokenErr?.message || "no token"}`);
+      return rollbackAuthUser("email_token_issue_failed", `token issue failed: ${tokenErr?.message || "no token"}`);
     }
     const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData)}&purpose=${tokenPurpose}`;
 

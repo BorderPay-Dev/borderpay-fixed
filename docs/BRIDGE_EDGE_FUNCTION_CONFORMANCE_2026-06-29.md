@@ -1030,3 +1030,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened shared identity-invariant failure contract:
   - `loadAndAssertBridgeIdentityInvariant` failures now include deterministic `summary` (`code`, `reason`) at source
   - all endpoints spreading `identity.failure` inherit stable summary semantics automatically
+
+### 2026-06-29 — Batch BM (completed)
+- Hardened `auth-signup` rollback failure contract:
+  - replaced plain rollback error responses with deterministic `code` + `summary.code`
+  - normalized rollback paths: users/profile/business upsert failures, profile-row invariant failure, email token issue failure
