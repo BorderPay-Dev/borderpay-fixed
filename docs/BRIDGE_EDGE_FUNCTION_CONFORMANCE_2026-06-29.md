@@ -680,3 +680,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EE (completed)
 - Hardened `bridge-bulk-payout` success contract:
   - added deterministic success code for batch processing outcome (`bulk_payout_processed`)
+
+### 2026-06-29 — Batch EF (completed)
+- Hardened `bridge-sync-accounts` success contracts:
+  - added deterministic success codes for no-customer and completed sync outcomes (`sync_accounts_no_customer`, `sync_accounts_completed`)

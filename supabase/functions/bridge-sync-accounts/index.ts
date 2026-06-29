@@ -72,7 +72,11 @@ Deno.serve(async (req) => {
   const customerId = profile?.bridge_customer_id;
   if (!customerId) {
     // Nothing to sync yet — not an error.
-    return json({ success: true, data: { wallets: [], virtual_accounts: [] } });
+    return json({
+      success: true,
+      code: "sync_accounts_no_customer",
+      data: { wallets: [], virtual_accounts: [] },
+    });
   }
 
   const ownerCols = isBusiness
@@ -217,6 +221,7 @@ Deno.serve(async (req) => {
 
   return json({
     success: true,
+    code: "sync_accounts_completed",
     data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [] },
   });
 });
