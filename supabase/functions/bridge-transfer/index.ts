@@ -179,7 +179,9 @@ Deno.serve(async (req) => {
       return json({
         success: false,
         code: "unsupported_pair",
-        error: `Unsupported conversion pair ${srcCcy}/${dstCcy}`,
+        error: "This conversion pair is currently unavailable.",
+        source_currency: srcCcy,
+        destination_currency: dstCcy,
       }, 400);
     }
   }

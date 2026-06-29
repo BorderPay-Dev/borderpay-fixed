@@ -236,3 +236,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
   - normalized malformed row failures (`invalid_batch_row_*`, `duplicate_batch_row_idempotency_key`) for stable client handling
+
+### 2026-06-29 — Batch AJ (completed)
+- Hardened `bridge-transfer` unsupported-pair rejection contract:
+  - replaced interpolated pair string error text with deterministic user-safe message
+  - exposed pair context as structured fields (`source_currency`, `destination_currency`)
