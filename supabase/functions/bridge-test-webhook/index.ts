@@ -42,6 +42,10 @@ Deno.serve(async (req) => {
       error: "Invalid request method",
       code: "method_not_allowed",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "POST",
+      },
     }, 405);
   }
   if (!SYNTHETIC_EVENTS_ENABLED) {
@@ -49,6 +53,9 @@ Deno.serve(async (req) => {
       success: false,
       error: "Synthetic events are disabled",
       code: "synthetic_mode_disabled",
+      summary: {
+        code: "synthetic_mode_disabled",
+      },
     }, 403);
   }
   if (!authOk(req)) {
@@ -56,6 +63,9 @@ Deno.serve(async (req) => {
       success: false,
       error: "Unauthorized",
       code: "invalid_test_token",
+      summary: {
+        code: "invalid_test_token",
+      },
     }, 401);
   }
 
@@ -65,6 +75,9 @@ Deno.serve(async (req) => {
       success: false,
       error: "Invalid JSON payload",
       code: "invalid_json_payload",
+      summary: {
+        code: "invalid_json_payload",
+      },
     }, 400);
   }
 
@@ -75,6 +88,9 @@ Deno.serve(async (req) => {
       success: false,
       error: "test_case_id and event_id (or payload.id) are required",
       code: "invalid_synthetic_payload",
+      summary: {
+        code: "invalid_synthetic_payload",
+      },
     }, 400);
   }
 
@@ -99,6 +115,10 @@ Deno.serve(async (req) => {
       error: "Rejected synthetic event",
       code: "synthetic_event_rejected",
       reason_code: evalRes.reason_code,
+      summary: {
+        code: "synthetic_event_rejected",
+        reason_code: evalRes.reason_code,
+      },
     }, 400);
   }
 
@@ -134,6 +154,9 @@ Deno.serve(async (req) => {
       success: false,
       error: "Synthetic ingest failed",
       code: "synthetic_ingest_failed",
+      summary: {
+        code: "synthetic_ingest_failed",
+      },
     }, 500);
   }
   const row = Array.isArray(ingest) ? ingest[0] : ingest;
