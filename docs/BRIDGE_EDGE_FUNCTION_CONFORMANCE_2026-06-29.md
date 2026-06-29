@@ -996,3 +996,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch BE (completed)
 - Hardened `bridge-provision-stablecoins` deterministic summary contracts:
   - standardized method/auth failures and identity-invariant hard-failure path with stable summary codes
+
+### 2026-06-29 — Batch BF (completed)
+- Hardened `bridge-webhook` deterministic summary contracts:
+  - standardized webhook rejection/ingest-failure responses with explicit summary codes and reason codes

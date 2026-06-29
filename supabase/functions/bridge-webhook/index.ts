@@ -130,6 +130,9 @@ Deno.serve(async (req) => {
       error: "Invalid request method",
       code: "method_not_allowed",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+      },
     }, 405);
   }
 
@@ -156,6 +159,10 @@ Deno.serve(async (req) => {
       error: "Missing or malformed webhook signature",
       code: "invalid_signature_header",
       reason_code: evalRes.reason_code,
+      summary: {
+        code: "invalid_signature_header",
+        reason_code: evalRes.reason_code,
+      },
     }, 401);
   }
 
@@ -179,6 +186,10 @@ Deno.serve(async (req) => {
       code: "replay_window_violation",
       age_ms: ageMs,
       reason_code: evalRes.reason_code,
+      summary: {
+        code: "replay_window_violation",
+        reason_code: evalRes.reason_code,
+      },
     }, 400);
   }
 
@@ -200,6 +211,10 @@ Deno.serve(async (req) => {
       error: "Invalid JSON payload",
       code: "invalid_json_payload",
       reason_code: evalRes.reason_code,
+      summary: {
+        code: "invalid_json_payload",
+        reason_code: evalRes.reason_code,
+      },
     }, 400);
   }
 
@@ -223,6 +238,10 @@ Deno.serve(async (req) => {
       error: "Invalid signature",
       code: "invalid_signature",
       reason_code: ingress.reason_code,
+      summary: {
+        code: "invalid_signature",
+        reason_code: ingress.reason_code,
+      },
     }, 401);
   }
   if (ingress.routing_target !== "queue") {
@@ -264,6 +283,10 @@ Deno.serve(async (req) => {
       code: "ingest_failed",
       reason_code: "ingest_error",
       event_id: eventId,
+      summary: {
+        code: "ingest_failed",
+        reason_code: "ingest_error",
+      },
     }, 500);
   }
   // RPC returns one row with shape { was_duplicate, was_rejected, queued, pending_id }
@@ -274,6 +297,9 @@ Deno.serve(async (req) => {
       success: false,
       error: "Invalid signature",
       code: "invalid_signature",
+      summary: {
+        code: "invalid_signature",
+      },
     }, 401);
   }
   if (row?.was_duplicate) {
@@ -313,6 +339,9 @@ Deno.serve(async (req) => {
       success: false,
       error: "Ingest returned no queue confirmation",
       code: "queue_confirmation_missing",
+      summary: {
+        code: "queue_confirmation_missing",
+      },
     }, 500);
   }
 
