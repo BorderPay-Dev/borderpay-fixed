@@ -295,6 +295,12 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - now fails closed with `missing_country_code` when no valid ISO-2 country is present in metadata
   - prevents starting verification with assumed country metadata
 
+### 2026-06-29 — Batch AT (completed)
+- Hardened `auth-signup` country conformance for Bridge onboarding lifecycle:
+  - added strict ISO-2 country validation at signup (`invalid_country_code`)
+  - removed implicit country defaults in profile/business seed rows (`NG` fallback removed)
+  - ensures downstream Bridge identity/KYC flows never inherit assumed country metadata
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
