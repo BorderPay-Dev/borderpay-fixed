@@ -194,6 +194,7 @@ Deno.serve(async (req) => {
       success: true,
       code: "bridge_identity_cleanup_completed",
       summary: {
+        code: "bridge_identity_cleanup_completed",
         dry_run: dryRun,
         scanned: candidates.length,
         processed: out.length,
