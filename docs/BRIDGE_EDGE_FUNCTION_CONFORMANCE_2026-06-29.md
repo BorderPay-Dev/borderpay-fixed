@@ -608,3 +608,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DM (completed)
 - Hardened `bridge-identity-cleanup` failure diagnostics contract:
   - propagated provider metadata (`provider_code`, `bridge_request_id`) on candidate deletion failures
+
+### 2026-06-29 — Batch DN (completed)
+- Hardened `bridge-identity-cleanup` audit persistence contract:
+  - persisted provider metadata (`provider_code`, `bridge_request_id`) in cleanup audit details on failed deletes

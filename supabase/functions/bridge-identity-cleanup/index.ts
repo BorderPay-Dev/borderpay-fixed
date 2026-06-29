@@ -167,7 +167,11 @@ Deno.serve(async (req) => {
         const msg = e instanceof Error ? e.message : String(e);
         const providerCode = e instanceof BridgeProviderError ? e.bridge_code || null : null;
         const bridgeRequestId = e instanceof BridgeProviderError ? e.request_id || null : null;
-        await audit(c, "delete_bridge_customer", "failed", "delete_failed", { error: msg });
+        await audit(c, "delete_bridge_customer", "failed", "delete_failed", {
+          error: msg,
+          provider_code: providerCode,
+          bridge_request_id: bridgeRequestId,
+        });
         out.push({
           user_id: c.user_id,
           bridge_customer_id: c.bridge_customer_id,
