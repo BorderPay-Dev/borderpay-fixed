@@ -668,3 +668,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EB (completed)
 - Hardened `bridge-wallet` success contracts:
   - added deterministic success codes for idempotent/create outcomes (`wallet_already_exists`, `wallet_created`)
+
+### 2026-06-29 — Batch EC (completed)
+- Hardened `bridge-virtual-account` success contracts:
+  - added deterministic success codes for capabilities/idempotent/create outcomes (`virtual_account_supported_currencies_ready`, `virtual_account_already_exists`, `virtual_account_created`)

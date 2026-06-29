@@ -119,7 +119,11 @@ Deno.serve(async (req) => {
     const supported_currencies = (["USD", "EUR", "GBP"] as const).filter((c) =>
       isBridgeVirtualAccountCurrencyAvailable(productCountry, c)
     );
-    return json({ success: true, data: { supported_currencies } });
+    return json({
+      success: true,
+      code: "virtual_account_supported_currencies_ready",
+      data: { supported_currencies },
+    });
   }
 
   const currency = String(body.currency || "").toUpperCase();
@@ -202,6 +206,7 @@ Deno.serve(async (req) => {
       : {};
     return json({
       success: true,
+      code: "virtual_account_already_exists",
       data: {
         virtual_account_id: existingVa.bridge_virtual_account_id,
         account_number:     dep.bank_account_number ?? null,
@@ -285,6 +290,7 @@ Deno.serve(async (req) => {
 
     return json({
       success: true,
+      code: "virtual_account_created",
       data: {
         virtual_account_id: result.virtual_account_id,
         account_number:     result.account_number ?? srcDep.bank_account_number ?? null,
