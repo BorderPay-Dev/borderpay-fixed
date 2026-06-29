@@ -231,6 +231,12 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - signup country selector now fails open to bootstrap countries when runtime provider payload is late/empty
   - preserves Bridge-backed runtime refresh while eliminating cold-start empty country state
 
+### 2026-06-29 — Batch AH (completed)
+- Hardened `bridge-sync-customers` country-code conformance:
+  - removed implicit fallback to `NG` when profile country is missing
+  - now fails closed and marks candidate `skipped_missing_country` for invalid/missing ISO-2 country
+  - prevents creating Bridge customers with assumed country metadata
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
