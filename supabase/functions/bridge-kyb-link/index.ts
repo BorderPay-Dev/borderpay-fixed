@@ -376,7 +376,8 @@ Deno.serve(async (req: Request) => {
     });
     return json({
       success: false,
-      error:   `Business verification link response missing link URL`,
+      code: "missing_verification_link",
+      error: "Business verification link is temporarily unavailable. Please retry.",
       bridge_request_id: r.request_id,
       correlation_id: correlationId,
     }, 502);

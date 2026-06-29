@@ -195,3 +195,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-kyc-link` profile bootstrap failure response:
   - removed raw `user_profiles` bootstrap database error leakage from client response
   - replaced with deterministic product-safe contract (`profile_bootstrap_failed`)
+
+### 2026-06-29 — Batch AB (completed)
+- Hardened `bridge-kyb-link` missing-link failure contract:
+  - replaced generic missing-link failure text with deterministic coded response (`missing_verification_link`)
+  - kept request/correlation ids for operator traceability
