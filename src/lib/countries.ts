@@ -781,11 +781,27 @@ function resolveCode2(input: unknown): string | null {
   return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 
-export function getSignupCountriesFromBridge(records: Array<{ code?: string | null; name?: string | null }>): CountryConfig[] {
+export function getSignupCountriesFromBridge(records: Array<{
+  code?: string | null;
+  name?: string | null;
+  alpha2?: string | null;
+  alpha_2?: string | null;
+  iso2?: string | null;
+  iso_2?: string | null;
+  country_code?: string | null;
+  country_code_alpha2?: string | null;
+}>): CountryConfig[] {
   const out = new Map<string, CountryConfig>();
 
   for (const row of records) {
-    let code = resolveCode2(row?.code);
+    let code =
+      resolveCode2(row?.alpha2) ??
+      resolveCode2(row?.alpha_2) ??
+      resolveCode2(row?.iso2) ??
+      resolveCode2(row?.iso_2) ??
+      resolveCode2(row?.country_code_alpha2) ??
+      resolveCode2(row?.country_code) ??
+      resolveCode2(row?.code);
     const rawName = String(row?.name ?? '').trim();
     if (!code && rawName) {
       const normalized = normalizeCountryName(rawName);
