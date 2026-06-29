@@ -844,3 +844,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FT (completed)
 - Hardened `bridge-fx-supported-pairs` summary metadata contract:
   - added deterministic `summary.code` for supported-pairs readiness outcome
+
+### 2026-06-29 — Batch FU (completed)
+- Hardened `bridge-exchange-rates` summary metadata contract:
+  - added deterministic `summary.code` for exchange-rate readiness outcome

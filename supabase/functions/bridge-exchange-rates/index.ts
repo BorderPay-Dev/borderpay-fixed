@@ -138,6 +138,7 @@ Deno.serve(async (req) => {
     success: true,
     code: "exchange_rate_ready",
     summary: {
+      code: "exchange_rate_ready",
       pair: `${from}_${to}`,
       provider: "bridge",
       updated_at: updatedAt,
