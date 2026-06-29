@@ -700,3 +700,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EJ (completed)
 - Hardened `bridge-sync-customers` success contract:
   - added deterministic success code for sync completion response (`sync_customers_completed`)
+
+### 2026-06-29 — Batch EK (completed)
+- Hardened `bridge-identity-cleanup` success contract:
+  - added deterministic success code for cleanup completion response (`bridge_identity_cleanup_completed`)
