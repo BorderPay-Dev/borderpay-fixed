@@ -33,6 +33,10 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "POST",
+      },
     }, 405);
   }
 
@@ -44,6 +48,9 @@ Deno.serve(async (req) => {
       ok: false,
       code: "missing_bearer_token",
       error: "Authentication required",
+      summary: {
+        code: "missing_bearer_token",
+      },
     }, 401);
   }
 
@@ -65,6 +72,9 @@ Deno.serve(async (req) => {
         ok: false,
         code: "invalid_auth_token",
         error: "Unauthorized",
+        summary: {
+          code: "invalid_auth_token",
+        },
       }, 401);
     }
 
@@ -79,6 +89,9 @@ Deno.serve(async (req) => {
         ok: false,
         code: "admin_only",
         error: "Admin access required",
+        summary: {
+          code: "admin_only",
+        },
       }, 403);
     }
   }

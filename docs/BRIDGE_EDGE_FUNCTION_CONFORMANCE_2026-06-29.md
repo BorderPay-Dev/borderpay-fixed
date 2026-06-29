@@ -893,3 +893,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GF (completed)
 - Hardened `bridge-supported-countries` error metadata contract:
   - added deterministic `summary` mirrors for method-not-allowed and provider-unavailable outcomes
+
+### 2026-06-29 — Batch GG (completed)
+- Hardened `bridge-ping` error metadata contract:
+  - added deterministic `summary` mirrors for method/auth/admin-gate outcomes
