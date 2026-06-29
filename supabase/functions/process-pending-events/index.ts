@@ -38,6 +38,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { normalizeBridgeCustomerRejectionReason } from "../_shared/email-templates/rejection-reason.ts";
 import {
   assertBridgeIngressDecision,
   evaluateBridgeIngressEvent,
@@ -159,24 +160,33 @@ async function emailKycDecisionBestEffort(
 function extractCustomerRejectionReason(payload: any): string | null {
   if (!payload) return null;
 
+  const sharedUnsafe = /developer reason|do not share|informational purposes only|internal/i;
   const direct = [
     payload?.rejection_reason,
     payload?.customer_rejection_reason,
     payload?.user_rejection_reason,
     payload?.reason,
+    payload?.event_object?.rejection_reason,
+    payload?.event_object?.customer_rejection_reason,
+    payload?.event_object?.user_rejection_reason,
+    payload?.event_object?.reason,
+    payload?.data?.rejection_reason,
+    payload?.data?.customer_rejection_reason,
+    payload?.data?.user_rejection_reason,
+    payload?.data?.reason,
   ].find((v) => typeof v === "string" && String(v).trim().length > 0);
   if (typeof direct === "string" && direct.trim()) {
     const v = direct.trim();
-    if (!/developer reason|do not share|informational purposes only|internal/i.test(v)) return v;
+    if (!sharedUnsafe.test(v)) return normalizeBridgeCustomerRejectionReason(v);
   }
 
   const rr = payload?.rejection_reasons;
   if (Array.isArray(rr)) {
     for (const item of rr) {
-      const msg = item?.rejection_reason ?? item?.user_reason ?? item?.reason;
+      const msg = item?.rejection_reason ?? item?.customer_rejection_reason ?? item?.user_reason ?? item?.reason;
       if (typeof msg === "string" && msg.trim()) {
         const v = msg.trim();
-        if (!/developer reason|do not share|informational purposes only|internal/i.test(v)) return v;
+        if (!sharedUnsafe.test(v)) return normalizeBridgeCustomerRejectionReason(v);
       }
     }
   }
