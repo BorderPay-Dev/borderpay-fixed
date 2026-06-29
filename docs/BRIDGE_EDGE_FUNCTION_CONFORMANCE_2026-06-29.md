@@ -1025,3 +1025,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened shared country-block contract:
   - `bridgeCountryBlockResponse()` now includes deterministic `summary` (`code`, `reason`, `country`)
   - all Bridge endpoints consuming this helper inherit consistent blocked-country response shape
+
+### 2026-06-29 — Batch BL (completed)
+- Hardened shared identity-invariant failure contract:
+  - `loadAndAssertBridgeIdentityInvariant` failures now include deterministic `summary` (`code`, `reason`) at source
+  - all endpoints spreading `identity.failure` inherit stable summary semantics automatically

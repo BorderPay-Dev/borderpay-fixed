@@ -11,12 +11,17 @@ export type BridgeIdentityInvariantFailure = {
   code: "identity_invariant_violation";
   reason:
     | "profile_missing"
+    | "operator_account_excluded"
     | "approved_without_customer_id"
     | "customer_id_unmapped"
     | "customer_id_ambiguous"
     | "customer_id_owned_by_other_user";
   error: string;
   details?: Record<string, unknown>;
+  summary: {
+    code: "identity_invariant_violation";
+    reason: BridgeIdentityInvariantFailure["reason"];
+  };
 };
 
 type SupaLike = { from: (table: string) => any };
@@ -26,7 +31,16 @@ function fail(
   error: string,
   details?: Record<string, unknown>,
 ): BridgeIdentityInvariantFailure {
-  return { code: "identity_invariant_violation", reason, error, details };
+  return {
+    code: "identity_invariant_violation",
+    reason,
+    error,
+    details,
+    summary: {
+      code: "identity_invariant_violation",
+      reason,
+    },
+  };
 }
 
 /**
@@ -78,6 +92,23 @@ export async function loadAndAssertBridgeIdentityInvariant(
   }
 
   if (bridge_customer_id) {
+    const { data: operatorRow } = await supa
+      .from("operator_bridge_accounts")
+      .select("bridge_customer_id")
+      .eq("bridge_customer_id", bridge_customer_id)
+      .eq("active", true)
+      .maybeSingle();
+    if (operatorRow?.bridge_customer_id) {
+      return {
+        ok: false,
+        failure: fail(
+          "operator_account_excluded",
+          "Bridge operator/admin account is excluded from customer lifecycle operations.",
+          { bridge_customer_id: bridge_customer_id, user_id: userId, account_type },
+        ),
+      };
+    }
+
     const [{ data: bizRows }, { data: userRows }] = await Promise.all([
       supa.from("business_profiles").select("user_id").eq("bridge_customer_id", bridge_customer_id).limit(2),
       supa.from("user_profiles").select("id, account_type").eq("bridge_customer_id", bridge_customer_id).limit(2),
@@ -124,4 +155,3 @@ export async function loadAndAssertBridgeIdentityInvariant(
     context: { account_type, country, bridge_customer_id, verification_status },
   };
 }
-
