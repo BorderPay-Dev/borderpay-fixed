@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
   getSignupCountriesFromBridge,
+  getSignupBootstrapCountries,
   getCountryByCode,
   POPULAR_COUNTRY_CODES,
   type CountryConfig,
@@ -113,8 +114,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [enrollmentComplete, setEnrollmentComplete] = useState(false);
   const [formError, setFormError] = useState('');
-  const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>([]);
-  const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(true);
+  const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>(() => getSignupBootstrapCountries());
+  const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(false);
 
   const [formData, setFormData] = useState<SignUpData>({
     fullName: '',
@@ -144,16 +145,15 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setBridgeCountriesLoading(true);
       const result = await backendAPI.auth.getBridgeSupportedCountries();
       if (cancelled) return;
       if (!result.success) {
-        setBridgeSignupCountries([]);
         setBridgeCountriesLoading(false);
         return;
       }
       const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; name?: string | null }>;
-      setBridgeSignupCountries(getSignupCountriesFromBridge(providerCountries));
+      const mapped = getSignupCountriesFromBridge(providerCountries);
+      if (mapped.length > 0) setBridgeSignupCountries(mapped);
       setBridgeCountriesLoading(false);
     })();
     return () => { cancelled = true; };
@@ -895,12 +895,12 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
           <button
             type="button"
             onClick={() => setShowCountryPicker(true)}
-            disabled={countriesLoading || signupCountries.length === 0}
+            disabled={signupCountries.length === 0}
             className={`w-full flex items-center gap-3 py-3.5 px-4 bg-white/[0.04] backdrop-blur-md border rounded-2xl transition-all text-left ${
               formData.selectedCountry
                 ? 'border-[#C7FF00]/40'
                 : 'border-red-500/40 animate-pulse'
-            } ${(countriesLoading || signupCountries.length === 0) ? 'opacity-60 cursor-not-allowed' : ''}`}
+            } ${(signupCountries.length === 0) ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             <Globe className="w-5 h-5 text-gray-500 flex-shrink-0" />
             {formData.selectedCountry ? (
@@ -908,17 +908,15 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
                 <span className="text-xl">{formData.selectedCountry.flag}</span>
                 <span className="text-sm text-white font-medium">{formData.selectedCountry.name}</span>
               </div>
-            ) : countriesLoading ? (
-              <span className="text-sm text-gray-500">Loading supported countries...</span>
             ) : (
               <span className="text-sm text-gray-500">Select your country...</span>
             )}
             <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
           </button>
-          {!formData.selectedCountry && !countriesLoading && signupCountries.length > 0 && (
+          {!formData.selectedCountry && signupCountries.length > 0 && (
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Required - determines your available services & wallets</p>
           )}
-          {!countriesLoading && signupCountries.length === 0 && (
+          {signupCountries.length === 0 && (
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Could not load Bridge-supported countries. Please try again.</p>
           )}
           {formData.selectedCountry && isBridgeControlled(formData.selectedCountry.code) && (
@@ -983,9 +981,6 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
 
                 {/* Popular Countries (only when no search) */}
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-safe pb-6" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  {countriesLoading ? (
-                    <div className="py-10 text-center text-sm text-gray-500">Loading supported countries...</div>
-                  ) : (
                   <>
                   {!countrySearchQuery && (
                     <div className="mb-4">
@@ -1040,7 +1035,6 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
                     ))}
                   </div>
                   </>
-                  )}
                 </div>
               </motion.div>
             </motion.div>
@@ -1129,7 +1123,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         {/* Submit */}
         <motion.button
           type="submit"
-          disabled={isLoading || countriesLoading || signupCountries.length === 0 || !formData.selectedCountry}
+          disabled={isLoading || signupCountries.length === 0 || !formData.selectedCountry}
           whileTap={{ scale: 0.98 }}
           className="w-full bg-[#C7FF00] text-black py-3.5 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#D4FF33] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
         >

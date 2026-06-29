@@ -802,3 +802,13 @@ export function getSignupCountriesFromBridge(records: Array<{ code?: string | nu
 
   return Array.from(out.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Cold-start country set for instant signup rendering.
+ * UI paints immediately, then Bridge runtime list refreshes in background.
+ */
+export function getSignupBootstrapCountries(): CountryConfig[] {
+  return getSignupCountriesFromBridge(
+    ALL_COUNTRIES.map((c) => ({ code: c.code, name: c.name }))
+  );
+}
