@@ -660,3 +660,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DZ (completed)
 - Hardened `bridge-external-account` success contracts:
   - added deterministic success codes for delete/list/create/support-metadata outcomes
+
+### 2026-06-29 — Batch EA (completed)
+- Hardened `bridge-customer` success contracts:
+  - added deterministic success codes for idempotent and create outcomes (`bridge_customer_already_exists`, `bridge_customer_created`)

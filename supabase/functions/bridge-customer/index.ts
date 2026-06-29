@@ -156,7 +156,11 @@ Deno.serve(async (req) => {
   // Idempotent: return existing if any (only reachable for non-blocked
   // countries, per the gate above).
   if (profile.bridge_customer_id) {
-    return json({ success: true, data: { bridge_customer_id: profile.bridge_customer_id, account_type: profile.account_type, already_exists: true } });
+    return json({
+      success: true,
+      code: "bridge_customer_already_exists",
+      data: { bridge_customer_id: profile.bridge_customer_id, account_type: profile.account_type, already_exists: true },
+    });
   }
 
   // For business: pull company_name from business_profiles
@@ -201,7 +205,11 @@ Deno.serve(async (req) => {
       }, 500);
     }
 
-    return json({ success: true, data: { bridge_customer_id: result.provider_id, account_type: profile.account_type } });
+    return json({
+      success: true,
+      code: "bridge_customer_created",
+      data: { bridge_customer_id: result.provider_id, account_type: profile.account_type },
+    });
   } catch (e) {
     const mapped = mapBridgeCustomerError(e, {
       accountType: profile.account_type as "individual" | "business",
