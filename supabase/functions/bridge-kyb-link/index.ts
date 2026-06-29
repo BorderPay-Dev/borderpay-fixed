@@ -198,7 +198,14 @@ function mapKybLinkFailure(status: number, parsed: any): { status: number; code:
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+    }, 405);
+  }
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
   const correlationId = crypto.randomUUID();
   const executionTimestamp = new Date().toISOString();
@@ -207,10 +214,22 @@ Deno.serve(async (req: Request) => {
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({
+      success: false,
+      code: "missing_bearer_token",
+      error: "Authentication required",
+    }, 401);
+  }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
-  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (authErr || !user) {
+    return json({
+      success: false,
+      code: "invalid_auth_token",
+      error: "Unauthorized",
+    }, 401);
+  }
   await writeTrace(correlationId, "invoked", {
     executionTimestamp,
     userId: user.id,
@@ -244,7 +263,13 @@ Deno.serve(async (req: Request) => {
     },
     elapsedMs: elapsed(),
   });
-  if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
+  if (!profile) {
+    return json({
+      success: false,
+      code: "profile_not_found",
+      error: "User profile was not found",
+    }, 404);
+  }
   if (profile.account_type !== "business") {
     return json({ success: false, error: "KYB is only for business accounts. Use bridge-kyc-link.", code: "wrong_account_type" }, 403);
   }
@@ -253,7 +278,11 @@ Deno.serve(async (req: Request) => {
   }
   logControlledBridgeTraffic("bridge-kyb-link", profile.country, user.id);
   if (!profile.email) {
-    return json({ success: false, error: "Profile missing email — cannot start verification" }, 400);
+    return json({
+      success: false,
+      code: "profile_email_missing",
+      error: "Profile email is required to start verification",
+    }, 400);
   }
 
   // business_profiles uses bridge_kyb_link_* (KYB-prefixed) columns;
@@ -267,7 +296,13 @@ Deno.serve(async (req: Request) => {
     .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, bridge_kyb_link_id, bridge_kyb_link_url")
     .eq("user_id", user.id)
     .maybeSingle();
-  if (!biz?.company_name) return json({ success: false, error: "business_profiles missing company_name" }, 404);
+  if (!biz?.company_name) {
+    return json({
+      success: false,
+      code: "business_profile_incomplete",
+      error: "Business profile is incomplete. Add company details before verification.",
+    }, 404);
+  }
 
   if (isVerifiedStatus(biz.bridge_kyb_status)) {
     return json({ success: true, data: { already_approved: true, bridge_kyb_status: "approved" } });
