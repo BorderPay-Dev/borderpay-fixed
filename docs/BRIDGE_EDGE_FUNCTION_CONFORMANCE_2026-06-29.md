@@ -538,3 +538,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-kyc-link` provider rejection contract:
   - normalized `requires_active_kyc_status` to deterministic `kyc_not_approved` with account-type aware wording
   - added explicit `expected_verification_status=approved` in API error responses
+
+### 2026-06-29 — Batch CW (completed)
+- Hardened `bridge-kyb-link` provider rejection contract:
+  - added explicit `expected_verification_status=approved` on provider-side `kyb_not_approved` responses for parity with onboarding guards

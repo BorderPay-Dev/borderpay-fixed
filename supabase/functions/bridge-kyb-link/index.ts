@@ -165,13 +165,22 @@ function isVerifiedStatus(value: string | null | undefined): boolean {
   );
 }
 
-function mapKybLinkFailure(status: number, parsed: any): { status: number; code: string; error: string; provider_code?: string } {
+function mapKybLinkFailure(
+  status: number,
+  parsed: any,
+): { status: number; code: string; error: string; provider_code?: string; expected_verification_status?: "approved" } {
   const providerCode = String(parsed?.code || parsed?.error_code || "").toLowerCase();
   switch (providerCode) {
     case "has_not_accepted_tos":
       return { status: 409, code: "tos_required", error: "Please accept Terms of Service before starting verification.", provider_code: providerCode };
     case "requires_active_kyc_status":
-      return { status: 409, code: "kyb_not_approved", error: "Business verification is not active for this account yet.", provider_code: providerCode };
+      return {
+        status: 409,
+        code: "kyb_not_approved",
+        error: "Business verification is not active for this account yet.",
+        provider_code: providerCode,
+        expected_verification_status: "approved",
+      };
     case "missing_required_endorsements":
     case "endorsement_requirements_not_met":
       return { status: 403, code: "endorsement_required", error: "Business verification route is not enabled for this account.", provider_code: providerCode };
@@ -395,6 +404,9 @@ Deno.serve(async (req: Request) => {
       success: false,
       code: mapped.code,
       error: mapped.error,
+      ...(mapped.expected_verification_status
+        ? { expected_verification_status: mapped.expected_verification_status }
+        : {}),
       provider_code: mapped.provider_code,
       bridge_request_id: r.request_id,
       bridge_status:     r.status,
