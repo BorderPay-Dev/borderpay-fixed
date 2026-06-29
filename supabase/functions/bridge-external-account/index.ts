@@ -102,10 +102,24 @@ type CreateInput = UsAccountInput | IbanAccountInput | ClabeAccountInput | PixAc
 
 const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 
-function mapExternalAccountProviderError(status: number, providerMessage?: string): { status: number; code: string; error: string } {
+function mapExternalAccountProviderError(
+  status: number,
+  providerMessage?: string,
+  options?: { accountType?: "individual" | "business" | null },
+): { status: number; code: string; error: string } {
   const msg = String(providerMessage || "").toLowerCase();
+  const isBusiness = options?.accountType === "business";
   if (status === 429) {
     return { status: 429, code: "rate_limited", error: "Too many requests. Please retry shortly." };
+  }
+  if (msg.includes("requires_active_kyc_status")) {
+    return {
+      status: 409,
+      code: "kyc_not_approved",
+      error: isBusiness
+        ? "Business verification is required before managing external accounts."
+        : "Identity verification is required before managing external accounts.",
+    };
   }
   if (status === 400 || msg.includes("invalid") || msg.includes("missing")) {
     return { status: 400, code: "invalid_external_account_payload", error: "External account details are invalid. Please review and retry." };
@@ -218,7 +232,7 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}`,
     });
     if (!r.ok) {
-      const mapped = mapExternalAccountProviderError(r.status, r.error);
+      const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
       return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
     }
     await supa.from("bridge_external_accounts")
@@ -235,7 +249,7 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
     if (!r.ok) {
-      const mapped = mapExternalAccountProviderError(r.status, r.error);
+      const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
       return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
     }
     return json({ success: true, data: (r.data as any)?.data ?? r.data });
@@ -248,7 +262,7 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
     if (!r.ok) {
-      const mapped = mapExternalAccountProviderError(r.status, r.error);
+      const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
       return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
     }
     const rows = ((r.data as any)?.data ?? r.data ?? []) as any[];
@@ -488,7 +502,7 @@ Deno.serve(async (req) => {
     idempotencyKey: `borderpay:extacct:${user.id}:${acct.account_type}:${derivedLast4}`,
   });
   if (!r.ok) {
-    const mapped = mapExternalAccountProviderError(r.status, r.error);
+    const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
     return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
   }
 

@@ -499,3 +499,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CM (completed)
 - Hardened `bridge-transfer` provider rejection mapping:
   - normalized `requires_active_kyc_status` failure message to account-type aware wording (Identity vs Business verification)
+
+### 2026-06-29 — Batch CN (completed)
+- Hardened `bridge-external-account` provider rejection mapping:
+  - mapped `requires_active_kyc_status` provider failures to deterministic `kyc_not_approved` with account-type aware wording (Identity vs Business verification)
