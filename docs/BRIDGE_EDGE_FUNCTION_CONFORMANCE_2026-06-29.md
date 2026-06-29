@@ -636,3 +636,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DT (completed)
 - Hardened `bridge-virtual-account` provider diagnostics contract:
   - surfaced `provider_code` on TOS/KYC/endorsement provider rejection responses
+
+### 2026-06-29 — Batch DU (completed)
+- Hardened `bridge-exchange-rates` invalid-payload contract:
+  - included pair context (`from`, `to`) on `invalid_rate_payload` responses

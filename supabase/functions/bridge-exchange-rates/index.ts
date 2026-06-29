@@ -129,6 +129,8 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_rate_payload",
       error: "Exchange rate is temporarily unavailable. Please retry.",
+      from,
+      to,
     }, 502);
   }
 
