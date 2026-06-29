@@ -121,6 +121,8 @@ async function emailKycDecisionBestEffort(
 
     let template: string;
     let props: Record<string, unknown>;
+    const normalizedReason = reason ? normalizeBridgeCustomerRejectionReason(reason) : null;
+    const retryable = decision === "rejected" && /cannot validate id|upload a clear photo/i.test(String(normalizedReason || ""));
     if (isKyb) {
       const { data: biz } = await supabase
         .from("business_profiles")
@@ -128,10 +130,10 @@ async function emailKycDecisionBestEffort(
         .eq("user_id", userId)
         .maybeSingle();
       template = "business.kyb_decision";
-      props = { company_name: biz?.company_name ?? null, decision, reason: reason ?? null };
+      props = { company_name: biz?.company_name ?? null, decision, reason: normalizedReason, next_steps: retryable ? "Upload a clear photo of the full ID/document and restart verification from your dashboard." : null };
     } else {
       template = "individual.kyc_decision";
-      props = { full_name: rcpt.full_name, decision, reason: reason ?? null };
+      props = { full_name: rcpt.full_name, decision, reason: normalizedReason, retryable };
     }
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
