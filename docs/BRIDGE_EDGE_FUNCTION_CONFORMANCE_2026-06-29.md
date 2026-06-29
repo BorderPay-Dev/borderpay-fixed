@@ -752,3 +752,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EW (completed)
 - Hardened `bridge-transfer` success metadata contract:
   - added deterministic top-level `summary` mirror for replay/create outcomes while preserving existing `data` fields
+
+### 2026-06-29 — Batch EX (completed)
+- Hardened `bridge-wallet` success metadata contract:
+  - added deterministic top-level `summary` mirror for idempotent/create outcomes
