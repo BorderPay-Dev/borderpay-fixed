@@ -151,7 +151,16 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         setBridgeCountriesLoading(false);
         return;
       }
-      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; name?: string | null }>;
+      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{
+        code?: string | null;
+        name?: string | null;
+        alpha2?: string | null;
+        alpha_2?: string | null;
+        iso2?: string | null;
+        iso_2?: string | null;
+        country_code?: string | null;
+        country_code_alpha2?: string | null;
+      }>;
       const mapped = getSignupCountriesFromBridge(providerCountries);
       if (mapped.length > 0) setBridgeSignupCountries(mapped);
       setBridgeCountriesLoading(false);
