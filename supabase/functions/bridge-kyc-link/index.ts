@@ -506,7 +506,8 @@ Deno.serve(async (req: Request) => {
     });
     return json({
       success: false,
-      error:   `Verification link response missing link URL`,
+      code: "missing_verification_link",
+      error: "Verification link is temporarily unavailable. Please retry.",
       bridge_request_id: r.request_id,
     }, 502);
   }

@@ -200,3 +200,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-kyb-link` missing-link failure contract:
   - replaced generic missing-link failure text with deterministic coded response (`missing_verification_link`)
   - kept request/correlation ids for operator traceability
+
+### 2026-06-29 — Batch AC (completed)
+- Hardened `bridge-kyc-link` missing-link failure contract:
+  - replaced generic missing-link failure text with deterministic coded response (`missing_verification_link`)
+  - kept Bridge request id for operator traceability
