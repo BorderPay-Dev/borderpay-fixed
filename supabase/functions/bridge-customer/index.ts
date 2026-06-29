@@ -22,13 +22,24 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-function mapBridgeCustomerError(error: unknown): { status: number; code: string; error: string } {
+function mapBridgeCustomerError(
+  error: unknown,
+  options?: { accountType?: "individual" | "business" },
+): { status: number; code: string; error: string; expected_verification_status?: "approved" } {
   const message = String((error as Error)?.message || "").toLowerCase();
+  const isBusiness = options?.accountType === "business";
   if (message.includes("has_not_accepted_tos")) {
     return { status: 409, code: "tos_required", error: "You must accept terms before continuing verification." };
   }
   if (message.includes("requires_active_kyc_status")) {
-    return { status: 409, code: "verification_required", error: "Verification is required before account setup can continue." };
+    return {
+      status: 409,
+      code: "kyc_not_approved",
+      error: isBusiness
+        ? "Business verification is required before account setup can continue."
+        : "Identity verification is required before account setup can continue.",
+      expected_verification_status: "approved",
+    };
   }
   if (message.includes("429") || message.includes("rate")) {
     return { status: 429, code: "rate_limited", error: "Too many requests. Please try again shortly." };
@@ -154,7 +165,16 @@ Deno.serve(async (req) => {
 
     return json({ success: true, data: { bridge_customer_id: result.provider_id, account_type: profile.account_type } });
   } catch (e) {
-    const mapped = mapBridgeCustomerError(e);
-    return json({ success: false, code: mapped.code, error: mapped.error }, mapped.status);
+    const mapped = mapBridgeCustomerError(e, {
+      accountType: profile.account_type as "individual" | "business",
+    });
+    return json({
+      success: false,
+      code: mapped.code,
+      error: mapped.error,
+      ...(mapped.expected_verification_status
+        ? { expected_verification_status: mapped.expected_verification_status }
+        : {}),
+    }, mapped.status);
   }
 });
