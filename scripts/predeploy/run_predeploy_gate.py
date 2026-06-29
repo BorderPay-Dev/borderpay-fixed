@@ -151,14 +151,14 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
         remediation="Restore missing files before deployment.",
     ))
 
-    # Bridge-only runtime: no Maplerad references in active runtime surfaces.
-    maplerad_hits = rg_hits("maplerad", "supabase/functions src utils components", extra_globs=["!**/*.md", "!**/*.txt"])
+    # Bridge-only runtime: no legacy provider references in active runtime surfaces.
+    legacy_provider_hits = rg_hits("maplerad", "supabase/functions src utils components", extra_globs=["!**/*.md", "!**/*.txt"])
     stage.checks.append(CheckResult(
-        name="No Maplerad runtime references",
-        passed=len(maplerad_hits) == 0,
-        evidence="none" if not maplerad_hits else "; ".join(maplerad_hits[:8]),
+        name="No legacy provider runtime references",
+        passed=len(legacy_provider_hits) == 0,
+        evidence="none" if not legacy_provider_hits else "; ".join(legacy_provider_hits[:8]),
         severity="high",
-        remediation="Remove Maplerad references from runtime code paths.",
+        remediation="Remove legacy provider references from runtime code paths.",
     ))
 
     # No unsupported provider usage in runtime paths (Bridge-only).
