@@ -211,6 +211,7 @@ Deno.serve(async (req) => {
           success: false,
           code: "tos_required",
           error: "Please accept Terms of Service before creating a wallet.",
+          provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
         }, 409);
       }
@@ -222,6 +223,7 @@ Deno.serve(async (req) => {
             ? "Business verification is required before creating a wallet."
             : "Identity verification is required before creating a wallet.",
           expected_verification_status: "approved",
+          provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
         }, 409);
       }
@@ -230,6 +232,7 @@ Deno.serve(async (req) => {
           success: false,
           code: "endorsement_required",
           error: "Wallet creation is not enabled for your account yet.",
+          provider_code: code || undefined,
           bridge_request_id: e.request_id || undefined,
         }, 403);
       }

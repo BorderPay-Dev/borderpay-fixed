@@ -628,3 +628,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DR (completed)
 - Hardened `bridge-external-account` provider diagnostics contract:
   - propagated Bridge payload `provider_code` on all mapped provider error responses (create/list/delete/verify paths)
+
+### 2026-06-29 — Batch DS (completed)
+- Hardened `bridge-wallet` provider diagnostics contract:
+  - surfaced `provider_code` on TOS/KYC/endorsement provider rejection responses
