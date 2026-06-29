@@ -800,3 +800,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FI (completed)
 - Hardened `bridge-provision-stablecoins` skip metadata contract:
   - added deterministic top-level `summary` mirror for skipped/no-op outcomes
+
+### 2026-06-29 — Batch FJ (completed)
+- Hardened `bridge-sync-accounts` summary metadata contract:
+  - added deterministic `summary.code` for both no-customer and completed outcomes

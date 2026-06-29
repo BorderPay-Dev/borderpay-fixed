@@ -76,8 +76,10 @@ Deno.serve(async (req) => {
       success: true,
       code: "sync_accounts_no_customer",
       summary: {
+        code: "sync_accounts_no_customer",
         wallet_count: 0,
         virtual_account_count: 0,
+        required_state: "bridge_customer_created",
       },
       data: {
         wallets: [],
@@ -231,6 +233,7 @@ Deno.serve(async (req) => {
     success: true,
     code: "sync_accounts_completed",
     summary: {
+      code: "sync_accounts_completed",
       wallet_count: (wallets ?? []).length,
       virtual_account_count: (virtualAccounts ?? []).length,
     },
