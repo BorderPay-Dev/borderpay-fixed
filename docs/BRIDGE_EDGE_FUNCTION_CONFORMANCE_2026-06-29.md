@@ -264,6 +264,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - switched pending-review detection from generic exception text to structured provider fields (`bridge_code`, `bridge_error`)
   - preserves existing user-safe `va_grant_pending` response while reducing false negatives after provider error-contract hardening
 
+### 2026-06-29 — Batch AN (completed)
+- Hardened shared provider `createVirtualAccount` preflight validation contract:
+  - replaced local generic validation throws with structured `BridgeProviderError` (`bridge_code=invalid_parameters`)
+  - keeps downstream error mapping deterministic even for pre-provider request validation failures
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
