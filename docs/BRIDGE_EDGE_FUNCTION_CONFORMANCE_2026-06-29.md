@@ -311,6 +311,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - explicit provider-status mapping for `401/403` to deterministic `provider_auth_error`
   - avoids ambiguous fallback `bridge_customer_failed` responses on provider auth-side outages
 
+### 2026-06-29 — Batch AW (completed)
+- Hardened `bridge-sync-customers` provider-auth classification:
+  - explicit provider-status mapping for `401/403` to deterministic `provider_auth_error`
+  - keeps sync candidate outcomes operator-safe and consistent with customer-init path mapping
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
