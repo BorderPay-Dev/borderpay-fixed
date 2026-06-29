@@ -14,20 +14,33 @@ function normalizeCurrency(v: unknown): string {
   return String(v || "").trim().toUpperCase();
 }
 
-function mapExchangeRateProviderError(status: number, providerMessage?: string) {
+function mapExchangeRateProviderError(
+  status: number,
+  providerMessage?: string,
+  providerCode?: string,
+) {
   const msg = String(providerMessage || "").toLowerCase();
+  const code = String(providerCode || "").toLowerCase();
   if (status === 429) {
     return {
       status: 429,
       code: "rate_limited",
       error: "Rate lookup is temporarily busy. Please retry in a moment.",
+      provider_code: code || undefined,
     };
   }
-  if (status === 400 || msg.includes("unsupported") || msg.includes("invalid")) {
+  if (
+    status === 400 ||
+    msg.includes("unsupported") ||
+    msg.includes("invalid") ||
+    code === "unsupported_pair" ||
+    code === "invalid_parameters"
+  ) {
     return {
       status: 400,
       code: "unsupported_pair",
       error: "This currency pair is currently unavailable.",
+      provider_code: code || undefined,
     };
   }
   if (status === 401 || status === 403) {
@@ -35,6 +48,7 @@ function mapExchangeRateProviderError(status: number, providerMessage?: string) 
       status: 502,
       code: "provider_auth_error",
       error: "Rate service is temporarily unavailable. Please try again shortly.",
+      provider_code: code || undefined,
     };
   }
   if (status >= 500 || status === 0) {
@@ -42,12 +56,14 @@ function mapExchangeRateProviderError(status: number, providerMessage?: string) 
       status: 502,
       code: "provider_unavailable",
       error: "Unable to fetch exchange rates right now. Please retry shortly.",
+      provider_code: code || undefined,
     };
   }
   return {
     status: status || 502,
     code: "provider_error",
     error: "Unable to fetch exchange rates right now. Please retry.",
+    provider_code: code || undefined,
   };
 }
 
@@ -90,11 +106,15 @@ Deno.serve(async (req) => {
   });
 
   if (!r.ok) {
-    const mapped = mapExchangeRateProviderError(r.status, r.error);
+    const providerCode = String((r.data as any)?.code || (r.data as any)?.error_code || "").toLowerCase();
+    const mapped = mapExchangeRateProviderError(r.status, r.error, providerCode);
     return json({
       success: false,
       code: mapped.code,
       error: mapped.error,
+      from,
+      to,
+      provider_code: mapped.provider_code,
       request_id: r.request_id ?? null,
     }, mapped.status);
   }

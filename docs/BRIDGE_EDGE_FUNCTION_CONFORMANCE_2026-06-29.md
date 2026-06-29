@@ -559,3 +559,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-provision-stablecoins` best-effort skip context:
   - added deterministic `required_state=bridge_customer_created` on `no_customer` skips
   - added explicit `country` context on `country_unsupported` skips
+
+### 2026-06-29 — Batch DB (completed)
+- Hardened `bridge-exchange-rates` provider error contract:
+  - normalized provider-code propagation (`provider_code`) on error responses
+  - attached pair context (`from`, `to`) for deterministic client handling
