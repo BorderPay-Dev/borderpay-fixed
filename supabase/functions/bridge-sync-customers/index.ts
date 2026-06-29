@@ -119,7 +119,13 @@ Deno.serve(async (req) => {
   }
 
   const { data: candidates, error: qErr } = await query;
-  if (qErr) return json({ success: false, error: `Query failed: ${qErr.message}` }, 500);
+  if (qErr) {
+    return json({
+      success: false,
+      code: "sync_query_failed",
+      error: "Unable to load sync candidates right now. Please retry.",
+    }, 500);
+  }
 
   const results: Array<Record<string, unknown>> = [];
   let created = 0;

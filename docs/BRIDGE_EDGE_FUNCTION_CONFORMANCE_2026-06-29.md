@@ -180,3 +180,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-transfer` persistence-failure response:
   - removed raw RPC/database error leakage from `persistence_failed` client response
   - retained `bridge_transfer_id` so status can be reconciled after provider acceptance
+
+### 2026-06-29 — Batch Y (completed)
+- Hardened `bridge-sync-customers` query failure response:
+  - removed raw Supabase query error leakage from sync endpoint
+  - replaced with deterministic operator-safe error contract (`sync_query_failed`)
