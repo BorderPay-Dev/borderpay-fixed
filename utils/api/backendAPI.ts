@@ -2034,9 +2034,8 @@ export const bridgeAPI = {
   })(),
 
   /**
-   * Ensure an activated user has their base stablecoin wallets (USDC/USDT).
-   * Idempotent + silent no-op for ineligible users (never pops the activation
-   * modal). Deduped so concurrent dashboard mounts share one call.
+   * Deprecated: stablecoin wallets are manual-add only.
+   * Kept as a compatibility no-op so accidental callers never auto-create.
    */
   provisionStablecoins: (() => {
     let inFlight: Promise<any> | null = null;
@@ -2045,9 +2044,11 @@ export const bridgeAPI = {
       const now = Date.now();
       if (inFlight && now - lastAt < 8000) return inFlight;
       lastAt = now;
-      inFlight = apiCall<{ wallets: Array<{ symbol: string; chain: string; address: string | null }> }>(
-        'bridge-provision-stablecoins', { method: 'POST', body: JSON.stringify({}) },
-      ).finally(() => { inFlight = null; });
+      inFlight = Promise.resolve({
+        success: true,
+        code: 'stablecoin_manual_only',
+        data: { wallets: [] as Array<{ symbol: string; chain: string; address: string | null }> },
+      }).finally(() => { inFlight = null; });
       return inFlight;
     };
   })(),
