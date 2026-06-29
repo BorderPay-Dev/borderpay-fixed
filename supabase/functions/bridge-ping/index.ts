@@ -91,6 +91,10 @@ Deno.serve(async (req) => {
       ok: false,
       code: "bridge_api_key_missing",
       error: "Bridge API key is not configured on this project.",
+      summary: {
+        code: "bridge_api_key_missing",
+        key_kind: "unknown",
+      },
     }, 500);
   }
 
@@ -122,6 +126,11 @@ Deno.serve(async (req) => {
       stage: "network",
       error: "Unable to reach Bridge endpoint right now.",
       latency_ms: Date.now() - t0,
+      summary: {
+        code: "bridge_network_unreachable",
+        key_kind: keyKind,
+        stage: "network",
+      },
     }, 502);
   }
   const latencyMs = Date.now() - t0;

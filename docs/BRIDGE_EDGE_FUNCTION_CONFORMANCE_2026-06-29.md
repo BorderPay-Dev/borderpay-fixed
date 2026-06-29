@@ -860,3 +860,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FX (completed)
 - Hardened `bridge-provision-stablecoins` summary metadata contract:
   - added deterministic `summary.code` for completed success outcome
+
+### 2026-06-29 — Batch FY (completed)
+- Hardened `bridge-ping` error metadata contract:
+  - added deterministic `summary` mirrors for api-key-missing and network-unreachable outcomes
