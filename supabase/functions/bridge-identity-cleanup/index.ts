@@ -108,6 +108,10 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "POST",
+      },
     }, 405);
   }
 
@@ -120,6 +124,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "cleanup_disabled",
         error: "Bridge identity cleanup is disabled.",
+        summary: {
+          code: "cleanup_disabled",
+        },
       }, 503);
     }
 
@@ -132,6 +139,9 @@ Deno.serve(async (req) => {
         success: false,
         code: "invalid_cleanup_secret",
         error: "Unauthorized",
+        summary: {
+          code: "invalid_cleanup_secret",
+        },
       }, 401);
     }
 
