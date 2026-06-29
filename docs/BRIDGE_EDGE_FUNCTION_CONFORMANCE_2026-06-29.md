@@ -832,3 +832,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FQ (completed)
 - Hardened `bridge-transfer` summary metadata contract:
   - added deterministic `summary.code` for replay/create success outcomes
+
+### 2026-06-29 — Batch FR (completed)
+- Hardened `bridge-webhook` summary metadata contract:
+  - added deterministic `summary.code` for ignored/duplicate/queued outcomes
