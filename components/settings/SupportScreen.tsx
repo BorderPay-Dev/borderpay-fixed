@@ -273,7 +273,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
         return;
       }
       const summary = (res as any)?.code
-        ? `${(res as any).code}${typeof (res as any)?.data?.processed === 'number' ? ` • processed ${(res as any).data.processed}` : ''}`
+        ? `${(res as any).code}${typeof (res as any)?.data?.processed === 'number' ? ` • processed ${(res as any).data.processed}` : ''}${(res as any)?.request_id ? ` • req ${(res as any).request_id}` : ''}`
         : 'Completed';
       setAdminControlResult(summary);
       toast.success('Admin action completed');
