@@ -88,9 +88,20 @@ function isAuthorized(authHeader: string | null): boolean {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+    }, 405);
+  }
   if (!isAuthorized(req.headers.get("Authorization"))) {
-    return json({ success: false, error: "Unauthorized" }, 401);
+    return json({
+      success: false,
+      code: "unauthorized_admin_access",
+      error: "Unauthorized",
+    }, 401);
   }
 
   let body: SyncBody = {};
