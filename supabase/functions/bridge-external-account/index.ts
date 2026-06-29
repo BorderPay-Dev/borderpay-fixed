@@ -282,6 +282,7 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "external_account_deleted",
+      summary: { deleted: true },
       data: { deleted: true, external_account_id: extId },
     });
   }
@@ -355,6 +356,7 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "external_account_supported_types_ready",
+      summary: { supported_type_count: supported_account_types.length },
       data: { supported_account_types },
     });
   }
@@ -638,6 +640,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     code: "external_account_created",
+    summary: { account_type: acct.account_type, currency, rail: railLabel },
     data: {
       external_account_id: extId,
       account_type:        acct.account_type,

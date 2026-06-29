@@ -760,3 +760,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EY (completed)
 - Hardened `bridge-virtual-account` success metadata contract:
   - added deterministic top-level `summary` mirrors for capabilities/idempotent/create outcomes
+
+### 2026-06-29 — Batch EZ (completed)
+- Hardened `bridge-external-account` success metadata contract:
+  - added deterministic top-level `summary` mirrors for delete/supported-types/create outcomes
