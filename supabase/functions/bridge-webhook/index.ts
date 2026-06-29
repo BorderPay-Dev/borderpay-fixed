@@ -126,6 +126,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") {
     return json({
+      success: false,
       error: "Invalid request method",
       code: "method_not_allowed",
       expected_method: "POST",
@@ -151,6 +152,7 @@ Deno.serve(async (req) => {
       parseOk: false,
     });
     return json({
+      success: false,
       error: "Missing or malformed webhook signature",
       code: "invalid_signature_header",
       reason_code: evalRes.reason_code,
@@ -172,6 +174,7 @@ Deno.serve(async (req) => {
       parseOk: false,
     });
     return json({
+      success: false,
       error: "Webhook timestamp outside replay window",
       code: "replay_window_violation",
       age_ms: ageMs,
@@ -193,6 +196,7 @@ Deno.serve(async (req) => {
       parseOk: false,
     });
     return json({
+      success: false,
       error: "Invalid JSON payload",
       code: "invalid_json_payload",
       reason_code: evalRes.reason_code,
@@ -215,6 +219,7 @@ Deno.serve(async (req) => {
   if (ingress.decision === "reject") {
     webhookLog("signature_rejected", { event_type: ingress.derived_event_type, reason_code: ingress.reason_code });
     return json({
+      success: false,
       error: "Invalid signature",
       code: "invalid_signature",
       reason_code: ingress.reason_code,
@@ -228,6 +233,7 @@ Deno.serve(async (req) => {
       routing_target: ingress.routing_target,
     });
     return json({
+      success: true,
       status: "ignored",
       event_id: eventId,
       reason_code: ingress.reason_code,
@@ -247,6 +253,7 @@ Deno.serve(async (req) => {
   if (rpcErr) {
     webhookLog("ingest_failed", { event_id: eventId, event_type: ingress.derived_event_type, error: rpcErr.message });
     return json({
+      success: false,
       error: "Ingest failed",
       code: "ingest_failed",
       reason_code: "ingest_error",
@@ -258,6 +265,7 @@ Deno.serve(async (req) => {
   if (row?.was_rejected) {
     webhookLog("ingest_rejected", { event_id: eventId, event_type: ingress.derived_event_type });
     return json({
+      success: false,
       error: "Invalid signature",
       code: "invalid_signature",
     }, 401);
@@ -280,6 +288,7 @@ Deno.serve(async (req) => {
       reason_code: duplicate.reason_code,
     });
     return json({
+      success: true,
       status: "duplicate",
       event_id: eventId,
       reason_code: duplicate.reason_code,
@@ -289,6 +298,7 @@ Deno.serve(async (req) => {
   if (!row?.queued) {
     webhookLog("queue_missing", { event_id: eventId, event_type: ingress.derived_event_type });
     return json({
+      success: false,
       error: "Ingest returned no queue confirmation",
       code: "queue_confirmation_missing",
     }, 500);
@@ -300,5 +310,5 @@ Deno.serve(async (req) => {
     pending_id: row.pending_id,
   });
 
-  return json({ status: "queued", event_id: eventId, pending_id: row.pending_id }, 200);
+  return json({ success: true, status: "queued", event_id: eventId, pending_id: row.pending_id }, 200);
 });

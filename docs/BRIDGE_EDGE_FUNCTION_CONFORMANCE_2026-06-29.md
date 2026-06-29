@@ -572,3 +572,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DD (completed)
 - Hardened `bridge-test-webhook` response-shape contract:
   - added explicit `success` boolean on all error/success responses for deterministic operator tooling integration
+
+### 2026-06-29 — Batch DE (completed)
+- Hardened `bridge-webhook` response-shape contract:
+  - added explicit `success` boolean on all major accept/reject/duplicate/error responses for deterministic webhook monitor handling
