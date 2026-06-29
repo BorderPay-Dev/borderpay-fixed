@@ -113,7 +113,11 @@ Deno.serve(async (req) => {
   const sourceCurrency = body?.source_currency;
   const items: any[] = Array.isArray(body?.items) ? body.items : [];
   if (!sourceCurrency || items.length === 0) {
-    return json({ success: false, error: "source_currency and a non-empty items[] are required" }, 400);
+    return json({
+      success: false,
+      code: "invalid_batch_payload",
+      error: "Source currency and a non-empty payout items list are required.",
+    }, 400);
   }
   if (items.length > MAX_ITEMS) {
     return json({ success: false, code: "batch_too_large",

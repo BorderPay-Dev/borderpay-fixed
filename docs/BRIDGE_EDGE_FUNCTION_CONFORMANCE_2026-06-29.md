@@ -242,6 +242,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - replaced generic invalid pair input response with deterministic coded contract (`invalid_pair_input`)
   - returned structured pair context fields (`from`, `to`) for deterministic client handling
 
+### 2026-06-29 — Batch AM (completed)
+- Hardened `bridge-bulk-payout` top-level payload validation contract:
+  - replaced generic missing payload fields response with deterministic coded contract (`invalid_batch_payload`)
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
