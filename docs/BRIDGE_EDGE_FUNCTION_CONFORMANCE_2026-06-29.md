@@ -716,3 +716,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EN (completed)
 - Hardened `bridge-exchange-rates` success metadata contract:
   - added deterministic `pair` field (`FROM_TO`) in quote responses
+
+### 2026-06-29 — Batch EO (completed)
+- Hardened `bridge-sync-customers` success metadata contract:
+  - added deterministic `summary` object while preserving existing top-level counters for backward compatibility

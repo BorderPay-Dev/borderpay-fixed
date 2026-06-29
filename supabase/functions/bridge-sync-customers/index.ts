@@ -319,6 +319,13 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     code: "sync_customers_completed",
+    summary: {
+      scanned: candidates?.length || 0,
+      created,
+      already_exists: already,
+      failed,
+      skipped,
+    },
     scanned: candidates?.length || 0,
     created,
     already_exists: already,
