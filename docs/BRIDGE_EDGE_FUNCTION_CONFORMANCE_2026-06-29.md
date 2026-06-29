@@ -772,3 +772,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FB (completed)
 - Hardened `bridge-exchange-rates` success metadata contract:
   - added deterministic top-level `summary` mirror (`pair`, `provider`, `updated_at`)
+
+### 2026-06-29 — Batch FC (completed)
+- Hardened `bridge-customer` success metadata contract:
+  - added deterministic top-level `summary` mirror for idempotent/create outcomes
