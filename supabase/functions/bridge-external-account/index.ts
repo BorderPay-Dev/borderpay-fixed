@@ -619,6 +619,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "provider_external_account_id_missing",
       error: "Provider response missing external account id",
+      summary: {
+        code: "provider_external_account_id_missing",
+      },
     }, 502);
   }
 
@@ -647,6 +650,10 @@ Deno.serve(async (req) => {
       success: false,
       code: "external_account_sync_failed",
       error: "External account was created but local sync failed. Please retry.",
+      summary: {
+        code: "external_account_sync_failed",
+        external_account_id: extId,
+      },
     }, 500);
   }
 

@@ -868,3 +868,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FZ (completed)
 - Hardened `bridge-test-webhook` error metadata contract:
   - added deterministic `summary` mirrors for synthetic ingest rejected/not-queued outcomes
+
+### 2026-06-29 — Batch GA (completed)
+- Hardened `bridge-external-account` error metadata contract:
+  - added deterministic `summary` mirrors for provider-id-missing and local-sync-failed outcomes
