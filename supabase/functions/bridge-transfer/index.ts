@@ -318,6 +318,7 @@ Deno.serve(async (req) => {
         success: true,
         code: "transfer_replayed",
         summary: {
+          code: "transfer_replayed",
           state: existing.status === "completed" ? "succeeded"
             : existing.status === "failed" ? "failed"
             : "pending",
@@ -447,6 +448,7 @@ Deno.serve(async (req) => {
       success: true,
       code: "transfer_created",
       summary: {
+        code: "transfer_created",
         state: mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
         provider_state: mapped.providerState,
         replayed: false,
