@@ -901,3 +901,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GH (completed)
 - Hardened `bridge-test-webhook` error metadata contract:
   - added deterministic `summary` mirrors for method/auth/payload/ingest-reject outcomes
+
+### 2026-06-29 — Batch GI (completed)
+- Hardened `bridge-sync-accounts` error metadata contract:
+  - added deterministic `summary` mirrors for method/auth gate outcomes
