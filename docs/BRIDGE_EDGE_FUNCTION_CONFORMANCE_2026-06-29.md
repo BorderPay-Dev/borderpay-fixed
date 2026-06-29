@@ -1045,3 +1045,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-identity-cleanup` per-item deterministic outcome contract:
   - added stable `result_code` in cleanup results for skipped/deleted/dry-run/failed candidates
   - keeps row-level operator parsing deterministic without relying on free-form text
+
+### 2026-06-29 — Batch BP (completed)
+- Hardened `bridge-bulk-payout` per-item deterministic result contract:
+  - added stable `result_code` for replayed, created, persistence-failed, and provider-failed rows
+  - keeps batch row parsing deterministic without inferring from free-form state/error text

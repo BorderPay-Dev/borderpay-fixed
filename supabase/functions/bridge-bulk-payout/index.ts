@@ -361,7 +361,8 @@ Deno.serve(async (req) => {
       if (existing?.bridge_transfer_id) {
         results.push({ row, label: it.label ?? null, transfer_id: existing.bridge_transfer_id,
           state: existing.status === "completed" ? "succeeded" : existing.status === "failed" ? "failed" : "pending",
-          replayed: true });
+          replayed: true,
+          result_code: "transfer_replayed" });
         submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
         continue;
       }
@@ -409,7 +410,9 @@ Deno.serve(async (req) => {
       });
       if (upsertErr) {
         results.push({ row, label: it.label ?? null, state: "persistence_failed",
-          transfer_id: result.transfer_id, error: "Transfer accepted but local sync failed for this item." });
+          transfer_id: result.transfer_id,
+          result_code: "persistence_failed",
+          error: "Transfer accepted but local sync failed for this item." });
         failed++;
         continue;
       }
@@ -420,6 +423,7 @@ Deno.serve(async (req) => {
         transfer_id: result.transfer_id,
         state: mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
         provider_state: mapped.providerState,
+        result_code: "transfer_created",
       });
       submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
     } catch (e) {
@@ -428,6 +432,7 @@ Deno.serve(async (req) => {
         row,
         label: it.label ?? null,
         state: "failed",
+        result_code: mapped.code,
         code: mapped.code,
         error: mapped.message,
         ...(mapped.expected_verification_status
