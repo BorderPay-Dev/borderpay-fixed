@@ -307,7 +307,29 @@ export class BridgeProvider implements PaymentProvider {
     raw: unknown;
   }> {
     const r = await bridgeFetch({ method: "GET", path: `/v0/customers/${encodeURIComponent(customerId)}` });
-    if (!r.ok) throw new Error(`Bridge getCustomerProfile failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode = typeof parsed.code === "string"
+        ? parsed.code
+        : typeof parsed.error_code === "string"
+        ? String(parsed.error_code)
+        : undefined;
+      const bridgeErr = typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+        ? parsed.message
+        : r.error;
+      throw new BridgeProviderError(
+        `Bridge getCustomerProfile failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
     const data = (r.data as any)?.data ?? r.data ?? {};
     const addr = data?.residential_address ?? data?.address ?? data?.business_address ?? data?.registered_address ?? {};
     const countryRaw =
@@ -375,7 +397,29 @@ export class BridgeProvider implements PaymentProvider {
       method: "GET",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/wallets/${encodeURIComponent(walletId)}/balances`,
     });
-    if (!r.ok) throw new Error(`Bridge getWalletBalances failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode = typeof parsed.code === "string"
+        ? parsed.code
+        : typeof parsed.error_code === "string"
+        ? String(parsed.error_code)
+        : undefined;
+      const bridgeErr = typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+        ? parsed.message
+        : r.error;
+      throw new BridgeProviderError(
+        `Bridge getWalletBalances failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
     const payload = (r.data as any)?.data ?? r.data;
 
     // Some API shapes return an array of balances; others return one object.
@@ -432,7 +476,29 @@ export class BridgeProvider implements PaymentProvider {
         ...(cursor ? { starting_after: cursor } : {}),
       };
       const r = await bridgeFetch({ method: "GET", path: params.path, query });
-      if (!r.ok) throw new Error(`Bridge ${params.context} failed: ${r.error || r.status}`);
+      if (!r.ok) {
+        const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+        const bridgeCode = typeof parsed.code === "string"
+          ? parsed.code
+          : typeof parsed.error_code === "string"
+          ? String(parsed.error_code)
+          : undefined;
+        const bridgeErr = typeof parsed.error === "string"
+          ? parsed.error
+          : typeof parsed.message === "string"
+          ? parsed.message
+          : r.error;
+        throw new BridgeProviderError(
+          `Bridge ${params.context} failed [${r.status}]`,
+          {
+            status: r.status,
+            request_id: r.request_id,
+            bridge_code: bridgeCode,
+            bridge_error: bridgeErr,
+            raw_text: r.raw_text?.slice(0, 1000),
+          },
+        );
+      }
 
       const payload: any = (r.data as any) ?? {};
       const rows = Array.isArray(payload?.data)
