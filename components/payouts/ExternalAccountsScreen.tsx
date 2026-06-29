@@ -21,7 +21,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 interface ExternalAccountRow {
   id: string;
   bridge_external_account_id: string;
-  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  account_type: 'us' | 'iban';
   currency: string;
   account_owner_name: string | null;
   bank_name: string | null;
@@ -58,14 +58,13 @@ function normalizeExternalAccounts(payload: any): ExternalAccountRow[] {
       : [];
   return rows.map((row: any, idx: number) => {
     const rawType = String(row?.account_type || '').toLowerCase();
-    const accountType: ExternalAccountRow['account_type'] =
-      rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+    const accountType: ExternalAccountRow['account_type'] = rawType === 'iban' ? 'iban' : 'us';
     const rawCurrency = String(row?.currency || '');
     const currency = rawCurrency
       ? rawCurrency.toUpperCase()
-      : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+      : (accountType === 'iban' ? 'EUR' : 'USD');
     const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
-    const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
+    const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || null;
     return {
       id: String(row?.id || externalId || `ext_${idx}`),
       bridge_external_account_id: externalId,
@@ -74,7 +73,7 @@ function normalizeExternalAccounts(payload: any): ExternalAccountRow[] {
       account_owner_name: row?.account_owner_name ?? null,
       bank_name: row?.bank_name ?? null,
       last_4: last4 ? String(last4) : null,
-      rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+      rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : 'ach'),
       status: String(row?.status || 'active'),
     } as ExternalAccountRow;
   }).filter((r: ExternalAccountRow) => !!r.bridge_external_account_id);
@@ -212,14 +211,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
     }
   };
 
-  const railLabel = (row: ExternalAccountRow) =>
-    row.account_type === 'us'
-      ? 'ACH · Wire'
-      : row.account_type === 'iban'
-        ? 'SEPA'
-        : row.account_type === 'clabe'
-          ? 'SPEI'
-          : 'PIX';
+  const railLabel = (row: ExternalAccountRow) => (row.account_type === 'us' ? 'ACH · Wire' : 'SEPA');
 
   // Lock door: payout destinations are only available once the user is
   // verified/activated (same gate as Receive / Send / Add money).
