@@ -720,3 +720,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EO (completed)
 - Hardened `bridge-sync-customers` success metadata contract:
   - added deterministic `summary` object while preserving existing top-level counters for backward compatibility
+
+### 2026-06-29 — Batch EP (completed)
+- Hardened `bridge-identity-cleanup` success metadata contract:
+  - added deterministic `summary` object while preserving existing top-level fields for backward compatibility
