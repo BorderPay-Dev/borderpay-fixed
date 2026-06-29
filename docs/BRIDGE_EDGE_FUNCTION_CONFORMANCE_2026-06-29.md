@@ -220,6 +220,18 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - kept payout processing behavior (partial-success batch) unchanged
 
 ### 2026-06-29 — Batch AF (completed)
+- Hardened `bridge-supported-countries` provider failure surface:
+  - added deterministic provider error mapping (`rate_limited`, `provider_auth_error`, `provider_unavailable`, `provider_error`)
+  - preserved `bridge_request_id` and added `bridge_status` for ops traceability
+  - removed generic one-size-fits-all 502 failure contract
+
+### 2026-06-29 — Batch AG (completed)
+- Hardened signup-country normalization + first-paint fallback:
+  - `getSignupCountriesFromBridge` now consumes documented alpha-2 field variants (`alpha2`, `alpha_2`, `iso2`, `iso_2`, `country_code_alpha2`, `country_code`)
+  - signup country selector now fails open to bootstrap countries when runtime provider payload is late/empty
+  - preserves Bridge-backed runtime refresh while eliminating cold-start empty country state
+
+### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
   - replaced with deterministic `transfer_internal_error` contract
