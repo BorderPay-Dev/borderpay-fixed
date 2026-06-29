@@ -728,3 +728,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EQ (completed)
 - Hardened `bridge-sync-accounts` success metadata contract:
   - added deterministic `summary` object (`wallet_count`, `virtual_account_count`) for fast client checks
+
+### 2026-06-29 — Batch ER (completed)
+- Hardened `bridge-bulk-payout` success metadata contract:
+  - added deterministic top-level `summary` mirror for stable clients while preserving nested `data.summary`
