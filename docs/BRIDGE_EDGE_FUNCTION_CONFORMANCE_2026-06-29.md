@@ -289,6 +289,12 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - added deterministic provider-aware result codes (`bridge_customer_not_found`, `rate_limited`, `provider_unavailable`, `delete_failed`)
   - persisted provider status in audit/output payload for deterministic operator triage
 
+### 2026-06-29 — Batch AS (completed)
+- Hardened `bridge-kyc-link` legacy profile bootstrap conformance:
+  - removed implicit fallback country default (`KE`) during bootstrap
+  - now fails closed with `missing_country_code` when no valid ISO-2 country is present in metadata
+  - prevents starting verification with assumed country metadata
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
