@@ -487,3 +487,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-transfer` unsupported-pair rejection contract:
   - replaced interpolated pair string error text with deterministic user-safe message
   - exposed pair context as structured fields (`source_currency`, `destination_currency`)
+
+### 2026-06-29 — Batch CK (completed)
+- Hardened `bridge-bulk-payout` verification guard messaging:
+  - normalized `kyc_not_approved` message to account-type aware wording (KYC vs KYB)

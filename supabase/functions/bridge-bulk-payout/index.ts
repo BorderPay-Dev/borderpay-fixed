@@ -222,10 +222,11 @@ Deno.serve(async (req) => {
     }, 409);
   }
   if (profile.verification_status !== "approved") {
+    const verificationLabel = profile.account_type === "business" ? "KYB" : "KYC";
     return json({
       success: false,
       code: "kyc_not_approved",
-      error: "KYC not approved yet",
+      error: `${verificationLabel} not approved yet`,
       expected_verification_status: "approved",
     }, 409);
   }
