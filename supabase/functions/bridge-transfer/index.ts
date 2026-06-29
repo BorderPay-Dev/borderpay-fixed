@@ -317,6 +317,12 @@ Deno.serve(async (req) => {
       return json({
         success: true,
         code: "transfer_replayed",
+        summary: {
+          state: existing.status === "completed" ? "succeeded"
+            : existing.status === "failed" ? "failed"
+            : "pending",
+          replayed: true,
+        },
         data: {
           transfer_id: existing.bridge_transfer_id,
           state:       existing.status === "completed" ? "succeeded"
@@ -440,6 +446,11 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "transfer_created",
+      summary: {
+        state: mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
+        provider_state: mapped.providerState,
+        replayed: false,
+      },
       data: {
         transfer_id:    result.transfer_id,
         state:          mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
