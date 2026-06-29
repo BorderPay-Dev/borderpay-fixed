@@ -744,3 +744,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EU (completed)
 - Hardened `bridge-external-account` list metadata contract:
   - added deterministic `external_account_count` in top-level `summary` and list payload when count is inferable
+
+### 2026-06-29 — Batch EV (completed)
+- Hardened `bridge-sync-accounts` no-customer metadata contract:
+  - added deterministic zero-count `summary` fields for parity with completed sync responses

@@ -75,6 +75,10 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "sync_accounts_no_customer",
+      summary: {
+        wallet_count: 0,
+        virtual_account_count: 0,
+      },
       data: {
         wallets: [],
         virtual_accounts: [],
