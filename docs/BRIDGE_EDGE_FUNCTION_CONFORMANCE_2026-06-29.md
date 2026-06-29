@@ -612,3 +612,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DN (completed)
 - Hardened `bridge-identity-cleanup` audit persistence contract:
   - persisted provider metadata (`provider_code`, `bridge_request_id`) in cleanup audit details on failed deletes
+
+### 2026-06-29 — Batch DO (completed)
+- Hardened `bridge-ping` response envelope contract:
+  - added explicit `success` boolean while preserving legacy `ok` for backward compatibility

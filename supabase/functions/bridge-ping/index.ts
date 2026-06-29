@@ -28,6 +28,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") {
     return json({
+      success: false,
       ok: false,
       code: "method_not_allowed",
       error: "Invalid request method",
@@ -39,6 +40,7 @@ Deno.serve(async (req) => {
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   if (!token) {
     return json({
+      success: false,
       ok: false,
       code: "missing_bearer_token",
       error: "Authentication required",
@@ -59,6 +61,7 @@ Deno.serve(async (req) => {
     const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
     if (authErr || !userInfo?.user) {
       return json({
+        success: false,
         ok: false,
         code: "invalid_auth_token",
         error: "Unauthorized",
@@ -72,6 +75,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!adminRow) {
       return json({
+        success: false,
         ok: false,
         code: "admin_only",
         error: "Admin access required",
@@ -83,6 +87,7 @@ Deno.serve(async (req) => {
   const baseUrl = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
   if (!apiKey) {
     return json({
+      success: false,
       ok: false,
       code: "bridge_api_key_missing",
       error: "Bridge API key is not configured on this project.",
@@ -109,6 +114,7 @@ Deno.serve(async (req) => {
     });
   } catch {
     return json({
+      success: false,
       ok: false,
       code: "bridge_network_unreachable",
       key_prefix: keyPrefix,
@@ -138,6 +144,7 @@ Deno.serve(async (req) => {
 
   if (!res.ok) {
     return json({
+      success: false,
       ok:         false,
       code:       "bridge_http_error",
       stage:      "bridge_http",
@@ -156,6 +163,7 @@ Deno.serve(async (req) => {
   }
 
   return json({
+    success: true,
     ok:           true,
     stage:        "reachable",
     status:       res.status,
