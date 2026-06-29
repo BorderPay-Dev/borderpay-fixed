@@ -279,6 +279,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - removed implicit fallback country (`NG`) and now fails closed when profile country is missing/invalid ISO-2
   - provider error mapping now prioritizes structured provider status (`error.status`) for rate-limit/unavailable classification
 
+### 2026-06-29 — Batch AQ (completed)
+- Hardened Bridge provider error-class consistency across functions:
+  - aligned `BridgeProviderError` imports to provider module source (`_shared/providers/bridge.ts`) for `bridge-customer`, `bridge-sync-customers`, `bridge-identity-cleanup`
+  - restores correct `instanceof BridgeProviderError` behavior for deterministic provider error mapping
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
