@@ -568,3 +568,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DC (completed)
 - Hardened `bridge-ping` diagnostic contract:
   - parsed and surfaced provider payload error code (`provider_code`) on Bridge HTTP failures
+
+### 2026-06-29 — Batch DD (completed)
+- Hardened `bridge-test-webhook` response-shape contract:
+  - added explicit `success` boolean on all error/success responses for deterministic operator tooling integration

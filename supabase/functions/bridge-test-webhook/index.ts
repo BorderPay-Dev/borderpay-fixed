@@ -38,6 +38,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") {
     return json({
+      success: false,
       error: "Invalid request method",
       code: "method_not_allowed",
       expected_method: "POST",
@@ -45,12 +46,14 @@ Deno.serve(async (req) => {
   }
   if (!SYNTHETIC_EVENTS_ENABLED) {
     return json({
+      success: false,
       error: "Synthetic events are disabled",
       code: "synthetic_mode_disabled",
     }, 403);
   }
   if (!authOk(req)) {
     return json({
+      success: false,
       error: "Unauthorized",
       code: "invalid_test_token",
     }, 401);
@@ -59,6 +62,7 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch {
     return json({
+      success: false,
       error: "Invalid JSON payload",
       code: "invalid_json_payload",
     }, 400);
@@ -68,6 +72,7 @@ Deno.serve(async (req) => {
   const bridgeEventIdRaw = normId(body?.event_id ?? body?.payload?.id ?? body?.id);
   if (!testCaseId || !bridgeEventIdRaw) {
     return json({
+      success: false,
       error: "test_case_id and event_id (or payload.id) are required",
       code: "invalid_synthetic_payload",
     }, 400);
@@ -90,6 +95,7 @@ Deno.serve(async (req) => {
   assertBridgeIngressDecision(evalRes);
   if (evalRes.decision === "reject") {
     return json({
+      success: false,
       error: "Rejected synthetic event",
       code: "synthetic_event_rejected",
       reason_code: evalRes.reason_code,
@@ -125,6 +131,7 @@ Deno.serve(async (req) => {
   });
   if (rpcErr) {
     return json({
+      success: false,
       error: "Synthetic ingest failed",
       code: "synthetic_ingest_failed",
     }, 500);
@@ -133,16 +140,18 @@ Deno.serve(async (req) => {
   const queueEventId = `bridge:${bridgeEventId}`;
   if (row?.was_rejected) {
     return json({
+      success: false,
       error: "Synthetic ingest rejected",
       code: "synthetic_ingest_rejected",
       bridge_event_id: bridgeEventId,
     }, 401);
   }
   if (row?.was_duplicate) {
-    return json({ status: "duplicate", bridge_event_id: bridgeEventId, queue_event_id: queueEventId }, 200);
+    return json({ success: true, status: "duplicate", bridge_event_id: bridgeEventId, queue_event_id: queueEventId }, 200);
   }
   if (!row?.queued) {
     return json({
+      success: false,
       error: "Synthetic ingest not queued",
       code: "synthetic_ingest_not_queued",
       bridge_event_id: bridgeEventId,
@@ -150,6 +159,7 @@ Deno.serve(async (req) => {
   }
 
   return json({
+    success: true,
     status: "queued",
     bridge_event_id: bridgeEventId,
     queue_event_id: queueEventId,
