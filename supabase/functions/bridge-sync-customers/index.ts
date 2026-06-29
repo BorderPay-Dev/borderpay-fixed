@@ -48,6 +48,9 @@ function mapSyncCustomerError(
   expected_verification_status?: "approved";
 } {
   const message = String((error as Error)?.message || "").toLowerCase();
+  const providerStatus = error instanceof BridgeProviderError
+    ? Number(error.status || 0)
+    : 0;
   const providerCode = error instanceof BridgeProviderError
     ? String(error.bridge_code || "").toLowerCase()
     : undefined;
@@ -80,7 +83,12 @@ function mapSyncCustomerError(
       ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
     };
   }
-  if (message.includes("timeout") || message.includes("network")) {
+  if (
+    providerStatus >= 500 ||
+    providerStatus === 0 ||
+    message.includes("timeout") ||
+    message.includes("network")
+  ) {
     return {
       code: "provider_unavailable",
       message: "Provider is temporarily unavailable. Retry later.",
