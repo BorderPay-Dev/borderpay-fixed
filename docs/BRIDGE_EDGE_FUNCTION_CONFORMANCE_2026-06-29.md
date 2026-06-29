@@ -965,3 +965,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-kyb-link` deterministic summary contracts:
   - standardized summary blocks for auth/profile/account/business-profile validation failures
   - aligned mapped provider failures, missing-link, and profile-sync failures with stable summary codes
+
+### 2026-06-29 — Batch AY (completed)
+- Hardened `bridge-customer` deterministic provider-failure summary contract:
+  - mapped Bridge customer-create failures now always include stable `summary.code` for deterministic client handling

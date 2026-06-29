@@ -245,6 +245,9 @@ Deno.serve(async (req) => {
       success: false,
       code: mapped.code,
       error: mapped.error,
+      summary: {
+        code: mapped.code,
+      },
       ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
       ...(mapped.bridge_request_id ? { bridge_request_id: mapped.bridge_request_id } : {}),
       ...(mapped.expected_verification_status
