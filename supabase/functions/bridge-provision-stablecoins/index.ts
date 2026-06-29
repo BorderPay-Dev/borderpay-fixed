@@ -64,7 +64,8 @@ Deno.serve(async (req) => {
     }, 401);
   }
 
-  const noop = (reason: string) => json({ success: true, data: { wallets: [], skipped: reason } });
+  const noop = (reason: string, context?: Record<string, unknown>) =>
+    json({ success: true, data: { wallets: [], skipped: reason, ...(context || {}) } });
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
@@ -81,7 +82,13 @@ Deno.serve(async (req) => {
   // Silent no-ops for ineligible users — never an error, never a 402.
   if (!profile.bridge_customer_id) return noop("no_customer");
   const verification = profile.verification_status;
-  if (verification !== "approved") return noop("kyc_not_approved");
+  if (verification !== "approved") {
+    const verificationLabel = isBusiness ? "KYB" : "KYC";
+    return noop("kyc_not_approved", {
+      expected_verification_status: "approved",
+      verification_label: verificationLabel,
+    });
+  }
   if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
 
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };

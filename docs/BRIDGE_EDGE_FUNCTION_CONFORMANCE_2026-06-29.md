@@ -542,3 +542,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CW (completed)
 - Hardened `bridge-kyb-link` provider rejection contract:
   - added explicit `expected_verification_status=approved` on provider-side `kyb_not_approved` responses for parity with onboarding guards
+
+### 2026-06-29 — Batch CX (completed)
+- Hardened `bridge-provision-stablecoins` skip contract:
+  - added explicit verification context (`expected_verification_status`, `verification_label`) on `kyc_not_approved` best-effort skip responses
