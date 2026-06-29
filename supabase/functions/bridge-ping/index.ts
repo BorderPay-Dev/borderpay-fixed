@@ -133,6 +133,7 @@ Deno.serve(async (req) => {
   if (!res.ok) {
     return json({
       ok:         false,
+      code:       "bridge_http_error",
       stage:      "bridge_http",
       status:     res.status,
       key_prefix: keyPrefix,

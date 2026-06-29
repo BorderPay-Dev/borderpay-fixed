@@ -450,6 +450,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-webhook` RPC ingest failure contract:
   - normalized ingest RPC failure response with explicit `ingest_failed` code
 
+### 2026-06-29 — Batch CC (completed)
+- Hardened `bridge-ping` Bridge HTTP failure contract:
+  - normalized non-2xx provider response with explicit `bridge_http_error` code
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
