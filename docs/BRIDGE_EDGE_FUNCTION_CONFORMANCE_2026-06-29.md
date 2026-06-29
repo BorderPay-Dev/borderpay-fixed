@@ -921,3 +921,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GM (completed)
 - Hardened `bridge-supported-countries` response contract:
   - standardized country identity fields to include `code` + `alpha2` + `alpha3` deterministically
+
+### 2026-06-29 — Batch GN (completed)
+- Hardened `bridge-bulk-payout` error metadata contract:
+  - added deterministic `summary` mirrors for method/auth gate outcomes

@@ -138,6 +138,10 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "POST",
+      },
     }, 405);
   }
 
@@ -153,6 +157,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "missing_bearer_token",
       error: "Authentication required",
+      summary: {
+        code: "missing_bearer_token",
+      },
     }, 401);
   }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
@@ -162,6 +169,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_auth_token",
       error: "Unauthorized",
+      summary: {
+        code: "invalid_auth_token",
+      },
     }, 401);
   }
 
