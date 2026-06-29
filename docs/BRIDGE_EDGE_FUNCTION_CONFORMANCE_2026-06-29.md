@@ -18,6 +18,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 | `bridge-external-account` | `POST/GET/DELETE /v0/customers/{id}/external_accounts` | Bridge API reference external-accounts/* | Conformant | Create/list/delete external accounts. | Verify any newly added account_type variants in 2026 docs. |
 | `bridge-transfer` via `bridgeProvider.createTransfer` | `POST /v0/transfers` | Bridge API reference transfers/create-a-transfer | Conformant | Orchestration transfer route; idempotency and retry semantics are handled. | Re-check response-state mapping against transfer-states doc. |
 | `bridge-exchange-rates` | `GET /v0/exchange_rates` | Bridge API reference exchange-rates/get-current-exchange-rate-between-two-currencies | Conformant | Used for FX rate display/pair gating. | Keep pair list synced to docs and avoid unsupported UI pairs. |
+| `bridge-supported-countries` | `GET /v0/lists/countries` | Bridge API reference lists/get-countries | Conformant | Signup country picker now hydrates from provider list at runtime. | Keep ISO/name normalization map current as docs evolve. |
 | `bridge-sync-accounts` via provider list calls | `GET /v0/customers/{id}/wallets`, `GET /v0/customers/{id}/virtual_accounts` | Bridge API reference bridge-wallets/get-all-bridge-wallets-for-a-customer, virtual-accounts/list-virtual-accounts-by-customer | Conformant | Mirror sync path. | Validate pagination handling for large account sets. |
 | `bridge-sync-customers` | Customer list/read endpoints (indirect) | Bridge customers list/get docs | Needs clarification | Function-level payload/field mapping not fully re-audited in this pass. | Run dedicated payload audit on sync fields and status mapping. |
 | `bridge-webhook` / `process-pending-events` | Bridge webhook event ingestion (configured endpoint + signed events) | Bridge webhooks overview/signature/structure docs | Conformant | Signature + structured event processing in place. | Reconfirm replay-window enforcement behavior end-to-end. |
@@ -880,3 +881,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GC (completed)
 - Hardened `bridge-wallet` error metadata contract:
   - added deterministic `summary` mirror for persistence-failed outcome
+
+### 2026-06-29 — Batch GD (completed)
+- Added new Bridge conformance surface:
+  - `bridge-supported-countries` (`GET /v0/lists/countries`) now tracked in inventory as conformant
