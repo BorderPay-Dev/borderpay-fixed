@@ -740,3 +740,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch ET (completed)
 - Hardened `bridge-provision-stablecoins` success metadata contract:
   - added deterministic `wallet_count` in both top-level `summary` and `data` for stable client consumption
+
+### 2026-06-29 — Batch EU (completed)
+- Hardened `bridge-external-account` list metadata contract:
+  - added deterministic `external_account_count` in top-level `summary` and list payload when count is inferable

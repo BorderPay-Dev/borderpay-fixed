@@ -306,10 +306,19 @@ Deno.serve(async (req) => {
         bridge_request_id: r.request_id ?? null,
       }, mapped.status);
     }
+    const listedAccounts = (r.data as any)?.data ?? r.data;
+    const listedCount = Array.isArray(listedAccounts)
+      ? listedAccounts.length
+      : Array.isArray((listedAccounts as any)?.external_accounts)
+      ? (listedAccounts as any).external_accounts.length
+      : null;
     return json({
       success: true,
       code: "external_accounts_listed",
-      data: (r.data as any)?.data ?? r.data,
+      ...(listedCount !== null ? { summary: { external_account_count: listedCount } } : {}),
+      data: listedCount !== null
+        ? { ...(typeof listedAccounts === "object" && listedAccounts !== null ? listedAccounts : { items: listedAccounts }), external_account_count: listedCount }
+        : listedAccounts,
     });
   }
 
