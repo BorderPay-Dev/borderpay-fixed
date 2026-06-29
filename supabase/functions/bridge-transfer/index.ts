@@ -323,6 +323,7 @@ Deno.serve(async (req) => {
                       : existing.status === "failed"   ? "failed"
                       :                                  "pending",
           replayed:    true,
+          idempotency_key: idem,
         },
       });
     }
@@ -443,6 +444,7 @@ Deno.serve(async (req) => {
         transfer_id:    result.transfer_id,
         state:          mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
         provider_state: mapped.providerState,
+        idempotency_key: idem,
       },
     });
   } catch (e) {

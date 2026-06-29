@@ -732,3 +732,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch ER (completed)
 - Hardened `bridge-bulk-payout` success metadata contract:
   - added deterministic top-level `summary` mirror for stable clients while preserving nested `data.summary`
+
+### 2026-06-29 — Batch ES (completed)
+- Hardened `bridge-transfer` success metadata contract:
+  - added deterministic `idempotency_key` in replay/create success responses for support tracing parity
