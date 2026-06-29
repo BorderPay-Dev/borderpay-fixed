@@ -600,3 +600,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DK (completed)
 - Hardened `bridge-transfer` internal diagnostics naming:
   - normalized transfer failure log field from `request_id` to `bridge_request_id` for cross-function log schema consistency
+
+### 2026-06-29 — Batch DL (completed)
+- Hardened `bridge-virtual-account` internal diagnostics naming:
+  - normalized provision error log field from `request_id` to `bridge_request_id` for cross-function log schema consistency
