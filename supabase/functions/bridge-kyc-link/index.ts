@@ -76,6 +76,11 @@ interface ExtractedLinks {
   tos_link_url: string | null;
 }
 
+function normalizeCountryCode(value: unknown): string | null {
+  const v = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(v) ? v : null;
+}
+
 type TraceStage =
   | "invoked"
   | "profile_loaded"
@@ -369,6 +374,9 @@ Deno.serve(async (req: Request) => {
       ? "business"
       : "individual";
     const fallbackEmail = user.email || null;
+    const fallbackCountry =
+      normalizeCountryCode(user.user_metadata?.country) ??
+      normalizeCountryCode(user.user_metadata?.country_code);
     if (!fallbackEmail) {
       return json({
         success: false,
@@ -379,12 +387,22 @@ Deno.serve(async (req: Request) => {
         },
       }, 400);
     }
+    if (!fallbackCountry) {
+      return json({
+        success: false,
+        code: "missing_country_code",
+        error: "Please complete your country details before starting verification.",
+        summary: {
+          code: "missing_country_code",
+        },
+      }, 409);
+    }
     const upsertPayload: Record<string, unknown> = {
       id: user.id,
       email: fallbackEmail,
       full_name: String(user.user_metadata?.full_name || user.user_metadata?.name || "User"),
       account_type: fallbackAccountType,
-      country: String(user.user_metadata?.country || user.user_metadata?.country_code || "KE").toUpperCase(),
+      country: fallbackCountry,
       phone: user.phone || null,
       // Important: do NOT mark as pending during bootstrap. Pending must only
       // be set after a real hosted Bridge link is successfully created.
