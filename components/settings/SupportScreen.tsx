@@ -249,7 +249,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   }, [selectedAdminTicketId]);
 
   const runAdminCustomerControl = useCallback(async (
-    action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_cards',
+    action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_external_accounts' | 'revoke_cards',
   ) => {
     const targetEmail = adminTargetEmail.trim().toLowerCase();
     if (!targetEmail) {
@@ -533,6 +533,13 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                   className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-3 py-2 disabled:opacity-60"
                 >
                   Revoke stablecoin wallets
+                </button>
+                <button
+                  onClick={() => void runAdminCustomerControl('revoke_external_accounts')}
+                  disabled={adminControlBusy}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-3 py-2 disabled:opacity-60"
+                >
+                  Revoke external accounts
                 </button>
                 <button
                   onClick={() => void runAdminCustomerControl('revoke_cards')}
