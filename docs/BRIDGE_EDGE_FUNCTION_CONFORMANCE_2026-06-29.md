@@ -804,3 +804,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FJ (completed)
 - Hardened `bridge-sync-accounts` summary metadata contract:
   - added deterministic `summary.code` for both no-customer and completed outcomes
+
+### 2026-06-29 — Batch FK (completed)
+- Hardened `bridge-sync-customers` summary metadata contract:
+  - added deterministic `summary.code` for sync completion outcome
