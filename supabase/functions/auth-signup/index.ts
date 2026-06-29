@@ -351,9 +351,14 @@ Deno.serve(async (req: Request) => {
         // via auth-resend-verification. Don't roll back the user here.
         return json({
           success: true,
+          code: "signup_created_email_pending",
+          summary: {
+            code: "signup_created_email_pending",
+            email_sent: false,
+          },
           data: {
-          user: {
-            id: userId, email, full_name,
+            user: {
+              id: userId, email, full_name,
             account_type:       normalizedAccountType,
             kyc_status:         "not_started",
             bridge_customer_id: bridgeCustomerId,
@@ -366,11 +371,16 @@ Deno.serve(async (req: Request) => {
       });
       }
     } catch (e) {
-      return json({
-        success: true,
-        data: {
-          user: {
-            id: userId, email, full_name,
+        return json({
+          success: true,
+          code: "signup_created_email_pending",
+          summary: {
+            code: "signup_created_email_pending",
+            email_sent: false,
+          },
+          data: {
+            user: {
+              id: userId, email, full_name,
             account_type:       normalizedAccountType,
             kyc_status:         "not_started",
             bridge_customer_id: bridgeCustomerId,
@@ -385,6 +395,11 @@ Deno.serve(async (req: Request) => {
 
     return json({
       success: true,
+      code: "signup_created_email_sent",
+      summary: {
+        code: "signup_created_email_sent",
+        email_sent: true,
+      },
       data: {
         user: {
           id: userId, email, full_name,

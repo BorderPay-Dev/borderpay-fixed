@@ -1050,3 +1050,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-bulk-payout` per-item deterministic result contract:
   - added stable `result_code` for replayed, created, persistence-failed, and provider-failed rows
   - keeps batch row parsing deterministic without inferring from free-form state/error text
+
+### 2026-06-29 — Batch BQ (completed)
+- Hardened `auth-signup` success contract coverage:
+  - added deterministic top-level `code` + `summary` for both email-pending success exits and email-sent success exit
+  - removed remaining success responses without summary metadata
