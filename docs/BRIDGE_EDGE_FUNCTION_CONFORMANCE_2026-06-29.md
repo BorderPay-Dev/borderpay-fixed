@@ -417,6 +417,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized missing-customer response with explicit `required_state=bridge_customer_created`
   - normalized verification guard response with explicit `expected_verification_status=approved`
 
+### 2026-06-29 — Batch BV (completed)
+- Hardened `bridge-external-account` onboarding-state guard contracts:
+  - normalized missing-customer response with explicit `required_state=bridge_customer_created`
+  - normalized verification guard response with explicit `expected_verification_status=approved`
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
