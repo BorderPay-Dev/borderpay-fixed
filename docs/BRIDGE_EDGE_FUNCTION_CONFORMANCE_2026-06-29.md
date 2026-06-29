@@ -780,3 +780,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FD (completed)
 - Hardened `bridge-kyc-link` / `bridge-kyb-link` success metadata contracts:
   - added deterministic top-level `summary` mirrors for approved and link-ready outcomes
+
+### 2026-06-29 — Batch FE (completed)
+- Hardened `bridge-webhook` success metadata contract:
+  - added deterministic top-level `summary` mirrors for ignored/duplicate/queued outcomes
