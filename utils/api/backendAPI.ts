@@ -2350,6 +2350,7 @@ export const adminAPI = {
     action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_cards';
     target_user_id?: string;
     target_email?: string;
+    dry_run?: boolean;
   }) =>
     apiCall<{
       target?: Record<string, unknown>;
