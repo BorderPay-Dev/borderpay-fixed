@@ -22,14 +22,33 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "GET") return json({ success: false, error: "GET only" }, 405);
+  if (req.method !== "GET") {
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "GET",
+    }, 405);
+  }
 
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({
+      success: false,
+      code: "missing_bearer_token",
+      error: "Authentication required",
+    }, 401);
+  }
 
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
-  if (authErr || !userInfo?.user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (authErr || !userInfo?.user) {
+    return json({
+      success: false,
+      code: "invalid_auth_token",
+      error: "Unauthorized",
+    }, 401);
+  }
 
   const configuredPairs = await loadSupportedFxPairsFromSettings(supa);
   const effectivePairs = configuredPairs ?? BRIDGE_FX_FALLBACK_SUPPORTED_PAIRS;
