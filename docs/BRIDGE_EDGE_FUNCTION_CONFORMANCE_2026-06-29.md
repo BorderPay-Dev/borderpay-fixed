@@ -222,3 +222,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
   - replaced with deterministic `transfer_internal_error` contract
+
+### 2026-06-29 — Batch AG (completed)
+- Hardened `bridge-wallet` input validation contract:
+  - replaced dynamic unsupported symbol/chain validation messages with deterministic coded responses
+  - added explicit error codes (`invalid_symbol`, `invalid_chain`) for stable client handling

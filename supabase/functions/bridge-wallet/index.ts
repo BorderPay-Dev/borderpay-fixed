@@ -49,8 +49,12 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
   const symbol = String(body.symbol || "USDC").toUpperCase() as StablecoinSymbol;
   const chain  = String(body.chain  || "ETH").toUpperCase()  as StablecoinChain;
-  if (!SYMS.includes(symbol))   return json({ success: false, error: `Unsupported symbol: ${symbol}` }, 400);
-  if (!CHAINS.includes(chain))  return json({ success: false, error: `Unsupported chain: ${chain}` }, 400);
+  if (!SYMS.includes(symbol)) {
+    return json({ success: false, code: "invalid_symbol", error: "Unsupported stablecoin symbol." }, 400);
+  }
+  if (!CHAINS.includes(chain)) {
+    return json({ success: false, code: "invalid_chain", error: "Unsupported stablecoin chain." }, 400);
+  }
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
