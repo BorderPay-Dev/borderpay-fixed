@@ -75,6 +75,14 @@ function mapSyncCustomerError(
       expected_verification_status: "approved",
     };
   }
+  if (providerStatus === 401 || providerStatus === 403) {
+    return {
+      code: "provider_auth_error",
+      message: "Provider authentication is temporarily unavailable. Retry later.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
+  }
   if (providerStatus === 429 || message.includes("rate") || message.includes("429")) {
     return {
       code: "rate_limited",
