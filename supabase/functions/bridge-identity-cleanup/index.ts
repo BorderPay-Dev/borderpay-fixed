@@ -159,7 +159,13 @@ Deno.serve(async (req) => {
       if (isInternalEmail(c.email)) {
         await audit(c, "skip", "success", "internal_account_excluded");
         skippedCount += 1;
-        out.push({ user_id: c.user_id, bridge_customer_id: c.bridge_customer_id, action: "skip", reason: "internal_account_excluded" });
+        out.push({
+          user_id: c.user_id,
+          bridge_customer_id: c.bridge_customer_id,
+          action: "skip",
+          result_code: "internal_account_excluded",
+          reason: "internal_account_excluded",
+        });
         continue;
       }
 
@@ -177,6 +183,7 @@ Deno.serve(async (req) => {
           bridge_customer_id: c.bridge_customer_id,
           account_type: c.account_type,
           action: dryRun ? "would_delete_and_clear" : "deleted_and_cleared",
+          result_code: dryRun ? "would_delete_and_clear" : "deleted_and_cleared",
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -192,6 +199,7 @@ Deno.serve(async (req) => {
           user_id: c.user_id,
           bridge_customer_id: c.bridge_customer_id,
           action: "failed",
+          result_code: "delete_failed",
           code: "delete_failed",
           error: "Unable to process this cleanup candidate right now.",
           provider_code: providerCode,

@@ -1040,3 +1040,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-sync-customers` per-item deterministic outcome contract:
   - added stable `result_code` on each candidate row (created/already/skipped/failed classes)
   - failed rows now expose provider-mapped deterministic codes in both `error_code` and `result_code`
+
+### 2026-06-29 — Batch BO (completed)
+- Hardened `bridge-identity-cleanup` per-item deterministic outcome contract:
+  - added stable `result_code` in cleanup results for skipped/deleted/dry-run/failed candidates
+  - keeps row-level operator parsing deterministic without relying on free-form text
