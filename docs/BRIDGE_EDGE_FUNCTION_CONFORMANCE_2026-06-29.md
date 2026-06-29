@@ -363,6 +363,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - standardized method/auth/json failures with explicit stable error codes
   - normalized edge error wording to deterministic contract shape
 
+### 2026-06-29 — Batch BK (completed)
+- Hardened `bridge-exchange-rates` edge contracts:
+  - standardized method/json failures with explicit stable error codes
+  - normalized edge error wording to deterministic contract shape
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

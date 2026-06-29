@@ -54,12 +54,21 @@ function mapExchangeRateProviderError(status: number, providerMessage?: string) 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") {
-    return json({ success: false, code: "method_not_allowed", error: "POST only" }, 405);
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+    }, 405);
   }
 
   let body: any = null;
   try { body = await req.json(); } catch {
-    return json({ success: false, code: "invalid_json", error: "Invalid JSON" }, 400);
+    return json({
+      success: false,
+      code: "invalid_json_payload",
+      error: "Invalid JSON payload",
+    }, 400);
   }
 
   const from = normalizeCurrency(body?.from);
