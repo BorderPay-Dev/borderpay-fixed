@@ -114,7 +114,29 @@ export class BridgeProvider implements PaymentProvider {
       path: `/v0/customers/${encodeURIComponent(customerId)}`,
       idempotencyKey: `borderpay:delete-customer:${customerId}`,
     });
-    if (!r.ok) throw new Error(`Bridge deleteCustomer failed: ${r.error || r.status}`);
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode = typeof parsed.code === "string"
+        ? parsed.code
+        : typeof parsed.error_code === "string"
+        ? String(parsed.error_code)
+        : undefined;
+      const bridgeErr = typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+        ? parsed.message
+        : r.error;
+      throw new BridgeProviderError(
+        `Bridge deleteCustomer failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
     return { deleted: true, raw: r.data };
   }
 
