@@ -278,8 +278,8 @@ Deno.serve(async (req) => {
   // Paid gate: outbound transfers require an activated (paid) plan. In the Wise
   // funnel KYC can be free, so this is what keeps money movement paid-gated —
   // an unpaid user gets `plan_required` → the app shows the activation popup.
+  const isBusiness = profile.account_type === "business";
   {
-    const isBusiness = profile.account_type === "business";
     const __planGate = await requireMinimumWalletBalance(supa, user.id, {
       isBusiness,
       bridgeCustomerId: profile.bridge_customer_id,
@@ -460,7 +460,13 @@ Deno.serve(async (req) => {
           case "has_not_accepted_tos":
             return { status: 409, code: "tos_required", error: "Please accept Terms of Service before sending funds." };
           case "requires_active_kyc_status":
-            return { status: 409, code: "kyc_not_approved", error: "Identity verification is required before sending funds." };
+            return {
+              status: 409,
+              code: "kyc_not_approved",
+              error: isBusiness
+                ? "Business verification is required before sending funds."
+                : "Identity verification is required before sending funds.",
+            };
           case "deactivated_external_account":
             return { status: 409, code: "external_account_deactivated", error: "The selected destination account is deactivated. Choose another destination." };
           case "missing_required_endorsements":

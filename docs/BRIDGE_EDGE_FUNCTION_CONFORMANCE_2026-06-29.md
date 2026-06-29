@@ -495,3 +495,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CL (completed)
 - Hardened `bridge-bulk-payout` provider rejection mapping:
   - normalized `requires_active_kyc_status` payout-item failure message to account-type aware wording (Identity vs Business verification)
+
+### 2026-06-29 — Batch CM (completed)
+- Hardened `bridge-transfer` provider rejection mapping:
+  - normalized `requires_active_kyc_status` failure message to account-type aware wording (Identity vs Business verification)
