@@ -136,6 +136,7 @@ Deno.serve(async (req) => {
 
   return json({
     success: true,
+    code: "exchange_rate_ready",
     data: {
       from,
       to,

@@ -692,3 +692,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EH (completed)
 - Hardened `bridge-fx-supported-pairs` success contract:
   - added deterministic success code for pair-discovery response (`fx_supported_pairs_ready`)
+
+### 2026-06-29 — Batch EI (completed)
+- Hardened `bridge-exchange-rates` success contract:
+  - added deterministic success code for quote response (`exchange_rate_ready`)
