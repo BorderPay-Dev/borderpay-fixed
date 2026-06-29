@@ -36,17 +36,41 @@ function normId(x: unknown): string {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ error: "POST only" }, 405);
-  if (!SYNTHETIC_EVENTS_ENABLED) return json({ error: "synthetic_mode_disabled" }, 403);
-  if (!authOk(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "POST") {
+    return json({
+      error: "Invalid request method",
+      code: "method_not_allowed",
+      expected_method: "POST",
+    }, 405);
+  }
+  if (!SYNTHETIC_EVENTS_ENABLED) {
+    return json({
+      error: "Synthetic events are disabled",
+      code: "synthetic_mode_disabled",
+    }, 403);
+  }
+  if (!authOk(req)) {
+    return json({
+      error: "Unauthorized",
+      code: "invalid_test_token",
+    }, 401);
+  }
 
   let body: any;
-  try { body = await req.json(); } catch { return json({ error: "invalid JSON" }, 400); }
+  try { body = await req.json(); } catch {
+    return json({
+      error: "Invalid JSON payload",
+      code: "invalid_json_payload",
+    }, 400);
+  }
 
   const testCaseId = normId(body?.test_case_id);
   const bridgeEventIdRaw = normId(body?.event_id ?? body?.payload?.id ?? body?.id);
   if (!testCaseId || !bridgeEventIdRaw) {
-    return json({ error: "test_case_id and event_id (or payload.id) are required" }, 400);
+    return json({
+      error: "test_case_id and event_id (or payload.id) are required",
+      code: "invalid_synthetic_payload",
+    }, 400);
   }
 
   const rawPayload = {
