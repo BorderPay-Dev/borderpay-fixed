@@ -140,6 +140,7 @@ Deno.serve(async (req) => {
     data: {
       from,
       to,
+      pair: `${from}_${to}`,
       rate,
       reverse_rate: Number.isFinite(reverseRate) && reverseRate > 0 ? reverseRate : null,
       updated_at: updatedAt,

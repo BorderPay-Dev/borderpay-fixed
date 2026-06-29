@@ -712,3 +712,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EM (completed)
 - Hardened `bridge-fx-supported-pairs` metadata contract:
   - added deterministic `pair_count` to success payload for client validation/telemetry
+
+### 2026-06-29 — Batch EN (completed)
+- Hardened `bridge-exchange-rates` success metadata contract:
+  - added deterministic `pair` field (`FROM_TO`) in quote responses
