@@ -929,3 +929,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GO (completed)
 - Hardened `bridge-exchange-rates` error metadata contract:
   - added deterministic `summary` mirrors for method/payload/pair/provider/rate-validation failures
+
+### 2026-06-29 — Batch GP (completed)
+- Hardened `bridge-fx-supported-pairs` error metadata contract:
+  - added deterministic `summary` mirrors for method/auth gate outcomes
