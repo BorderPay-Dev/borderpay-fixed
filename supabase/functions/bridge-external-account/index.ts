@@ -106,7 +106,7 @@ function mapExternalAccountProviderError(
   status: number,
   providerMessage?: string,
   options?: { accountType?: "individual" | "business" | null },
-): { status: number; code: string; error: string } {
+): { status: number; code: string; error: string; expected_verification_status?: "approved" } {
   const msg = String(providerMessage || "").toLowerCase();
   const isBusiness = options?.accountType === "business";
   if (status === 429) {
@@ -119,6 +119,7 @@ function mapExternalAccountProviderError(
       error: isBusiness
         ? "Business verification is required before managing external accounts."
         : "Identity verification is required before managing external accounts.",
+      expected_verification_status: "approved",
     };
   }
   if (status === 400 || msg.includes("invalid") || msg.includes("missing")) {
@@ -233,7 +234,15 @@ Deno.serve(async (req) => {
     });
     if (!r.ok) {
       const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
-      return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+      return json({
+        success: false,
+        code: mapped.code,
+        error: mapped.error,
+        ...(mapped.expected_verification_status
+          ? { expected_verification_status: mapped.expected_verification_status }
+          : {}),
+        request_id: r.request_id ?? null,
+      }, mapped.status);
     }
     await supa.from("bridge_external_accounts")
       .update({ active: false, status: "deleted", updated_at: new Date().toISOString() })
@@ -250,7 +259,15 @@ Deno.serve(async (req) => {
     });
     if (!r.ok) {
       const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
-      return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+      return json({
+        success: false,
+        code: mapped.code,
+        error: mapped.error,
+        ...(mapped.expected_verification_status
+          ? { expected_verification_status: mapped.expected_verification_status }
+          : {}),
+        request_id: r.request_id ?? null,
+      }, mapped.status);
     }
     return json({ success: true, data: (r.data as any)?.data ?? r.data });
   }
@@ -263,7 +280,15 @@ Deno.serve(async (req) => {
     });
     if (!r.ok) {
       const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
-      return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+      return json({
+        success: false,
+        code: mapped.code,
+        error: mapped.error,
+        ...(mapped.expected_verification_status
+          ? { expected_verification_status: mapped.expected_verification_status }
+          : {}),
+        request_id: r.request_id ?? null,
+      }, mapped.status);
     }
     const rows = ((r.data as any)?.data ?? r.data ?? []) as any[];
     const discovered = new Set<string>();
@@ -503,7 +528,15 @@ Deno.serve(async (req) => {
   });
   if (!r.ok) {
     const mapped = mapExternalAccountProviderError(r.status, r.error, { accountType: profile.account_type });
-    return json({ success: false, code: mapped.code, error: mapped.error, request_id: r.request_id ?? null }, mapped.status);
+    return json({
+      success: false,
+      code: mapped.code,
+      error: mapped.error,
+      ...(mapped.expected_verification_status
+        ? { expected_verification_status: mapped.expected_verification_status }
+        : {}),
+      request_id: r.request_id ?? null,
+    }, mapped.status);
   }
 
   const data = (r.data as any)?.data ?? r.data;
