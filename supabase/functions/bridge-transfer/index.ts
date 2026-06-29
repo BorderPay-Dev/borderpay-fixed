@@ -257,10 +257,20 @@ Deno.serve(async (req) => {
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
-    return json({ success: false, error: "Complete account setup before sending transfers", code: "no_customer" }, 409);
+    return json({
+      success: false,
+      code: "no_customer",
+      error: "Complete account setup before sending transfers",
+      required_state: "bridge_customer_created",
+    }, 409);
   }
   if (profile.verification_status !== "approved") {
-    return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
+    return json({
+      success: false,
+      code: "kyc_not_approved",
+      error: "KYC not approved yet",
+      expected_verification_status: "approved",
+    }, 409);
   }
 
   // Paid gate: outbound transfers require an activated (paid) plan. In the Wise
