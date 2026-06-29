@@ -656,3 +656,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DY (completed)
 - Hardened `bridge-kyc-link` / `bridge-kyb-link` success contracts:
   - added deterministic success codes for approved/ready outcomes (`kyc_already_approved`, `kyc_link_ready`, `kyb_already_approved`, `kyb_link_ready`)
+
+### 2026-06-29 — Batch DZ (completed)
+- Hardened `bridge-external-account` success contracts:
+  - added deterministic success codes for delete/list/create/support-metadata outcomes

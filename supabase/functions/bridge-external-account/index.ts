@@ -279,7 +279,11 @@ Deno.serve(async (req) => {
       .update({ active: false, status: "deleted", updated_at: new Date().toISOString() })
       .eq("user_id", user.id)
       .eq("bridge_external_account_id", extId);
-    return json({ success: true, data: { deleted: true, external_account_id: extId } });
+    return json({
+      success: true,
+      code: "external_account_deleted",
+      data: { deleted: true, external_account_id: extId },
+    });
   }
 
   // ── list (passthrough; dashboard normally reads the local mirror) ──────
@@ -302,7 +306,11 @@ Deno.serve(async (req) => {
         bridge_request_id: r.request_id ?? null,
       }, mapped.status);
     }
-    return json({ success: true, data: (r.data as any)?.data ?? r.data });
+    return json({
+      success: true,
+      code: "external_accounts_listed",
+      data: (r.data as any)?.data ?? r.data,
+    });
   }
 
   // ── capabilities (Bridge response only; no country heuristics) ─────────
@@ -335,7 +343,11 @@ Deno.serve(async (req) => {
     // so users can still start with first account creation.
     const supported_account_types =
       discovered.size > 0 ? Array.from(discovered) : ["us", "iban", "clabe", "pix"];
-    return json({ success: true, data: { supported_account_types } });
+    return json({
+      success: true,
+      code: "external_account_supported_types_ready",
+      data: { supported_account_types },
+    });
   }
 
   // ── create ──────────────────────────────────────────────────────────
@@ -616,6 +628,7 @@ Deno.serve(async (req) => {
 
   return json({
     success: true,
+    code: "external_account_created",
     data: {
       external_account_id: extId,
       account_type:        acct.account_type,
