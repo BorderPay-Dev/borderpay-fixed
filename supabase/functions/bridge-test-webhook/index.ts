@@ -144,6 +144,10 @@ Deno.serve(async (req) => {
       error: "Synthetic ingest rejected",
       code: "synthetic_ingest_rejected",
       bridge_event_id: bridgeEventId,
+      summary: {
+        code: "synthetic_ingest_rejected",
+        bridge_event_id: bridgeEventId,
+      },
     }, 401);
   }
   if (row?.was_duplicate) {
@@ -167,6 +171,10 @@ Deno.serve(async (req) => {
       error: "Synthetic ingest not queued",
       code: "synthetic_ingest_not_queued",
       bridge_event_id: bridgeEventId,
+      summary: {
+        code: "synthetic_ingest_not_queued",
+        bridge_event_id: bridgeEventId,
+      },
     }, 500);
   }
 

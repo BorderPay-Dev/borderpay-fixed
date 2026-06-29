@@ -864,3 +864,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FY (completed)
 - Hardened `bridge-ping` error metadata contract:
   - added deterministic `summary` mirrors for api-key-missing and network-unreachable outcomes
+
+### 2026-06-29 — Batch FZ (completed)
+- Hardened `bridge-test-webhook` error metadata contract:
+  - added deterministic `summary` mirrors for synthetic ingest rejected/not-queued outcomes
