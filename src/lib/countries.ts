@@ -20,6 +20,7 @@
  */
 
 import { isBridgeBlocked } from '../../utils/compliance/partnerCountryPolicy';
+import { ALL_COUNTRIES } from '../../utils/countries/allCountries';
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -711,3 +712,93 @@ export const getPopularCountries = (): CountryConfig[] =>
   POPULAR_COUNTRY_CODES
     .map(code => COUNTRY_CONFIG.find(c => c.code === code))
     .filter((c): c is CountryConfig => !!c);
+
+const normalizeCountryName = (value: string): string =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+const COUNTRY_NAME_TO_CODE = new Map<string, string>(
+  ALL_COUNTRIES.map((c) => [normalizeCountryName(c.name), c.code]),
+);
+
+const COUNTRY_NAME_ALIASES: Record<string, string> = {
+  'democratic republic of the congo': 'CD',
+  'congo democratic republic of the': 'CD',
+  'congo kinshasa': 'CD',
+  'congo brazzaville': 'CG',
+  'cabo verde': 'CV',
+  "cote d ivoire": 'CI',
+  "cote d'ivoire": 'CI',
+  'ivory coast': 'CI',
+  'united states of america': 'US',
+  'great britain': 'GB',
+};
+
+const GENERIC_ID_TYPES: IDType[] = [
+  {
+    code: 'PASSPORT',
+    label: 'Passport',
+    description: 'Valid international passport',
+    fields: ['idNumber'],
+    identityType: 'PASSPORT',
+  },
+  {
+    code: 'NATIONAL_ID',
+    label: 'National ID',
+    description: 'Government-issued national identity document',
+    fields: ['idNumber'],
+    identityType: 'NATIONAL_ID',
+  },
+];
+
+function countryConfigFromCode(code: string): CountryConfig | null {
+  const fromConfig = getCountryByCode(code);
+  if (fromConfig) return fromConfig;
+
+  const fromAll = ALL_COUNTRIES.find((c) => c.code === code);
+  if (!fromAll) return null;
+
+  return {
+    code: fromAll.code,
+    name: fromAll.name,
+    flag: fromAll.flag,
+    dialCode: fromAll.dialCode,
+    currency: '',
+    providerSupported: true,
+    verificationMethod: 'document_capture',
+    idTypes: GENERIC_ID_TYPES,
+    status: 'active',
+  };
+}
+
+function resolveCode2(input: unknown): string | null {
+  const code = String(input ?? '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : null;
+}
+
+export function getSignupCountriesFromBridge(records: Array<{ code?: string | null; name?: string | null }>): CountryConfig[] {
+  const out = new Map<string, CountryConfig>();
+
+  for (const row of records) {
+    let code = resolveCode2(row?.code);
+    const rawName = String(row?.name ?? '').trim();
+    if (!code && rawName) {
+      const normalized = normalizeCountryName(rawName);
+      code = COUNTRY_NAME_TO_CODE.get(normalized)
+        ?? COUNTRY_NAME_ALIASES[normalized]
+        ?? null;
+    }
+    if (!code) continue;
+    if (isBridgeBlocked(code)) continue;
+    const cfg = countryConfigFromCode(code);
+    if (!cfg || cfg.status !== 'active') continue;
+    out.set(code, cfg);
+  }
+
+  return Array.from(out.values()).sort((a, b) => a.name.localeCompare(b.name));
+}

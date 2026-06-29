@@ -36,7 +36,12 @@ import {
 import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { getSignupEligibleCountries, getPopularCountries, getCountryByCode, type CountryConfig } from '../../src/lib/countries';
+import {
+  getSignupCountriesFromBridge,
+  getCountryByCode,
+  POPULAR_COUNTRY_CODES,
+  type CountryConfig,
+} from '../../src/lib/countries';
 import { isBridgeBlocked, isBridgeControlled } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -120,6 +125,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [enrollmentComplete, setEnrollmentComplete] = useState(false);
   const [formError, setFormError] = useState('');
+  const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>([]);
+  const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(true);
 
   const [formData, setFormData] = useState<SignUpData>({
     fullName: '',
@@ -148,6 +155,24 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   const updateForm = (updates: Partial<SignUpData>) => {
     setFormData(prev => ({ ...prev, ...updates }));
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setBridgeCountriesLoading(true);
+      const result = await backendAPI.auth.getBridgeSupportedCountries();
+      if (cancelled) return;
+      if (!result.success) {
+        setBridgeSignupCountries([]);
+        setBridgeCountriesLoading(false);
+        return;
+      }
+      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; name?: string | null }>;
+      setBridgeSignupCountries(getSignupCountriesFromBridge(providerCountries));
+      setBridgeCountriesLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'proof-of-address', 'review', 'pending'];
   const currentStepIndex = steps.indexOf(currentStep);
@@ -422,6 +447,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                 updateForm={updateForm}
                 onNext={handleCreateAccount}
                 isLoading={isLoading}
+                signupCountries={bridgeSignupCountries}
+                countriesLoading={bridgeCountriesLoading}
                 onNavigateToLogin={onNavigateToLogin}
                 onShowTerms={() => setShowTerms(true)}
                 onShowPrivacy={() => setShowPrivacy(true)}
@@ -773,11 +800,13 @@ function detectCountryFromTimezone(): string | null {
 // STEP 1: PERSONAL INFO
 // ============================================================================
 
-function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateToLogin, onShowTerms, onShowPrivacy, formError, onClearError }: {
+function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCountries, countriesLoading, onNavigateToLogin, onShowTerms, onShowPrivacy, formError, onClearError }: {
   formData: SignUpData;
   updateForm: (u: Partial<SignUpData>) => void;
   onNext: () => void;
   isLoading: boolean;
+  signupCountries: CountryConfig[];
+  countriesLoading: boolean;
   onNavigateToLogin: () => void;
   onShowTerms: () => void;
   onShowPrivacy: () => void;
@@ -791,22 +820,26 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
 
   // Auto-detect country from timezone on first mount (only if no country selected yet)
   useEffect(() => {
-    if (!formData.selectedCountry) {
+    if (!formData.selectedCountry && signupCountries.length > 0) {
       const detectedCode = detectCountryFromTimezone();
       if (detectedCode) {
-        const match = getCountryByCode(detectedCode);
+        const match = signupCountries.find((c) => c.code === detectedCode) ?? getCountryByCode(detectedCode);
         if (match && match.status === 'active') {
           updateForm({ selectedCountry: match });
         }
       }
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [signupCountries]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Belt-and-braces: filter popular codes by the same Bridge gate.
-  const popularCountries = getPopularCountries().filter(c => !isBridgeBlocked(c.code));
+  const popularCountries = useMemo(
+    () => POPULAR_COUNTRY_CODES
+      .map(code => signupCountries.find(c => c.code === code))
+      .filter((c): c is CountryConfig => Boolean(c)),
+    [signupCountries]
+  );
 
   const filteredCountries = useMemo(() => {
-    const all = getSignupEligibleCountries();
+    const all = signupCountries;
     if (!countrySearchQuery) return all;
     const q = countrySearchQuery.toLowerCase();
     return all.filter(c =>
@@ -814,7 +847,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
       c.code.toLowerCase().includes(q) ||
       c.dialCode.includes(countrySearchQuery)
     );
-  }, [countrySearchQuery]);
+  }, [countrySearchQuery, signupCountries]);
 
   const handleSelectCountry = (country: CountryConfig) => {
     updateForm({ selectedCountry: country });
@@ -931,11 +964,12 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
           <button
             type="button"
             onClick={() => setShowCountryPicker(true)}
+            disabled={countriesLoading || signupCountries.length === 0}
             className={`w-full flex items-center gap-3 py-3.5 px-4 bg-white/[0.04] backdrop-blur-md border rounded-2xl transition-all text-left ${
               formData.selectedCountry
                 ? 'border-[#C7FF00]/40'
                 : 'border-red-500/40 animate-pulse'
-            }`}
+            } ${(countriesLoading || signupCountries.length === 0) ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             <Globe className="w-5 h-5 text-gray-500 flex-shrink-0" />
             {formData.selectedCountry ? (
@@ -943,13 +977,18 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
                 <span className="text-xl">{formData.selectedCountry.flag}</span>
                 <span className="text-sm text-white font-medium">{formData.selectedCountry.name}</span>
               </div>
+            ) : countriesLoading ? (
+              <span className="text-sm text-gray-500">Loading supported countries...</span>
             ) : (
               <span className="text-sm text-gray-500">Select your country...</span>
             )}
             <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
           </button>
-          {!formData.selectedCountry && (
+          {!formData.selectedCountry && !countriesLoading && signupCountries.length > 0 && (
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Required - determines your available services & wallets</p>
+          )}
+          {!countriesLoading && signupCountries.length === 0 && (
+            <p className="text-[10px] text-red-400 mt-1.5 ml-1">Could not load Bridge-supported countries. Please try again.</p>
           )}
           {formData.selectedCountry && isBridgeControlled(formData.selectedCountry.code) && (
             <p className="text-[11px] text-amber-300/80 mt-1.5 ml-1">
@@ -1013,6 +1052,10 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
 
                 {/* Popular Countries (only when no search) */}
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-safe pb-6" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  {countriesLoading ? (
+                    <div className="py-10 text-center text-sm text-gray-500">Loading supported countries...</div>
+                  ) : (
+                  <>
                   {!countrySearchQuery && (
                     <div className="mb-4">
                       <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Popular</p>
@@ -1041,7 +1084,9 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
                     {countrySearchQuery ? `Results (${filteredCountries.length})` : 'All Countries'}
                   </p>
                   <div className="space-y-0.5">
-                    {filteredCountries.map((c) => (
+                    {filteredCountries.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-gray-500">No supported countries found.</div>
+                    ) : filteredCountries.map((c) => (
                       <button
                         key={c.code}
                         type="button"
@@ -1063,6 +1108,8 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
                       </button>
                     ))}
                   </div>
+                  </>
+                  )}
                 </div>
               </motion.div>
             </motion.div>
@@ -1151,7 +1198,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, onNavigateT
         {/* Submit */}
         <motion.button
           type="submit"
-          disabled={isLoading || !formData.selectedCountry}
+          disabled={isLoading || countriesLoading || signupCountries.length === 0 || !formData.selectedCountry}
           whileTap={{ scale: 0.98 }}
           className="w-full bg-[#C7FF00] text-black py-3.5 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#D4FF33] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
         >
