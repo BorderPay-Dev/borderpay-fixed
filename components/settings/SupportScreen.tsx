@@ -48,6 +48,9 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const [draftingAI, setDraftingAI] = useState(false);
   const [supportHealth, setSupportHealth] = useState<SupportHealthStatus | null>(null);
   const [loadingSupportHealth, setLoadingSupportHealth] = useState(false);
+  const [adminTargetEmail, setAdminTargetEmail] = useState('');
+  const [adminControlBusy, setAdminControlBusy] = useState(false);
+  const [adminControlResult, setAdminControlResult] = useState<string>('');
 
   const statusLabel = useMemo<Record<SupportTicket['status'], string>>(
     () => ({
@@ -244,6 +247,35 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       setDraftingAI(false);
     }
   }, [selectedAdminTicketId]);
+
+  const runAdminCustomerControl = useCallback(async (
+    action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_cards',
+  ) => {
+    const targetEmail = adminTargetEmail.trim().toLowerCase();
+    if (!targetEmail) {
+      toast.error('Enter a customer email first');
+      return;
+    }
+    setAdminControlBusy(true);
+    try {
+      const res = await backendAPI.admin.customerControls({ action, target_email: targetEmail });
+      if (!res.success) {
+        toast.error(res.error || 'Admin action failed');
+        setAdminControlResult('');
+        return;
+      }
+      const summary = (res as any)?.code
+        ? `${(res as any).code}${typeof (res as any)?.data?.processed === 'number' ? ` • processed ${(res as any).data.processed}` : ''}`
+        : 'Completed';
+      setAdminControlResult(summary);
+      toast.success('Admin action completed');
+    } catch {
+      toast.error('Admin action failed');
+      setAdminControlResult('');
+    } finally {
+      setAdminControlBusy(false);
+    }
+  }, [adminTargetEmail]);
 
   const submitTicket = async () => {
     const body = message.trim();
@@ -470,6 +502,51 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                   : 'Health check unavailable'}
               </p>
             </div>
+
+            <div className={`mb-3 rounded-xl border ${tc.cardBorder} ${tc.bgAlt} p-3`}>
+              <p className={`text-xs font-medium ${tc.text} mb-2`}>Customer controls</p>
+              <input
+                value={adminTargetEmail}
+                onChange={(e) => setAdminTargetEmail(e.target.value)}
+                placeholder="customer@email.com"
+                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
+              />
+              <div className="grid grid-cols-1 gap-2 mt-2">
+                <button
+                  onClick={() => void runAdminCustomerControl('inspect_customer_assets')}
+                  disabled={adminControlBusy}
+                  className={`w-full inline-flex items-center justify-center gap-2 rounded-xl border ${tc.cardBorder} ${tc.text} text-sm px-3 py-2 disabled:opacity-60`}
+                >
+                  {adminControlBusy ? <Loader2 size={14} className="animate-spin" /> : null}
+                  Inspect assets
+                </button>
+                <button
+                  onClick={() => void runAdminCustomerControl('revoke_virtual_accounts')}
+                  disabled={adminControlBusy}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-3 py-2 disabled:opacity-60"
+                >
+                  Revoke virtual accounts
+                </button>
+                <button
+                  onClick={() => void runAdminCustomerControl('revoke_stablecoin_wallets')}
+                  disabled={adminControlBusy}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-3 py-2 disabled:opacity-60"
+                >
+                  Revoke stablecoin wallets
+                </button>
+                <button
+                  onClick={() => void runAdminCustomerControl('revoke_cards')}
+                  disabled={adminControlBusy}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 text-white font-semibold text-sm px-3 py-2 disabled:opacity-60"
+                >
+                  Revoke cards
+                </button>
+              </div>
+              {adminControlResult ? (
+                <p className={`text-[11px] mt-2 ${tc.textSecondary}`}>{adminControlResult}</p>
+              ) : null}
+            </div>
+
             {adminTickets.length === 0 ? (
               <p className={`text-sm ${tc.textSecondary}`}>No open tickets in queue.</p>
             ) : (

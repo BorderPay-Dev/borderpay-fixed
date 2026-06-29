@@ -164,15 +164,20 @@ function extractCustomerRejectionReason(payload: any): string | null {
     payload?.customer_rejection_reason,
     payload?.user_rejection_reason,
     payload?.reason,
-    payload?.message,
   ].find((v) => typeof v === "string" && String(v).trim().length > 0);
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (typeof direct === "string" && direct.trim()) {
+    const v = direct.trim();
+    if (!/developer reason|do not share|informational purposes only|internal/i.test(v)) return v;
+  }
 
   const rr = payload?.rejection_reasons;
   if (Array.isArray(rr)) {
     for (const item of rr) {
       const msg = item?.rejection_reason ?? item?.user_reason ?? item?.reason;
-      if (typeof msg === "string" && msg.trim()) return msg.trim();
+      if (typeof msg === "string" && msg.trim()) {
+        const v = msg.trim();
+        if (!/developer reason|do not share|informational purposes only|internal/i.test(v)) return v;
+      }
     }
   }
   return null;

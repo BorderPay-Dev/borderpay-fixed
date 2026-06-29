@@ -1,4 +1,5 @@
 import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { normalizeBridgeCustomerRejectionReason } from "../rejection-reason.ts";
 
 export interface BusinessKybDecisionProps {
   company_name:  string;
@@ -8,13 +9,7 @@ export interface BusinessKybDecisionProps {
 }
 
 export function render(p: BusinessKybDecisionProps): RenderedEmail {
-  const SAFE_REJECTION_REASON = "Your information could not be verified";
-  const providedReason = String(p.reason || "").trim();
-  const safeReason =
-    providedReason &&
-    !/developer reason|do not share|informational purposes only|for your informational purposes only/i.test(providedReason)
-      ? providedReason
-      : SAFE_REJECTION_REASON;
+  const safeReason = normalizeBridgeCustomerRejectionReason(p.reason);
   const company  = p.company_name || "your business";
   const approved = p.decision === "approved";
 

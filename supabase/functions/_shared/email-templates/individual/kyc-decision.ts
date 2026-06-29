@@ -1,4 +1,5 @@
 import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, firstName, RenderedEmail } from "../layout.ts";
+import { normalizeBridgeCustomerRejectionReason } from "../rejection-reason.ts";
 
 /**
  * Individual KYC decision — terminal approve/reject only (per the webhook-email
@@ -12,13 +13,7 @@ export interface IndividualKycDecisionProps {
 }
 
 export function render(p: IndividualKycDecisionProps): RenderedEmail {
-  const SAFE_REJECTION_REASON = "Your information could not be verified";
-  const providedReason = String(p.reason || "").trim();
-  const safeReason =
-    providedReason &&
-    !/developer reason|do not share|informational purposes only|for your informational purposes only/i.test(providedReason)
-      ? providedReason
-      : SAFE_REJECTION_REASON;
+  const safeReason = normalizeBridgeCustomerRejectionReason(p.reason);
   const name     = firstName(p.full_name) || "there";
   const approved = p.decision === "approved";
 
