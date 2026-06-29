@@ -824,3 +824,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FO (completed)
 - Hardened `bridge-wallet` summary metadata contract:
   - added deterministic `summary.code` for idempotent/create success outcomes
+
+### 2026-06-29 — Batch FP (completed)
+- Hardened `bridge-virtual-account` summary metadata contract:
+  - added deterministic `summary.code` for capabilities/idempotent/create success outcomes

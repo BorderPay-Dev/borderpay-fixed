@@ -122,7 +122,10 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "virtual_account_supported_currencies_ready",
-      summary: { supported_currency_count: supported_currencies.length },
+      summary: {
+        code: "virtual_account_supported_currencies_ready",
+        supported_currency_count: supported_currencies.length,
+      },
       data: { supported_currencies },
     });
   }
@@ -208,7 +211,11 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "virtual_account_already_exists",
-      summary: { currency, already_exists: true },
+      summary: {
+        code: "virtual_account_already_exists",
+        currency,
+        already_exists: true,
+      },
       data: {
         virtual_account_id: existingVa.bridge_virtual_account_id,
         account_number:     dep.bank_account_number ?? null,
@@ -293,7 +300,11 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "virtual_account_created",
-      summary: { currency, already_exists: false },
+      summary: {
+        code: "virtual_account_created",
+        currency,
+        already_exists: false,
+      },
       data: {
         virtual_account_id: result.virtual_account_id,
         account_number:     result.account_number ?? srcDep.bank_account_number ?? null,
