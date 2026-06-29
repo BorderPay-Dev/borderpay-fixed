@@ -392,6 +392,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized wrong-account-type response with deterministic messaging
   - exposed explicit `expected_account_type=business` context field
 
+### 2026-06-29 — Batch BQ (completed)
+- Hardened `bridge-kyc-link` account-type guard contract:
+  - normalized wrong-account-type response with deterministic messaging
+  - exposed explicit `expected_account_type=individual` context field
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

@@ -398,7 +398,12 @@ Deno.serve(async (req: Request) => {
     }, 404);
   }
   if (profile.account_type === "business") {
-    return json({ success: false, error: "KYC is only for individual accounts. Use bridge-kyb-link.", code: "wrong_account_type" }, 403);
+    return json({
+      success: false,
+      code: "wrong_account_type",
+      error: "Identity verification is only available for individual accounts.",
+      expected_account_type: "individual",
+    }, 403);
   }
   if (isBridgeBlocked(profile.country)) {
     return json(bridgeCountryBlockResponse(profile.country!), 403);
