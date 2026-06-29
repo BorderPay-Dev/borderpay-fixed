@@ -529,6 +529,11 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                   />
                   Dry run (no provider/local revoke)
                 </label>
+                {!adminControlDryRun ? (
+                  <p className="text-[11px] text-amber-300">
+                    Live mode enabled. Revoke actions will execute after confirmation.
+                  </p>
+                ) : null}
                 <button
                   onClick={() => void runAdminCustomerControl('inspect_customer_assets')}
                   disabled={adminControlBusy}
