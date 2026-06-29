@@ -221,6 +221,7 @@ Deno.serve(async (req) => {
           error: isBusiness
             ? "Business verification is required before creating a wallet."
             : "Identity verification is required before creating a wallet.",
+          expected_verification_status: "approved",
           bridge_request_id: e.request_id || undefined,
         }, 409);
       }
