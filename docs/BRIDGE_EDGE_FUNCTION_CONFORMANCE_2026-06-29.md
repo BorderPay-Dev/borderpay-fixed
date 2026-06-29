@@ -284,6 +284,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - aligned `BridgeProviderError` imports to provider module source (`_shared/providers/bridge.ts`) for `bridge-customer`, `bridge-sync-customers`, `bridge-identity-cleanup`
   - restores correct `instanceof BridgeProviderError` behavior for deterministic provider error mapping
 
+### 2026-06-29 — Batch AR (completed)
+- Hardened `bridge-identity-cleanup` delete failure classification:
+  - added deterministic provider-aware result codes (`bridge_customer_not_found`, `rate_limited`, `provider_unavailable`, `delete_failed`)
+  - persisted provider status in audit/output payload for deterministic operator triage
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
