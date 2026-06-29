@@ -113,7 +113,17 @@ Deno.serve(async (req) => {
     target_user_id: body?.target_user_id,
     target_email: body?.target_email,
   });
-  if (!target) return json({ success: false, code: "target_not_found", error: "Customer profile not found" }, 404);
+  if (!target) {
+    await auditAdminAction({
+      actorId: admin.userId,
+      actionType: "revoke_blocked",
+      targetResource: `lookup:${norm(body?.target_email) || norm(body?.target_user_id) || "unknown"}`,
+      requestId,
+      beforeState: { action, reason: "target_not_found" },
+      afterState: { allowed: false },
+    });
+    return json({ success: false, code: "target_not_found", error: "Customer profile not found" }, 404);
+  }
   const targetEmail = String(target.email || "").toLowerCase();
   if (isProtectedInternalEmail(targetEmail) && action !== "inspect_customer_assets") {
     await auditAdminAction({
