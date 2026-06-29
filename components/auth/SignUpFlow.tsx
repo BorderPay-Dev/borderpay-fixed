@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
   getSignupCountriesFromBridge,
+  getSignupBootstrapCountries,
   getCountryByCode,
   POPULAR_COUNTRY_CODES,
   type CountryConfig,
@@ -67,6 +68,8 @@ interface SignUpData {
   // Business-only (collected when accountType === 'business')
   companyName: string;
   registrationNumber: string;
+  secondaryUboName: string;
+  secondaryUboEmail: string;
   // Step 2: Identity
   dateOfBirth: string; // DD-MM-YYYY
   idType: 'NIN' | 'PASSPORT' | 'VOTERS_CARD' | 'DRIVERS_LICENSE' | '';
@@ -113,8 +116,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [enrollmentComplete, setEnrollmentComplete] = useState(false);
   const [formError, setFormError] = useState('');
-  const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>([]);
-  const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(true);
+  const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>(() => getSignupBootstrapCountries());
+  const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(false);
 
   const [formData, setFormData] = useState<SignUpData>({
     fullName: '',
@@ -127,6 +130,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     accountType: 'individual', // default = unchanged behaviour
     companyName: '',
     registrationNumber: '',
+    secondaryUboName: '',
+    secondaryUboEmail: '',
     dateOfBirth: '',
     idType: '',
     idNumber: '',
@@ -144,16 +149,24 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setBridgeCountriesLoading(true);
       const result = await backendAPI.auth.getBridgeSupportedCountries();
       if (cancelled) return;
       if (!result.success) {
-        setBridgeSignupCountries([]);
         setBridgeCountriesLoading(false);
         return;
       }
-      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; name?: string | null }>;
-      setBridgeSignupCountries(getSignupCountriesFromBridge(providerCountries));
+      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{
+        code?: string | null;
+        name?: string | null;
+        alpha2?: string | null;
+        alpha_2?: string | null;
+        iso2?: string | null;
+        iso_2?: string | null;
+        country_code?: string | null;
+        country_code_alpha2?: string | null;
+      }>;
+      const mapped = getSignupCountriesFromBridge(providerCountries);
+      if (mapped.length > 0) setBridgeSignupCountries(mapped);
       setBridgeCountriesLoading(false);
     })();
     return () => { cancelled = true; };
@@ -219,6 +232,20 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         ...(accountType === 'business' ? {
           company_name:        companyName.trim(),
           registration_number: registrationNumber.trim() || undefined,
+          business_owners: [
+            {
+              full_name: fullName.trim(),
+              email: email.trim().toLowerCase(),
+              role: 'control_person',
+            },
+            ...(formData.secondaryUboEmail.trim() || formData.secondaryUboName.trim()
+              ? [{
+                  full_name: formData.secondaryUboName.trim() || undefined,
+                  email: formData.secondaryUboEmail.trim().toLowerCase() || undefined,
+                  role: 'beneficial_owner',
+                }]
+              : []),
+          ],
         } : {}),
       } as any, ANON_KEY);
 
@@ -237,6 +264,20 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
           company_name:        companyName.trim(),
           registration_number: registrationNumber.trim() || null,
           country:             selectedCountry?.code || null,
+          business_owners: [
+            {
+              full_name: fullName.trim(),
+              email: email.trim().toLowerCase(),
+              role: 'control_person',
+            },
+            ...(formData.secondaryUboEmail.trim() || formData.secondaryUboName.trim()
+              ? [{
+                  full_name: formData.secondaryUboName.trim() || null,
+                  email: formData.secondaryUboEmail.trim().toLowerCase() || null,
+                  role: 'beneficial_owner',
+                }]
+              : []),
+          ],
         } : null,
       }));
 
@@ -748,29 +789,33 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
+  const effectiveSignupCountries = useMemo(
+    () => (signupCountries.length > 0 ? signupCountries : getSignupBootstrapCountries()),
+    [signupCountries],
+  );
 
   // Auto-detect country from timezone on first mount (only if no country selected yet)
   useEffect(() => {
-    if (!formData.selectedCountry && signupCountries.length > 0) {
+    if (!formData.selectedCountry && effectiveSignupCountries.length > 0) {
       const detectedCode = detectCountryFromTimezone();
       if (detectedCode) {
-        const match = signupCountries.find((c) => c.code === detectedCode) ?? getCountryByCode(detectedCode);
+        const match = effectiveSignupCountries.find((c) => c.code === detectedCode) ?? getCountryByCode(detectedCode);
         if (match && match.status === 'active') {
           updateForm({ selectedCountry: match });
         }
       }
     }
-  }, [signupCountries]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveSignupCountries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const popularCountries = useMemo(
     () => POPULAR_COUNTRY_CODES
-      .map(code => signupCountries.find(c => c.code === code))
+      .map(code => effectiveSignupCountries.find(c => c.code === code))
       .filter((c): c is CountryConfig => Boolean(c)),
-    [signupCountries]
+    [effectiveSignupCountries]
   );
 
   const filteredCountries = useMemo(() => {
-    const all = signupCountries;
+    const all = effectiveSignupCountries;
     if (!countrySearchQuery) return all;
     const q = countrySearchQuery.toLowerCase();
     return all.filter(c =>
@@ -778,7 +823,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
       c.code.toLowerCase().includes(q) ||
       c.dialCode.includes(countrySearchQuery)
     );
-  }, [countrySearchQuery, signupCountries]);
+  }, [countrySearchQuery, effectiveSignupCountries]);
 
   const handleSelectCountry = (country: CountryConfig) => {
     updateForm({ selectedCountry: country });
@@ -875,6 +920,24 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
               onChange={(e) => updateForm({ registrationNumber: e.target.value })}
               placeholder="RC-1234567"
             />
+            <FormInput
+              label="Additional UBO / Owner (optional)"
+              icon={User}
+              value={formData.secondaryUboName}
+              onChange={(e) => updateForm({ secondaryUboName: e.target.value })}
+              placeholder="Second owner full name"
+            />
+            <FormInput
+              label="Additional UBO Email (optional)"
+              icon={Mail}
+              type="email"
+              value={formData.secondaryUboEmail}
+              onChange={(e) => updateForm({ secondaryUboEmail: e.target.value })}
+              placeholder="owner2@company.com"
+            />
+            <p className="text-[11px] text-gray-500 -mt-2">
+              If your business has multiple owners, add one additional owner now. BorderPay will notify them to complete verification.
+            </p>
           </>
         )}
 
@@ -895,12 +958,12 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
           <button
             type="button"
             onClick={() => setShowCountryPicker(true)}
-            disabled={countriesLoading || signupCountries.length === 0}
+            disabled={effectiveSignupCountries.length === 0}
             className={`w-full flex items-center gap-3 py-3.5 px-4 bg-white/[0.04] backdrop-blur-md border rounded-2xl transition-all text-left ${
               formData.selectedCountry
                 ? 'border-[#C7FF00]/40'
                 : 'border-red-500/40 animate-pulse'
-            } ${(countriesLoading || signupCountries.length === 0) ? 'opacity-60 cursor-not-allowed' : ''}`}
+            } ${(effectiveSignupCountries.length === 0) ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             <Globe className="w-5 h-5 text-gray-500 flex-shrink-0" />
             {formData.selectedCountry ? (
@@ -908,17 +971,15 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
                 <span className="text-xl">{formData.selectedCountry.flag}</span>
                 <span className="text-sm text-white font-medium">{formData.selectedCountry.name}</span>
               </div>
-            ) : countriesLoading ? (
-              <span className="text-sm text-gray-500">Loading supported countries...</span>
             ) : (
               <span className="text-sm text-gray-500">Select your country...</span>
             )}
             <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
           </button>
-          {!formData.selectedCountry && !countriesLoading && signupCountries.length > 0 && (
+          {!formData.selectedCountry && effectiveSignupCountries.length > 0 && (
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Required - determines your available services & wallets</p>
           )}
-          {!countriesLoading && signupCountries.length === 0 && (
+          {effectiveSignupCountries.length === 0 && (
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Could not load Bridge-supported countries. Please try again.</p>
           )}
           {formData.selectedCountry && isBridgeControlled(formData.selectedCountry.code) && (
@@ -983,9 +1044,6 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
 
                 {/* Popular Countries (only when no search) */}
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-safe pb-6" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  {countriesLoading ? (
-                    <div className="py-10 text-center text-sm text-gray-500">Loading supported countries...</div>
-                  ) : (
                   <>
                   {!countrySearchQuery && (
                     <div className="mb-4">
@@ -1040,7 +1098,6 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
                     ))}
                   </div>
                   </>
-                  )}
                 </div>
               </motion.div>
             </motion.div>
@@ -1129,7 +1186,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         {/* Submit */}
         <motion.button
           type="submit"
-          disabled={isLoading || countriesLoading || signupCountries.length === 0 || !formData.selectedCountry}
+          disabled={isLoading || signupCountries.length === 0 || !formData.selectedCountry}
           whileTap={{ scale: 0.98 }}
           className="w-full bg-[#C7FF00] text-black py-3.5 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#D4FF33] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
         >
