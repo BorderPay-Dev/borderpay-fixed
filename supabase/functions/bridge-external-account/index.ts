@@ -241,7 +241,7 @@ Deno.serve(async (req) => {
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
           : {}),
-        request_id: r.request_id ?? null,
+        bridge_request_id: r.request_id ?? null,
       }, mapped.status);
     }
     await supa.from("bridge_external_accounts")
@@ -266,7 +266,7 @@ Deno.serve(async (req) => {
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
           : {}),
-        request_id: r.request_id ?? null,
+        bridge_request_id: r.request_id ?? null,
       }, mapped.status);
     }
     return json({ success: true, data: (r.data as any)?.data ?? r.data });
@@ -287,7 +287,7 @@ Deno.serve(async (req) => {
         ...(mapped.expected_verification_status
           ? { expected_verification_status: mapped.expected_verification_status }
           : {}),
-        request_id: r.request_id ?? null,
+        bridge_request_id: r.request_id ?? null,
       }, mapped.status);
     }
     const rows = ((r.data as any)?.data ?? r.data ?? []) as any[];
@@ -535,7 +535,7 @@ Deno.serve(async (req) => {
       ...(mapped.expected_verification_status
         ? { expected_verification_status: mapped.expected_verification_status }
         : {}),
-      request_id: r.request_id ?? null,
+      bridge_request_id: r.request_id ?? null,
     }, mapped.status);
   }
 

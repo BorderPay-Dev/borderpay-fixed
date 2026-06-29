@@ -584,3 +584,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DG (completed)
 - Hardened `bridge-ping` request-id naming contract:
   - normalized Bridge trace field to `bridge_request_id` for cross-endpoint consistency
+
+### 2026-06-29 — Batch DH (completed)
+- Hardened `bridge-external-account` request-id naming contract:
+  - normalized API response trace field from `request_id` to `bridge_request_id`
