@@ -114,7 +114,13 @@ Deno.serve(async (req) => {
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
-    return json({ success: false, ...identity.failure }, 409);
+    return json({
+      success: false,
+      ...identity.failure,
+      summary: {
+        code: identity.failure.code ?? "identity_invariant_violation",
+      },
+    }, 409);
   }
   const profile = identity.context;
   const isBusiness = profile.account_type === "business";

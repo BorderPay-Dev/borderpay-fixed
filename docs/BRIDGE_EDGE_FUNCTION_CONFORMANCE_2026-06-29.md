@@ -969,3 +969,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch AY (completed)
 - Hardened `bridge-customer` deterministic provider-failure summary contract:
   - mapped Bridge customer-create failures now always include stable `summary.code` for deterministic client handling
+
+### 2026-06-29 — Batch AZ (completed)
+- Hardened `bridge-wallet` identity invariant failure contract:
+  - ensured invariant-gate failures include deterministic `summary.code` for stable client branching
