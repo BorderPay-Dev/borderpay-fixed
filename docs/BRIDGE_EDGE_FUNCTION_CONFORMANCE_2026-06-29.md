@@ -205,3 +205,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-kyc-link` missing-link failure contract:
   - replaced generic missing-link failure text with deterministic coded response (`missing_verification_link`)
   - kept Bridge request id for operator traceability
+
+### 2026-06-29 — Batch AD (completed)
+- Hardened `bridge-identity-cleanup` failure surface:
+  - removed raw provider/database exception text from per-candidate API responses
+  - added top-level deterministic internal failure contract (`cleanup_internal_error`)
+  - preserved detailed failure context only in internal cleanup audit records

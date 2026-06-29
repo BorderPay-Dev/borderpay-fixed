@@ -103,69 +103,78 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
-  // Fail-closed by default. This endpoint is destructive and must be
-  // explicitly enabled for a controlled maintenance window.
-  const enabled = (Deno.env.get("BRIDGE_IDENTITY_CLEANUP_ENABLED") || "").toLowerCase() === "true";
-  if (!enabled) {
+  try {
+    // Fail-closed by default. This endpoint is destructive and must be
+    // explicitly enabled for a controlled maintenance window.
+    const enabled = (Deno.env.get("BRIDGE_IDENTITY_CLEANUP_ENABLED") || "").toLowerCase() === "true";
+    if (!enabled) {
+      return json({
+        success: false,
+        code: "cleanup_disabled",
+        error: "Bridge identity cleanup is disabled.",
+      }, 503);
+    }
+
+    const secret =
+      Deno.env.get("BRIDGE_IDENTITY_CLEANUP_SECRET") ||
+      Deno.env.get("ADMIN_BROADCAST_INTERNAL_TOKEN");
+    const passed = req.headers.get("x-cleanup-secret");
+    if (!secret || !passed || passed !== secret) {
+      return json({ success: false, error: "Unauthorized" }, 401);
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const limit = Math.max(1, Math.min(20, Number(body?.limit ?? 10)));
+    const dryRun = body?.dry_run !== false;
+
+    const candidates = await loadCandidates(limit);
+    const out: Array<Record<string, unknown>> = [];
+
+    for (const c of candidates) {
+      if (isInternalEmail(c.email)) {
+        await audit(c, "skip", "success", "internal_account_excluded");
+        out.push({ user_id: c.user_id, bridge_customer_id: c.bridge_customer_id, action: "skip", reason: "internal_account_excluded" });
+        continue;
+      }
+
+      try {
+        if (!dryRun) {
+          await bridgeProvider.deleteCustomer(c.bridge_customer_id);
+          await clearLocalBridgeIdentity(c);
+        }
+        await audit(c, "delete_bridge_customer", "success", dryRun ? "dry_run" : "deleted_and_cleared", {
+          dry_run: dryRun,
+        });
+        out.push({
+          user_id: c.user_id,
+          bridge_customer_id: c.bridge_customer_id,
+          account_type: c.account_type,
+          action: dryRun ? "would_delete_and_clear" : "deleted_and_cleared",
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await audit(c, "delete_bridge_customer", "failed", "delete_failed", { error: msg });
+        out.push({
+          user_id: c.user_id,
+          bridge_customer_id: c.bridge_customer_id,
+          action: "failed",
+          code: "delete_failed",
+          error: "Unable to process this cleanup candidate right now.",
+        });
+      }
+    }
+
+    return json({
+      success: true,
+      dry_run: dryRun,
+      scanned: candidates.length,
+      results: out,
+    });
+  } catch {
     return json({
       success: false,
-      code: "cleanup_disabled",
-      error: "Bridge identity cleanup is disabled.",
-    }, 503);
+      code: "cleanup_internal_error",
+      error: "Bridge identity cleanup failed. Retry later.",
+    }, 500);
   }
-
-  const secret =
-    Deno.env.get("BRIDGE_IDENTITY_CLEANUP_SECRET") ||
-    Deno.env.get("ADMIN_BROADCAST_INTERNAL_TOKEN");
-  const passed = req.headers.get("x-cleanup-secret");
-  if (!secret || !passed || passed !== secret) {
-    return json({ success: false, error: "Unauthorized" }, 401);
-  }
-
-  const body = await req.json().catch(() => ({}));
-  const limit = Math.max(1, Math.min(20, Number(body?.limit ?? 10)));
-  const dryRun = body?.dry_run !== false;
-
-  const candidates = await loadCandidates(limit);
-  const out: Array<Record<string, unknown>> = [];
-
-  for (const c of candidates) {
-    if (isInternalEmail(c.email)) {
-      await audit(c, "skip", "success", "internal_account_excluded");
-      out.push({ user_id: c.user_id, bridge_customer_id: c.bridge_customer_id, action: "skip", reason: "internal_account_excluded" });
-      continue;
-    }
-
-    try {
-      if (!dryRun) {
-        await bridgeProvider.deleteCustomer(c.bridge_customer_id);
-        await clearLocalBridgeIdentity(c);
-      }
-      await audit(c, "delete_bridge_customer", "success", dryRun ? "dry_run" : "deleted_and_cleared", {
-        dry_run: dryRun,
-      });
-      out.push({
-        user_id: c.user_id,
-        bridge_customer_id: c.bridge_customer_id,
-        account_type: c.account_type,
-        action: dryRun ? "would_delete_and_clear" : "deleted_and_cleared",
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      await audit(c, "delete_bridge_customer", "failed", "delete_failed", { error: msg });
-      out.push({
-        user_id: c.user_id,
-        bridge_customer_id: c.bridge_customer_id,
-        action: "failed",
-        error: msg,
-      });
-    }
-  }
-
-  return json({
-    success: true,
-    dry_run: dryRun,
-    scanned: candidates.length,
-    results: out,
-  });
 });
