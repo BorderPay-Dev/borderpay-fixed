@@ -259,6 +259,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - replaced generic wallet-create failure throw with structured `BridgeProviderError`
   - aligned metadata propagation (`status`, `bridge_code`, `bridge_error`, `request_id`) with other Bridge provider methods
 
+### 2026-06-29 — Batch AM (completed)
+- Hardened `bridge-virtual-account` grant-pending classifier:
+  - switched pending-review detection from generic exception text to structured provider fields (`bridge_code`, `bridge_error`)
+  - preserves existing user-safe `va_grant_pending` response while reducing false negatives after provider error-contract hardening
+
 ### 2026-06-29 — Batch AF (completed)
 - Hardened `bridge-transfer` non-provider exception fallback:
   - removed raw exception message leakage from terminal fallback response
