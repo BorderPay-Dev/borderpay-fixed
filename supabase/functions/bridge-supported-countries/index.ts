@@ -42,6 +42,10 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "GET",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "GET",
+      },
     }, 405);
   }
 
@@ -56,6 +60,10 @@ Deno.serve(async (req) => {
       code: "bridge_countries_unavailable",
       error: "Supported countries are temporarily unavailable.",
       bridge_request_id: providerRes.request_id ?? null,
+      summary: {
+        code: "bridge_countries_unavailable",
+        bridge_request_id: providerRes.request_id ?? null,
+      },
     }, 502);
   }
 
@@ -108,4 +116,3 @@ Deno.serve(async (req) => {
     },
   });
 });
-

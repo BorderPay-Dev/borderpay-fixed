@@ -889,3 +889,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GE (completed)
 - Hardened `bridge-customer` error metadata contract:
   - added deterministic `summary` mirror for profile-update-failed outcome
+
+### 2026-06-29 — Batch GF (completed)
+- Hardened `bridge-supported-countries` error metadata contract:
+  - added deterministic `summary` mirrors for method-not-allowed and provider-unavailable outcomes
