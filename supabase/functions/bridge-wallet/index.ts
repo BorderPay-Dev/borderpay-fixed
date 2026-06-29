@@ -37,23 +37,40 @@ const CHAINS: readonly StablecoinChain[]  = ["ETH", "SOL", "BSC", "POLYGON", "TR
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") {
-    return json({ success: false, code: "method_not_allowed", error: "POST only" }, 405);
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+    }, 405);
   }
 
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   if (!token) {
-    return json({ success: false, code: "authorization_required", error: "Authorization required" }, 401);
+    return json({
+      success: false,
+      code: "missing_bearer_token",
+      error: "Authentication required",
+    }, 401);
   }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) {
-    return json({ success: false, code: "unauthorized", error: "Unauthorized" }, 401);
+    return json({
+      success: false,
+      code: "invalid_auth_token",
+      error: "Unauthorized",
+    }, 401);
   }
 
   let body: { symbol?: string; chain?: string };
   try { body = await req.json(); } catch {
-    return json({ success: false, code: "invalid_json", error: "Invalid JSON" }, 400);
+    return json({
+      success: false,
+      code: "invalid_json_payload",
+      error: "Invalid JSON payload",
+    }, 400);
   }
   const symbol = String(body.symbol || "USDC").toUpperCase() as StablecoinSymbol;
   const chain  = String(body.chain  || "ETH").toUpperCase()  as StablecoinChain;
