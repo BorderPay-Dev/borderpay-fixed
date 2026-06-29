@@ -784,3 +784,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FE (completed)
 - Hardened `bridge-webhook` success metadata contract:
   - added deterministic top-level `summary` mirrors for ignored/duplicate/queued outcomes
+
+### 2026-06-29 — Batch FF (completed)
+- Hardened `bridge-ping` response metadata contract:
+  - added deterministic top-level `summary` mirrors for reachable and HTTP-error outcomes

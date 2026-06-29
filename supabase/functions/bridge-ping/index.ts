@@ -155,6 +155,12 @@ Deno.serve(async (req) => {
       bridge_request_id: requestId,
       provider_code: providerCode,
       latency_ms: latencyMs,
+      summary: {
+        code: "bridge_http_error",
+        status: res.status,
+        key_kind: keyKind,
+        bridge_request_id: requestId,
+      },
       hint: res.status === 401 ? "Bridge rejected the key. Verify the secret value matches the intended environment."
           : res.status === 403 ? "Key valid but lacks scope. Check the API key permissions in the Bridge dashboard."
           : res.status === 429 ? "Rate limited. Retry shortly."
@@ -174,5 +180,12 @@ Deno.serve(async (req) => {
     bridge_request_id: requestId,
     latency_ms:   latencyMs,
     sample_count: sampleCount,
+    summary: {
+      code: "bridge_reachable",
+      status: res.status,
+      key_kind: keyKind,
+      bridge_request_id: requestId,
+      sample_count: sampleCount,
+    },
   });
 });
