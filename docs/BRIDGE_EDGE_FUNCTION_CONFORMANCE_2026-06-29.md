@@ -533,3 +533,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-sync-customers` failure mapping contract:
   - normalized `requires_active_kyc_status` to deterministic `kyc_not_approved` with account-type aware wording
   - added explicit `expected_verification_status=approved` in per-row failure output
+
+### 2026-06-29 — Batch CV (completed)
+- Hardened `bridge-kyc-link` provider rejection contract:
+  - normalized `requires_active_kyc_status` to deterministic `kyc_not_approved` with account-type aware wording
+  - added explicit `expected_verification_status=approved` in API error responses
