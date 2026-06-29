@@ -836,3 +836,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FR (completed)
 - Hardened `bridge-webhook` summary metadata contract:
   - added deterministic `summary.code` for ignored/duplicate/queued outcomes
+
+### 2026-06-29 — Batch FS (completed)
+- Hardened `bridge-external-account` summary metadata contract:
+  - added deterministic `summary.code` for delete/list/capabilities/create success outcomes

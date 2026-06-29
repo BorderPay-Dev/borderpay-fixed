@@ -282,7 +282,10 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "external_account_deleted",
-      summary: { deleted: true },
+      summary: {
+        code: "external_account_deleted",
+        deleted: true,
+      },
       data: { deleted: true, external_account_id: extId },
     });
   }
@@ -316,7 +319,14 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "external_accounts_listed",
-      ...(listedCount !== null ? { summary: { external_account_count: listedCount } } : {}),
+      ...(listedCount !== null
+        ? {
+            summary: {
+              code: "external_accounts_listed",
+              external_account_count: listedCount,
+            },
+          }
+        : {}),
       data: listedCount !== null
         ? { ...(typeof listedAccounts === "object" && listedAccounts !== null ? listedAccounts : { items: listedAccounts }), external_account_count: listedCount }
         : listedAccounts,
@@ -356,7 +366,10 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "external_account_supported_types_ready",
-      summary: { supported_type_count: supported_account_types.length },
+      summary: {
+        code: "external_account_supported_types_ready",
+        supported_type_count: supported_account_types.length,
+      },
       data: { supported_account_types },
     });
   }
@@ -640,7 +653,12 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     code: "external_account_created",
-    summary: { account_type: acct.account_type, currency, rail: railLabel },
+    summary: {
+      code: "external_account_created",
+      account_type: acct.account_type,
+      currency,
+      rail: railLabel,
+    },
     data: {
       external_account_id: extId,
       account_type:        acct.account_type,
