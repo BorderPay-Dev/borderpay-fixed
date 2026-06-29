@@ -125,6 +125,7 @@ Deno.serve(async (req) => {
 
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
   const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];
+  const warnings: Array<{ code: string; symbol: string; chain: string; message: string }> = [];
 
   for (const { symbol, chain } of DEFAULTS) {
     // Idempotent: skip if this (currency, chain) already exists for the user.
@@ -152,6 +153,12 @@ Deno.serve(async (req) => {
     } catch (e) {
       // One failure shouldn't block the other; report best-effort.
       console.warn(`provision ${symbol}/${chain}: ${(e as Error).message}`);
+      warnings.push({
+        code: "wallet_provision_failed",
+        symbol,
+        chain: chain.toLowerCase(),
+        message: "Unable to provision this stablecoin wallet right now.",
+      });
     }
   }
 
@@ -161,7 +168,13 @@ Deno.serve(async (req) => {
     summary: {
       code: "stablecoin_provisioning_completed",
       wallet_count: out.length,
+      warning_count: warnings.length,
     },
-    data: { wallets: out, wallet_count: out.length },
+    data: {
+      wallets: out,
+      wallet_count: out.length,
+      warnings,
+      warning_count: warnings.length,
+    },
   });
 });

@@ -1005,3 +1005,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-sync-accounts` partial-sync contract:
   - added deterministic non-fatal warning codes for customer-profile, wallet, and virtual-account mirror sync failures
   - exposed `warning_count` and warnings array in response summary/data for operator-safe client handling
+
+### 2026-06-29 — Batch BH (completed)
+- Hardened `bridge-provision-stablecoins` partial-provisioning contract:
+  - added deterministic non-fatal warning entries per failed wallet provisioning attempt
+  - exposed `warning_count` + warnings array in summary/data while keeping best-effort behavior
