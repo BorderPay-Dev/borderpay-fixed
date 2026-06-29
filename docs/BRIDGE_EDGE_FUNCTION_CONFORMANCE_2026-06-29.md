@@ -949,3 +949,9 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GT (completed)
 - Hardened `bridge-wallet` error metadata contract:
   - added deterministic `summary` mirrors for method/auth/payload/validation/provider-failure outcomes
+
+### 2026-06-29 — Batch AV (completed)
+- Hardened `bridge-transfer` deterministic summary contracts:
+  - added explicit `summary` blocks for transfer edge failures (method/auth/json/payload/amount/idempotency)
+  - normalized policy/gating failures (`unsupported_pair`, maintenance/identity/customer/kyc gates) with deterministic summary codes
+  - aligned provider-mapped transfer failures to always return stable summary codes for client handling

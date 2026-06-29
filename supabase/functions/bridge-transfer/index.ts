@@ -134,6 +134,9 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+      },
     }, 405);
   }
 
@@ -144,6 +147,9 @@ Deno.serve(async (req) => {
       success: false,
       code:    "transfer_not_enabled",
       error:   "Money movement is not enabled in this environment. Awaiting sandbox evidence sign-off.",
+      summary: {
+        code: "transfer_not_enabled",
+      },
     }, 503);
   }
 
@@ -154,6 +160,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "missing_bearer_token",
       error: "Authentication required",
+      summary: {
+        code: "missing_bearer_token",
+      },
     }, 401);
   }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
@@ -163,6 +172,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_auth_token",
       error: "Unauthorized",
+      summary: {
+        code: "invalid_auth_token",
+      },
     }, 401);
   }
   fxLog("request_received", { user_id: user.id, method: req.method });
@@ -173,6 +185,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_json_payload",
       error: "Invalid JSON payload",
+      summary: {
+        code: "invalid_json_payload",
+      },
     }, 400);
   }
   if (!body?.source?.amount || !body?.source?.currency || !body?.destination?.currency) {
@@ -181,6 +196,9 @@ Deno.serve(async (req) => {
       code: "invalid_transfer_payload",
       error: "source.amount, source.currency, destination.currency required",
       required_fields: ["source.amount", "source.currency", "destination.currency"],
+      summary: {
+        code: "invalid_transfer_payload",
+      },
     }, 400);
   }
   const amount = parsePositiveAmount(body?.source?.amount);
@@ -189,6 +207,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_amount_format",
       error: "source.amount must be a positive decimal number (up to 12 dp, no exponent)",
+      summary: {
+        code: "invalid_amount_format",
+      },
     }, 400);
   }
   if (!isValidIdempotencyKey(body?.idempotency_key)) {
@@ -196,6 +217,9 @@ Deno.serve(async (req) => {
       success: false,
       code:    "idempotency_key_required",
       error:   "A client-provided idempotency_key (8-128 printable ASCII chars) is required for transfers.",
+      summary: {
+        code: "idempotency_key_required",
+      },
     }, 400);
   }
   // FX policy gate (wallet->wallet conversion only): only allow documented
@@ -216,6 +240,11 @@ Deno.serve(async (req) => {
         error: "This conversion pair is currently unavailable.",
         source_currency: srcCcy,
         destination_currency: dstCcy,
+        summary: {
+          code: "unsupported_pair",
+          source_currency: srcCcy,
+          destination_currency: dstCcy,
+        },
       }, 400);
     }
   }
@@ -229,7 +258,13 @@ Deno.serve(async (req) => {
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
-    return json({ success: false, ...identity.failure }, 409);
+    return json({
+      success: false,
+      ...identity.failure,
+      summary: {
+        code: identity.failure.code ?? "identity_invariant_violation",
+      },
+    }, 409);
   }
   const profile = identity.context;
   const { data: maintenance } = await supa
@@ -247,6 +282,9 @@ Deno.serve(async (req) => {
       success: false,
       code:    "maintenance_due",
       error:   "Top up your wallet to cover account maintenance fees before sending. Outbound transfers are paused until then.",
+      summary: {
+        code: "maintenance_due",
+      },
     }, 402);
   }
   if (maintenance?.maintenance_grace_expired === true) {
@@ -254,6 +292,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "maintenance_grace_expired",
       error: "Your account is restricted due to prolonged unpaid maintenance. Clear dues to restore outbound transfers.",
+      summary: {
+        code: "maintenance_grace_expired",
+      },
     }, 402);
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
@@ -263,6 +304,9 @@ Deno.serve(async (req) => {
       code: "no_customer",
       error: "Complete account setup before sending transfers",
       required_state: "bridge_customer_created",
+      summary: {
+        code: "no_customer",
+      },
     }, 409);
   }
   if (profile.verification_status !== "approved") {
@@ -272,6 +316,9 @@ Deno.serve(async (req) => {
       code: "kyc_not_approved",
       error: `${verificationLabel} not approved yet`,
       expected_verification_status: "approved",
+      summary: {
+        code: "kyc_not_approved",
+      },
     }, 409);
   }
 
@@ -528,6 +575,9 @@ Deno.serve(async (req) => {
           success: false,
           code: mapped.code,
           error: mapped.error,
+          summary: {
+            code: mapped.code,
+          },
           ...(mapped.expected_verification_status
             ? { expected_verification_status: mapped.expected_verification_status }
             : {}),
