@@ -872,3 +872,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GA (completed)
 - Hardened `bridge-external-account` error metadata contract:
   - added deterministic `summary` mirrors for provider-id-missing and local-sync-failed outcomes
+
+### 2026-06-29 — Batch GB (completed)
+- Hardened `bridge-transfer` error metadata contract:
+  - added deterministic `summary` mirror for persistence-failed outcome

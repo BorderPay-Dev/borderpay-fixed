@@ -430,6 +430,10 @@ Deno.serve(async (req) => {
         code:    "persistence_failed",
         error:   "Transfer was accepted but local sync failed. Please retry to refresh status.",
         bridge_transfer_id: result.transfer_id,
+        summary: {
+          code: "persistence_failed",
+          bridge_transfer_id: result.transfer_id,
+        },
       }, 500);
     }
     fxLog("transfer_id_stored", {
