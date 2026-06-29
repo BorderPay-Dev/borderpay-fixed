@@ -1055,3 +1055,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `auth-signup` success contract coverage:
   - added deterministic top-level `code` + `summary` for both email-pending success exits and email-sent success exit
   - removed remaining success responses without summary metadata
+
+### 2026-06-29 — Batch BR (completed)
+- Hardened `bridge-sync-accounts` top-level completion code determinism:
+  - returns `sync_accounts_completed_with_warnings` when any mirror stage warning exists
+  - keeps warning-aware client branching deterministic without parsing warning arrays first

@@ -252,11 +252,14 @@ Deno.serve(async (req) => {
         vq.eq("user_id", user.id),
       ]);
 
+  const hasWarnings = warnings.length > 0;
+  const responseCode = hasWarnings ? "sync_accounts_completed_with_warnings" : "sync_accounts_completed";
+
   return json({
     success: true,
-    code: "sync_accounts_completed",
+    code: responseCode,
     summary: {
-      code: "sync_accounts_completed",
+      code: responseCode,
       wallet_count: (wallets ?? []).length,
       virtual_account_count: (virtualAccounts ?? []).length,
       warning_count: warnings.length,
