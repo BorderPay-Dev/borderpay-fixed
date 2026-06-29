@@ -604,3 +604,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DL (completed)
 - Hardened `bridge-virtual-account` internal diagnostics naming:
   - normalized provision error log field from `request_id` to `bridge_request_id` for cross-function log schema consistency
+
+### 2026-06-29 — Batch DM (completed)
+- Hardened `bridge-identity-cleanup` failure diagnostics contract:
+  - propagated provider metadata (`provider_code`, `bridge_request_id`) on candidate deletion failures

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { BridgeProviderError } from "../_shared/providers/bridge-client.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -164,6 +165,8 @@ Deno.serve(async (req) => {
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        const providerCode = e instanceof BridgeProviderError ? e.bridge_code || null : null;
+        const bridgeRequestId = e instanceof BridgeProviderError ? e.request_id || null : null;
         await audit(c, "delete_bridge_customer", "failed", "delete_failed", { error: msg });
         out.push({
           user_id: c.user_id,
@@ -171,6 +174,8 @@ Deno.serve(async (req) => {
           action: "failed",
           code: "delete_failed",
           error: "Unable to process this cleanup candidate right now.",
+          provider_code: providerCode,
+          bridge_request_id: bridgeRequestId,
         });
       }
     }
