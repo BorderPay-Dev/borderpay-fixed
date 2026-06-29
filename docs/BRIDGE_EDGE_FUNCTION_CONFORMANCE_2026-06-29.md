@@ -462,6 +462,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-external-account` account-type validation contract:
   - added explicit `supported_account_types` context on `invalid_account_type`
 
+### 2026-06-29 — Batch CF (completed)
+- Hardened `bridge-bulk-payout` payload validation contract:
+  - added explicit `required_fields` context on `invalid_batch_payload`
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

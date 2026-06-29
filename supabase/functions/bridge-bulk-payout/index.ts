@@ -142,6 +142,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_batch_payload",
       error: "Source currency and a non-empty payout items list are required.",
+      required_fields: ["source_currency", "items[]"],
     }, 400);
   }
   if (items.length > MAX_ITEMS) {
