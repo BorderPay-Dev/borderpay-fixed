@@ -933,3 +933,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GP (completed)
 - Hardened `bridge-fx-supported-pairs` error metadata contract:
   - added deterministic `summary` mirrors for method/auth gate outcomes
+
+### 2026-06-29 — Batch GQ (completed)
+- Hardened `bridge-customer` error metadata contract:
+  - added deterministic `summary` mirrors for method/auth/profile-missing outcomes
