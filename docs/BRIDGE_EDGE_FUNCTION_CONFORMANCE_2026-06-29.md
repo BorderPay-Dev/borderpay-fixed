@@ -652,3 +652,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DX (completed)
 - Hardened `bridge-webhook` success contract:
   - added deterministic success codes for routed outcomes (`webhook_ignored`, `webhook_duplicate`, `webhook_queued`)
+
+### 2026-06-29 — Batch DY (completed)
+- Hardened `bridge-kyc-link` / `bridge-kyb-link` success contracts:
+  - added deterministic success codes for approved/ready outcomes (`kyc_already_approved`, `kyc_link_ready`, `kyb_already_approved`, `kyb_link_ready`)

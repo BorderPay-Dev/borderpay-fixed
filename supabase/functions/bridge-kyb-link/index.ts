@@ -319,7 +319,11 @@ Deno.serve(async (req: Request) => {
   }
 
   if (isVerifiedStatus(biz.bridge_kyb_status)) {
-    return json({ success: true, data: { already_approved: true, bridge_kyb_status: "approved" } });
+    return json({
+      success: true,
+      code: "kyb_already_approved",
+      data: { already_approved: true, bridge_kyb_status: "approved" },
+    });
   }
   // Do not short-circuit to cached link_url: old links can expire and trap users
   // in repeated verification errors. Always ask Bridge for the current link state.
@@ -498,6 +502,7 @@ Deno.serve(async (req: Request) => {
   });
   return json({
     success: true,
+    code: "kyb_link_ready",
     data: {
       link_id: link.link_id,
       link_url: link.link_url,
