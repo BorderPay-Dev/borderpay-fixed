@@ -738,7 +738,7 @@ export const financialReadModelAPI = (() => {
       ? (externalListRes as any).data.external_accounts
       : [];
     const externalAccountCapabilities = ((externalCapsRes as any)?.success && Array.isArray((externalCapsRes as any)?.data?.supported_account_types))
-      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban')
       : [];
     const externalWallets = ((externalWalletsRes as any)?.success && Array.isArray((externalWalletsRes as any)?.data?.wallets))
       ? (externalWalletsRes as any).data.wallets
@@ -958,7 +958,7 @@ export const financialReadModelAPI = (() => {
         ),
       ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
-        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban')
         : [];
       const externalAccounts = (externalListRes?.success && Array.isArray(externalListRes?.data?.external_accounts))
         ? externalListRes.data.external_accounts
@@ -2020,11 +2020,9 @@ export const bridgeAPI = {
 
   /** Fiat payout (offramp) destinations — Bridge external accounts.
    *
-   *  v1 covers Bridge-documented account types:
+   *  BorderPay integrated scope:
    *    • us   — USD bank account (ACH / ACH same-day / Wire).
    *    • iban — EUR bank account (SEPA).
-   *    • clabe — MXN bank account (SPEI).
-   *    • pix — BRL Pix key or BR code.
    *
    *  `create` and `remove` proxy the `bridge-external-account` edge
    *  function (which holds the Bridge Api-Key and enforces the
@@ -2057,28 +2055,8 @@ export const bridgeAPI = {
           last_name?: string;
           business_name?: string;
         }
-      | {
-          account_type: 'clabe';
-          account_owner_name: string;
-          clabe_number: string;
-          bank_name?: string;
-          account_name?: string;
-          account_owner_type?: 'individual' | 'business';
-          first_name?: string;
-          last_name?: string;
-          business_name?: string;
-          address: { street_line_1: string; city: string; state: string; postal_code: string; country: string };
-        }
-      | {
-          account_type: 'pix';
-          account_owner_name: string;
-          bank_name?: string;
-          pix_key?: string;
-          br_code?: string;
-          document_number: string;
-        }
     ) =>
-      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'clabe' | 'pix'; currency: 'USD' | 'EUR' | 'MXN' | 'BRL'; rail: string; last_4: string; bank_name: string | null }>(
+      apiCall<{ external_account_id: string; account_type: 'us' | 'iban'; currency: 'USD' | 'EUR'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
       ),
@@ -2099,7 +2077,7 @@ export const bridgeAPI = {
 
     /** Query Bridge-backed capabilities for external-account rails. */
     capabilities: async () =>
-      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'clabe' | 'pix'> }>(
+      apiCall<{ supported_account_types: Array<'us' | 'iban'> }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
       ),
