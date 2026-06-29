@@ -47,6 +47,11 @@ interface SignupBody {
   captcha_token?:       string;
 }
 
+function normalizeCountryCode(value: unknown): string | null {
+  const v = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(v) ? v : null;
+}
+
 async function verifySignupCaptcha(
   token: string,
   remoteIp: string | null,
@@ -93,6 +98,7 @@ Deno.serve(async (req: Request) => {
     const body = (await req.json()) as SignupBody;
     const { email, password, full_name, phone_number, country_code,
             account_type, company_name, registration_number, captcha_token } = body;
+    const normalizedCountryCode = normalizeCountryCode(country_code);
 
     if (!email || !password || !full_name) {
       return json({
@@ -101,6 +107,16 @@ Deno.serve(async (req: Request) => {
         error: "Email, password, and full name are required",
         summary: {
           code: "invalid_signup_payload",
+        },
+      }, 400);
+    }
+    if (!normalizedCountryCode) {
+      return json({
+        success: false,
+        code: "invalid_country_code",
+        error: "A valid country code is required.",
+        summary: {
+          code: "invalid_country_code",
         },
       }, 400);
     }
@@ -226,7 +242,7 @@ Deno.serve(async (req: Request) => {
       const { error: usersErr } = await supabaseAdmin.from("users").upsert({
         id: userId, email, full_name,
         phone:            phone_number || "",
-        country:          country_code || "",
+        country:          normalizedCountryCode,
         account_type:     normalizedAccountType,
         kyc_status:       "unverified",
         wallet_activated: false,
@@ -239,7 +255,7 @@ Deno.serve(async (req: Request) => {
       const { error: profileErr } = await supabaseAdmin.from("user_profiles").upsert({
         id: userId, email, full_name,
         phone:                       phone_number || "",
-        country:                     country_code || "",
+        country:                     normalizedCountryCode,
         account_type:                normalizedAccountType,
         kyc_status:                  "unverified",
         kyc_level:                   0,
@@ -268,7 +284,7 @@ Deno.serve(async (req: Request) => {
           user_id:             userId,
           company_name:        company_name!,
           registration_number: registration_number || null,
-          country:             (country_code || "NG").toUpperCase(),
+          country:             normalizedCountryCode,
           status:              "active",
           bridge_customer_id:  null,
           bridge_kyb_status:   "not_started",
