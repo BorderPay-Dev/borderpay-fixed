@@ -103,6 +103,7 @@ Deno.serve(async (req) => {
 
   const action = norm(body?.action) as Action;
   const dryRun = body?.dry_run === true;
+  const requestId = crypto.randomUUID();
   if (!action) return json({ success: false, code: "action_required", error: "action is required" }, 400);
   if (!["inspect_customer_assets", "revoke_virtual_accounts", "revoke_stablecoin_wallets", "revoke_external_accounts", "revoke_cards"].includes(action)) {
     return json({ success: false, code: "invalid_action", error: "Unsupported action" }, 400);
@@ -115,6 +116,14 @@ Deno.serve(async (req) => {
   if (!target) return json({ success: false, code: "target_not_found", error: "Customer profile not found" }, 404);
   const targetEmail = String(target.email || "").toLowerCase();
   if (isProtectedInternalEmail(targetEmail) && action !== "inspect_customer_assets") {
+    await auditAdminAction({
+      actorId: admin.userId,
+      actionType: "revoke_blocked",
+      targetResource: `user:${target.id}`,
+      requestId,
+      beforeState: { action, reason: "protected_internal_account", target_email: targetEmail },
+      afterState: { allowed: false },
+    });
     return json({
       success: false,
       code: "protected_internal_account",
@@ -122,6 +131,14 @@ Deno.serve(async (req) => {
     }, 403);
   }
   if (!target.bridge_customer_id && action !== "inspect_customer_assets") {
+    await auditAdminAction({
+      actorId: admin.userId,
+      actionType: "revoke_blocked",
+      targetResource: `user:${target.id}`,
+      requestId,
+      beforeState: { action, reason: "bridge_customer_required", target_email: targetEmail },
+      afterState: { allowed: false },
+    });
     return json({
       success: false,
       code: "bridge_customer_required",
@@ -145,8 +162,6 @@ Deno.serve(async (req) => {
     .select("id,bridge_external_account_id,payment_rail,currency,status,updated_at")
     .or(`user_id.eq.${target.id},business_user_id.eq.${target.id}`)
     .order("updated_at", { ascending: false });
-
-  const requestId = crypto.randomUUID();
 
   if (action === "inspect_customer_assets") {
     await auditAdminAction({
