@@ -372,6 +372,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-customer` profile-contract failure:
   - normalized missing user profile response with explicit `profile_not_found` code
 
+### 2026-06-29 — Batch BM (completed)
+- Hardened `bridge-transfer` payload validation contracts:
+  - normalized missing required transfer fields with explicit `invalid_transfer_payload` code
+  - normalized invalid amount format with explicit `invalid_amount_format` code
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

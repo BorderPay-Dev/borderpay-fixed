@@ -176,11 +176,19 @@ Deno.serve(async (req) => {
     }, 400);
   }
   if (!body?.source?.amount || !body?.source?.currency || !body?.destination?.currency) {
-    return json({ success: false, error: "source.amount, source.currency, destination.currency required" }, 400);
+    return json({
+      success: false,
+      code: "invalid_transfer_payload",
+      error: "source.amount, source.currency, destination.currency required",
+    }, 400);
   }
   const amount = parsePositiveAmount(body?.source?.amount);
   if (!amount) {
-    return json({ success: false, error: "source.amount must be a positive decimal number (up to 12 dp, no exponent)" }, 400);
+    return json({
+      success: false,
+      code: "invalid_amount_format",
+      error: "source.amount must be a positive decimal number (up to 12 dp, no exponent)",
+    }, 400);
   }
   if (!isValidIdempotencyKey(body?.idempotency_key)) {
     return json({
