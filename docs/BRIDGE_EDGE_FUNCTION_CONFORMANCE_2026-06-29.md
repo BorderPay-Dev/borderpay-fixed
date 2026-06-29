@@ -696,3 +696,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EI (completed)
 - Hardened `bridge-exchange-rates` success contract:
   - added deterministic success code for quote response (`exchange_rate_ready`)
+
+### 2026-06-29 — Batch EJ (completed)
+- Hardened `bridge-sync-customers` success contract:
+  - added deterministic success code for sync completion response (`sync_customers_completed`)
