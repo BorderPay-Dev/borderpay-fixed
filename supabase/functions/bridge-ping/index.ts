@@ -121,6 +121,7 @@ Deno.serve(async (req) => {
   const latencyMs = Date.now() - t0;
   const requestId = res.headers.get("x-request-id") || res.headers.get("request-id") || null;
   const text = await res.text();
+  let providerCode: string | null = null;
 
   let sampleCount: number | null = null;
   try {
@@ -128,6 +129,11 @@ Deno.serve(async (req) => {
     if (Array.isArray(parsed?.data))           sampleCount = parsed.data.length;
     else if (Array.isArray(parsed))            sampleCount = parsed.length;
     else if (typeof parsed?.count === "number") sampleCount = parsed.count;
+    providerCode = typeof parsed?.code === "string"
+      ? parsed.code
+      : typeof parsed?.error_code === "string"
+      ? parsed.error_code
+      : null;
   } catch { /* ignore */ }
 
   if (!res.ok) {
@@ -140,6 +146,7 @@ Deno.serve(async (req) => {
       key_kind:   keyKind,
       base_url:   baseUrl,
       request_id: requestId,
+      provider_code: providerCode,
       latency_ms: latencyMs,
       hint: res.status === 401 ? "Bridge rejected the key. Verify the secret value matches the intended environment."
           : res.status === 403 ? "Key valid but lacks scope. Check the API key permissions in the Bridge dashboard."

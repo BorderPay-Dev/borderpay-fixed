@@ -564,3 +564,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-exchange-rates` provider error contract:
   - normalized provider-code propagation (`provider_code`) on error responses
   - attached pair context (`from`, `to`) for deterministic client handling
+
+### 2026-06-29 — Batch DC (completed)
+- Hardened `bridge-ping` diagnostic contract:
+  - parsed and surfaced provider payload error code (`provider_code`) on Bridge HTTP failures
