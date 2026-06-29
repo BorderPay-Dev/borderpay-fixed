@@ -138,6 +138,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     code: "stablecoin_provisioning_completed",
-    data: { wallets: out },
+    summary: { wallet_count: out.length },
+    data: { wallets: out, wallet_count: out.length },
   });
 });

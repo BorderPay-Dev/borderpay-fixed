@@ -736,3 +736,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch ES (completed)
 - Hardened `bridge-transfer` success metadata contract:
   - added deterministic `idempotency_key` in replay/create success responses for support tracing parity
+
+### 2026-06-29 — Batch ET (completed)
+- Hardened `bridge-provision-stablecoins` success metadata contract:
+  - added deterministic `wallet_count` in both top-level `summary` and `data` for stable client consumption
