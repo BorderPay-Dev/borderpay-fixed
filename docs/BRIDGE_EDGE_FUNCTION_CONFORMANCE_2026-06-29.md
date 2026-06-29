@@ -1035,3 +1035,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `auth-signup` rollback failure contract:
   - replaced plain rollback error responses with deterministic `code` + `summary.code`
   - normalized rollback paths: users/profile/business upsert failures, profile-row invariant failure, email token issue failure
+
+### 2026-06-29 — Batch BN (completed)
+- Hardened `bridge-sync-customers` per-item deterministic outcome contract:
+  - added stable `result_code` on each candidate row (created/already/skipped/failed classes)
+  - failed rows now expose provider-mapped deterministic codes in both `error_code` and `result_code`

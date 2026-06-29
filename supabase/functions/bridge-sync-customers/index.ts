@@ -207,10 +207,12 @@ Deno.serve(async (req) => {
       email: c.email,
       account_type: c.account_type,
       status: "pending",
+      result_code: "pending",
     };
     try {
       if (isInternalEmail && !isAllowlistedInternal) {
         row.status = "skipped_internal_domain";
+        row.result_code = "skipped_internal_domain";
         skipped += 1;
         results.push(row);
         continue;
@@ -218,6 +220,7 @@ Deno.serve(async (req) => {
 
       if (c.is_admin === true) {
         row.status = "skipped_admin";
+        row.result_code = "skipped_admin";
         skipped += 1;
         results.push(row);
         continue;
@@ -225,6 +228,7 @@ Deno.serve(async (req) => {
 
       if (c.account_type !== "individual" && c.account_type !== "business") {
         row.status = "skipped_invalid_account_type";
+        row.result_code = "skipped_invalid_account_type";
         skipped += 1;
         results.push(row);
         continue;
@@ -232,6 +236,7 @@ Deno.serve(async (req) => {
 
       if (c.bridge_customer_id) {
         row.status = "already_exists";
+        row.result_code = "already_exists";
         row.bridge_customer_id = c.bridge_customer_id;
         already += 1;
         results.push(row);
@@ -242,6 +247,7 @@ Deno.serve(async (req) => {
       let registrationNumber: string | undefined;
       if (c.account_type === "business" && !includeBusiness) {
         row.status = "skipped_business_excluded";
+        row.result_code = "skipped_business_excluded";
         skipped += 1;
         results.push(row);
         continue;
@@ -257,6 +263,7 @@ Deno.serve(async (req) => {
         registrationNumber = biz?.registration_number || undefined;
         if (!companyName) {
           row.status = "skipped_business_incomplete";
+          row.result_code = "skipped_business_incomplete";
           skipped += 1;
           results.push(row);
           continue;
@@ -306,6 +313,7 @@ Deno.serve(async (req) => {
       }
 
       row.status = "created";
+      row.result_code = "created";
       row.bridge_customer_id = bridgeCustomerId;
       created += 1;
       results.push(row);
@@ -314,6 +322,7 @@ Deno.serve(async (req) => {
       const mapped = mapSyncCustomerError(e, {
         accountType: c.account_type as "individual" | "business",
       });
+      row.result_code = mapped.code;
       row.error_code = mapped.code;
       row.error = mapped.message;
       if (mapped.provider_code) row.provider_code = mapped.provider_code;
