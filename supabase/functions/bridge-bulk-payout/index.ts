@@ -74,7 +74,7 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
 function mapBulkItemFailure(
   error: unknown,
   options?: { isBusiness?: boolean },
-): { code: string; message: string; provider_code?: string } {
+): { code: string; message: string; provider_code?: string; expected_verification_status?: "approved" } {
   const isBusiness = options?.isBusiness === true;
   if (error instanceof BridgeProviderError) {
     const bridgeCode = String(error.bridge_code || "").toLowerCase();
@@ -88,6 +88,7 @@ function mapBulkItemFailure(
             ? "Business verification is required before sending payouts."
             : "Identity verification is required before sending payouts.",
           provider_code: bridgeCode,
+          expected_verification_status: "approved",
         };
       case "deactivated_external_account":
         return { code: "external_account_deactivated", message: "Destination account is deactivated. Choose another destination.", provider_code: bridgeCode };
@@ -339,6 +340,9 @@ Deno.serve(async (req) => {
         state: "failed",
         code: mapped.code,
         error: mapped.message,
+        ...(mapped.expected_verification_status
+          ? { expected_verification_status: mapped.expected_verification_status }
+          : {}),
         ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
       });
       failed++;

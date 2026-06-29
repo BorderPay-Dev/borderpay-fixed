@@ -511,3 +511,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CP (completed)
 - Hardened `bridge-external-account` verification failure contract:
   - added explicit `expected_verification_status=approved` on provider-side `kyc_not_approved` responses for parity with precheck guard
+
+### 2026-06-29 — Batch CQ (completed)
+- Hardened `bridge-bulk-payout` item failure contract:
+  - added explicit `expected_verification_status=approved` on provider-side `kyc_not_approved` item failures for parity with precheck guard
