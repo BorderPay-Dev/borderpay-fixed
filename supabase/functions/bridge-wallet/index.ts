@@ -157,7 +157,12 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "wallet_already_exists",
-      summary: { symbol, chain, already_exists: true },
+      summary: {
+        code: "wallet_already_exists",
+        symbol,
+        chain,
+        already_exists: true,
+      },
       data: { wallet_id: existing.bridge_wallet_id, symbol, chain, already_exists: true },
     });
   }
@@ -207,7 +212,12 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       code: "wallet_created",
-      summary: { symbol, chain, already_exists: false },
+      summary: {
+        code: "wallet_created",
+        symbol,
+        chain,
+        already_exists: false,
+      },
       data: { wallet_id: result.wallet_id, deposit_address: result.deposit_address, symbol, chain },
     });
   } catch (e) {
