@@ -2346,6 +2346,23 @@ export const adminAPI = {
     adminAPI.broadcast('business_verification_delay', opts),
   broadcastIndividualPlatformLive: async (opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {}) =>
     adminAPI.broadcast('individual_platform_live', opts),
+  customerControls: async (input: {
+    action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_cards';
+    target_user_id?: string;
+    target_email?: string;
+  }) =>
+    apiCall<{
+      target?: Record<string, unknown>;
+      virtual_accounts?: Array<Record<string, unknown>>;
+      stablecoin_wallets?: Array<Record<string, unknown>>;
+      cards?: Array<Record<string, unknown>>;
+      processed?: number;
+      results?: Array<Record<string, unknown>>;
+      notes?: string[];
+    }>('admin-customer-controls', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 };
 
 export interface SupportTicket {
