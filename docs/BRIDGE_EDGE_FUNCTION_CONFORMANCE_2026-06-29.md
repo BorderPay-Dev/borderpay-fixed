@@ -466,6 +466,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-bulk-payout` payload validation contract:
   - added explicit `required_fields` context on `invalid_batch_payload`
 
+### 2026-06-29 — Batch CG (completed)
+- Hardened `bridge-transfer` payload validation contract:
+  - added explicit `required_fields` context on `invalid_transfer_payload`
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

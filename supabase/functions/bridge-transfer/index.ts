@@ -180,6 +180,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_transfer_payload",
       error: "source.amount, source.currency, destination.currency required",
+      required_fields: ["source.amount", "source.currency", "destination.currency"],
     }, 400);
   }
   const amount = parsePositiveAmount(body?.source?.amount);
