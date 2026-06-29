@@ -118,10 +118,20 @@ Deno.serve(async (req) => {
   }
   logControlledBridgeTraffic("bridge-wallet", productCountry, user.id);
   if (!profile.bridge_customer_id) {
-    return json({ success: false, error: "Complete account setup before creating a wallet", code: "no_customer" }, 409);
+    return json({
+      success: false,
+      code: "no_customer",
+      error: "Complete account setup before creating a wallet",
+      required_state: "bridge_customer_created",
+    }, 409);
   }
   if (verificationStatus !== "approved") {
-    return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
+    return json({
+      success: false,
+      code: "kyc_not_approved",
+      error: isBusiness ? "KYB not approved yet" : "KYC not approved yet",
+      expected_verification_status: "approved",
+    }, 409);
   }
 
   // Idempotent on (user, symbol, chain)

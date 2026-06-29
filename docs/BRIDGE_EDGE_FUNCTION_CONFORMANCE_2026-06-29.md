@@ -402,6 +402,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized invalid-signature responses with explicit `invalid_signature` code
   - normalized missing queue confirmation with explicit `queue_confirmation_missing` code
 
+### 2026-06-29 — Batch BS (completed)
+- Hardened `bridge-wallet` onboarding-state guard contracts:
+  - normalized missing-customer response with explicit `required_state=bridge_customer_created`
+  - normalized verification guard response with explicit `expected_verification_status=approved`
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
