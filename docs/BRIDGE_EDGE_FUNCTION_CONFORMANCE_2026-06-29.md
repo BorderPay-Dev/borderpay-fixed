@@ -925,3 +925,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GN (completed)
 - Hardened `bridge-bulk-payout` error metadata contract:
   - added deterministic `summary` mirrors for method/auth gate outcomes
+
+### 2026-06-29 — Batch GO (completed)
+- Hardened `bridge-exchange-rates` error metadata contract:
+  - added deterministic `summary` mirrors for method/payload/pair/provider/rate-validation failures

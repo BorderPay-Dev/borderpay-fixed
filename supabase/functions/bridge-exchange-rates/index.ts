@@ -75,6 +75,10 @@ Deno.serve(async (req) => {
       code: "method_not_allowed",
       error: "Invalid request method",
       expected_method: "POST",
+      summary: {
+        code: "method_not_allowed",
+        expected_method: "POST",
+      },
     }, 405);
   }
 
@@ -84,6 +88,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_json_payload",
       error: "Invalid JSON payload",
+      summary: {
+        code: "invalid_json_payload",
+      },
     }, 400);
   }
 
@@ -96,6 +103,10 @@ Deno.serve(async (req) => {
       error: "Source and destination currencies are required and must be different.",
       from: from || null,
       to: to || null,
+      summary: {
+        code: "invalid_pair_input",
+        pair: from && to ? `${from}_${to}` : null,
+      },
     }, 400);
   }
 
@@ -116,6 +127,11 @@ Deno.serve(async (req) => {
       to,
       provider_code: mapped.provider_code,
       bridge_request_id: r.request_id ?? null,
+      summary: {
+        code: mapped.code,
+        pair: `${from}_${to}`,
+        bridge_request_id: r.request_id ?? null,
+      },
     }, mapped.status);
   }
 
@@ -131,6 +147,10 @@ Deno.serve(async (req) => {
       error: "Exchange rate is temporarily unavailable. Please retry.",
       from,
       to,
+      summary: {
+        code: "invalid_rate_payload",
+        pair: `${from}_${to}`,
+      },
     }, 502);
   }
 
