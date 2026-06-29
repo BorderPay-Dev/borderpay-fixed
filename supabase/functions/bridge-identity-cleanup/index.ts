@@ -221,6 +221,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "cleanup_internal_error",
       error: "Bridge identity cleanup failed. Retry later.",
+      summary: {
+        code: "cleanup_internal_error",
+      },
     }, 500);
   }
 });

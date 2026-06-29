@@ -988,3 +988,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-bulk-payout` deterministic summary contracts:
   - standardized transfer-gate/batch-validation/invariant failures with stable summary codes
   - normalized maintenance/customer/verification gate responses for deterministic client handling
+
+### 2026-06-29 — Batch BD (completed)
+- Hardened `bridge-identity-cleanup` top-level failure contract:
+  - added deterministic `summary.code` for cleanup internal failures
