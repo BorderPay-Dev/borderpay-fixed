@@ -7,6 +7,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { BridgeProviderError } from "../_shared/providers/bridge-client.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody, verificationGate, loadVerificationContext } from "../_shared/launch-gates.ts";
 
@@ -25,13 +26,30 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 function mapBridgeCustomerError(
   error: unknown,
   options?: { accountType?: "individual" | "business" },
-): { status: number; code: string; error: string; expected_verification_status?: "approved" } {
+): {
+  status: number;
+  code: string;
+  error: string;
+  provider_code?: string;
+  bridge_request_id?: string;
+  expected_verification_status?: "approved";
+} {
   const message = String((error as Error)?.message || "").toLowerCase();
+  const providerCode = error instanceof BridgeProviderError
+    ? String(error.bridge_code || "").toLowerCase()
+    : undefined;
+  const bridgeRequestId = error instanceof BridgeProviderError ? error.request_id || undefined : undefined;
   const isBusiness = options?.accountType === "business";
-  if (message.includes("has_not_accepted_tos")) {
-    return { status: 409, code: "tos_required", error: "You must accept terms before continuing verification." };
+  if (providerCode === "has_not_accepted_tos" || message.includes("has_not_accepted_tos")) {
+    return {
+      status: 409,
+      code: "tos_required",
+      error: "You must accept terms before continuing verification.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
   }
-  if (message.includes("requires_active_kyc_status")) {
+  if (providerCode === "requires_active_kyc_status" || message.includes("requires_active_kyc_status")) {
     return {
       status: 409,
       code: "kyc_not_approved",
@@ -39,15 +57,29 @@ function mapBridgeCustomerError(
         ? "Business verification is required before account setup can continue."
         : "Identity verification is required before account setup can continue.",
       expected_verification_status: "approved",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
     };
   }
   if (message.includes("429") || message.includes("rate")) {
     return { status: 429, code: "rate_limited", error: "Too many requests. Please try again shortly." };
   }
   if (message.includes("timeout") || message.includes("network")) {
-    return { status: 502, code: "provider_unavailable", error: "Unable to reach verification services right now. Please retry." };
+    return {
+      status: 502,
+      code: "provider_unavailable",
+      error: "Unable to reach verification services right now. Please retry.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
   }
-  return { status: 502, code: "bridge_customer_failed", error: "Unable to initialize account setup right now. Please retry." };
+  return {
+    status: 502,
+    code: "bridge_customer_failed",
+    error: "Unable to initialize account setup right now. Please retry.",
+    ...(providerCode ? { provider_code: providerCode } : {}),
+    ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+  };
 }
 
 Deno.serve(async (req) => {
@@ -172,6 +204,8 @@ Deno.serve(async (req) => {
       success: false,
       code: mapped.code,
       error: mapped.error,
+      ...(mapped.provider_code ? { provider_code: mapped.provider_code } : {}),
+      ...(mapped.bridge_request_id ? { bridge_request_id: mapped.bridge_request_id } : {}),
       ...(mapped.expected_verification_status
         ? { expected_verification_status: mapped.expected_verification_status }
         : {}),

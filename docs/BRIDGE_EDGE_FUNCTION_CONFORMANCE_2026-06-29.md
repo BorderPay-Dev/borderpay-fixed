@@ -546,3 +546,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch CX (completed)
 - Hardened `bridge-provision-stablecoins` skip contract:
   - added explicit verification context (`expected_verification_status`, `verification_label`) on `kyc_not_approved` best-effort skip responses
+
+### 2026-06-29 — Batch CY (completed)
+- Hardened `bridge-customer` provider diagnostics contract:
+  - mapped BridgeProviderError metadata into deterministic API fields (`provider_code`, `bridge_request_id`) on failure responses
