@@ -470,6 +470,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-transfer` payload validation contract:
   - added explicit `required_fields` context on `invalid_transfer_payload`
 
+### 2026-06-29 — Batch CH (completed)
+- Hardened `bridge-transfer` verification guard messaging:
+  - normalized `kyc_not_approved` message to account-type aware wording (KYC vs KYB)
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field
