@@ -676,3 +676,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch ED (completed)
 - Hardened `bridge-transfer` success contracts:
   - added deterministic success codes for replay/create outcomes (`transfer_replayed`, `transfer_created`)
+
+### 2026-06-29 — Batch EE (completed)
+- Hardened `bridge-bulk-payout` success contract:
+  - added deterministic success code for batch processing outcome (`bulk_payout_processed`)
