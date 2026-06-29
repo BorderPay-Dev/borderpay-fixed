@@ -170,6 +170,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [verifying, setVerifying] = useState(false);
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
+  const autoStartKey = 'borderpay_auto_start_verification_v1';
 
   const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
@@ -207,6 +208,26 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeAfterTosKey]);
+
+  // Setup step deep-link: if user tapped "Complete identity/business verification"
+  // from dashboard setup widget, start hosted verification immediately.
+  useEffect(() => {
+    let cancelled = false;
+    const shouldAutoStart = (() => {
+      try { return sessionStorage.getItem(autoStartKey) === '1'; } catch { return false; }
+    })();
+    if (!shouldAutoStart) return;
+    try { sessionStorage.removeItem(autoStartKey); } catch { /* noop */ }
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
+      await startVerification(false);
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStartKey]);
 
   const startVerification = async (isResume = false) => {
     setVerifying(true);

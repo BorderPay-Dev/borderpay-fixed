@@ -628,7 +628,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               {setupSteps.map((step) => (
                 <li key={step.id}>
                   <button
-                    onClick={() => !step.completed && step.screen ? handleNavigate(step.screen) : undefined}
+                    onClick={() => {
+                      if (step.completed || !step.screen) return;
+                      if (step.id === 'kyc') {
+                        try { sessionStorage.setItem('borderpay_auto_start_verification_v1', '1'); } catch { /* noop */ }
+                      }
+                      handleNavigate(step.screen);
+                    }}
                     disabled={step.completed || !step.screen}
                     className={`w-full flex items-center gap-2.5 py-1.5 rounded-lg transition-colors ${!step.completed && step.screen ? `${tc.hoverBg} cursor-pointer` : 'cursor-default'}`}
                   >

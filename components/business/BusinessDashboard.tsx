@@ -391,7 +391,13 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                 {setupSteps.map((step) => (
                   <button
                     key={step.id}
-                    onClick={() => { if (!step.completed) onNavigate(step.screen); }}
+                    onClick={() => {
+                      if (step.completed) return;
+                      if (step.id === 'kyb') {
+                        try { sessionStorage.setItem('borderpay_auto_start_verification_v1', '1'); } catch { /* noop */ }
+                      }
+                      onNavigate(step.screen);
+                    }}
                     className={`w-full flex items-center justify-between rounded-lg px-2 py-1.5 ${!step.completed ? tc.hoverBg : ''}`}
                   >
                     <span className={`text-xs ${step.completed ? tc.textMuted : tc.text}`}>{step.label}</span>

@@ -1484,7 +1484,11 @@ export const kycAPI = {
  */
 const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = {
   success: false,
-  error: 'Proof of address is now collected inside the hosted KYC flow. This step is no longer used.',
+  error: 'Please continue identity verification in the hosted verification flow.',
+  data: {
+    redirect_screen: 'kyc',
+    code: 'verification_redirect_required',
+  },
 };
 export const proofOfAddressAPI = {
   getUploadUrl: async (_fileType: string, _fileName: string) => deprecatedPoaResponse,
