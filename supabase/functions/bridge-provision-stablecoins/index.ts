@@ -162,11 +162,16 @@ Deno.serve(async (req) => {
     }
   }
 
+  const hasWarnings = warnings.length > 0;
+  const responseCode = hasWarnings
+    ? "stablecoin_provisioning_completed_with_warnings"
+    : "stablecoin_provisioning_completed";
+
   return json({
     success: true,
-    code: "stablecoin_provisioning_completed",
+    code: responseCode,
     summary: {
-      code: "stablecoin_provisioning_completed",
+      code: responseCode,
       wallet_count: out.length,
       warning_count: warnings.length,
     },

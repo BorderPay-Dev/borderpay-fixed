@@ -1060,3 +1060,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-sync-accounts` top-level completion code determinism:
   - returns `sync_accounts_completed_with_warnings` when any mirror stage warning exists
   - keeps warning-aware client branching deterministic without parsing warning arrays first
+
+### 2026-06-29 — Batch BS (completed)
+- Hardened `bridge-provision-stablecoins` top-level completion code determinism:
+  - returns `stablecoin_provisioning_completed_with_warnings` when partial provisioning warnings exist
+  - keeps client/operator branching deterministic for best-effort provisioning outcomes
