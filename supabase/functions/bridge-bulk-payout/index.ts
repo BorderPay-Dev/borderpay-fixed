@@ -93,7 +93,9 @@ function mapBulkItemFailure(error: unknown): { code: string; message: string; pr
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({ success: false, code: "method_not_allowed", error: "POST only" }, 405);
+  }
 
   // Hard gate — fail closed before any auth/Bridge side effects.
   if (!transfersEnabled()) {
@@ -102,13 +104,19 @@ Deno.serve(async (req) => {
   }
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  if (!token) {
+    return json({ success: false, code: "authorization_required", error: "Authorization required" }, 401);
+  }
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
-  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (authErr || !user) {
+    return json({ success: false, code: "unauthorized", error: "Unauthorized" }, 401);
+  }
 
   let body: any;
-  try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
+  try { body = await req.json(); } catch {
+    return json({ success: false, code: "invalid_json", error: "Invalid JSON" }, 400);
+  }
 
   const sourceCurrency = body?.source_currency;
   const items: any[] = Array.isArray(body?.items) ? body.items : [];
