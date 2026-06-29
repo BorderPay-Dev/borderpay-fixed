@@ -65,7 +65,11 @@ Deno.serve(async (req) => {
   }
 
   const noop = (reason: string, context?: Record<string, unknown>) =>
-    json({ success: true, data: { wallets: [], skipped: reason, ...(context || {}) } });
+    json({
+      success: true,
+      code: "stablecoin_provisioning_skipped",
+      data: { wallets: [], skipped: reason, ...(context || {}) },
+    });
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
@@ -131,5 +135,9 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ success: true, data: { wallets: out } });
+  return json({
+    success: true,
+    code: "stablecoin_provisioning_completed",
+    data: { wallets: out },
+  });
 });

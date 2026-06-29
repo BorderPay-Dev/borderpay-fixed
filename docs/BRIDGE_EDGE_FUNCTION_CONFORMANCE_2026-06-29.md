@@ -684,3 +684,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch EF (completed)
 - Hardened `bridge-sync-accounts` success contracts:
   - added deterministic success codes for no-customer and completed sync outcomes (`sync_accounts_no_customer`, `sync_accounts_completed`)
+
+### 2026-06-29 — Batch EG (completed)
+- Hardened `bridge-provision-stablecoins` success contracts:
+  - added deterministic success codes for skip/completed outcomes (`stablecoin_provisioning_skipped`, `stablecoin_provisioning_completed`)
