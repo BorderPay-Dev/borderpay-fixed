@@ -63,6 +63,15 @@ function mapBridgeCustomerError(
       ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
     };
   }
+  if (providerStatus === 401 || providerStatus === 403) {
+    return {
+      status: 502,
+      code: "provider_auth_error",
+      error: "Verification service is temporarily unavailable. Please retry shortly.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
+  }
   if (providerStatus === 429 || message.includes("429") || message.includes("rate")) {
     return {
       status: 429,
