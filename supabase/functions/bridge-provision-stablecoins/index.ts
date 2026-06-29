@@ -68,6 +68,11 @@ Deno.serve(async (req) => {
     json({
       success: true,
       code: "stablecoin_provisioning_skipped",
+      summary: {
+        code: "stablecoin_provisioning_skipped",
+        skipped: reason,
+        wallet_count: 0,
+      },
       data: { wallets: [], skipped: reason, ...(context || {}) },
     });
 

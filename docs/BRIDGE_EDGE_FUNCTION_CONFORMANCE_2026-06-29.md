@@ -796,3 +796,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch FH (completed)
 - Hardened `bridge-identity-cleanup` success metadata contract:
   - added deterministic outcome counters in `summary` (`deleted_count`, `skipped_count`, `failed_count`)
+
+### 2026-06-29 — Batch FI (completed)
+- Hardened `bridge-provision-stablecoins` skip metadata contract:
+  - added deterministic top-level `summary` mirror for skipped/no-op outcomes
