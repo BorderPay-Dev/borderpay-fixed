@@ -16,22 +16,15 @@ export function bridgeOnboardingEnabled(): boolean {
 }
 
 /**
- * Whether KYC/KYB must be PRECEDED by the one-time activation payment.
+ * KYC/KYB is always free.
  *
- * - true  (default): current "pay → verify" model. verificationGate enforces
- *                    payment_required before any Bridge KYC/KYB call.
- * - false: "Wise" funnel — free signup → KYC/KYB (free) → dashboard → pay on
- *          Send/Receive. KYC is no longer payment-gated; the paid gate moves to
- *          the money-movement functions (bridge-transfer / bridge-wallet /
- *          bridge-external-account / bridge-virtual-account).
- *
- * Defaults to TRUE so production behavior is UNCHANGED until the operator sets
- * KYC_REQUIRES_PAYMENT=false in the SAME deploy that confirms every money-
- * movement function is paid-gated (see requireActivatedPlan). Fail-safe: an
- * unset/garbage value keeps payment required.
+ * Payment gating is enforced on money-movement functions only
+ * (bridge-transfer / bridge-wallet / bridge-external-account / bridge-virtual-account).
+ * This helper is kept for compatibility with older imports and now always
+ * returns false.
  */
 export function kycRequiresPayment(): boolean {
-  return (Deno.env.get("KYC_REQUIRES_PAYMENT") || "true").trim().toLowerCase() !== "false";
+  return false;
 }
 
 export function bridgeOnboardingPausedBody() {
@@ -39,28 +32,22 @@ export function bridgeOnboardingPausedBody() {
     success: false,
     code: BRIDGE_ONBOARDING_PAUSED_CODE,
     error: "Verification is paused until BorderPay launches money movement. You can keep using your account.",
+    summary: {
+      code: BRIDGE_ONBOARDING_PAUSED_CODE,
+    },
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stepped verification gate (#4 + #5).
+// Verification gate for KYC/KYB entry points.
 //
-// Bridge bills us per verification ($2 KYC / $10 KYB). We therefore NEVER call
-// a Bridge verification/customer endpoint unless ALL THREE hold:
-//   1. onboarding is enabled (env, fail-closed)         — bridgeOnboardingEnabled()
-//   2. the user is on a PAID plan (no Bridge spend on free users)
-//   3. an admin has AUTHORIZED the verification (manual review of KYC *and* KYB)
-//
-// The env gate stays the OUTER guard, so while BRIDGE_ONBOARDING_ENABLED is off
-// every caller still gets `bridge_onboarding_paused` and no behavior changes in
-// production until this is explicitly enabled with a paired deploy.
+// Rule: KYC/KYB is free and never payment-gated. The only hard gate here is
+// the launch pause flag (BRIDGE_ONBOARDING_ENABLED).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const PAYMENT_REQUIRED_CODE       = "payment_required";
 
-/** Activated plan keys (one-time activation fee paid; see plans.ts). Free
- *  tiers (individual_starter / business_starter) are intentionally excluded —
- *  Free is view-only and never triggers a billable Bridge call. */
+/** Deprecated: retained for compatibility with existing imports. */
 export const PAID_PLAN_KEYS: ReadonlySet<string> = new Set([
   "individual_activated",
   "business_activated",
@@ -80,32 +67,14 @@ export type VerificationGateResult =
 
 /**
  * Pure gate used by bridge-customer / bridge-kyc-link / bridge-kyb-link before
- * any Bridge call. Order: env pause → (optional) payment.
+ * any Bridge call. Order: env pause only.
  *
- * NOTE: KYC/KYB is now AUTOMATIC — Bridge runs verification and we react to its
- * webhook. There is NO admin manual-review step; that gate (and the
- * authorize-verification admin path) has been removed. The only gates left are
- * the env launch-pause and the payment flag (off in the Wise funnel, where the
- * paid gate lives on money-movement instead).
+ * NOTE: KYC/KYB is automatic and free. Paid enforcement is on money-movement
+ * functions, not verification start.
  */
-export function verificationGate(input: VerificationGateInput): VerificationGateResult {
+export function verificationGate(_input: VerificationGateInput): VerificationGateResult {
   if (!bridgeOnboardingEnabled()) {
     return { allowed: false, code: BRIDGE_ONBOARDING_PAUSED_CODE, status: 503, body: bridgeOnboardingPausedBody() };
-  }
-  // Payment-before-KYC is enforced only in the "pay → verify" model. In the
-  // Wise funnel (KYC_REQUIRES_PAYMENT=false) KYC/KYB is free and the paid gate
-  // lives on the money-movement functions instead.
-  if (kycRequiresPayment() && !input.isPaidPlan) {
-    return {
-      allowed: false,
-      code: PAYMENT_REQUIRED_CODE,
-      status: 402,
-      body: {
-        success: false,
-        code: PAYMENT_REQUIRED_CODE,
-        error: "Upgrade to a paid plan to start identity verification.",
-      },
-    };
   }
   return { allowed: true };
 }

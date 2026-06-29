@@ -1010,3 +1010,8 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-provision-stablecoins` partial-provisioning contract:
   - added deterministic non-fatal warning entries per failed wallet provisioning attempt
   - exposed `warning_count` + warnings array in summary/data while keeping best-effort behavior
+
+### 2026-06-29 — Batch BI (completed)
+- Hardened shared launch-gate failure contract:
+  - `bridgeOnboardingPausedBody()` now includes deterministic `summary.code`
+  - all Bridge onboarding entry points consuming this helper now return consistent paused-state summaries
