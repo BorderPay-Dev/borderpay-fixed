@@ -323,6 +323,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - standardized method/auth/json failures with explicit stable error codes
   - normalized synthetic payload validation failure with a deterministic code
 
+### 2026-06-29 — Batch BC (completed)
+- Hardened `bridge-identity-cleanup` edge contracts:
+  - standardized method failure with explicit stable error code
+  - normalized cleanup secret auth failure with a deterministic code
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

@@ -101,7 +101,14 @@ async function clearLocalBridgeIdentity(c: Candidate) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Invalid request method",
+      expected_method: "POST",
+    }, 405);
+  }
 
   try {
     // Fail-closed by default. This endpoint is destructive and must be
@@ -120,7 +127,11 @@ Deno.serve(async (req) => {
       Deno.env.get("ADMIN_BROADCAST_INTERNAL_TOKEN");
     const passed = req.headers.get("x-cleanup-secret");
     if (!secret || !passed || passed !== secret) {
-      return json({ success: false, error: "Unauthorized" }, 401);
+      return json({
+        success: false,
+        code: "invalid_cleanup_secret",
+        error: "Unauthorized",
+      }, 401);
     }
 
     const body = await req.json().catch(() => ({}));
