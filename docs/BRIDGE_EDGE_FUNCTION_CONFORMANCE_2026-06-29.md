@@ -1065,3 +1065,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 - Hardened `bridge-provision-stablecoins` top-level completion code determinism:
   - returns `stablecoin_provisioning_completed_with_warnings` when partial provisioning warnings exist
   - keeps client/operator branching deterministic for best-effort provisioning outcomes
+
+### 2026-06-29 — Batch BT (completed)
+- Hardened `bridge-bulk-payout` top-level deterministic result field:
+  - added top-level `result_code` mirroring `code` for normalized client parsing across batch/single transfer APIs

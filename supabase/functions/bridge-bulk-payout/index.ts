@@ -448,6 +448,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     code: "bulk_payout_processed",
+    result_code: "bulk_payout_processed",
     summary: {
       code: "bulk_payout_processed",
       total: items.length,
