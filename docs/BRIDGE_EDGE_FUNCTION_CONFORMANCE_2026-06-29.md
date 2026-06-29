@@ -876,3 +876,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GB (completed)
 - Hardened `bridge-transfer` error metadata contract:
   - added deterministic `summary` mirror for persistence-failed outcome
+
+### 2026-06-29 — Batch GC (completed)
+- Hardened `bridge-wallet` error metadata contract:
+  - added deterministic `summary` mirror for persistence-failed outcome

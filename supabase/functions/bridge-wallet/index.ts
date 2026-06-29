@@ -206,6 +206,10 @@ Deno.serve(async (req) => {
         code:    "persistence_failed",
         error:   "Wallet was created but local sync failed. Please retry.",
         bridge_wallet_id: result.wallet_id,
+        summary: {
+          code: "persistence_failed",
+          bridge_wallet_id: result.wallet_id,
+        },
       }, 500);
     }
 
