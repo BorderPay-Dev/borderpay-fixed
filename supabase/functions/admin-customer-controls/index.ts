@@ -30,6 +30,32 @@ function norm(v: unknown): string {
   return String(v || "").trim();
 }
 
+function isProtectedInternalEmail(email: string): boolean {
+  const e = email.trim().toLowerCase();
+  if (!e) return false;
+  if (e === "founder@borderpayafrica.com") return false;
+  return e.endsWith("@borderpayafrica.com");
+}
+
+async function auditAdminAction(input: {
+  actorId: string;
+  actionType: string;
+  targetResource: string;
+  requestId: string;
+  beforeState?: Record<string, unknown> | null;
+  afterState?: Record<string, unknown> | null;
+}) {
+  await supa.from("admin_action_audit").insert({
+    actor_id: input.actorId,
+    role: "admin",
+    action_type: input.actionType,
+    target_resource: input.targetResource,
+    before_state: input.beforeState ?? null,
+    after_state: input.afterState ?? null,
+    request_id: input.requestId,
+  });
+}
+
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -86,6 +112,21 @@ Deno.serve(async (req) => {
     target_email: body?.target_email,
   });
   if (!target) return json({ success: false, code: "target_not_found", error: "Customer profile not found" }, 404);
+  const targetEmail = String(target.email || "").toLowerCase();
+  if (isProtectedInternalEmail(targetEmail) && action !== "inspect_customer_assets") {
+    return json({
+      success: false,
+      code: "protected_internal_account",
+      error: "This account is protected from revoke operations",
+    }, 403);
+  }
+  if (!target.bridge_customer_id && action !== "inspect_customer_assets") {
+    return json({
+      success: false,
+      code: "bridge_customer_required",
+      error: "Target customer has no Bridge identity",
+    }, 400);
+  }
 
   const { data: vaRows } = await supa
     .from("bridge_virtual_accounts")
@@ -99,10 +140,26 @@ Deno.serve(async (req) => {
     .or(`user_id.eq.${target.id},business_user_id.eq.${target.id}`)
     .order("updated_at", { ascending: false });
 
+  const requestId = crypto.randomUUID();
+
   if (action === "inspect_customer_assets") {
+    await auditAdminAction({
+      actorId: admin.userId,
+      actionType: "inspect_customer_assets",
+      targetResource: `user:${target.id}`,
+      requestId,
+      beforeState: {
+        virtual_accounts: (vaRows || []).length,
+        stablecoin_wallets: (walletRows || []).length,
+      },
+      afterState: {
+        inspected: true,
+      },
+    });
     return json({
       success: true,
       code: "customer_assets_ready",
+      request_id: requestId,
       data: {
         target,
         virtual_accounts: vaRows || [],
@@ -117,9 +174,18 @@ Deno.serve(async (req) => {
   }
 
   if (action === "revoke_cards") {
+    await auditAdminAction({
+      actorId: admin.userId,
+      actionType: "revoke_cards",
+      targetResource: `user:${target.id}`,
+      requestId,
+      beforeState: { cards_locked_globally: true },
+      afterState: { cards_revoked: false, reason: "cards_locked_globally" },
+    });
     return json({
       success: true,
       code: "cards_locked_globally",
+      request_id: requestId,
       data: {
         target_user_id: target.id,
         dry_run: dryRun,
@@ -165,9 +231,23 @@ Deno.serve(async (req) => {
         .eq("bridge_virtual_account_id", vaId);
       results.push({ bridge_virtual_account_id: vaId, status: "revoked" });
     }
+    await auditAdminAction({
+      actorId: admin.userId,
+      actionType: "revoke_virtual_accounts",
+      targetResource: `user:${target.id}`,
+      requestId,
+      beforeState: { active_virtual_accounts: active.length, dry_run: dryRun },
+      afterState: {
+        processed: active.length,
+        revoked: results.filter((r) => r.status === "revoked").length,
+        provider_failed: results.filter((r) => r.status === "provider_failed").length,
+        would_revoke: results.filter((r) => r.status === "would_revoke").length,
+      },
+    });
     return json({
       success: true,
       code: "virtual_accounts_revoke_completed",
+      request_id: requestId,
       data: { target_user_id: target.id, dry_run: dryRun, processed: active.length, results },
     });
   }
@@ -186,9 +266,18 @@ Deno.serve(async (req) => {
       .update({ status: "closed", updated_at: new Date().toISOString() })
       .in("bridge_wallet_id", walletIds);
   }
+  await auditAdminAction({
+    actorId: admin.userId,
+    actionType: "revoke_stablecoin_wallets",
+    targetResource: `user:${target.id}`,
+    requestId,
+    beforeState: { active_stablecoin_wallets: activeWallets.length, dry_run: dryRun },
+    afterState: { processed: activeWallets.length, revoked_local_access: !dryRun },
+  });
   return json({
     success: true,
     code: "stablecoin_wallets_revoke_completed",
+    request_id: requestId,
     data: {
       target_user_id: target.id,
       dry_run: dryRun,
