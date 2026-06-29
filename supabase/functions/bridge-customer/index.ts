@@ -35,6 +35,9 @@ function mapBridgeCustomerError(
   expected_verification_status?: "approved";
 } {
   const message = String((error as Error)?.message || "").toLowerCase();
+  const providerStatus = error instanceof BridgeProviderError
+    ? Number(error.status || 0)
+    : 0;
   const providerCode = error instanceof BridgeProviderError
     ? String(error.bridge_code || "").toLowerCase()
     : undefined;
@@ -61,7 +64,7 @@ function mapBridgeCustomerError(
       ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
     };
   }
-  if (message.includes("429") || message.includes("rate")) {
+  if (providerStatus === 429 || message.includes("429") || message.includes("rate")) {
     return {
       status: 429,
       code: "rate_limited",
@@ -70,7 +73,12 @@ function mapBridgeCustomerError(
       ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
     };
   }
-  if (message.includes("timeout") || message.includes("network")) {
+  if (
+    providerStatus >= 500 ||
+    providerStatus === 0 ||
+    message.includes("timeout") ||
+    message.includes("network")
+  ) {
     return {
       status: 502,
       code: "provider_unavailable",
@@ -195,13 +203,25 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const countryCode = String(profile.country || "").trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(countryCode)) {
+      return json({
+        success: false,
+        code: "missing_country_code",
+        error: "Please complete your country details before continuing account setup.",
+        summary: {
+          code: "missing_country_code",
+        },
+      }, 409);
+    }
+
     const result = await bridgeProvider.createCustomer({
       account_type:        profile.account_type as "individual" | "business",
       email:               profile.email,
       full_name:           profile.full_name ?? undefined,
       company_name:        companyName,
       registration_number: regNumber,
-      country_code:        (profile.country || "NG").toUpperCase(),
+      country_code:        countryCode,
       phone_e164:          profile.phone || undefined,
       borderpay_user_id:   user.id,
     });
