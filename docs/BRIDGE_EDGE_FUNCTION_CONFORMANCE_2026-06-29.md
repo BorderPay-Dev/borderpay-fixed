@@ -644,3 +644,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DV (completed)
 - Hardened `bridge-ping` success contract:
   - added explicit success `code=bridge_reachable` for deterministic monitor handling
+
+### 2026-06-29 — Batch DW (completed)
+- Hardened `bridge-test-webhook` success contract:
+  - added deterministic success codes for queued/duplicate outcomes (`synthetic_event_queued`, `synthetic_event_duplicate`)

@@ -147,7 +147,13 @@ Deno.serve(async (req) => {
     }, 401);
   }
   if (row?.was_duplicate) {
-    return json({ success: true, status: "duplicate", bridge_event_id: bridgeEventId, queue_event_id: queueEventId }, 200);
+    return json({
+      success: true,
+      code: "synthetic_event_duplicate",
+      status: "duplicate",
+      bridge_event_id: bridgeEventId,
+      queue_event_id: queueEventId,
+    }, 200);
   }
   if (!row?.queued) {
     return json({
@@ -160,6 +166,7 @@ Deno.serve(async (req) => {
 
   return json({
     success: true,
+    code: "synthetic_event_queued",
     status: "queued",
     bridge_event_id: bridgeEventId,
     queue_event_id: queueEventId,
