@@ -84,7 +84,13 @@ Deno.serve(async (req) => {
     .select("id, email, full_name, account_type, country, phone, bridge_customer_id")
     .eq("id", user.id)
     .maybeSingle();
-  if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
+  if (!profile) {
+    return json({
+      success: false,
+      code: "profile_not_found",
+      error: "User profile was not found",
+    }, 404);
+  }
 
   // Country eligibility FIRST — before any idempotent return. Round-10
   // CTO fix: the earlier version checked `bridge_customer_id` first and
