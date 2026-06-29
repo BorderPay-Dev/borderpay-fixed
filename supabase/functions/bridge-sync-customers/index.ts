@@ -75,7 +75,7 @@ function mapSyncCustomerError(
       expected_verification_status: "approved",
     };
   }
-  if (message.includes("rate") || message.includes("429")) {
+  if (providerStatus === 429 || message.includes("rate") || message.includes("429")) {
     return {
       code: "rate_limited",
       message: "Provider rate limit reached. Retry later.",
