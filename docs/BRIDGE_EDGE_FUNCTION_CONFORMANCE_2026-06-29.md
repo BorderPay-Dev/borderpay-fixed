@@ -640,3 +640,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DU (completed)
 - Hardened `bridge-exchange-rates` invalid-payload contract:
   - included pair context (`from`, `to`) on `invalid_rate_payload` responses
+
+### 2026-06-29 — Batch DV (completed)
+- Hardened `bridge-ping` success contract:
+  - added explicit success `code=bridge_reachable` for deterministic monitor handling

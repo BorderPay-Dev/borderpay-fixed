@@ -165,6 +165,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     ok:           true,
+    code:         "bridge_reachable",
     stage:        "reachable",
     status:       res.status,
     key_prefix:   keyPrefix,
