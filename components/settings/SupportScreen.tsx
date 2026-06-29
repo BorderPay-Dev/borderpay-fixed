@@ -257,6 +257,11 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       toast.error('Enter a customer email first');
       return;
     }
+    const isDestructive = action !== 'inspect_customer_assets';
+    if (isDestructive && !adminControlDryRun) {
+      const ok = window.confirm(`Confirm live revoke action: ${action} for ${targetEmail}`);
+      if (!ok) return;
+    }
     setAdminControlBusy(true);
     try {
       const res = await backendAPI.admin.customerControls({ action, target_email: targetEmail, dry_run: adminControlDryRun });
