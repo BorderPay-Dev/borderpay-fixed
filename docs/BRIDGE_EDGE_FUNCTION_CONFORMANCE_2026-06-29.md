@@ -432,6 +432,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - added explicit `supported_symbols` context on `invalid_symbol`
   - added explicit `supported_chains` context on `invalid_chain`
 
+### 2026-06-29 — Batch BY (completed)
+- Hardened `bridge-virtual-account` currency validation contract:
+  - added explicit `supported_currencies` context on `invalid_currency`
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

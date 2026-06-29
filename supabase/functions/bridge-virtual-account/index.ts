@@ -128,6 +128,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_currency",
       error: "Unsupported virtual account currency.",
+      supported_currencies: Array.from(ALLOWED_CURRENCIES),
     }, 400);
   }
 
