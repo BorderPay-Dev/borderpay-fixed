@@ -885,3 +885,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GD (completed)
 - Added new Bridge conformance surface:
   - `bridge-supported-countries` (`GET /v0/lists/countries`) now tracked in inventory as conformant
+
+### 2026-06-29 — Batch GE (completed)
+- Hardened `bridge-customer` error metadata contract:
+  - added deterministic `summary` mirror for profile-update-failed outcome

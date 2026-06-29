@@ -207,6 +207,10 @@ Deno.serve(async (req) => {
         success: false,
         code: "profile_update_failed",
         error: "Customer initialized but profile sync failed. Please retry.",
+        summary: {
+          code: "profile_update_failed",
+          account_type: profile.account_type,
+        },
       }, 500);
     }
 
