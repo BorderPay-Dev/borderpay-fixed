@@ -234,6 +234,7 @@ Deno.serve(async (req) => {
     });
     return json({
       success: true,
+      code: "webhook_ignored",
       status: "ignored",
       event_id: eventId,
       reason_code: ingress.reason_code,
@@ -289,6 +290,7 @@ Deno.serve(async (req) => {
     });
     return json({
       success: true,
+      code: "webhook_duplicate",
       status: "duplicate",
       event_id: eventId,
       reason_code: duplicate.reason_code,
@@ -310,5 +312,11 @@ Deno.serve(async (req) => {
     pending_id: row.pending_id,
   });
 
-  return json({ success: true, status: "queued", event_id: eventId, pending_id: row.pending_id }, 200);
+  return json({
+    success: true,
+    code: "webhook_queued",
+    status: "queued",
+    event_id: eventId,
+    pending_id: row.pending_id,
+  }, 200);
 });

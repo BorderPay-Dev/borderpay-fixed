@@ -648,3 +648,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DW (completed)
 - Hardened `bridge-test-webhook` success contract:
   - added deterministic success codes for queued/duplicate outcomes (`synthetic_event_queued`, `synthetic_event_duplicate`)
+
+### 2026-06-29 — Batch DX (completed)
+- Hardened `bridge-webhook` success contract:
+  - added deterministic success codes for routed outcomes (`webhook_ignored`, `webhook_duplicate`, `webhook_queued`)
