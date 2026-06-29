@@ -913,3 +913,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch GK (completed)
 - Hardened `bridge-identity-cleanup` error metadata contract:
   - added deterministic `summary` mirrors for method/disabled/secret-gate outcomes
+
+### 2026-06-29 — Batch GL (completed)
+- Hardened `bridge-sync-customers` error metadata contract:
+  - added deterministic `summary` mirror for candidate-query-failed outcome

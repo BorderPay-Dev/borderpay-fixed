@@ -185,6 +185,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "sync_query_failed",
       error: "Unable to load sync candidates right now. Please retry.",
+      summary: {
+        code: "sync_query_failed",
+      },
     }, 500);
   }
 
