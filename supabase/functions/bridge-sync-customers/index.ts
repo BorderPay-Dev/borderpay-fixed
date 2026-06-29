@@ -68,7 +68,12 @@ function mapSyncCustomerError(
     };
   }
   if (message.includes("rate") || message.includes("429")) {
-    return { code: "rate_limited", message: "Provider rate limit reached. Retry later." };
+    return {
+      code: "rate_limited",
+      message: "Provider rate limit reached. Retry later.",
+      ...(providerCode ? { provider_code: providerCode } : {}),
+      ...(bridgeRequestId ? { bridge_request_id: bridgeRequestId } : {}),
+    };
   }
   if (message.includes("timeout") || message.includes("network")) {
     return {
