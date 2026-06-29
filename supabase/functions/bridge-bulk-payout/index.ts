@@ -148,7 +148,11 @@ Deno.serve(async (req) => {
   // Hard gate — fail closed before any auth/Bridge side effects.
   if (!transfersEnabled()) {
     return json({ success: false, code: "transfer_not_enabled",
-      error: "Money movement is not enabled in this environment yet." }, 503);
+      error: "Money movement is not enabled in this environment yet.",
+      summary: {
+        code: "transfer_not_enabled",
+      },
+    }, 503);
   }
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
@@ -181,6 +185,9 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_json_payload",
       error: "Invalid JSON payload",
+      summary: {
+        code: "invalid_json_payload",
+      },
     }, 400);
   }
 
@@ -192,11 +199,18 @@ Deno.serve(async (req) => {
       code: "invalid_batch_payload",
       error: "Source currency and a non-empty payout items list are required.",
       required_fields: ["source_currency", "items[]"],
+      summary: {
+        code: "invalid_batch_payload",
+      },
     }, 400);
   }
   if (items.length > MAX_ITEMS) {
     return json({ success: false, code: "batch_too_large",
-      error: `Batch exceeds ${MAX_ITEMS} recipients. Split into smaller batches.` }, 400);
+      error: `Batch exceeds ${MAX_ITEMS} recipients. Split into smaller batches.`,
+      summary: {
+        code: "batch_too_large",
+      },
+    }, 400);
   }
 
   // Validate EVERY item up front — reject the whole batch on a malformed row so
@@ -211,6 +225,10 @@ Deno.serve(async (req) => {
         code: "invalid_batch_row_required_fields",
         error: "Each payout row requires amount and destination currency.",
         row,
+        summary: {
+          code: "invalid_batch_row_required_fields",
+          row,
+        },
       }, 400);
     }
     const parsedAmount = parsePositiveAmount(it.amount);
@@ -220,6 +238,10 @@ Deno.serve(async (req) => {
         code: "invalid_batch_row_amount",
         error: "Amount must be a positive decimal value.",
         row,
+        summary: {
+          code: "invalid_batch_row_amount",
+          row,
+        },
       }, 400);
     }
     it.__parsedAmount = parsedAmount;
@@ -229,6 +251,10 @@ Deno.serve(async (req) => {
         code: "invalid_batch_row_idempotency_key",
         error: "Each payout row requires a valid idempotency key.",
         row,
+        summary: {
+          code: "invalid_batch_row_idempotency_key",
+          row,
+        },
       }, 400);
     }
     if (seenKeys.has(it.idempotency_key)) {
@@ -237,6 +263,10 @@ Deno.serve(async (req) => {
         code: "duplicate_batch_row_idempotency_key",
         error: "Duplicate idempotency key in payout batch.",
         row,
+        summary: {
+          code: "duplicate_batch_row_idempotency_key",
+          row,
+        },
       }, 400);
     }
     seenKeys.add(it.idempotency_key);
@@ -244,7 +274,15 @@ Deno.serve(async (req) => {
 
   // Account-level gates — checked ONCE for the whole batch (same as a single send).
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
-  if (!identity.ok) return json({ success: false, ...identity.failure }, 409);
+  if (!identity.ok) {
+    return json({
+      success: false,
+      ...identity.failure,
+      summary: {
+        code: identity.failure.code ?? "identity_invariant_violation",
+      },
+    }, 409);
+  }
   const profile = identity.context;
   const { data: maintenance } = await supa
     .from("user_profiles")
@@ -255,11 +293,19 @@ Deno.serve(async (req) => {
   if (isBridgeBlocked(profile?.country)) return json(bridgeCountryBlockResponse(profile!.country!), 403);
   if (maintenance?.maintenance_overdue === true || maintenance?.wallet_maintenance_overdue === true) {
     return json({ success: false, code: "maintenance_due",
-      error: "Clear your account maintenance fees before sending. Outbound transfers are paused until then." }, 402);
+      error: "Clear your account maintenance fees before sending. Outbound transfers are paused until then.",
+      summary: {
+        code: "maintenance_due",
+      },
+    }, 402);
   }
   if (maintenance?.maintenance_grace_expired === true) {
     return json({ success: false, code: "maintenance_grace_expired",
-      error: "Your account is restricted due to prolonged unpaid maintenance. Clear dues to restore outbound transfers." }, 402);
+      error: "Your account is restricted due to prolonged unpaid maintenance. Clear dues to restore outbound transfers.",
+      summary: {
+        code: "maintenance_grace_expired",
+      },
+    }, 402);
   }
   logControlledBridgeTraffic("bridge-bulk-payout", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
@@ -268,6 +314,9 @@ Deno.serve(async (req) => {
       code: "no_customer",
       error: "Complete account setup before sending payouts",
       required_state: "bridge_customer_created",
+      summary: {
+        code: "no_customer",
+      },
     }, 409);
   }
   const isBusiness = profile.account_type === "business";
@@ -278,6 +327,9 @@ Deno.serve(async (req) => {
       code: "kyc_not_approved",
       error: `${verificationLabel} not approved yet`,
       expected_verification_status: "approved",
+      summary: {
+        code: "kyc_not_approved",
+      },
     }, 409);
   }
   {
