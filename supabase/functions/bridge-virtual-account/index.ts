@@ -314,6 +314,7 @@ Deno.serve(async (req) => {
           success: false,
           code: "tos_required",
           error: "Please accept Terms of Service before creating an account.",
+          bridge_request_id: e.request_id || undefined,
         }, 409);
       }
       if (code === "requires_active_kyc_status") {
@@ -324,6 +325,7 @@ Deno.serve(async (req) => {
             ? "Business verification is required before creating an account."
             : "Identity verification is required before creating an account.",
           expected_verification_status: "approved",
+          bridge_request_id: e.request_id || undefined,
         }, 409);
       }
       if (code === "missing_required_endorsements" || code === "endorsement_requirements_not_met") {
@@ -332,6 +334,7 @@ Deno.serve(async (req) => {
           code: "endorsement_required",
           error: "This virtual account currency is not enabled for your profile yet.",
           currency,
+          bridge_request_id: e.request_id || undefined,
         }, 403);
       }
     } else {

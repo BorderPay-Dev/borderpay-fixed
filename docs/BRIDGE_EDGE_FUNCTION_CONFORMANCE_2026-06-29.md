@@ -588,3 +588,7 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
 ### 2026-06-29 — Batch DH (completed)
 - Hardened `bridge-external-account` request-id naming contract:
   - normalized API response trace field from `request_id` to `bridge_request_id`
+
+### 2026-06-29 — Batch DI (completed)
+- Hardened `bridge-virtual-account` provider diagnostics contract:
+  - surfaced `bridge_request_id` on TOS/KYC/endorsement provider rejection responses
