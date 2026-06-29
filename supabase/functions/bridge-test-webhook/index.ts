@@ -153,6 +153,12 @@ Deno.serve(async (req) => {
       status: "duplicate",
       bridge_event_id: bridgeEventId,
       queue_event_id: queueEventId,
+      summary: {
+        code: "synthetic_event_duplicate",
+        status: "duplicate",
+        bridge_event_id: bridgeEventId,
+        queue_event_id: queueEventId,
+      },
     }, 200);
   }
   if (!row?.queued) {
@@ -171,5 +177,12 @@ Deno.serve(async (req) => {
     bridge_event_id: bridgeEventId,
     queue_event_id: queueEventId,
     pending_event_id: row?.pending_id ?? null,
+    summary: {
+      code: "synthetic_event_queued",
+      status: "queued",
+      bridge_event_id: bridgeEventId,
+      queue_event_id: queueEventId,
+      pending_event_id: row?.pending_id ?? null,
+    },
   }, 200);
 });
