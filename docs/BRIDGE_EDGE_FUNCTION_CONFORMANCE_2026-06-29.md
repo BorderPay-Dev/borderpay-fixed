@@ -308,6 +308,11 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - standardized method/auth failures with explicit stable error codes
   - removed legacy free-text edge responses (`POST only`, `Unauthorized`)
 
+### 2026-06-29 — Batch AZ (completed)
+- Hardened `bridge-webhook` edge validation contracts:
+  - standardized method failure with explicit stable error code
+  - normalized malformed signature-header, replay-window, and invalid-JSON responses with stable error codes
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

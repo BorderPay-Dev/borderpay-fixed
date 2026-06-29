@@ -124,7 +124,13 @@ async function sha256Hex(s: string): Promise<string> {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST")    return json({ error: "POST only" }, 405);
+  if (req.method !== "POST") {
+    return json({
+      error: "Invalid request method",
+      code: "method_not_allowed",
+      expected_method: "POST",
+    }, 405);
+  }
 
   const rawBody = await req.text();
   const sigHdr  = req.headers.get("x-webhook-signature") || req.headers.get("X-Webhook-Signature") || "";
@@ -144,7 +150,11 @@ Deno.serve(async (req) => {
       replayWindowOk: true,
       parseOk: false,
     });
-    return json({ error: "missing or malformed X-Webhook-Signature", reason_code: evalRes.reason_code }, 401);
+    return json({
+      error: "Missing or malformed webhook signature",
+      code: "invalid_signature_header",
+      reason_code: evalRes.reason_code,
+    }, 401);
   }
 
   const nowMs = Date.now();
@@ -161,7 +171,12 @@ Deno.serve(async (req) => {
       replayWindowOk: false,
       parseOk: false,
     });
-    return json({ error: "timestamp outside replay window", age_ms: ageMs, reason_code: evalRes.reason_code }, 400);
+    return json({
+      error: "Webhook timestamp outside replay window",
+      code: "replay_window_violation",
+      age_ms: ageMs,
+      reason_code: evalRes.reason_code,
+    }, 400);
   }
 
   const sigOk = await verifySignature(rawBody, parsed.tsRaw, parsed.sig);
@@ -177,7 +192,11 @@ Deno.serve(async (req) => {
       replayWindowOk: true,
       parseOk: false,
     });
-    return json({ error: "invalid JSON", reason_code: evalRes.reason_code }, 400);
+    return json({
+      error: "Invalid JSON payload",
+      code: "invalid_json_payload",
+      reason_code: evalRes.reason_code,
+    }, 400);
   }
 
   const eventId   = payload?.id || payload?.event_id || payload?.data?.id || `unsigned_${await sha256Hex(rawBody)}`;
