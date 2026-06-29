@@ -446,6 +446,10 @@ Scope: `supabase/functions/bridge-*` + shared Bridge provider client
   - normalized evaluator reject path with explicit `synthetic_event_rejected` code
   - normalized ingest rejection and non-queued branches with explicit deterministic codes
 
+### 2026-06-29 — Batch CB (completed)
+- Hardened `bridge-webhook` RPC ingest failure contract:
+  - normalized ingest RPC failure response with explicit `ingest_failed` code
+
 ### 2026-06-29 — Batch AI (completed)
 - Hardened `bridge-bulk-payout` row-validation contract:
   - replaced dynamic per-row validation strings with deterministic error codes and explicit `row` field

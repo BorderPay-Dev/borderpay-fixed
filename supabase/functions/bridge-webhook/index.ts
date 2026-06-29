@@ -247,7 +247,8 @@ Deno.serve(async (req) => {
   if (rpcErr) {
     webhookLog("ingest_failed", { event_id: eventId, event_type: ingress.derived_event_type, error: rpcErr.message });
     return json({
-      error: "ingest failed",
+      error: "Ingest failed",
+      code: "ingest_failed",
       reason_code: "ingest_error",
       event_id: eventId,
     }, 500);
