@@ -10,8 +10,7 @@
  * Server-driven authorisation: the edge functions enforce role + seat-cap
  * rules and return structured codes. This screen renders those codes
  * cleanly:
- *   • 402 plan_required → opens the global UpgradeModal via the existing
- *     `borderpay:plan_required` DOM event (apiCall dispatches it).
+ *   • 402 plan_required → opens Upgrade UX with a clear inline message.
  *   • 403 forbidden_role → renders inline as a disabled-form notice.
  *
  * Account-type guard:

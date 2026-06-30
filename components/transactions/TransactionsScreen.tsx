@@ -62,9 +62,6 @@ function readTxCache(cacheKey: string, userId: string): Transaction[] {
     const raw = localStorage.getItem(cacheKey);
     const primary = raw ? JSON.parse(raw) : [];
     if (Array.isArray(primary) && primary.length > 0) return primary;
-    const legacyRaw = localStorage.getItem(TX_CACHE_KEY);
-    const legacy = legacyRaw ? JSON.parse(legacyRaw) : [];
-    if (Array.isArray(legacy) && legacy.length > 0) return legacy;
   } catch { /* continue to fallback */ }
   try {
     const recent = JSON.parse(localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');

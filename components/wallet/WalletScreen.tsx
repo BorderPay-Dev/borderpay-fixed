@@ -81,12 +81,10 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
   );
-  const stableWalletsLegacyCacheKey = 'borderpay_wallets_v1';
   const vaCacheKey = useMemo(
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
-  const vaLegacyCacheKey = 'borderpay_va_v1';
   const walletRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_wallet_refresh_ts_v1', { userId }),
     [userId],
@@ -96,17 +94,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
@@ -148,17 +142,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -194,7 +184,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       // Provider provisioning/sync is background-only; never block first paint.
       if (shouldRunProviderSync()) {
         void Promise.allSettled([
-          backendAPI.bridge.provisionStablecoins(),
           backendAPI.bridge.syncAccounts(),
         ]).then(async () => {
           try {

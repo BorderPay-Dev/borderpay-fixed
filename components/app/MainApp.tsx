@@ -60,8 +60,42 @@ import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
 const lazyImport = <T extends { default: React.ComponentType<any> }>(
   loader: () => Promise<T>
 ) => {
-  const Component = lazy(loader);
-  (Component as any).preload = loader;
+  const resilientLoader = async () => {
+    try {
+      return await loader();
+    } catch (error: any) {
+      const msg = String(error?.message || error || '').toLowerCase();
+      const isModuleLoadFailure =
+        msg.includes('importing a module script failed') ||
+        msg.includes('failed to fetch dynamically imported module') ||
+        msg.includes('dynamically imported module') ||
+        msg.includes('chunkloaderror') ||
+        msg.includes('loading chunk');
+
+      if (isModuleLoadFailure && typeof window !== 'undefined') {
+        const reloadKey = 'borderpay_module_reload_once_v1';
+        let alreadyRetried = false;
+        try {
+          alreadyRetried = sessionStorage.getItem(reloadKey) === '1';
+        } catch {
+          alreadyRetried = false;
+        }
+
+        if (!alreadyRetried) {
+          try { sessionStorage.setItem(reloadKey, '1'); } catch { /* noop */ }
+          const url = new URL(window.location.href);
+          url.searchParams.set('hard_refresh', String(Date.now()));
+          window.location.replace(url.toString());
+          await new Promise<never>(() => { /* wait for navigation */ });
+        }
+      }
+
+      throw error;
+    }
+  };
+
+  const Component = lazy(resilientLoader);
+  (Component as any).preload = resilientLoader;
   return Component;
 };
 
@@ -117,11 +151,6 @@ if (typeof window !== 'undefined') {
 
 function canonicalizeScreen(screen: AppScreen | string): AppScreen {
   switch (screen as string) {
-    case 'converter':
-      return 'exchange';
-    case 'deposit':
-    case 'add-money':
-      return 'wallet-detail';
     default:
       return screen as AppScreen;
   }
@@ -351,6 +380,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [stablecoinConfirmData, setStablecoinConfirmData] = useState<StablecoinConfirmData | null>(null);
 
+  // Clear one-time module-reload fuse once the app boots successfully.
+  useEffect(() => {
+    try { sessionStorage.removeItem('borderpay_module_reload_once_v1'); } catch { /* noop */ }
+  }, []);
+
   // ─── Subscription state ────────────────────────────────────────────────
   // Loaded once on mount; refreshed after a successful upgrade. Determines
   // which paid features (EUR/GBP virtual accounts, team seats, future cards)
@@ -359,10 +393,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   // ─── Upgrade paywall ──────────────────────────────────────────────────
   // `upgradeTarget` holds the plan_key the user is being asked to upgrade to.
-  // null = modal closed. Triggered by:
-  //   • Manual upgrade CTAs (window.__borderpay_open_upgrade(planKey))
-  //   • Backend 402 `plan_required` responses (apiCall dispatches
-  //     `borderpay:plan_required` CustomEvent; we listen below and pop it).
+  // null = modal closed. Triggered by manual upgrade CTAs only.
   
   // ─── Shell display props (avatar / name / unread bell badge) ───────────
   // Hydrated from cache for first paint, then refreshed by the
@@ -540,8 +571,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, [userId, accountType, refreshKey]);
 
   // ─── Funding gate: open FundWalletSheet on 402 funding_required ────────
-  // (plan_required is kept as a legacy alias so older clients in flight don't
-  //  break, but the new model is a minimum wallet balance, not a paid plan.)
   const [fundCurrentUsd, setFundCurrentUsd] = useState<number | undefined>(undefined);
   const [fundMinUsd, setFundMinUsd] = useState<number | undefined>(undefined);
   const [fundOpen, setFundOpen] = useState(false);
@@ -553,11 +582,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       setFundOpen(true);
     };
     window.addEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-    // legacy event name (any in-flight UI still using it)
-    window.addEventListener('borderpay:plan_required',    onFundingRequired as EventListener);
     return () => {
       window.removeEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-      window.removeEventListener('borderpay:plan_required',    onFundingRequired as EventListener);
     };
   }, []);
 
@@ -765,10 +791,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       } else {
         toast.success('Payment received — confirming your activation…');
         handleRefresh();
-        // Best-effort: provision base stablecoins now that they're activated so a
-        // virtual account has a settlement wallet ready. No-ops if the webhook
-        // hasn't flipped the plan yet; the dashboard wallets card retries on load.
-        backendAPI.bridge.provisionStablecoins?.().catch(() => { /* noop */ });
       }
       const url = new URL(window.location.href);
       ['activation', 'status', 'tx_ref', 'transaction_id'].forEach(k => url.searchParams.delete(k));

@@ -245,9 +245,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     [externalAccounts, selectedExternalAccountId],
   );
 
-  // BorderPay Network Fee — corridor-aware, via the revenue fee engine.
-  // Provider stays invisible; the total is fully disclosed to the user.
-  const networkFee = useMemo(() => {
+  // Instant fallback fee — shown immediately on first paint.
+  const fallbackNetworkFee = useMemo(() => {
     const num = parseFloat(amount);
     if (!num || num <= 0) return null;
     // The crypto withdrawal track forces the stablecoin route (flat 1.00%),
@@ -262,6 +261,68 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
   }, [amount, selectedCurrency, accountType, method]);
+  const [policyFeeQuote, setPolicyFeeQuote] = useState<{
+    totalFee: number;
+    feePercent: number;
+  } | null>(null);
+  const [policyFeeLoading, setPolicyFeeLoading] = useState(false);
+  const feeQuoteReqRef = useRef(0);
+
+  // Background fee refresh from server policy. This never blocks render.
+  useEffect(() => {
+    const num = parseFloat(amount);
+    if (!num || num <= 0) {
+      setPolicyFeeQuote(null);
+      setPolicyFeeLoading(false);
+      return;
+    }
+    // For now we only quote bank payouts from this screen.
+    if (method !== 'us_ach_wire') {
+      setPolicyFeeQuote(null);
+      setPolicyFeeLoading(false);
+      return;
+    }
+    const reqId = feeQuoteReqRef.current + 1;
+    feeQuoteReqRef.current = reqId;
+    setPolicyFeeLoading(true);
+    (async () => {
+      try {
+        const r: any = await backendAPI.payouts.feeQuote({
+          direction: 'payout',
+          channel: 'bank',
+          currency: selectedCurrency,
+          amount: num,
+        });
+        if (feeQuoteReqRef.current !== reqId) return;
+        if (r?.success && r?.data) {
+          const totalFee = Number(r.data.total_fee || 0);
+          const pct = num > 0 ? (totalFee / num) * 100 : 0;
+          setPolicyFeeQuote({
+            totalFee: Number.isFinite(totalFee) ? totalFee : 0,
+            feePercent: Number.isFinite(pct) ? pct : 0,
+          });
+        } else {
+          setPolicyFeeQuote(null);
+        }
+      } catch {
+        if (feeQuoteReqRef.current === reqId) setPolicyFeeQuote(null);
+      } finally {
+        if (feeQuoteReqRef.current === reqId) setPolicyFeeLoading(false);
+      }
+    })();
+  }, [amount, method, selectedCurrency]);
+
+  const networkFee = useMemo(() => {
+    if (!fallbackNetworkFee) return null;
+    if (policyFeeQuote && method === 'us_ach_wire') {
+      return {
+        ...fallbackNetworkFee,
+        feePercent: policyFeeQuote.feePercent,
+        totalFee: policyFeeQuote.totalFee,
+      };
+    }
+    return fallbackNetworkFee;
+  }, [fallbackNetworkFee, policyFeeQuote, method]);
   const [limitError, setLimitError] = useState<string | null>(null);
 
   // PIN & result
@@ -420,20 +481,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
     } catch { /* noop */ }
 
-    setLoadingInstitutions(true);
+    // Bridge-converged send path: bank institution lookup belongs to
+    // provider-specific adapters and is intentionally disabled here.
+    setInstitutions([]);
     setSelectedBank(null);
-    try {
-      const res = await backendAPI.localPayments.getInstitutions(selectedCurrency, undefined);
-      if (res.success && res.data?.institutions) {
-        const list = Array.isArray(res.data.institutions) ? res.data.institutions : [];
-        setInstitutions(list);
-        try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
-        try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
-      }
-    } catch (e) {
-    } finally {
-      setLoadingInstitutions(false);
-    }
+    try { localStorage.setItem(institutionsCacheKey, JSON.stringify([])); } catch { /* noop */ }
+    try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+    setLoadingInstitutions(false);
     })();
     institutionsLoadInFlightRef.current = run;
     try {
@@ -460,23 +514,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const resolveAccount = async () => {
     if (!selectedBank || !accountNumber) return;
-    setResolving(true);
+    setResolving(false);
     setResolvedName('');
-    setResolveError('');
-    try {
-      const res = await backendAPI.localPayments.resolveAccount(
-        selectedBank.code, accountNumber, selectedCurrency
-      );
-      if (res.success && res.data?.account_name) {
-        setResolvedName(res.data.account_name);
-      } else {
-        setResolveError(res.error || t('send.accountResolveFailed'));
-      }
-    } catch {
-      setResolveError(t('send.accountResolveFailed'));
-    } finally {
-      setResolving(false);
-    }
+    setResolveError('Account validation is handled in the external account setup flow.');
   };
 
   // Validate transfer limits whenever amount/currency/method changes
@@ -588,8 +628,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         toast.success(t('send.txSuccessful'));
       } else {
         // Map structured server codes to friendly user-facing messages.
-        // 402 plan_required is intercepted globally by apiCall and pops
-        // UpgradeModal; we don't surface it as a transfer failure.
         const code = (result as any)?.code;
         const friendly =
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
@@ -597,7 +635,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
         : code === 'no_customer'          ? 'Finish account setup before sending funds.'
-        : code === 'plan_required'        ? ''      // UpgradeModal handles it; suppress duplicate toast
         : (result.error || t('send.txFailed'));
 
         setErrorMessage(friendly || t('send.txFailed'));
@@ -1329,6 +1366,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>
                       BorderPay Network Fee{networkFee.feePercent > 0 ? ` (${networkFee.feePercent.toFixed(networkFee.feePercent < 1 ? 2 : 3)}%)` : ''}
+                      {policyFeeLoading ? ' · updating…' : ''}
                     </span>
                     <span className={networkFee.totalFee === 0 ? 'text-[#C7FF00]' : tc.text}>
                       {networkFee.totalFee === 0

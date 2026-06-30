@@ -79,12 +79,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
   );
-  const stableWalletsLegacyCacheKey = 'borderpay_wallets_v1';
   const vaCacheKey = useMemo(
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
-  const vaLegacyCacheKey = 'borderpay_va_v1';
   const receiveRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_receive_refresh_ts_v1', { userId }),
     [userId],
@@ -94,17 +92,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
@@ -140,17 +134,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -171,7 +161,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       // Heavy provider sync/provision runs after first paint; never blocks route render.
       if (shouldRunProviderSync()) {
         void Promise.allSettled([
-          backendAPI.bridge.provisionStablecoins(),
           backendAPI.bridge.syncAccounts(),
         ]).then(async () => {
           try {
