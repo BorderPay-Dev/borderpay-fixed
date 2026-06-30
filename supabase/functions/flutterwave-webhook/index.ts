@@ -96,15 +96,21 @@ function extractTransferEnvelope(payload: Record<string, unknown>): {
   return { reference, providerTransferId, providerStatus, userIdFromMeta };
 }
 
-function shouldReconcileTransferEvent(eventType: string, transfer: {
+function shouldReconcileMoneyMovementEvent(eventType: string, transfer: {
   reference: string | null;
   providerTransferId: string | null;
   providerStatus: string | null;
 }): boolean {
   const t = String(eventType || "").trim().toLowerCase();
-  const transferLikeType = t.includes("transfer") || t.includes("payout");
-  if (!transferLikeType) return false;
+  const movementType = t.includes("transfer") || t.includes("payout") || t.includes("charge") || t.includes("collection");
+  if (!movementType) return false;
   return Boolean(transfer.reference || transfer.providerTransferId || transfer.providerStatus);
+}
+
+function inferMovementDirection(eventType: string): "payout" | "receive" {
+  const t = String(eventType || "").trim().toLowerCase();
+  if (t.includes("charge") || t.includes("collection")) return "receive";
+  return "payout";
 }
 
 function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
@@ -162,7 +168,8 @@ Deno.serve(async (req) => {
     : `hash:${payloadHash.slice(0, 32)}`;
   const eventType = String(payload.event || payload.event_type || "unknown");
   const transfer = extractTransferEnvelope(payload);
-  const transferEventEligible = shouldReconcileTransferEvent(eventType, transfer);
+  const transferEventEligible = shouldReconcileMoneyMovementEvent(eventType, transfer);
+  const movementDirection = inferMovementDirection(eventType);
   const mappedStatus = mapTransferState(transfer.providerStatus);
 
   let reconciled = false;
@@ -238,6 +245,7 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq("user_id", transfer.userIdFromMeta)
+          .eq("direction", movementDirection)
           .eq("reference", transfer.reference)
           .select("id")
           .limit(1);
@@ -248,7 +256,7 @@ Deno.serve(async (req) => {
       if (!reconciled && transfer.reference && isUuid(transfer.userIdFromMeta)) {
         await supa.from("flutterwave_transfers").upsert({
           user_id: transfer.userIdFromMeta,
-          direction: "payout",
+          direction: movementDirection,
           reference: transfer.reference,
           provider_transfer_id: transfer.providerTransferId,
           source: "flutterwave",
@@ -295,6 +303,7 @@ Deno.serve(async (req) => {
       provider_transfer_id: transfer.providerTransferId,
       mapped_status: mappedStatus,
       transfer_event_eligible: transferEventEligible,
+      movement_direction: movementDirection,
       reconciled,
       processing_error: processingError,
       received_at: new Date().toISOString(),
