@@ -143,7 +143,11 @@ export async function flutterwaveRetryTransfer(transferId: string, body?: Record
 
 export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promise<boolean> {
   // Flutterwave commonly sends `verif-hash`; keep this in env and compare.
-  const expected = String(Deno.env.get("FLW_WEBHOOK_SECRET_HASH") || "").trim();
+  const expected = String(
+    Deno.env.get("FLW_WEBHOOK_SECRET_HASH")
+      || Deno.env.get("FLW_WEBHOOK_SECRET")
+      || "",
+  ).trim();
   if (!expected) return false;
   const provided = String(
     headers.get("verif-hash")
@@ -154,6 +158,11 @@ export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promi
       || "",
   ).trim();
   if (!provided) return false;
-  // Compare normalized values to avoid accidental mismatch from surrounding spaces.
-  return provided === expected;
+  // Constant-time compare to avoid timing leakage.
+  const a = new TextEncoder().encode(provided);
+  const b = new TextEncoder().encode(expected);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+  return diff === 0;
 }

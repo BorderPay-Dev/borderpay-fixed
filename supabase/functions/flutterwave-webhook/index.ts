@@ -145,7 +145,10 @@ Deno.serve(async (req) => {
     }
   }
 
-  const eventId = extractEventId(payload);
+  const eventIdRaw = extractEventId(payload);
+  const eventId = eventIdRaw && eventIdRaw !== "unknown"
+    ? eventIdRaw
+    : `hash:${payloadHash.slice(0, 32)}`;
   const eventType = String(payload.event || payload.event_type || "unknown");
   const transfer = extractTransferEnvelope(payload);
   const mappedStatus = mapTransferState(transfer.providerStatus);
