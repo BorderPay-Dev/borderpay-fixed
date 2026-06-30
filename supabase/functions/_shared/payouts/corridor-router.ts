@@ -30,3 +30,19 @@ export function selectPayoutRoute(corridor: Corridor): PayoutRoute {
 export function routeForCountry(destinationCountry: string | null | undefined): PayoutRoute {
   return selectPayoutRoute(classifyCorridor(destinationCountry));
 }
+
+/**
+ * Stage-safe route selector for African corridors.
+ * Keeps existing stablecoin default, and only returns flutterwave_local
+ * when local rails are explicitly enabled and supported for this corridor.
+ */
+export function routeForAfricanDestination(input: {
+  destinationCountry: string | null | undefined;
+  destinationCurrency: string | null | undefined;
+  method: AfricanLocalMethod;
+}): PayoutRoute {
+  const corridor = classifyCorridor(input.destinationCountry);
+  if (corridor !== "african") return "bridge_payout";
+  if (canUseFlutterwaveLocalRail(input)) return "flutterwave_local";
+  return "stablecoin";
+}
