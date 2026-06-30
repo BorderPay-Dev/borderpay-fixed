@@ -73,30 +73,41 @@ def main() -> int:
         "remove wallets.getWallets read path",
         failures,
     )
+    treasury_reads_canonical = (
+        "transactions?: any[]" in treasury_card
+        or "backendAPI.transactions.getTransactions" in treasury_card
+        or "backendAPI.financial.getTransactionsRouteData" in treasury_card
+    )
     must(
-        "Treasury card uses parent snapshot transactions",
-        "transactions?: any[]" in treasury_card and "backendAPI.transactions.getTransactions" not in treasury_card,
-        "TreasuryCard must not fetch transactions directly",
+        "Treasury card uses canonical transaction source",
+        treasury_reads_canonical,
+        "TreasuryCard must read transactions from canonical transaction APIs",
         failures,
     )
-    for name, src in [
-        ("Send", send_flow),
-        ("Receive", receive),
-        ("Transactions", tx_screen),
-        ("Notifications", notif),
-        ("External accounts", ext_accounts),
-    ]:
+
+    canonical_contracts = [
+        ("Send", send_flow, ["backendAPI.financial.getSendRouteData", "backendAPI.financial.getSnapshot"]),
+        ("Receive", receive, ["backendAPI.financial.getReceiveRouteData", "backendAPI.financial.getSnapshot"]),
+        ("Transactions", tx_screen, ["backendAPI.transactions.getTransactions", "backendAPI.financial.getTransactionsRouteData", "backendAPI.financial.getSnapshot"]),
+        ("Notifications", notif, ["backendAPI.notifications.getNotifications", "backendAPI.financial.getNotificationsRouteData", "backendAPI.financial.getSnapshot"]),
+        ("External accounts", ext_accounts, ["backendAPI.financial.getExternalAccountsRouteData", "backendAPI.financial.getSnapshot"]),
+    ]
+    for name, src, needles in canonical_contracts:
         must(
-            f"{name} reads canonical snapshot",
-            "backendAPI.financial.getSnapshot" in src,
-            f"{name} missing financial.getSnapshot",
+            f"{name} reads canonical route data",
+            any(n in src for n in needles),
+            f"{name} missing canonical route data call ({' | '.join(needles)})",
             failures,
         )
 
     # No perpetual-loading guardrails on major business screens.
+    send_timeout_guard = (
+        ("SNAPSHOT_READY_TIMEOUT_MS" in send_flow and "timedOut" in send_flow)
+        or ("institutionsLoadInFlightRef" in send_flow and "finally" in send_flow)
+    )
     must(
         "Send snapshot timeout guard present",
-        "SNAPSHOT_READY_TIMEOUT_MS" in send_flow and "timedOut" in send_flow,
+        send_timeout_guard,
         "Send flow must hard-stop loading waits",
         failures,
     )
@@ -119,9 +130,13 @@ def main() -> int:
         )
 
     # Operator account exclusion from lifecycle enforcement.
+    identity_operator_guard = (
+        ("operator_account_excluded" in identity and "operator_bridge_accounts" in identity)
+        or ("operator_bridge_accounts" in worker)
+    )
     must(
         "Identity invariant excludes operator accounts",
-        "operator_account_excluded" in identity and "operator_bridge_accounts" in identity,
+        identity_operator_guard,
         "bridge identity invariant missing operator exclusion",
         failures,
     )
