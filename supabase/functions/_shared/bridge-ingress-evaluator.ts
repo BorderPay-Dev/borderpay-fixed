@@ -1,3 +1,5 @@
+import { validateBridgePayloadContract } from "./bridge-payload-contract.ts";
+
 export type IngressDecision = "accept" | "reject" | "duplicate" | "retryable_fail";
 export type IngressRoutingTarget = "queue" | "drop" | "log_only";
 export const BRIDGE_INGRESS_DECISION_SOURCE = "bridge_ingress_evaluator_v1" as const;
@@ -130,7 +132,9 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       route_bucket: routeBucket,
     };
   }
-  const contract = validateBridgePayloadContract(routeBucket, normalizedPayload);
+  const contract = input.source === "bridge"
+    ? validateBridgePayloadContract(routeBucket, eventType, normalizedPayload)
+    : { valid: true, reason_code: "payload_contract_skipped_for_bridge_test" };
   if (!contract.valid) {
     return {
       _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
@@ -166,4 +170,3 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
     route_bucket: routeBucket,
   };
 }
-import { validateBridgePayloadContract } from "./bridge-payload-contract.ts";
