@@ -119,6 +119,7 @@ Deno.serve(async (req) => {
 
     const res = await flutterwaveRetryTransfer(providerTransferId, body?.retry_payload || {});
     if (!res.ok) {
+      const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
       await supa
         .from("flutterwave_transfers")
         .update({
@@ -132,10 +133,12 @@ Deno.serve(async (req) => {
         .eq("user_id", authData.user.id);
       return json({
         success: false,
-        code: "upstream_error",
-        error: res.error || "Failed to retry transfer",
+        code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+        error: isIpGuard
+          ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+          : (res.error || "Failed to retry transfer"),
         data: { capabilities: caps },
-      }, 502);
+      }, isIpGuard ? 503 : 502);
     }
 
     const rData = transferData(res.data);
@@ -231,6 +234,7 @@ Deno.serve(async (req) => {
   });
 
   if (!res.ok) {
+    const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
     await supa.from("flutterwave_transfers").upsert({
       user_id: authData.user.id,
       direction: "payout",
@@ -261,10 +265,12 @@ Deno.serve(async (req) => {
 
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to create transfer",
+      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      error: isIpGuard
+        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        : (res.error || "Failed to create transfer"),
       data: { capabilities: caps },
-    }, 502);
+    }, isIpGuard ? 503 : 502);
   }
 
   const responseData = transferData(res.data);
