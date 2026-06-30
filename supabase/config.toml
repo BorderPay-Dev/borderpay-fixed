@@ -117,3 +117,27 @@ verify_jwt = true
 # address validation; no money movement).
 [functions.external-wallet]
 verify_jwt = true
+
+# Flutterwave capabilities/dirs — authenticated helper for rails metadata.
+[functions.flutterwave-capabilities]
+verify_jwt = true
+
+# Flutterwave account resolve — authenticated payout preflight.
+[functions.flutterwave-account-resolve]
+verify_jwt = true
+
+# Flutterwave transfer rates — authenticated quote preflight.
+[functions.flutterwave-transfer-rates]
+verify_jwt = true
+
+# Flutterwave transfer create/retry — authenticated transfer execution.
+[functions.flutterwave-transfer-create]
+verify_jwt = true
+
+# Flutterwave transfer status — authenticated status sync.
+[functions.flutterwave-transfer-status]
+verify_jwt = true
+
+# Flutterwave webhook receiver — provider-signed; no JWT.
+[functions.flutterwave-webhook]
+verify_jwt = false
