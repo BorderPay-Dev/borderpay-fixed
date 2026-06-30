@@ -26,6 +26,7 @@ import { render as businessTransactionNotification }  from "./business/transacti
 import { render as businessAccountActivated }         from "./business/account-activated.ts";
 import { render as businessAccountReady }             from "./business/account-ready.ts";
 import { render as businessVerificationAuthorized }    from "./business/verification-authorized.ts";
+import { render as businessVerificationReminder }      from "./business/verification-reminder.ts";
 import { render as businessPaymentReceived }           from "./business/payment-received.ts";
 
 export type TemplateName =
@@ -43,6 +44,7 @@ export type TemplateName =
   | "business.account_activated"
   | "business.account_ready"
   | "business.verification_authorized"
+  | "business.verification_reminder"
   | "business.payment_received";
 
 type Renderer = (props: any) => RenderedEmail;
@@ -62,6 +64,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.account_activated":         businessAccountActivated,
   "business.account_ready":             businessAccountReady,
   "business.verification_authorized":   businessVerificationAuthorized,
+  "business.verification_reminder":     businessVerificationReminder,
   "business.payment_received":          businessPaymentReceived,
 };
 
