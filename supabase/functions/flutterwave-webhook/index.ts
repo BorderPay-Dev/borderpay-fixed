@@ -203,25 +203,10 @@ Deno.serve(async (req) => {
     }
 
     if (transferEventEligible) {
-      // Reconciliation path: reference first, then provider id.
-      if (transfer.reference) {
-        const update = await supa.from("flutterwave_transfers")
-          .update({
-            provider_transfer_id: transfer.providerTransferId,
-            status: mappedStatus,
-            provider_status: transfer.providerStatus,
-            provider_response: payload,
-            provider_http_status: 202,
-            webhook_last_event_id: eventId,
-            last_error: null,
-            last_synced_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("reference", transfer.reference)
-          .select("id")
-          .limit(1);
-        reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
-      } else if (transfer.providerTransferId) {
+      // Reconciliation path:
+      // 1) provider_transfer_id (globally unique)
+      // 2) reference + user_id (only when user id is present and valid)
+      if (transfer.providerTransferId) {
         const update = await supa.from("flutterwave_transfers")
           .update({
             status: mappedStatus,
@@ -234,6 +219,26 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq("provider_transfer_id", transfer.providerTransferId)
+          .select("id")
+          .limit(1);
+        reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
+      }
+
+      if (!reconciled && transfer.reference && isUuid(transfer.userIdFromMeta)) {
+        const update = await supa.from("flutterwave_transfers")
+          .update({
+            provider_transfer_id: transfer.providerTransferId,
+            status: mappedStatus,
+            provider_status: transfer.providerStatus,
+            provider_response: payload,
+            provider_http_status: 202,
+            webhook_last_event_id: eventId,
+            last_error: null,
+            last_synced_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", transfer.userIdFromMeta)
+          .eq("reference", transfer.reference)
           .select("id")
           .limit(1);
         reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
@@ -262,6 +267,9 @@ Deno.serve(async (req) => {
 
       if (!reconciled && transfer.reference && transfer.userIdFromMeta && !isUuid(transfer.userIdFromMeta)) {
         processingError = "invalid_user_id_in_meta";
+      }
+      if (!reconciled && transfer.reference && !transfer.providerTransferId && !transfer.userIdFromMeta) {
+        processingError = "insufficient_identity_for_reference_reconcile";
       }
     }
   } catch (err: any) {
