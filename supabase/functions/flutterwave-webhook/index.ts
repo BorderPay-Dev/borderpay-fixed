@@ -96,6 +96,17 @@ function extractTransferEnvelope(payload: Record<string, unknown>): {
   return { reference, providerTransferId, providerStatus, userIdFromMeta };
 }
 
+function shouldReconcileTransferEvent(eventType: string, transfer: {
+  reference: string | null;
+  providerTransferId: string | null;
+  providerStatus: string | null;
+}): boolean {
+  const t = String(eventType || "").trim().toLowerCase();
+  const transferLikeType = t.includes("transfer") || t.includes("payout");
+  if (!transferLikeType) return false;
+  return Boolean(transfer.reference || transfer.providerTransferId || transfer.providerStatus);
+}
+
 function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
   const s = String(raw || "").trim().toLowerCase();
   if (!s) return "unknown";
@@ -151,6 +162,7 @@ Deno.serve(async (req) => {
     : `hash:${payloadHash.slice(0, 32)}`;
   const eventType = String(payload.event || payload.event_type || "unknown");
   const transfer = extractTransferEnvelope(payload);
+  const transferEventEligible = shouldReconcileTransferEvent(eventType, transfer);
   const mappedStatus = mapTransferState(transfer.providerStatus);
 
   let reconciled = false;
@@ -190,65 +202,67 @@ Deno.serve(async (req) => {
         .eq("event_id", eventId);
     }
 
-    // Reconciliation path: reference first, then provider id.
-    if (transfer.reference) {
-      const update = await supa.from("flutterwave_transfers")
-        .update({
+    if (transferEventEligible) {
+      // Reconciliation path: reference first, then provider id.
+      if (transfer.reference) {
+        const update = await supa.from("flutterwave_transfers")
+          .update({
+            provider_transfer_id: transfer.providerTransferId,
+            status: mappedStatus,
+            provider_status: transfer.providerStatus,
+            provider_response: payload,
+            provider_http_status: 202,
+            webhook_last_event_id: eventId,
+            last_error: null,
+            last_synced_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("reference", transfer.reference)
+          .select("id")
+          .limit(1);
+        reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
+      } else if (transfer.providerTransferId) {
+        const update = await supa.from("flutterwave_transfers")
+          .update({
+            status: mappedStatus,
+            provider_status: transfer.providerStatus,
+            provider_response: payload,
+            provider_http_status: 202,
+            webhook_last_event_id: eventId,
+            last_error: null,
+            last_synced_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("provider_transfer_id", transfer.providerTransferId)
+          .select("id")
+          .limit(1);
+        reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
+      }
+
+      // If no record exists yet but webhook includes both user + reference, seed one.
+      if (!reconciled && transfer.reference && isUuid(transfer.userIdFromMeta)) {
+        await supa.from("flutterwave_transfers").upsert({
+          user_id: transfer.userIdFromMeta,
+          direction: "payout",
+          reference: transfer.reference,
           provider_transfer_id: transfer.providerTransferId,
+          source: "flutterwave",
           status: mappedStatus,
           provider_status: transfer.providerStatus,
+          request_payload: {},
           provider_response: payload,
+          metadata: { seeded_from_webhook: true },
           provider_http_status: 202,
           webhook_last_event_id: eventId,
-          last_error: null,
           last_synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        })
-        .eq("reference", transfer.reference)
-        .select("id")
-        .limit(1);
-      reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
-    } else if (transfer.providerTransferId) {
-      const update = await supa.from("flutterwave_transfers")
-        .update({
-          status: mappedStatus,
-          provider_status: transfer.providerStatus,
-          provider_response: payload,
-          provider_http_status: 202,
-          webhook_last_event_id: eventId,
-          last_error: null,
-          last_synced_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("provider_transfer_id", transfer.providerTransferId)
-        .select("id")
-        .limit(1);
-      reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
-    }
+        }, { onConflict: "user_id,reference" });
+        reconciled = true;
+      }
 
-    // If no record exists yet but webhook includes both user + reference, seed one.
-    if (!reconciled && transfer.reference && isUuid(transfer.userIdFromMeta)) {
-      await supa.from("flutterwave_transfers").upsert({
-        user_id: transfer.userIdFromMeta,
-        direction: "payout",
-        reference: transfer.reference,
-        provider_transfer_id: transfer.providerTransferId,
-        source: "flutterwave",
-        status: mappedStatus,
-        provider_status: transfer.providerStatus,
-        request_payload: {},
-        provider_response: payload,
-        metadata: { seeded_from_webhook: true },
-        provider_http_status: 202,
-        webhook_last_event_id: eventId,
-        last_synced_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,reference" });
-      reconciled = true;
-    }
-
-    if (!reconciled && transfer.reference && transfer.userIdFromMeta && !isUuid(transfer.userIdFromMeta)) {
-      processingError = "invalid_user_id_in_meta";
+      if (!reconciled && transfer.reference && transfer.userIdFromMeta && !isUuid(transfer.userIdFromMeta)) {
+        processingError = "invalid_user_id_in_meta";
+      }
     }
   } catch (err: any) {
     processingError = String(err?.message || "webhook_processing_failed");
@@ -272,6 +286,7 @@ Deno.serve(async (req) => {
       transfer_reference: transfer.reference,
       provider_transfer_id: transfer.providerTransferId,
       mapped_status: mappedStatus,
+      transfer_event_eligible: transferEventEligible,
       reconciled,
       processing_error: processingError,
       received_at: new Date().toISOString(),
