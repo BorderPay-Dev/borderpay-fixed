@@ -30,6 +30,11 @@ CHECKS = [
         "transfer create enforces money movement network guard",
     ),
     (
+        "supabase/functions/flutterwave-collection-create/index.ts",
+        "getFlutterwaveNetworkGuard(\"money_movement\")",
+        "collection create enforces money movement network guard",
+    ),
+    (
         "supabase/functions/_shared/providers/flutterwave.ts",
         "static_ip_not_ready",
         "network guard exposes static ip not ready code",
