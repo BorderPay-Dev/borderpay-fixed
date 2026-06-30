@@ -29,6 +29,13 @@ const supa = createClient(
 );
 
 type Action = "health" | "payment_methods" | "banks" | "mobile_networks" | "corridor_policy";
+type Direction = "payout" | "receive";
+
+function parseDirection(value: unknown): Direction | null {
+  const v = String(value || "payout").trim().toLowerCase();
+  if (v === "payout" || v === "receive") return v;
+  return null;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -82,16 +89,18 @@ Deno.serve(async (req) => {
 
   if (action === "payment_methods") {
     const country = String(body?.country || "").trim().toUpperCase();
+    const direction = parseDirection(body?.direction);
+    if (!direction) return json({ success: false, error: "direction must be payout or receive" }, 400);
     if (country) {
       const bank = await isProviderCorridorEnabled(supa, {
         provider: "flutterwave",
-        direction: "payout",
+        direction,
         countryCode: country,
         channel: "bank",
       });
       const momo = await isProviderCorridorEnabled(supa, {
         provider: "flutterwave",
-        direction: "payout",
+        direction,
         countryCode: country,
         channel: "mobile_money",
       });
@@ -110,16 +119,18 @@ Deno.serve(async (req) => {
     }
     const res = await flutterwaveListPaymentMethods(country || undefined);
     if (!res.ok) return json({ success: false, error: res.error || "Failed to load payment methods", data: { capabilities: caps } }, 502);
-    return json({ success: true, data: { capabilities: caps, payment_methods: res.data } });
+    return json({ success: true, data: { capabilities: caps, direction, payment_methods: res.data } });
   }
 
   if (action === "banks") {
     const country = String(body?.country || "").trim().toUpperCase();
     const destinationCurrency = String(body?.destination_currency || "").trim().toUpperCase();
+    const direction = parseDirection(body?.direction);
+    if (!direction) return json({ success: false, error: "direction must be payout or receive" }, 400);
     if (!country) return json({ success: false, error: "country is required" }, 400);
     const corridor = await isProviderCorridorEnabled(supa, {
       provider: "flutterwave",
-      direction: "payout",
+      direction,
       countryCode: country,
       channel: "bank",
       destinationCurrency: destinationCurrency || undefined,
@@ -135,16 +146,18 @@ Deno.serve(async (req) => {
     }
     const res = await flutterwaveListBanks(country);
     if (!res.ok) return json({ success: false, error: res.error || "Failed to load banks", data: { capabilities: caps } }, 502);
-    return json({ success: true, data: { capabilities: caps, country, banks: res.data } });
+    return json({ success: true, data: { capabilities: caps, direction, country, banks: res.data } });
   }
 
   if (action === "mobile_networks") {
     const country = String(body?.country || "").trim().toUpperCase();
     const destinationCurrency = String(body?.destination_currency || "").trim().toUpperCase();
+    const direction = parseDirection(body?.direction);
+    if (!direction) return json({ success: false, error: "direction must be payout or receive" }, 400);
     if (!country) return json({ success: false, error: "country is required" }, 400);
     const corridor = await isProviderCorridorEnabled(supa, {
       provider: "flutterwave",
-      direction: "payout",
+      direction,
       countryCode: country,
       channel: "mobile_money",
       destinationCurrency: destinationCurrency || undefined,
@@ -160,13 +173,15 @@ Deno.serve(async (req) => {
     }
     const res = await flutterwaveListMobileNetworks(country);
     if (!res.ok) return json({ success: false, error: res.error || "Failed to load mobile networks", data: { capabilities: caps } }, 502);
-    return json({ success: true, data: { capabilities: caps, country, mobile_networks: res.data } });
+    return json({ success: true, data: { capabilities: caps, direction, country, mobile_networks: res.data } });
   }
 
   if (action === "corridor_policy") {
+    const direction = parseDirection(body?.direction);
+    if (!direction) return json({ success: false, error: "direction must be payout or receive" }, 400);
     const rows = await listProviderCorridors(supa, {
       provider: "flutterwave",
-      direction: "payout",
+      direction,
       enabledOnly: true,
     });
     if (!rows.ok) {
@@ -185,6 +200,7 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         capabilities: caps,
+        direction,
         local_rail_policy: {
           countries,
           currencies,
