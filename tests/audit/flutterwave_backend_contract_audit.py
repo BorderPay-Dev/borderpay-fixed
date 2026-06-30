@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""
+Flutterwave backend contract audit (static repository-level checks).
+
+Goal:
+- Ensure Step-1 backend runtime artifacts exist in source control before deploy.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+
+REQUIRED_FILES = [
+    "supabase/functions/flutterwave-transfer-create/index.ts",
+    "supabase/functions/flutterwave-transfer-status/index.ts",
+    "supabase/functions/flutterwave-webhook/index.ts",
+    "supabase/functions/_shared/providers/flutterwave.ts",
+    "supabase/migrations/20260630190000_flutterwave_transfer_runtime_tables.sql",
+]
+
+
+def fail(msg: str) -> None:
+    print(f"[FAIL] {msg}")
+
+
+def ok(msg: str) -> None:
+    print(f"[OK] {msg}")
+
+
+def main() -> int:
+    failed = False
+    for rel in REQUIRED_FILES:
+        p = ROOT / rel
+        if not p.exists():
+            fail(f"Missing required file: {rel}")
+            failed = True
+        else:
+            ok(f"Present: {rel}")
+
+    sql = (ROOT / "supabase/migrations/20260630190000_flutterwave_transfer_runtime_tables.sql").read_text(encoding="utf-8")
+    for token in [
+        "create table if not exists public.flutterwave_transfers",
+        "create table if not exists public.flutterwave_webhook_events",
+        "alter table public.flutterwave_transfers enable row level security",
+        "alter table public.flutterwave_webhook_events enable row level security",
+    ]:
+        if token not in sql:
+            fail(f"Migration missing token: {token}")
+            failed = True
+        else:
+            ok(f"Migration token found: {token}")
+
+    create_fn = (ROOT / "supabase/functions/flutterwave-transfer-create/index.ts").read_text(encoding="utf-8")
+    status_fn = (ROOT / "supabase/functions/flutterwave-transfer-status/index.ts").read_text(encoding="utf-8")
+    webhook_fn = (ROOT / "supabase/functions/flutterwave-webhook/index.ts").read_text(encoding="utf-8")
+    for label, content, token in [
+        ("transfer-create", create_fn, "flutterwaveCreateTransfer"),
+        ("transfer-create", create_fn, "flutterwaveRetryTransfer"),
+        ("transfer-status", status_fn, "flutterwaveGetTransfer"),
+        ("webhook", webhook_fn, "verifyFlutterwaveWebhookSignature"),
+        ("webhook", webhook_fn, "flutterwave_webhook_events"),
+        ("webhook", webhook_fn, "flutterwave_transfers"),
+    ]:
+        if token not in content:
+            fail(f"{label} missing token: {token}")
+            failed = True
+        else:
+            ok(f"{label} token found: {token}")
+
+    if failed:
+        print("flutterwave_backend_contract_audit: FAIL")
+        return 1
+    print("flutterwave_backend_contract_audit: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -106,6 +106,11 @@ function mapTransferState(raw: unknown): "submitted" | "processing" | "completed
   return "unknown";
 }
 
+function isUuid(value: string | null | undefined): boolean {
+  const v = String(value || "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -145,100 +150,109 @@ Deno.serve(async (req) => {
   const transfer = extractTransferEnvelope(payload);
   const mappedStatus = mapTransferState(transfer.providerStatus);
 
-  // Idempotent event sink.
-  const { data: existingEvent } = await supa
-    .from("flutterwave_webhook_events")
-    .select("id, event_id, processing_status")
-    .eq("event_id", eventId)
-    .maybeSingle();
-  if (!existingEvent) {
-    await supa.from("flutterwave_webhook_events").insert({
-      event_id: eventId,
-      event_type: eventType,
-      signature_ok: true,
-      payload,
-      payload_hash: payloadHash,
-      headers: {
-        "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
-        "x-verif-hash": req.headers.get("x-verif-hash") || null,
-        "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
-      },
-      transfer_reference: transfer.reference,
-      provider_transfer_id: transfer.providerTransferId,
-      processing_status: "received",
-    });
-  } else {
-    await supa.from("flutterwave_webhook_events")
-      .update({
+  let reconciled = false;
+  let processingError: string | null = null;
+  try {
+    // Idempotent event sink.
+    const { data: existingEvent } = await supa
+      .from("flutterwave_webhook_events")
+      .select("id, event_id, processing_status")
+      .eq("event_id", eventId)
+      .maybeSingle();
+    if (!existingEvent) {
+      await supa.from("flutterwave_webhook_events").insert({
+        event_id: eventId,
+        event_type: eventType,
+        signature_ok: true,
         payload,
         payload_hash: payloadHash,
+        headers: {
+          "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
+          "x-verif-hash": req.headers.get("x-verif-hash") || null,
+          "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
+        },
         transfer_reference: transfer.reference,
         provider_transfer_id: transfer.providerTransferId,
-        processing_status: "duplicate",
-      })
-      .eq("event_id", eventId);
-  }
+        processing_status: "received",
+      });
+    } else {
+      await supa.from("flutterwave_webhook_events")
+        .update({
+          payload,
+          payload_hash: payloadHash,
+          transfer_reference: transfer.reference,
+          provider_transfer_id: transfer.providerTransferId,
+          processing_status: "duplicate",
+        })
+        .eq("event_id", eventId);
+    }
 
-  // Reconciliation path: reference first, then provider id.
-  let reconciled = false;
-  if (transfer.reference) {
-    const update = await supa.from("flutterwave_transfers")
-      .update({
+    // Reconciliation path: reference first, then provider id.
+    if (transfer.reference) {
+      const update = await supa.from("flutterwave_transfers")
+        .update({
+          provider_transfer_id: transfer.providerTransferId,
+          status: mappedStatus,
+          provider_status: transfer.providerStatus,
+          provider_response: payload,
+          webhook_last_event_id: eventId,
+          last_error: null,
+          last_synced_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("reference", transfer.reference)
+        .select("id")
+        .limit(1);
+      reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
+    } else if (transfer.providerTransferId) {
+      const update = await supa.from("flutterwave_transfers")
+        .update({
+          status: mappedStatus,
+          provider_status: transfer.providerStatus,
+          provider_response: payload,
+          webhook_last_event_id: eventId,
+          last_error: null,
+          last_synced_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("provider_transfer_id", transfer.providerTransferId)
+        .select("id")
+        .limit(1);
+      reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
+    }
+
+    // If no record exists yet but webhook includes both user + reference, seed one.
+    if (!reconciled && transfer.reference && isUuid(transfer.userIdFromMeta)) {
+      await supa.from("flutterwave_transfers").upsert({
+        user_id: transfer.userIdFromMeta,
+        direction: "payout",
+        reference: transfer.reference,
         provider_transfer_id: transfer.providerTransferId,
+        source: "flutterwave",
         status: mappedStatus,
         provider_status: transfer.providerStatus,
+        request_payload: {},
         provider_response: payload,
+        metadata: { seeded_from_webhook: true },
         webhook_last_event_id: eventId,
-        last_error: null,
         last_synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      })
-      .eq("reference", transfer.reference)
-      .select("id")
-      .limit(1);
-    reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
-  } else if (transfer.providerTransferId) {
-    const update = await supa.from("flutterwave_transfers")
-      .update({
-        status: mappedStatus,
-        provider_status: transfer.providerStatus,
-        provider_response: payload,
-        webhook_last_event_id: eventId,
-        last_error: null,
-        last_synced_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("provider_transfer_id", transfer.providerTransferId)
-      .select("id")
-      .limit(1);
-    reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
-  }
+      }, { onConflict: "reference" });
+      reconciled = true;
+    }
 
-  // If no record exists yet but webhook includes both user + reference, seed one.
-  if (!reconciled && transfer.reference && transfer.userIdFromMeta) {
-    await supa.from("flutterwave_transfers").upsert({
-      user_id: transfer.userIdFromMeta,
-      direction: "payout",
-      reference: transfer.reference,
-      provider_transfer_id: transfer.providerTransferId,
-      source: "flutterwave",
-      status: mappedStatus,
-      provider_status: transfer.providerStatus,
-      request_payload: {},
-      provider_response: payload,
-      metadata: { seeded_from_webhook: true },
-      webhook_last_event_id: eventId,
-      last_synced_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "reference" });
-    reconciled = true;
+    if (!reconciled && transfer.reference && transfer.userIdFromMeta && !isUuid(transfer.userIdFromMeta)) {
+      processingError = "invalid_user_id_in_meta";
+    }
+  } catch (err: any) {
+    processingError = String(err?.message || "webhook_processing_failed");
   }
 
   await supa.from("flutterwave_webhook_events")
     .update({
-      processing_status: reconciled ? "processed" : "ignored",
+      processing_status: reconciled ? "processed" : (processingError ? "failed" : "ignored"),
       processed_at: new Date().toISOString(),
-      processing_error: reconciled ? null : "no_matching_transfer_record",
+      processing_error: reconciled ? null : (processingError || "no_matching_transfer_record"),
     })
     .eq("event_id", eventId);
 
@@ -253,6 +267,7 @@ Deno.serve(async (req) => {
       provider_transfer_id: transfer.providerTransferId,
       mapped_status: mappedStatus,
       reconciled,
+      processing_error: processingError,
       received_at: new Date().toISOString(),
       processing_mode: "persist_and_reconcile",
     },
