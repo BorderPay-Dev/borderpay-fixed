@@ -29,6 +29,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 20. `cc75d5c` — Centralize Bridge verification helper across endpoints
 21. `a598dcb` — Enforce minimum transfer amount guard via env threshold
 22. `e97dcab` — Add CI workflow for Flutterwave suite audits
+23. LOCAL — Add Flutterwave collections backend scaffold (create/status) with receive corridor policy + static IP guard
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`

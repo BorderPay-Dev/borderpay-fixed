@@ -188,6 +188,31 @@ export async function flutterwaveRetryTransfer(transferId: string, body?: Record
   });
 }
 
+export async function flutterwaveCreateCharge(input: {
+  amount: number | string;
+  currency: string;
+  country: string;
+  tx_ref: string;
+  email?: string;
+  fullname?: string;
+  payment_type?: "bank_transfer" | "mobilemoney";
+  meta?: Record<string, unknown>;
+}) {
+  return flutterwaveFetch({
+    method: "POST",
+    path: "/v3/charges",
+    body: input,
+    idempotencyKey: input.tx_ref,
+  });
+}
+
+export async function flutterwaveGetCharge(chargeId: string) {
+  return flutterwaveFetch({
+    method: "GET",
+    path: `/v3/charges/${encodeURIComponent(chargeId)}`,
+  });
+}
+
 export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promise<boolean> {
   // Flutterwave commonly sends `verif-hash`; keep this in env and compare.
   const expected = String(
