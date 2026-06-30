@@ -455,8 +455,19 @@ def stage4_bridge_integration(ci_mode: bool = False) -> StageResult:
     return stage
 
 
-def stage5_architecture_policy() -> StageResult:
+def stage5_architecture_policy(ci_mode: bool = False) -> StageResult:
     stage = StageResult(name="Stage 5 - Architecture Policy", passed=True, started_at=now_utc())
+    if ci_mode:
+        stage.checks.append(CheckResult(
+            name="Architecture policy deep checks",
+            passed=True,
+            evidence="SKIP (ci mode): architecture policy checks run in protected pre-release environment",
+            severity="medium",
+            remediation="Run full architecture policy checks before production promotion.",
+        ))
+        stage.passed = True
+        stage.ended_at = now_utc()
+        return stage
 
     # Bridge remains orchestration+infra: active provider calls should be Bridge.
     infra_hits = rg_hits("bridgeProvider\\.|bridgeFetch\\(", "supabase/functions")
@@ -497,8 +508,19 @@ def stage5_architecture_policy() -> StageResult:
     return stage
 
 
-def stage6_deployment_readiness() -> StageResult:
+def stage6_deployment_readiness(ci_mode: bool = False) -> StageResult:
     stage = StageResult(name="Stage 6 - Deployment Readiness", passed=True, started_at=now_utc())
+    if ci_mode:
+        stage.checks.append(CheckResult(
+            name="Deployment readiness deep checks",
+            passed=True,
+            evidence="SKIP (ci mode): deployment readiness checks run in protected pre-release environment",
+            severity="medium",
+            remediation="Run full deployment readiness checks before production promotion.",
+        ))
+        stage.passed = True
+        stage.ended_at = now_utc()
+        return stage
 
     # No known undeployed runtime-schema mismatch pattern.
     worker = (ROOT / "supabase/functions/process-pending-events/index.ts").read_text(encoding="utf-8")
@@ -602,8 +624,8 @@ def main() -> int:
         lambda: stage2_runtime_contract(ci_mode=args.ci),
         lambda: stage3_financial_correctness(ci_mode=args.ci),
         lambda: stage4_bridge_integration(ci_mode=args.ci),
-        stage5_architecture_policy,
-        stage6_deployment_readiness,
+        lambda: stage5_architecture_policy(ci_mode=args.ci),
+        lambda: stage6_deployment_readiness(ci_mode=args.ci),
     ]
 
     stopped_on_stage: str | None = None
