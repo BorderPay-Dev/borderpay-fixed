@@ -29,6 +29,8 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+const FLW_MIN_TRANSFER_AMOUNT = Number(Deno.env.get("FLW_MIN_TRANSFER_AMOUNT") || "1");
+
 function toPositiveNumber(v: unknown): number | null {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -200,6 +202,13 @@ Deno.serve(async (req) => {
   const reference = String(body?.reference || "").trim();
 
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
+  if (Number.isFinite(FLW_MIN_TRANSFER_AMOUNT) && amount < FLW_MIN_TRANSFER_AMOUNT) {
+    return json({
+      success: false,
+      code: "amount_below_minimum",
+      error: `Minimum transfer amount is ${FLW_MIN_TRANSFER_AMOUNT}.`,
+    }, 400);
+  }
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!destinationCountry) return json({ success: false, error: "destination_country is required" }, 400);
   if (!["bank", "mobile_money"].includes(channel)) {
