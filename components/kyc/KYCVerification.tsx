@@ -386,16 +386,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             </div>
           )}
 
-          {lastHostedUrl && (status === 'not_started' || status === 'pending') && !pendingVerifyStep && (
-            <button
-              type="button"
-              onClick={() => openHostedVerificationUrl(lastHostedUrl)}
-              className={`mt-3 w-full inline-flex items-center justify-center gap-2 py-3 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg}`}
-            >
-              Open verification link
-            </button>
-          )}
-
           {/* Rejected users can retry hosted verification immediately.
               Developer rejection reasons remain internal; only safe user
               messaging is shown in UI. */}
