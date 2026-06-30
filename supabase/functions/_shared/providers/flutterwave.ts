@@ -61,6 +61,22 @@ export async function flutterwaveListMobileNetworks(country: string) {
   });
 }
 
+export async function flutterwaveGetTransferRates(input: {
+  source_currency: string;
+  destination_currency: string;
+  amount?: string | number;
+}) {
+  return flutterwaveFetch({
+    method: "GET",
+    path: "/v3/transfers/rates",
+    query: {
+      source_currency: input.source_currency,
+      destination_currency: input.destination_currency,
+      amount: input.amount,
+    },
+  });
+}
+
 export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promise<boolean> {
   // Flutterwave commonly sends `verif-hash`; keep this in env and compare.
   const expected = String(Deno.env.get("FLW_WEBHOOK_SECRET_HASH") || "").trim();
@@ -73,4 +89,3 @@ export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promi
   ).trim();
   return Boolean(provided) && provided === expected;
 }
-
