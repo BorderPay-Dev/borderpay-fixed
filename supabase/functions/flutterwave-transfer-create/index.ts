@@ -110,17 +110,35 @@ Deno.serve(async (req) => {
       return json({ success: false, error: "transfer_id or reference is required for retry mode" }, 400);
     }
     let providerTransferId = transferId;
+    let localStatus: string | null = null;
     if (!providerTransferId && reference) {
       const { data: existing } = await supa
         .from("flutterwave_transfers")
-        .select("id, provider_transfer_id, reference")
+        .select("id, provider_transfer_id, reference, status")
         .eq("reference", reference)
         .eq("user_id", authData.user.id)
         .maybeSingle();
       providerTransferId = String(existing?.provider_transfer_id || "").trim();
+      localStatus = String(existing?.status || "").trim().toLowerCase() || null;
       if (!providerTransferId) {
         return json({ success: false, error: "No provider transfer found for this reference yet." }, 404);
       }
+    } else if (providerTransferId) {
+      const { data: existingByProvider } = await supa
+        .from("flutterwave_transfers")
+        .select("id, status")
+        .eq("provider_transfer_id", providerTransferId)
+        .eq("user_id", authData.user.id)
+        .maybeSingle();
+      localStatus = String(existingByProvider?.status || "").trim().toLowerCase() || null;
+    }
+
+    if (localStatus === "completed" || localStatus === "reversed") {
+      return json({
+        success: false,
+        code: "retry_not_allowed_terminal_state",
+        error: `Retry is not allowed when transfer status is ${localStatus}.`,
+      }, 409);
     }
 
     const res = await flutterwaveRetryTransfer(providerTransferId, body?.retry_payload || {});
