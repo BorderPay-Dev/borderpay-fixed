@@ -147,9 +147,13 @@ export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promi
   if (!expected) return false;
   const provided = String(
     headers.get("verif-hash")
+      || headers.get("Verif-Hash")
       || headers.get("x-verif-hash")
       || headers.get("x-flutterwave-signature")
+      || headers.get("X-Flutterwave-Signature")
       || "",
   ).trim();
-  return Boolean(provided) && provided === expected;
+  if (!provided) return false;
+  // Compare normalized values to avoid accidental mismatch from surrounding spaces.
+  return provided === expected;
 }
