@@ -386,7 +386,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             </div>
           )}
 
-          {lastHostedUrl && (status === 'not_started' || status === 'pending') && (
+          {lastHostedUrl && (status === 'not_started' || status === 'pending') && !pendingVerifyStep && (
             <button
               type="button"
               onClick={() => openHostedVerificationUrl(lastHostedUrl)}
