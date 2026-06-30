@@ -27,7 +27,7 @@ fi
 #    Reference outside scripts/incident is considered runnable-path risk.
 if [ "${INCIDENT_MODE:-false}" != "true" ]; then
   INCIDENT_REFS="$(rg -n -S "scripts/incident/sql/|scripts/incident/" \
-    "$ROOT" \
+    . \
     --glob '!.git/**' \
     --glob '!node_modules/**' \
     --glob '!scripts/incident/**' \
@@ -49,7 +49,7 @@ fi
 NON_CANONICAL_HITS="$(rg -n -S \
   -e "create\\s+or\\s+replace\\s+function\\s+public\\.(ingest_bridge_event|claim_pending_events|complete_pending_event|fail_pending_event)\\b" \
   -e "update\\s+public\\.(pending_events|webhook_logs|bridge_webhook_events)\\b" \
-  "$ROOT" --glob '*.sql' \
+  . --glob '*.sql' \
   --glob '!supabase/migrations/**' \
   --glob '!scripts/incident/**' \
   --glob '!scripts/sql/**' \
@@ -107,7 +107,7 @@ fi
 
 DIRECT_SQL_UPDATES="$(rg -n -S \
   -e "update\\s+public\\.(pending_events|bridge_webhook_events|bridge_transfers)\\b" \
-  "$ROOT" --glob '*.sql' \
+  . --glob '*.sql' \
   --glob '!supabase/migrations/**' \
   --glob '!scripts/incident/**' \
   --glob '!.git/**' \
