@@ -30,6 +30,9 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 21. `a598dcb` — Enforce minimum transfer amount guard via env threshold
 22. `e97dcab` — Add CI workflow for Flutterwave suite audits
 23. LOCAL — Add Flutterwave collections backend scaffold (create/status) with receive corridor policy + static IP guard
+24. LOCAL — Reconcile collection webhooks as receive-direction money movement
+25. LOCAL — Add authenticated flutterwave-transfers-list endpoint (ownership + bounded filters)
+26. LOCAL — Extend Flutterwave backend contract audit to include collections/list endpoints
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
