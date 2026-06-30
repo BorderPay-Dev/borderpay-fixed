@@ -138,6 +138,9 @@ verify_jwt = true
 [functions.flutterwave-transfer-status]
 verify_jwt = true
 
+[functions.flutterwave-transfers-list]
+verify_jwt = true
+
 [functions.flutterwave-collection-create]
 verify_jwt = true
 
