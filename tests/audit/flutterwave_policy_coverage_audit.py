@@ -34,6 +34,11 @@ CHECKS = [
         "transfer-rates destination country validation",
     ),
     (
+        "supabase/functions/flutterwave-transfer-rates/index.ts",
+        "channel must be bank or mobile_money",
+        "transfer-rates channel validation",
+    ),
+    (
         "supabase/functions/flutterwave-account-resolve/index.ts",
         "destination_country",
         "account-resolve destination country wiring",
@@ -66,4 +71,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

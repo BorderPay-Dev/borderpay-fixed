@@ -58,6 +58,7 @@ Deno.serve(async (req) => {
   const source = String(body?.source_currency || "").trim().toUpperCase();
   const destination = String(body?.destination_currency || "").trim().toUpperCase();
   const destinationCountry = String(body?.destination_country || "").trim().toUpperCase();
+  const channel = String(body?.channel || "bank").trim().toLowerCase();
   const amountRaw = body?.amount;
   const amount = amountRaw === undefined || amountRaw === null || amountRaw === ""
     ? undefined
@@ -68,6 +69,9 @@ Deno.serve(async (req) => {
   }
   if (!destinationCountry) {
     return json({ success: false, error: "destination_country is required" }, 400);
+  }
+  if (!["bank", "mobile_money"].includes(channel)) {
+    return json({ success: false, error: "channel must be bank or mobile_money" }, 400);
   }
   if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
     return json({ success: false, error: "amount must be > 0" }, 400);
@@ -88,7 +92,7 @@ Deno.serve(async (req) => {
     userCountry: profile.country,
     destinationCountry,
     destinationCurrency: destination,
-    channel: "bank",
+    channel: channel as "bank" | "mobile_money",
     bridgeVerified: isBridgeVerified(profile),
   });
   if (!corridorDecision.allowed) {
@@ -113,6 +117,7 @@ Deno.serve(async (req) => {
         source_currency: source,
         destination_currency: destination,
         destination_country: destinationCountry,
+        channel,
       },
     }, 502);
   }
@@ -124,6 +129,7 @@ Deno.serve(async (req) => {
       source_currency: source,
       destination_currency: destination,
       destination_country: destinationCountry,
+      channel,
       amount: amount ?? null,
       rates: res.data,
     },
