@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_FILES = [
     "supabase/functions/flutterwave-transfer-create/index.ts",
     "supabase/functions/flutterwave-transfer-status/index.ts",
+    "supabase/functions/flutterwave-transfers-list/index.ts",
+    "supabase/functions/flutterwave-collection-create/index.ts",
+    "supabase/functions/flutterwave-collection-status/index.ts",
     "supabase/functions/flutterwave-webhook/index.ts",
     "supabase/functions/_shared/providers/flutterwave.ts",
     "supabase/migrations/20260630190000_flutterwave_transfer_runtime_tables.sql",
@@ -55,11 +58,20 @@ def main() -> int:
 
     create_fn = (ROOT / "supabase/functions/flutterwave-transfer-create/index.ts").read_text(encoding="utf-8")
     status_fn = (ROOT / "supabase/functions/flutterwave-transfer-status/index.ts").read_text(encoding="utf-8")
+    list_fn = (ROOT / "supabase/functions/flutterwave-transfers-list/index.ts").read_text(encoding="utf-8")
+    collection_create_fn = (ROOT / "supabase/functions/flutterwave-collection-create/index.ts").read_text(encoding="utf-8")
+    collection_status_fn = (ROOT / "supabase/functions/flutterwave-collection-status/index.ts").read_text(encoding="utf-8")
     webhook_fn = (ROOT / "supabase/functions/flutterwave-webhook/index.ts").read_text(encoding="utf-8")
     for label, content, token in [
         ("transfer-create", create_fn, "flutterwaveCreateTransfer"),
         ("transfer-create", create_fn, "flutterwaveRetryTransfer"),
         ("transfer-status", status_fn, "flutterwaveGetTransfer"),
+        ("transfers-list", list_fn, '.eq("user_id", authData.user.id)'),
+        ("transfers-list", list_fn, "ALLOWED_DIRECTION"),
+        ("transfers-list", list_fn, "ALLOWED_STATUS"),
+        ("collection-create", collection_create_fn, "flutterwaveCreateCharge"),
+        ("collection-create", collection_create_fn, "evaluateProviderCorridorPolicy"),
+        ("collection-status", collection_status_fn, "flutterwaveGetCharge"),
         ("webhook", webhook_fn, "verifyFlutterwaveWebhookSignature"),
         ("webhook", webhook_fn, "flutterwave_webhook_events"),
         ("webhook", webhook_fn, "flutterwave_transfers"),
