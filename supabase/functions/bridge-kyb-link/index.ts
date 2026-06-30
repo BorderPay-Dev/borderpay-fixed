@@ -266,6 +266,13 @@ function mapKybLinkFailure(
   return { status: 502, code: "provider_error", error: "Unable to start business verification right now. Please try again." };
 }
 
+function normalizePolicyField(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") {
@@ -324,8 +331,35 @@ Deno.serve(async (req: Request) => {
     if (!__gate.allowed) return json(__gate.body, __gate.status);
   }
 
-  let body: { redirect_url?: string; endorsements?: string[] } = {};
+  let body: {
+    redirect_url?: string;
+    endorsements?: string[];
+    precheck?: {
+      employment_status?: string;
+      source_of_funds?: string;
+      explanation?: string;
+    };
+  } = {};
   try { body = await req.json(); } catch { /* tolerant */ }
+
+  {
+    const employmentStatus = normalizePolicyField(body?.precheck?.employment_status);
+    const sourceOfFunds = normalizePolicyField(body?.precheck?.source_of_funds);
+    const explanation = String(body?.precheck?.explanation || "").trim();
+    const isUnemployed = employmentStatus === "unemployed";
+    const isSalary = sourceOfFunds === "salary";
+    if (isUnemployed && isSalary && !explanation) {
+      return json({
+        success: false,
+        code: "source_of_funds_conflict",
+        error: "Employment status and source of funds do not match. Add an explanation before continuing.",
+        summary: {
+          code: "source_of_funds_conflict",
+          policy: "employment_source_consistency",
+        },
+      }, 400);
+    }
+  }
 
   const { data: profile } = await supa
     .from("user_profiles")

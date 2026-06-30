@@ -169,9 +169,13 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   // secure hosted verification flow; Bridge returns them to /?screen=kyc.
   const [verifying, setVerifying] = useState(false);
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
+  const [employmentStatus, setEmploymentStatus] = useState<string>('');
+  const [sourceOfFunds, setSourceOfFunds] = useState<string>('');
+  const [fundsExplanation, setFundsExplanation] = useState<string>('');
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
   const resumeAfterTosLocalKey = useMemo(() => `borderpay_resume_verification_after_tos_v1:${userId}`, [userId]);
   const autoStartKey = 'borderpay_auto_start_verification_v1';
+  const needsFundsExplanation = employmentStatus === 'unemployed' && sourceOfFunds === 'salary';
 
   const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
@@ -238,6 +242,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [autoStartKey]);
 
   const startVerification = async (isResume = false) => {
+    if (needsFundsExplanation && !fundsExplanation.trim()) {
+      toast.error('Please explain your source of funds before continuing verification.');
+      return;
+    }
     setVerifying(true);
     try {
       // Always request a fresh hosted-link decision from backend first so ToS
@@ -246,8 +254,22 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       const currentAccountType: AccountType = accountType;
       const redirect_url = `${window.location.origin}/?screen=kyc`;
       const r: any = currentAccountType === 'business'
-        ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
-        : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
+        ? await backendAPI.bridge.kyb.startBusiness({
+            redirect_url,
+            precheck: {
+              employment_status: employmentStatus || undefined,
+              source_of_funds: sourceOfFunds || undefined,
+              explanation: fundsExplanation.trim() || undefined,
+            },
+          })
+        : await backendAPI.bridge.kyc.startIndividual({
+            redirect_url,
+            precheck: {
+              employment_status: employmentStatus || undefined,
+              source_of_funds: sourceOfFunds || undefined,
+              explanation: fundsExplanation.trim() || undefined,
+            },
+          });
       if (r?.success && r.data?.tos_link_url) {
         // Bridge may require ToS acceptance before issuing a KYC/KYB link.
         // Open ToS first, then auto-resume verification on return.
@@ -359,18 +381,58 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
               to (re)open the hosted verification link. Bridge handles link reuse
               / regeneration idempotently server-side. */}
           {(status === 'not_started' || status === 'pending') && (
-            <button
-              onClick={() => { void startVerification(); }}
-              disabled={verifying}
-              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
-            >
-              {verifying
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <>{status === 'pending'
-                    ? 'Continue verification'
-                    : (isBusiness ? 'Verify your business' : 'Verify your identity')}
-                   <ArrowRight className="w-4 h-4" /></>}
-            </button>
+            <>
+                <div className={`mt-5 rounded-2xl border ${tc.borderLight} ${tc.bgAlt} px-4 py-4 space-y-3`}>
+                  <p className={`text-xs ${tc.textMuted}`}>Verification consistency check (required when unemployed + salary):</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <select
+                      value={employmentStatus}
+                      onChange={(e) => setEmploymentStatus(e.target.value)}
+                      className={`w-full rounded-xl border ${tc.borderLight} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm`}
+                    >
+                      <option value="">Employment status (optional)</option>
+                      <option value="employed">Employed</option>
+                      <option value="self_employed">Self-employed</option>
+                      <option value="student">Student</option>
+                      <option value="unemployed">Unemployed</option>
+                      <option value="retired">Retired</option>
+                    </select>
+                    <select
+                      value={sourceOfFunds}
+                      onChange={(e) => setSourceOfFunds(e.target.value)}
+                      className={`w-full rounded-xl border ${tc.borderLight} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm`}
+                    >
+                      <option value="">Source of funds (optional)</option>
+                      <option value="salary">Salary</option>
+                      <option value="business_income">Business income</option>
+                      <option value="savings">Savings</option>
+                      <option value="investments">Investments</option>
+                      <option value="family_support">Family support</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  {needsFundsExplanation && (
+                    <textarea
+                      value={fundsExplanation}
+                      onChange={(e) => setFundsExplanation(e.target.value)}
+                      placeholder="Add explanation for unemployed + salary"
+                      className={`w-full min-h-[72px] rounded-xl border ${tc.borderLight} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm`}
+                    />
+                  )}
+                </div>
+              <button
+                onClick={() => { void startVerification(); }}
+                disabled={verifying}
+                className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+              >
+                {verifying
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <>{status === 'pending'
+                      ? 'Continue verification'
+                      : (isBusiness ? 'Verify your business' : 'Verify your identity')}
+                     <ArrowRight className="w-4 h-4" /></>}
+              </button>
+            </>
           )}
           {(status === 'pending' || status === 'under_review') && (
             <div className={`mt-5 flex items-start gap-2.5 rounded-2xl border ${tc.borderLight} ${tc.bgAlt} px-4 py-3`}>
