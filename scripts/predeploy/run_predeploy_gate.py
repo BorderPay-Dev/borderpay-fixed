@@ -622,6 +622,12 @@ def main() -> int:
 
     print(f"[predeploy-gate] report: {report_path}")
     print(f"[predeploy-gate] overall: {'PASS' if overall_passed else 'FAIL'}")
+    if not overall_passed:
+        print("[predeploy-gate] failure-details-begin")
+        for line in report.splitlines():
+            if line.startswith("## ") or line.startswith("- `FAIL`") or line.startswith("  Issue:") or line.startswith("  Remediation:"):
+                print(line)
+        print("[predeploy-gate] failure-details-end")
 
     return 0 if overall_passed else 1
 
