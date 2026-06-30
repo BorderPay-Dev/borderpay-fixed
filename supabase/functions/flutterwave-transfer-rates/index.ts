@@ -108,10 +108,13 @@ Deno.serve(async (req) => {
     amount,
   });
   if (!res.ok) {
+    const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to fetch transfer rates",
+      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      error: isIpGuard
+        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        : (res.error || "Failed to fetch transfer rates"),
       data: {
         capabilities: caps,
         source_currency: source,
@@ -119,7 +122,7 @@ Deno.serve(async (req) => {
         destination_country: destinationCountry,
         channel,
       },
-    }, 502);
+    }, isIpGuard ? 503 : 502);
   }
 
   return json({

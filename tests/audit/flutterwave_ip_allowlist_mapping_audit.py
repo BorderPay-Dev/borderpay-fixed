@@ -24,6 +24,16 @@ CHECKS = [
         "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
         "transfer-create maps to static_ip_not_ready response code",
     ),
+    (
+        "supabase/functions/flutterwave-transfer-rates/index.ts",
+        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "transfer-rates maps to static_ip_not_ready response code",
+    ),
+    (
+        "supabase/functions/flutterwave-account-resolve/index.ts",
+        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "account-resolve maps to static_ip_not_ready response code",
+    ),
 ]
 
 
@@ -52,4 +62,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

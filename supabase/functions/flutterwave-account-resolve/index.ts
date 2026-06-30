@@ -93,16 +93,19 @@ Deno.serve(async (req) => {
     bank_code: bankCode,
   });
   if (!res.ok) {
+    const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to resolve account",
+      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      error: isIpGuard
+        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        : (res.error || "Failed to resolve account"),
       data: {
         capabilities: caps,
         destination_country: destinationCountry,
         destination_currency: destinationCurrency || null,
       },
-    }, 502);
+    }, isIpGuard ? 503 : 502);
   }
 
   return json({
