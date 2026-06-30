@@ -73,10 +73,16 @@ export async function flutterwaveFetch<T = unknown>(
     const url = buildUrl(opts.path, opts.query);
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${FLW_SECRET_KEY}`,
+      "Accept": "application/json",
       ...opts.headers,
     };
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";
-    if (opts.idempotencyKey) headers["X-Idempotency-Key"] = opts.idempotencyKey;
+    if (opts.idempotencyKey) {
+      // Flutterwave docs emphasize idempotency for transfer safety.
+      // Send both header variants to stay compatible across endpoint families.
+      headers["Idempotency-Key"] = opts.idempotencyKey;
+      headers["X-Idempotency-Key"] = opts.idempotencyKey;
+    }
 
     const res = await fetch(url, {
       method,
@@ -95,7 +101,12 @@ export async function flutterwaveFetch<T = unknown>(
         (typeof payload?.message === "string" && payload.message) ||
         (typeof payload?.error === "string" && payload.error) ||
         `Flutterwave HTTP ${res.status}`;
-      return { ok: false, status: res.status, data: parsed, rawText, requestId, error: msg };
+      const normalized =
+        res.status === 429 ? "flutterwave_rate_limited" :
+        res.status >= 500 ? "flutterwave_upstream_unavailable" :
+        msg;
+      return { ok: false, status: res.status, data: parsed, rawText, requestId, error: normalized };
+      
     }
 
     return { ok: true, status: res.status, data: parsed, rawText, requestId };
@@ -108,4 +119,3 @@ export async function flutterwaveFetch<T = unknown>(
     clearTimeout(timeout);
   }
 }
-
