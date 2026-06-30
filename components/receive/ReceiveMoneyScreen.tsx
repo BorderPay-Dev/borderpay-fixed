@@ -19,6 +19,7 @@ import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
 import {
+  bridgeVirtualAccountCurrenciesForCountry,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -68,23 +69,20 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const userId = (storedUser.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
 
-  // Bridge is the source of truth for VA support. UI must not hardcode
-  // country-policy assumptions; expose all supported product currencies and
-  // let server-side Bridge capability checks decide eligibility.
-  const availableVaCurrencies = useMemo<BridgeVirtualAccountCurrency[]>(
-    () => ['USD', 'EUR', 'GBP'],
-    [],
+  const country = (storedUser.country as string | null | undefined) ?? null;
+  const fallbackVaCurrencies = useMemo(
+    () => bridgeVirtualAccountCurrenciesForCountry(country),
+    [country],
   );
+  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
   );
-  const stableWalletsLegacyCacheKey = 'borderpay_wallets_v1';
   const vaCacheKey = useMemo(
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
-  const vaLegacyCacheKey = 'borderpay_va_v1';
   const receiveRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_receive_refresh_ts_v1', { userId }),
     [userId],
@@ -94,17 +92,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
@@ -140,17 +134,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -196,6 +186,25 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const caps = await backendAPI.bridge.virtualAccount.capabilities();
+        if (!alive || !caps?.success) return;
+        const supported = Array.isArray(caps.data?.supported_currencies)
+          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+          : [];
+        if (supported.length > 0) setAvailableVaCurrencies(supported);
+      } catch {
+        // Keep fallback.
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+  useEffect(() => {
+    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
+  }, [fallbackVaCurrencies]);
   useEffect(() => {
     const prewarmKey = `borderpay_receive_prewarm_v1:${userId}`;
     try {

@@ -90,17 +90,14 @@ async function apiCall<T = any>(
     // Funding gate: when an edge function returns 402 funding_required (new
     // minimum-balance model), surface it as a DOM event so any screen pops the
     // FundWalletSheet without prop-drilling.
-    // `plan_required` and `payment_required` are kept as compatibility aliases
-    // for older/parallel deployments that still emit those codes.
+    // Bridge-converged funding gate: only canonical `funding_required`.
     if (
       response.status === 402 &&
-      (data?.code === 'funding_required' || data?.code === 'plan_required' || data?.code === 'payment_required') &&
+      data?.code === 'funding_required' &&
       typeof window !== 'undefined'
     ) {
       try {
         window.dispatchEvent(new CustomEvent('borderpay:funding_required', { detail: data }));
-        // legacy alias
-        window.dispatchEvent(new CustomEvent('borderpay:plan_required',    { detail: data }));
       } catch { /* SSR / no CustomEvent — ignore */ }
     }
     // VA grant-pending (202): surface a friendly toast-like event so the VA
@@ -1495,6 +1492,13 @@ const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = 
     code: 'verification_redirect_required',
   },
 };
+
+const BRIDGE_ONLY_DISABLED = {
+  success: false,
+  code: 'bridge_path_required',
+  error: 'This flow is disabled. Use the Bridge-backed send/receive/external-account path.',
+} as const;
+
 export const proofOfAddressAPI = {
   getUploadUrl: async (_fileType: string, _fileName: string) => deprecatedPoaResponse,
   submit:       async (_filePath: string, _documentType: string) => deprecatedPoaResponse,
@@ -1506,18 +1510,15 @@ export const proofOfAddressAPI = {
 
 export const localPaymentsAPI = {
   async getInstitutions(_currency: string, _type?: string) {
-    // Quarantine unresolved legacy endpoint (`get-institutions`).
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
   async fetchBankDetails(_routingNumber: string, _countryCode: string) {
-    // Quarantine unresolved legacy endpoint (`fetch-bank-details`).
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
   async resolveAccount(_bankCode: string, _accountNumber: string, _currency: string) {
-    // Quarantine unresolved legacy endpoint (`resolve-account`).
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
   // QUARANTINED — `transfer` routes to future-state
@@ -1525,17 +1526,15 @@ export const localPaymentsAPI = {
   // `verifyTransfer` and `getTransfers` are read-only and kept
   // operational for history display.
   async transfer(_data: any) {
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
   async verifyTransfer(_transferId: string) {
-    // Quarantine unresolved legacy endpoint (`verify-transfer`).
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
   async getTransfers() {
-    // Quarantine unresolved legacy endpoint (`get-transfers`).
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 };
 
@@ -1548,12 +1547,12 @@ export const localPaymentsAPI = {
 // only. Do not route any runtime path through `get-counterparty` here.
 export const usPaymentsAPI = {
   async transfer(_data: any) {
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
-  async getCounterparties() { return RAILS_FUTURE_STATE; },
+  async getCounterparties() { return BRIDGE_ONLY_DISABLED; },
 
-  async createCounterparty(_data: any) { return RAILS_FUTURE_STATE; },
+  async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
 };
 
 // ============================================================================
@@ -1578,12 +1577,11 @@ export const addressAPI = {
 
   /** Read-only lookup over legacy address rows. */
   async getAddress(_addressId: string) {
-    // Quarantine unresolved legacy endpoint (`get-address`).
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
   async updateOfframp(_addressId: string, _offramp: boolean) {
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 };
 
@@ -1591,8 +1589,7 @@ export const addressAPI = {
 // table and does not call any provider write endpoint.
 // `sendTransfer` orchestrates a stablecoin send via `bridge-transfer`. The
 // edge function handles country gating (DRC → 403), KYC gating (409), and
-// African-rail destinations (NGN/KES/etc → 503 no_partner). 402
-// plan_required is surfaced via the global paywall interceptor (see apiCall).
+// African-rail destinations (NGN/KES/etc → 503 no_partner).
 export const stablecoinAPI = {
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
@@ -1745,21 +1742,20 @@ export const accountsAPI = {
 
   /** Read-only account status lookup. */
   async checkAccountStatus(_reference: string) {
-    // Quarantine unresolved legacy endpoint (`check-account-status`).
-    return RAILS_FUTURE_STATE;
+    return BRIDGE_ONLY_DISABLED;
   },
 
   /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
-  async getSupportedRails(_accountId: string) { return RAILS_FUTURE_STATE; },
+  async getSupportedRails(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
   /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
-  async createCounterparty(_data: any) { return RAILS_FUTURE_STATE; },
+  async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
 
   /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
-  async getCounterparty(_counterPartyId: string) { return RAILS_FUTURE_STATE; },
+  async getCounterparty(_counterPartyId: string) { return BRIDGE_ONLY_DISABLED; },
 
   /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
-  async getAccountCounterparties(_accountId: string) { return RAILS_FUTURE_STATE; },
+  async getAccountCounterparties(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
   async createDynamicAccount(_accountName: string, _preferredBank: string, _amount?: string) {
     return RAILS_FUTURE_STATE;
@@ -2002,6 +1998,11 @@ export const bridgeAPI = {
 
   /** USD/EUR/GBP virtual account. */
   virtualAccount: {
+    capabilities: async () =>
+      apiCall<{ supported_currencies: ('USD' | 'EUR' | 'GBP')[] }>(
+        'bridge-virtual-account',
+        { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
+      ),
     create: async (input: { currency: 'USD' | 'EUR' | 'GBP'; destination?: { payment_rail: string; currency: string; chain?: string; address?: string } }) =>
       apiCall<{ virtual_account_id: string; account_number?: string; routing_number?: string; iban?: string; bic?: string; bank_name?: string; currency: string }>(
         'bridge-virtual-account',
@@ -2324,13 +2325,11 @@ export const subscriptionAPI = {
 export const payoutsAPI = {
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
   listBanks: async (_country: string) =>
-    // Quarantine unresolved legacy endpoint (`bridge-list-banks`).
-    RAILS_FUTURE_STATE as any,
+    BRIDGE_ONLY_DISABLED as any,
 
   /** Verify a bank account number → account holder name before payout. */
   resolveAccount: async (_account_number: string, _bank_code: string) =>
-    // Quarantine unresolved legacy endpoint (`bridge-resolve-account`).
-    RAILS_FUTURE_STATE as any,
+    BRIDGE_ONLY_DISABLED as any,
 
   /**
    * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same
