@@ -26,6 +26,8 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 17. `4975f8a` — Reconcile only transfer-relevant webhook events
 18. `90d58a4` — Block retry on terminal completed/reversed transfers
 19. `a93fc3b` — Scope webhook reference reconciliation to user identity
+20. `cc75d5c` — Centralize Bridge verification helper across endpoints
+21. `a598dcb` — Enforce minimum transfer amount guard via env threshold
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
