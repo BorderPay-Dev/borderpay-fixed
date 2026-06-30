@@ -60,7 +60,7 @@ function deriveEventId(
 
 function routeBucketForEventType(eventType: string): BridgeRouteBucket {
   const t = eventType.toLowerCase();
-  if (t.startsWith("kyc_link.") || t.startsWith("customer.kyc") || t.startsWith("customer.kyb")) return "bridge.kyc";
+  if (t.startsWith("kyc_link.") || t.startsWith("kyb_link.") || t.startsWith("customer.kyc") || t.startsWith("customer.kyb")) return "bridge.kyc";
   if (t.startsWith("virtual_account.")) return "bridge.virtual_account";
   if (t.startsWith("wallet.") || t.startsWith("bridge_wallet.")) return "bridge.wallet";
   if (t.startsWith("external_account.")) return "bridge.external_account";
@@ -118,6 +118,31 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       route_bucket: routeBucket,
     };
   }
+  if (routeBucket === "bridge.unknown") {
+    return {
+      _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
+      decision: "accept",
+      reason_code: "unknown_event_type_log_only",
+      derived_event_type: eventType,
+      normalized_payload: normalizedPayload,
+      idempotency_key: idempotencyKey,
+      routing_target: "log_only",
+      route_bucket: routeBucket,
+    };
+  }
+  const contract = validateBridgePayloadContract(routeBucket, normalizedPayload);
+  if (!contract.valid) {
+    return {
+      _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
+      decision: "reject",
+      reason_code: contract.reason_code,
+      derived_event_type: eventType,
+      normalized_payload: normalizedPayload,
+      idempotency_key: idempotencyKey,
+      routing_target: "drop",
+      route_bucket: routeBucket,
+    };
+  }
   if (input.knownDuplicate) {
     return {
       _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
@@ -133,7 +158,7 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
   return {
     _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
     decision: "accept",
-    reason_code: routeBucket === "bridge.unknown" ? "accepted_unknown_event_type" : "accepted_new_event",
+    reason_code: "accepted_new_event",
     derived_event_type: eventType,
     normalized_payload: normalizedPayload,
     idempotency_key: idempotencyKey,
@@ -141,3 +166,4 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
     route_bucket: routeBucket,
   };
 }
+import { validateBridgePayloadContract } from "./bridge-payload-contract.ts";

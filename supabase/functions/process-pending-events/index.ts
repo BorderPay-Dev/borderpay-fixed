@@ -1217,6 +1217,12 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
 
   const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
   const mappedState = mapBridgeTransferState(providerState);
+  if (!mappedState.recognized) {
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: "transfer", target_entity_id: String(transferId) })
+      .eq("event_id", ev.event_id);
+    throw new Error(`reconciliation_required:unknown_transfer_state:${mappedState.providerState}`);
+  }
 
   let owner: { resolved: string | null; account_type: "individual" | "business" | null } = { resolved: null, account_type: null };
   let reconciliationReason: string | null = null;
@@ -1238,7 +1244,6 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
 
   const amount   = Number(d?.amount ?? 0);
   const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
-
   // 1) Bridge transfer projection + lifecycle state must flow via canonical RPC
   // (no direct runtime upsert on bridge_transfers).
   const transferState = mappedState.recognized
