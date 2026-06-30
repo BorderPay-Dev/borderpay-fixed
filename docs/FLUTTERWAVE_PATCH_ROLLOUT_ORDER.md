@@ -28,6 +28,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 19. `a93fc3b` — Scope webhook reference reconciliation to user identity
 20. `cc75d5c` — Centralize Bridge verification helper across endpoints
 21. `a598dcb` — Enforce minimum transfer amount guard via env threshold
+22. `e97dcab` — Add CI workflow for Flutterwave suite audits
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
