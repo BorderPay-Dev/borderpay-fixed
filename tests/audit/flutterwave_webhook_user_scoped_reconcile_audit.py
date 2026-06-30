@@ -18,9 +18,11 @@ def main() -> int:
 
     text = TARGET.read_text(encoding="utf-8")
     checks = [
+        "function inferMovementDirection(",
         '.eq("provider_transfer_id", transfer.providerTransferId)',
         'if (!reconciled && transfer.reference && isUuid(transfer.userIdFromMeta))',
         '.eq("user_id", transfer.userIdFromMeta)',
+        '.eq("direction", movementDirection)',
         '.eq("reference", transfer.reference)',
         'insufficient_identity_for_reference_reconcile',
     ]
@@ -38,4 +40,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
