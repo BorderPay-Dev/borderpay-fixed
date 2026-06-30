@@ -18,15 +18,20 @@ import { render as individualKycDecision }            from "./individual/kyc-dec
 import { render as individualAccountReady }           from "./individual/account-ready.ts";
 import { render as individualVerificationAuthorized }  from "./individual/verification-authorized.ts";
 import { render as individualPaymentReceived }         from "./individual/payment-received.ts";
+import { render as individualPlatformLive }            from "./individual/platform-live.ts";
+import { render as individualExternalAccountStatus }   from "./individual/external-account-status.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessKybSubmitted }             from "./business/kyb-submitted.ts";
 import { render as businessKybDecision }              from "./business/kyb-decision.ts";
+import { render as businessKybAdditionalDetails }     from "./business/kyb-additional-details.ts";
 import { render as businessTransactionNotification }  from "./business/transaction-notification.ts";
 import { render as businessAccountActivated }         from "./business/account-activated.ts";
 import { render as businessAccountReady }             from "./business/account-ready.ts";
 import { render as businessVerificationAuthorized }    from "./business/verification-authorized.ts";
 import { render as businessPaymentReceived }           from "./business/payment-received.ts";
+import { render as businessPlatformLive }              from "./business/platform-live.ts";
+import { render as businessExternalAccountStatus }     from "./business/external-account-status.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -36,14 +41,19 @@ export type TemplateName =
   | "individual.account_ready"
   | "individual.verification_authorized"
   | "individual.payment_received"
+  | "individual.platform_live"
+  | "individual.external_account_status"
   | "business.email_verification"
   | "business.kyb_submitted"
   | "business.kyb_decision"
+  | "business.kyb_additional_details"
   | "business.transaction_notification"
   | "business.account_activated"
   | "business.account_ready"
   | "business.verification_authorized"
-  | "business.payment_received";
+  | "business.payment_received"
+  | "business.platform_live"
+  | "business.external_account_status";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -55,14 +65,19 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.account_ready":           individualAccountReady,
   "individual.verification_authorized": individualVerificationAuthorized,
   "individual.payment_received":        individualPaymentReceived,
+  "individual.platform_live":           individualPlatformLive,
+  "individual.external_account_status": individualExternalAccountStatus,
   "business.email_verification":        businessEmailVerification,
   "business.kyb_submitted":             businessKybSubmitted,
   "business.kyb_decision":              businessKybDecision,
+  "business.kyb_additional_details":    businessKybAdditionalDetails,
   "business.transaction_notification":  businessTransactionNotification,
   "business.account_activated":         businessAccountActivated,
   "business.account_ready":             businessAccountReady,
   "business.verification_authorized":   businessVerificationAuthorized,
   "business.payment_received":          businessPaymentReceived,
+  "business.platform_live":             businessPlatformLive,
+  "business.external_account_status":   businessExternalAccountStatus,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {
