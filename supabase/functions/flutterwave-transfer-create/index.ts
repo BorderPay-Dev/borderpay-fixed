@@ -4,6 +4,7 @@ import {
   flutterwaveCreateTransfer,
   flutterwaveRetryTransfer,
   getFlutterwaveCapabilities,
+  getFlutterwaveNetworkGuard,
 } from "../_shared/providers/flutterwave.ts";
 import { evaluateProviderCorridorPolicy } from "../_shared/providers/provider-corridor-policy.ts";
 
@@ -70,6 +71,16 @@ Deno.serve(async (req) => {
       code: "flutterwave_not_enabled",
       error: "Flutterwave payout rails are not enabled in this environment.",
       data: { capabilities: caps },
+    }, 503);
+  }
+
+  const networkGuard = getFlutterwaveNetworkGuard("money_movement");
+  if (!networkGuard.allowed) {
+    return json({
+      success: false,
+      code: networkGuard.code,
+      error: networkGuard.message,
+      data: { capabilities: caps, network_guard: networkGuard },
     }, 503);
   }
 

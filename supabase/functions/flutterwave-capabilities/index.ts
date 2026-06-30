@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   getFlutterwaveCapabilities,
+  getFlutterwaveNetworkGuard,
   flutterwaveHealthCheck,
   flutterwaveListBanks,
   flutterwaveListMobileNetworks,
@@ -42,6 +43,8 @@ Deno.serve(async (req) => {
 
   const action = String(body?.action || "health").trim() as Action;
   const caps = getFlutterwaveCapabilities();
+  const readGuard = getFlutterwaveNetworkGuard("read");
+  const moneyMovementGuard = getFlutterwaveNetworkGuard("money_movement");
 
   if (!caps.configured) {
     return json({
@@ -63,6 +66,10 @@ Deno.serve(async (req) => {
         provider_status: {
           http_status: res.status,
           request_id: res.requestId || null,
+        },
+        network_guard: {
+          read: readGuard,
+          money_movement: moneyMovementGuard,
         },
       },
     }, res.ok ? 200 : 502);

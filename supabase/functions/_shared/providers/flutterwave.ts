@@ -14,6 +14,8 @@ export interface FlutterwaveCapabilities {
   receive_enabled: boolean;
   payout_enabled: boolean;
   base_url: string;
+  static_ip_required: boolean;
+  static_ip_ready: boolean;
 }
 
 const FLW_LOCAL_COUNTRIES = ["NG", "KE", "GH", "UG", "TZ", "RW", "ZM", "ZA"] as const;
@@ -23,12 +25,57 @@ function envEnabled(name: string): boolean {
   return (Deno.env.get(name) || "").toLowerCase() === "true";
 }
 
+function envDefaultTrue(name: string): boolean {
+  const raw = String(Deno.env.get(name) || "").trim().toLowerCase();
+  if (!raw) return true;
+  return raw === "true";
+}
+
 export function getFlutterwaveCapabilities(): FlutterwaveCapabilities {
   return {
     configured: flutterwaveClientConfigured(),
     receive_enabled: envEnabled("FLW_RECEIVE_ENABLED"),
     payout_enabled: envEnabled("FLW_PAYOUT_ENABLED"),
     base_url: (Deno.env.get("FLW_BASE_URL") || "https://api.flutterwave.com").replace(/\/+$/, ""),
+    static_ip_required: envDefaultTrue("FLW_STATIC_IP_REQUIRED"),
+    static_ip_ready: envEnabled("FLW_STATIC_IP_READY"),
+  };
+}
+
+export function getFlutterwaveNetworkGuard(scope: "money_movement" | "read"): {
+  allowed: boolean;
+  code: "ok" | "static_ip_not_ready";
+  message: string;
+  static_ip_required: boolean;
+  static_ip_ready: boolean;
+} {
+  const caps = getFlutterwaveCapabilities();
+  if (scope === "read") {
+    return {
+      allowed: true,
+      code: "ok",
+      message: "Read scope allowed.",
+      static_ip_required: caps.static_ip_required,
+      static_ip_ready: caps.static_ip_ready,
+    };
+  }
+
+  if (caps.static_ip_required && !caps.static_ip_ready) {
+    return {
+      allowed: false,
+      code: "static_ip_not_ready",
+      message: "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready.",
+      static_ip_required: caps.static_ip_required,
+      static_ip_ready: caps.static_ip_ready,
+    };
+  }
+
+  return {
+    allowed: true,
+    code: "ok",
+    message: "Money movement allowed.",
+    static_ip_required: caps.static_ip_required,
+    static_ip_ready: caps.static_ip_ready,
   };
 }
 
