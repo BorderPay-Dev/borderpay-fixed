@@ -7,6 +7,13 @@ import '../styles/globals.css';
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');
 
+// Boot marker used by index.html emergency recovery guard.
+try {
+  (window as any).__BORDERPAY_BOOT_OK__ = true;
+} catch {
+  // noop
+}
+
 // Remove the initial HTML splash screen as soon as React starts rendering
 setTimeout(() => {
   document.body.classList.add('react-loaded');
