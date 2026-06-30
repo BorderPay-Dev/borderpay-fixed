@@ -34,6 +34,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  const { data: authData, error: authErr } = await supa.auth.getUser(token);
+  if (authErr || !authData?.user?.id) return json({ success: false, error: "Unauthorized" }, 401);
+
   let body: any = {};
   try {
     body = await req.json();
