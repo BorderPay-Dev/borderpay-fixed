@@ -103,6 +103,37 @@ function AppContent() {
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const { user, session, loading: authLoading, isAuthenticated, signOut } = useAuth();
 
+  // App policy: Brevo chat widget is website-only. Remove any stale injected
+  // chat assets in the app/PWA so it cannot block navigation.
+  useEffect(() => {
+    const removeBrevoArtifacts = () => {
+      try {
+        document
+          .querySelectorAll('script[src*="conversations-widget.brevo.com"], script[src*="brevo-conversations.js"]')
+          .forEach((el) => el.remove());
+        document
+          .querySelectorAll('iframe[src*="brevo"], iframe[id*="brevo"], iframe[class*="brevo"]')
+          .forEach((el) => el.remove());
+        document
+          .querySelectorAll('[id*="brevo"], [class*="brevo-conversations"], [class*="BrevoConversations"]')
+          .forEach((el) => {
+            if (el instanceof HTMLElement) {
+              el.style.display = 'none';
+              el.remove();
+            }
+          });
+        delete (window as any).BrevoConversationsID;
+        delete (window as any).BrevoConversations;
+      } catch {
+        // best effort only
+      }
+    };
+
+    removeBrevoArtifacts();
+    const t = window.setInterval(removeBrevoArtifacts, 1200);
+    return () => window.clearInterval(t);
+  }, []);
+
   // App lock state — show lock screen when user has PIN and enters dashboard
   const [appLocked, setAppLocked] = useState(false);
   const [lockChecked, setLockChecked] = useState(false);
