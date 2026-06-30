@@ -1,7 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { getFlutterwaveCapabilities, flutterwaveResolveBankAccount } from "../_shared/providers/flutterwave.ts";
-import { evaluateProviderCorridorPolicy } from "../_shared/providers/provider-corridor-policy.ts";
+import {
+  evaluateProviderCorridorPolicy,
+  isBridgeProfileVerified,
+} from "../_shared/providers/provider-corridor-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -20,14 +23,6 @@ const supa = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
-
-function isBridgeVerified(profile: any): boolean {
-  const accountStatus = String(profile?.bridge_account_status || "").toLowerCase();
-  if (["active", "approved", "authorized"].includes(accountStatus)) return true;
-  const accountType = String(profile?.account_type || "individual").toLowerCase();
-  const status = String(accountType === "business" ? profile?.bridge_kyb_status : profile?.bridge_kyc_status || "").toLowerCase();
-  return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(status);
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -79,7 +74,7 @@ Deno.serve(async (req) => {
     destinationCountry,
     destinationCurrency: destinationCurrency || undefined,
     channel: "bank",
-    bridgeVerified: isBridgeVerified(profile),
+    bridgeVerified: isBridgeProfileVerified(profile),
   });
   if (!corridorDecision.allowed) {
     return json(

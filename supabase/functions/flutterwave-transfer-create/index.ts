@@ -6,7 +6,10 @@ import {
   getFlutterwaveCapabilities,
   getFlutterwaveNetworkGuard,
 } from "../_shared/providers/flutterwave.ts";
-import { evaluateProviderCorridorPolicy } from "../_shared/providers/provider-corridor-policy.ts";
+import {
+  evaluateProviderCorridorPolicy,
+  isBridgeProfileVerified,
+} from "../_shared/providers/provider-corridor-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -56,14 +59,6 @@ function maskAccountNumber(v: string): string {
   const trimmed = String(v || "").trim();
   if (trimmed.length <= 4) return trimmed;
   return `${"*".repeat(Math.max(0, trimmed.length - 4))}${trimmed.slice(-4)}`;
-}
-
-function isBridgeVerified(profile: any): boolean {
-  const accountStatus = String(profile?.bridge_account_status || "").toLowerCase();
-  if (["active", "approved", "authorized"].includes(accountStatus)) return true;
-  const accountType = String(profile?.account_type || "individual").toLowerCase();
-  const status = String(accountType === "business" ? profile?.bridge_kyb_status : profile?.bridge_kyc_status || "").toLowerCase();
-  return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(status);
 }
 
 Deno.serve(async (req) => {
@@ -235,7 +230,7 @@ Deno.serve(async (req) => {
     destinationCountry,
     destinationCurrency,
     channel: channel as "bank" | "mobile_money",
-    bridgeVerified: isBridgeVerified(profile),
+    bridgeVerified: isBridgeProfileVerified(profile),
   });
   if (!corridorDecision.allowed) {
     return json(

@@ -26,6 +26,16 @@ export interface CorridorPolicyDecision {
   policy?: Record<string, unknown> | null;
 }
 
+export function isBridgeProfileVerified(profile: any): boolean {
+  const accountStatus = String(profile?.bridge_account_status || "").toLowerCase();
+  if (["active", "approved", "authorized"].includes(accountStatus)) return true;
+  const accountType = String(profile?.account_type || "individual").toLowerCase();
+  const status = String(
+    accountType === "business" ? profile?.bridge_kyb_status : profile?.bridge_kyc_status || "",
+  ).toLowerCase();
+  return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(status);
+}
+
 export interface CorridorPolicyRow {
   provider: "bridge" | "flutterwave";
   direction: CorridorDirection;
