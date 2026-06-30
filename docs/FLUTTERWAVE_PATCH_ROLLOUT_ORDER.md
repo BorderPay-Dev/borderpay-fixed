@@ -23,6 +23,8 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 14. `231badb` — Reference format/length validation
 15. `abe08bd` — Propagate static_ip_not_ready on rates/account-resolve
 16. `02e23c2` — Propagate static_ip_not_ready on transfer-status
+17. `4975f8a` — Reconcile only transfer-relevant webhook events
+18. `90d58a4` — Block retry on terminal completed/reversed transfers
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
@@ -43,4 +45,3 @@ Run and require pass:
   - keep adapter/config present, block only money movement endpoints.
 - If deeper rollback needed:
   - revert PR #88 commit range in reverse order.
-
