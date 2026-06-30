@@ -218,22 +218,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       // hosted verification. Use cached account type/link first, then request a
       // fresh link directly from onboarding endpoint.
       const currentAccountType: AccountType = accountType;
-      let existingHostedLink: string | null = lastHostedUrl;
-      if (!existingHostedLink) {
-        try {
-          const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-          existingHostedLink = currentAccountType === 'business'
-            ? (cached.bridge_kyb_link_url || cached.kyb_link_url || null)
-            : (cached.bridge_kyc_link_url || cached.kyc_link_url || null);
-        } catch { /* noop */ }
-      }
-      if (!existingHostedLink) {
-        try { existingHostedLink = localStorage.getItem(`borderpay_last_verify_url:${userId}`); } catch { /* noop */ }
-      }
-      if (existingHostedLink && typeof existingHostedLink === 'string') {
-        openHostedVerificationUrl(existingHostedLink);
-        return;
-      }
       const redirect_url = `${window.location.origin}/?screen=kyc`;
       const r: any = currentAccountType === 'business'
         ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
@@ -267,17 +251,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       const safe = friendlyError(r?.error || 'Could not open verification link. Please try again.', 'Could not start verification. Please try again.');
-      // Network fallback: reuse the last successful hosted link for this user.
-      if (/unable to connect|timed out|network|fetch/i.test(String(safe || ''))) {
-        try {
-          const fallback = localStorage.getItem(`borderpay_last_verify_url:${userId}`);
-          if (fallback) {
-            toast.info('Opening your previous verification link.');
-            openHostedVerificationUrl(fallback);
-            return;
-          }
-        } catch { /* noop */ }
-      }
       toast.error(safe);
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
