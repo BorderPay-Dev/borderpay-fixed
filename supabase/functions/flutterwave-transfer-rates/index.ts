@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { getFlutterwaveCapabilities, flutterwaveGetTransferRates } from "../_shared/providers/flutterwave.ts";
+import { evaluateProviderCorridorPolicy } from "../_shared/providers/provider-corridor-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,14 @@ const supa = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
+
+function isBridgeVerified(profile: any): boolean {
+  const accountStatus = String(profile?.bridge_account_status || "").toLowerCase();
+  if (["active", "approved", "authorized"].includes(accountStatus)) return true;
+  const accountType = String(profile?.account_type || "individual").toLowerCase();
+  const status = String(accountType === "business" ? profile?.bridge_kyb_status : profile?.bridge_kyc_status || "").toLowerCase();
+  return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(status);
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -48,6 +57,7 @@ Deno.serve(async (req) => {
 
   const source = String(body?.source_currency || "").trim().toUpperCase();
   const destination = String(body?.destination_currency || "").trim().toUpperCase();
+  const destinationCountry = String(body?.destination_country || "").trim().toUpperCase();
   const amountRaw = body?.amount;
   const amount = amountRaw === undefined || amountRaw === null || amountRaw === ""
     ? undefined
@@ -56,8 +66,36 @@ Deno.serve(async (req) => {
   if (!source || !destination) {
     return json({ success: false, error: "source_currency and destination_currency are required" }, 400);
   }
+  if (!destinationCountry) {
+    return json({ success: false, error: "destination_country is required" }, 400);
+  }
   if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
     return json({ success: false, error: "amount must be > 0" }, 400);
+  }
+
+  const { data: profile } = await supa
+    .from("user_profiles")
+    .select("id, account_type, country, bridge_kyc_status, bridge_kyb_status, bridge_account_status")
+    .eq("id", authData.user.id)
+    .maybeSingle();
+  if (!profile) {
+    return json({ success: false, code: "profile_missing", error: "User profile is missing." }, 404);
+  }
+
+  const corridorDecision = await evaluateProviderCorridorPolicy(supa, {
+    provider: "flutterwave",
+    direction: "payout",
+    userCountry: profile.country,
+    destinationCountry,
+    destinationCurrency: destination,
+    channel: "bank",
+    bridgeVerified: isBridgeVerified(profile),
+  });
+  if (!corridorDecision.allowed) {
+    return json(
+      { success: false, code: corridorDecision.code, error: corridorDecision.message },
+      corridorDecision.code === "policy_lookup_failed" ? 503 : 403,
+    );
   }
 
   const res = await flutterwaveGetTransferRates({
@@ -74,6 +112,7 @@ Deno.serve(async (req) => {
         capabilities: caps,
         source_currency: source,
         destination_currency: destination,
+        destination_country: destinationCountry,
       },
     }, 502);
   }
@@ -84,9 +123,9 @@ Deno.serve(async (req) => {
       capabilities: caps,
       source_currency: source,
       destination_currency: destination,
+      destination_country: destinationCountry,
       amount: amount ?? null,
       rates: res.data,
     },
   });
 });
-
