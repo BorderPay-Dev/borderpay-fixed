@@ -103,6 +103,44 @@ export async function flutterwaveResolveBankAccount(input: {
   });
 }
 
+export async function flutterwaveCreateTransfer(input: {
+  amount: number | string;
+  currency: string;
+  account_bank: string;
+  account_number: string;
+  narration?: string;
+  reference: string;
+  callback_url?: string;
+  debit_currency?: string;
+  beneficiary_name?: string;
+  meta?: Record<string, unknown>;
+}) {
+  return flutterwaveFetch({
+    method: "POST",
+    path: "/v3/transfers",
+    body: input,
+    idempotencyKey: input.reference,
+  });
+}
+
+export async function flutterwaveGetTransfer(transferId: string) {
+  return flutterwaveFetch({
+    method: "GET",
+    path: `/v3/transfers/${encodeURIComponent(transferId)}`,
+  });
+}
+
+export async function flutterwaveRetryTransfer(transferId: string, body?: Record<string, unknown>) {
+  const template = Deno.env.get("FLW_TRANSFER_RETRY_PATH_TEMPLATE") || "/v3/transfers/{id}/retries";
+  const path = template.replace("{id}", encodeURIComponent(transferId));
+  return flutterwaveFetch({
+    method: "POST",
+    path,
+    body: body || {},
+    idempotencyKey: `borderpay:flw:retry:${transferId}`,
+  });
+}
+
 export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promise<boolean> {
   // Flutterwave commonly sends `verif-hash`; keep this in env and compare.
   const expected = String(Deno.env.get("FLW_WEBHOOK_SECRET_HASH") || "").trim();
