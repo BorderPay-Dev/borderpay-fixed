@@ -1,14 +1,13 @@
-// auth-signup v92 — signup stores BorderPay user records only.
+// auth-signup v90 — provider-neutral signup with subscription scaffold.
 //
-// Current contract:
-//   • Does NOT create Bridge customer during signup.
-//   • bridge_customer_id remains null until user starts KYC/KYB from the
-//     hosted verification screen.
+// Differences vs v89:
 //   • After core rows persist, calls `ensure_starter_subscription(userId,
 //     account_type)` to seed a free-tier `user_subscriptions` row
 //     (individual_starter / business_starter). Business signups also get a
 //     seed row in `business_team_members` with role='owner', status='active'.
-//   • Verification email + token semantics unchanged.
+//   • All other behaviour identical to v89: no Bridge customer creation,
+//     no legacy provider customer creation, verification email + token
+//     semantics unchanged.
 //
 // Deploy:
 //   supabase functions deploy auth-signup --project-ref orwrcpwsffjlvzuraxjc
@@ -44,31 +43,7 @@ interface SignupBody {
   account_type?:        "individual" | "business";
   company_name?:        string;
   registration_number?: string;
-  business_owners?:     Array<{
-    full_name?: string;
-    email?: string;
-    role?: "control_person" | "beneficial_owner";
-  }>;
   captcha_token?:       string;
-}
-
-function normalizeBusinessOwners(input: SignupBody["business_owners"]): Array<{ full_name: string; email: string; role: "control_person" | "beneficial_owner" }> {
-  if (!Array.isArray(input)) return [];
-  const out: Array<{ full_name: string; email: string; role: "control_person" | "beneficial_owner" }> = [];
-  for (const item of input) {
-    const full_name = String(item?.full_name || "").trim();
-    const email = String(item?.email || "").trim().toLowerCase();
-    const role = String(item?.role || "").trim() === "beneficial_owner" ? "beneficial_owner" : "control_person";
-    if (!email) continue;
-    out.push({ full_name, email, role });
-    if (out.length >= 3) break;
-  }
-  return out;
-}
-
-function normalizeCountryCode(value: unknown): string | null {
-  const v = String(value || "").trim().toUpperCase();
-  return /^[A-Z]{2}$/.test(v) ? v : null;
 }
 
 async function verifySignupCaptcha(
@@ -102,59 +77,22 @@ async function verifySignupCaptcha(
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") {
-    return json({
-      success: false,
-      code: "method_not_allowed",
-      error: "POST only",
-      summary: {
-        code: "method_not_allowed",
-      },
-    }, 405);
-  }
+  if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
   try {
     const body = (await req.json()) as SignupBody;
     const { email, password, full_name, phone_number, country_code,
-            account_type, company_name, registration_number, business_owners, captcha_token } = body;
-    const normalizedCountryCode = normalizeCountryCode(country_code);
+            account_type, company_name, registration_number, captcha_token } = body;
 
     if (!email || !password || !full_name) {
-      return json({
-        success: false,
-        code: "invalid_signup_payload",
-        error: "Email, password, and full name are required",
-        summary: {
-          code: "invalid_signup_payload",
-        },
-      }, 400);
-    }
-    if (!normalizedCountryCode) {
-      return json({
-        success: false,
-        code: "invalid_country_code",
-        error: "A valid country code is required.",
-        summary: {
-          code: "invalid_country_code",
-        },
-      }, 400);
+      return json({ success: false, error: "Email, password, and full name are required" }, 400);
     }
 
     const normalizedAccountType: "individual" | "business" =
       account_type === "business" ? "business" : "individual";
     if (normalizedAccountType === "business" && !company_name) {
-      return json({
-        success: false,
-        code: "business_company_name_required",
-        error: "company_name is required for business accounts",
-        summary: {
-          code: "business_company_name_required",
-        },
-      }, 400);
+      return json({ success: false, error: "company_name is required for business accounts" }, 400);
     }
-    const normalizedOwners = normalizedAccountType === "business"
-      ? normalizeBusinessOwners(business_owners)
-      : [];
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -169,26 +107,11 @@ Deno.serve(async (req: Request) => {
       p_ip:         requestIp,
       p_user_agent: ua,
     });
-    let enforceAbuseDecision = true;
     if (abuseErr) {
-      const m = String(abuseErr.message || "");
-      // Fail-open only for migration/schema drift where the RPC does not exist
-      // in this environment. Other abuse-gate failures remain fail-closed.
-      if (!/could not find the function public\.enforce_signup_abuse_protection/i.test(m)) {
-        return json({
-          success: false,
-          code: "signup_protection_check_failed",
-          error: `Signup protection check failed: ${m}`,
-          summary: {
-            code: "signup_protection_check_failed",
-          },
-        }, 500);
-      }
-      enforceAbuseDecision = false;
-      console.warn(`auth-signup abuse gate RPC missing; continuing without gate for this request: ${m}`);
+      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
     }
     const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
-    if (enforceAbuseDecision && !abuse?.allowed) {
+    if (!abuse?.allowed) {
       const retryAfter = Number(abuse?.retry_after_seconds || 30);
       return new Response(
         JSON.stringify({
@@ -230,31 +153,20 @@ Deno.serve(async (req: Request) => {
       const msg = authError.message.includes("already registered")
         ? "An account with this email already exists"
         : authError.message;
-      return json({
-        success: false,
-        code: authError.message.includes("already registered") ? "email_already_exists" : "auth_signup_failed",
-        error: msg,
-        summary: {
-          code: authError.message.includes("already registered") ? "email_already_exists" : "auth_signup_failed",
-        },
-      }, 400);
+      return json({ success: false, error: msg }, 400);
     }
 
     const userId = authData.user!.id;
 
-    const rollbackAuthUser = async (code: string, reason: string) => {
+    const rollbackAuthUser = async (reason: string) => {
       try { await supabaseAdmin.auth.admin.deleteUser(userId); } catch { /* best effort */ }
-      return json({
-        success: false,
-        code,
-        error: reason,
-        summary: {
-          code,
-        },
-      }, 500);
+      return json({ success: false, error: reason }, 500);
     };
 
     // ── Persist legacy users + canonical user_profiles, atomically ───────
+    // Provider-neutral: NO provider customer creation here.
+    // Bridge customer creation happens later, only when the user clicks
+    // Start KYC/KYB (bridge-customer + bridge-kyc-link / bridge-kyb-link).
     {
       // Columns must match the current public.users schema exactly. Legacy
       // onboarding/payment fields were dropped; writing to them causes
@@ -264,12 +176,12 @@ Deno.serve(async (req: Request) => {
       const { error: usersErr } = await supabaseAdmin.from("users").upsert({
         id: userId, email, full_name,
         phone:            phone_number || "",
-        country:          normalizedCountryCode,
+        country:          country_code || "",
         account_type:     normalizedAccountType,
         kyc_status:       "unverified",
         wallet_activated: false,
       });
-      if (usersErr) return rollbackAuthUser("users_upsert_failed", `users upsert failed: ${usersErr.message}`);
+      if (usersErr) return rollbackAuthUser(`users upsert failed: ${usersErr.message}`);
     }
     {
       // Same enum rule for user_profiles.kyc_status. address_verification_status
@@ -277,7 +189,7 @@ Deno.serve(async (req: Request) => {
       const { error: profileErr } = await supabaseAdmin.from("user_profiles").upsert({
         id: userId, email, full_name,
         phone:                       phone_number || "",
-        country:                     normalizedCountryCode,
+        country:                     country_code || "",
         account_type:                normalizedAccountType,
         kyc_status:                  "unverified",
         kyc_level:                   0,
@@ -286,7 +198,7 @@ Deno.serve(async (req: Request) => {
         bridge_customer_id:          null,
         bridge_kyc_status:           "not_started",
       });
-      if (profileErr) return rollbackAuthUser("user_profiles_upsert_failed", `user_profiles upsert failed: ${profileErr.message}`);
+      if (profileErr) return rollbackAuthUser(`user_profiles upsert failed: ${profileErr.message}`);
     }
     {
       const [{ data: uRow }, { data: pRow }] = await Promise.all([
@@ -295,7 +207,6 @@ Deno.serve(async (req: Request) => {
       ]);
       if (!uRow || !pRow) {
         return rollbackAuthUser(
-          "profile_rows_missing_after_upsert",
           `profile rows missing after upsert (users=${!!uRow} user_profiles=${!!pRow})`,
         );
       }
@@ -306,19 +217,15 @@ Deno.serve(async (req: Request) => {
           user_id:             userId,
           company_name:        company_name!,
           registration_number: registration_number || null,
-          country:             normalizedCountryCode,
+          country:             (country_code || "NG").toUpperCase(),
           status:              "active",
           bridge_customer_id:  null,
           bridge_kyb_status:   "not_started",
-          metadata:            { declared_owners: normalizedOwners },
         },
         { onConflict: "user_id" },
       );
-      if (bizErr) return rollbackAuthUser("business_profiles_create_failed", `business_profiles create failed: ${bizErr.message}`);
+      if (bizErr) return rollbackAuthUser(`business_profiles create failed: ${bizErr.message}`);
     }
-
-    // Bridge identity is intentionally deferred to explicit hosted KYC/KYB start.
-    const bridgeCustomerId: string | null = null;
 
     // ── Seed the free-tier subscription + owner team-membership ────────
     // Failure here is non-fatal for signup itself — the user gets a verified
@@ -344,7 +251,7 @@ Deno.serve(async (req: Request) => {
       p_ua:          ua,
     });
     if (tokenErr || !tokenData) {
-      return rollbackAuthUser("email_token_issue_failed", `token issue failed: ${tokenErr?.message || "no token"}`);
+      return rollbackAuthUser(`token issue failed: ${tokenErr?.message || "no token"}`);
     }
     const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData)}&purpose=${tokenPurpose}`;
 
@@ -390,39 +297,29 @@ Deno.serve(async (req: Request) => {
         // via auth-resend-verification. Don't roll back the user here.
         return json({
           success: true,
-          code: "signup_created_email_pending",
-          summary: {
-            code: "signup_created_email_pending",
-            email_sent: false,
-          },
           data: {
             user: {
               id: userId, email, full_name,
-            account_type:       normalizedAccountType,
-            kyc_status:         "not_started",
-            bridge_customer_id: bridgeCustomerId,
-            email_verified:     false,
+              account_type:       normalizedAccountType,
+              kyc_status:         "not_started",
+              bridge_customer_id: null,
+              email_verified:     false,
+            },
+            email_sent:  false,
+            email_error: (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
+            access_token: "",
           },
-          email_sent:  false,
-          email_error: (sendJson as any)?.error || `send-email HTTP ${sendRes.status}`,
-          access_token: "",
-        },
-      });
+        });
       }
     } catch (e) {
-        return json({
-          success: true,
-          code: "signup_created_email_pending",
-          summary: {
-            code: "signup_created_email_pending",
-            email_sent: false,
-          },
-          data: {
-            user: {
-              id: userId, email, full_name,
+      return json({
+        success: true,
+        data: {
+          user: {
+            id: userId, email, full_name,
             account_type:       normalizedAccountType,
             kyc_status:         "not_started",
-            bridge_customer_id: bridgeCustomerId,
+            bridge_customer_id: null,
             email_verified:     false,
           },
           email_sent:  false,
@@ -434,17 +331,12 @@ Deno.serve(async (req: Request) => {
 
     return json({
       success: true,
-      code: "signup_created_email_sent",
-      summary: {
-        code: "signup_created_email_sent",
-        email_sent: true,
-      },
       data: {
         user: {
           id: userId, email, full_name,
           account_type:       normalizedAccountType,
           kyc_status:         "not_started",
-          bridge_customer_id: bridgeCustomerId,
+          bridge_customer_id: null,
           email_verified:     false,
         },
         email_sent:   true,
@@ -465,13 +357,6 @@ Deno.serve(async (req: Request) => {
       userMessage = "Please enter a valid email address and try again.";
     }
     console.error("auth-signup unhandled error", { message: raw });
-    return json({
-      success: false,
-      code: "signup_unhandled_error",
-      error: userMessage,
-      summary: {
-        code: "signup_unhandled_error",
-      },
-    }, 500);
+    return json({ success: false, error: userMessage }, 500);
   }
 });

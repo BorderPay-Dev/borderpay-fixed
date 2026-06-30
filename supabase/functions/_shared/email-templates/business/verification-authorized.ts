@@ -8,7 +8,6 @@ import { htmlLayout, textLayout, BORDERPAY_BRAND, firstName, RenderedEmail } fro
 export interface BusinessVerificationAuthorizedProps {
   full_name?:    string;
   company_name?: string;
-  verification_url?: string;
 }
 
 export function render(p: BusinessVerificationAuthorizedProps): RenderedEmail {
@@ -18,7 +17,6 @@ export function render(p: BusinessVerificationAuthorizedProps): RenderedEmail {
   const heading = "Verify your business";
   const introText = `Hello ${name}, thank you for choosing BorderPay.`;
   const closing = `To activate all business features${company}, please verify your business from your dashboard.`;
-  const ctaUrl = (p.verification_url && String(p.verification_url).trim()) || `${BORDERPAY_BRAND.appUrl}/dashboard`;
 
   return {
     subject,
@@ -28,14 +26,14 @@ export function render(p: BusinessVerificationAuthorizedProps): RenderedEmail {
       introText,
       body: `<p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">${closing}</p>`,
       ctaText: "Verify your business",
-      ctaUrl,
+      ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
       brandTone: "default",
     }),
     text: textLayout({
       heading,
       body: `${introText}\n\n${closing}`,
       ctaText: "Verify your business",
-      ctaUrl,
+      ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
     }),
   };
 }
