@@ -88,11 +88,26 @@ type TraceStage =
   | "db_update_failed"
   | "returned_success";
 
-function sanitizeTracePayload(body: { redirect_url?: string; endorsements?: string[] }, hasCustomerId: boolean): Record<string, unknown> {
+function sanitizeTracePayload(
+  body: {
+    redirect_url?: string;
+    endorsements?: string[];
+    precheck?: {
+      employment_status?: string;
+      source_of_funds?: string;
+      explanation?: string;
+    };
+  },
+  hasCustomerId: boolean,
+): Record<string, unknown> {
   return {
     has_redirect_url: Boolean(body?.redirect_url),
     endorsements: Array.isArray(body?.endorsements) ? body.endorsements.slice(0, 10) : ["base"],
     has_customer_id: hasCustomerId,
+    has_precheck: Boolean(body?.precheck),
+    precheck_employment_status: body?.precheck?.employment_status ? String(body.precheck.employment_status).slice(0, 40) : null,
+    precheck_source_of_funds: body?.precheck?.source_of_funds ? String(body.precheck.source_of_funds).slice(0, 40) : null,
+    precheck_has_explanation: Boolean(String(body?.precheck?.explanation || "").trim()),
   };
 }
 
@@ -238,6 +253,13 @@ function isVerifiedStatus(value: string | null | undefined): boolean {
   );
 }
 
+function normalizePolicyField(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -268,8 +290,31 @@ Deno.serve(async (req: Request) => {
     if (!__gate.allowed) return json(__gate.body, __gate.status);
   }
 
-  let body: { redirect_url?: string; endorsements?: string[] } = {};
+  let body: {
+    redirect_url?: string;
+    endorsements?: string[];
+    precheck?: {
+      employment_status?: string;
+      source_of_funds?: string;
+      explanation?: string;
+    };
+  } = {};
   try { body = await req.json(); } catch { /* tolerant */ }
+
+  {
+    const employmentStatus = normalizePolicyField(body?.precheck?.employment_status);
+    const sourceOfFunds = normalizePolicyField(body?.precheck?.source_of_funds);
+    const explanation = String(body?.precheck?.explanation || "").trim();
+    const isUnemployed = employmentStatus === "unemployed";
+    const isSalary = sourceOfFunds === "salary";
+    if (isUnemployed && isSalary && !explanation) {
+      return json({
+        success: false,
+        code: "source_of_funds_conflict",
+        error: "Employment status and source of funds do not match. Add an explanation before continuing.",
+      }, 400);
+    }
+  }
 
   let { data: profile } = await supa
     .from("user_profiles")
