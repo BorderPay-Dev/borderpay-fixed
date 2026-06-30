@@ -73,10 +73,11 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
   const country = authAPI.getStoredUser()?.country ?? null;
-  const availableVaCurrencies = useMemo(
+  const fallbackVaCurrencies = useMemo(
     () => bridgeVirtualAccountCurrenciesForCountry(country),
     [country],
   );
+  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -221,6 +222,27 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       refreshInFlightRef.current = false;
     }
   };
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const caps = await backendAPI.bridge.virtualAccount.capabilities();
+        if (!alive || !caps?.success) return;
+        const supported = Array.isArray(caps.data?.supported_currencies)
+          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+          : [];
+        if (supported.length > 0) setAvailableVaCurrencies(supported);
+      } catch {
+        // Keep fallback country policy list.
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+
+  useEffect(() => {
+    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
+  }, [fallbackVaCurrencies]);
 
   useEffect(() => {
     const prewarmKey = `borderpay_wallet_prewarm_v1:${userId}`;

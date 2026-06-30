@@ -1998,6 +1998,11 @@ export const bridgeAPI = {
 
   /** USD/EUR/GBP virtual account. */
   virtualAccount: {
+    capabilities: async () =>
+      apiCall<{ supported_currencies: ('USD' | 'EUR' | 'GBP')[] }>(
+        'bridge-virtual-account',
+        { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
+      ),
     create: async (input: { currency: 'USD' | 'EUR' | 'GBP'; destination?: { payment_rail: string; currency: string; chain?: string; address?: string } }) =>
       apiCall<{ virtual_account_id: string; account_number?: string; routing_number?: string; iban?: string; bic?: string; bank_name?: string; currency: string }>(
         'bridge-virtual-account',

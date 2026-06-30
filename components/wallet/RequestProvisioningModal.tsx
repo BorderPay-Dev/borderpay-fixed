@@ -28,7 +28,6 @@ import { isKycVerified } from '../../utils/config/environment';
 import {
   bridgeVirtualAccountCurrenciesForCountry,
   isBridgeCustodialWalletSupported,
-  isBridgeVirtualAccountCurrencyAvailable,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
 
@@ -72,7 +71,8 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   const cachedUser           = authAPI.getStoredUser();
   const [verified, setVerified]                     = useState<boolean>(isKycVerified(cachedUser));
   const [country, setCountry]                       = useState<string | null>(cachedUser?.country ?? null);
-  const availableVaCurrencies = bridgeVirtualAccountCurrenciesForCountry(country);
+  const fallbackVaCurrencies = bridgeVirtualAccountCurrenciesForCountry(country);
+  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
   const stablecoinSupported = isBridgeCustodialWalletSupported(country);
 
   useEffect(() => {
@@ -99,6 +99,28 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
     })();
     return () => { cancelled = true; };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    (async () => {
+      try {
+        const caps = await backendAPI.bridge.virtualAccount.capabilities();
+        if (!alive || !caps?.success) return;
+        const supported = Array.isArray(caps.data?.supported_currencies)
+          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+          : [];
+        setAvailableVaCurrencies(supported);
+      } catch {
+        // Keep fallback.
+      }
+    })();
+    return () => { alive = false; };
+  }, [open]);
+
+  useEffect(() => {
+    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
+  }, [fallbackVaCurrencies]);
 
   const products: Product[] = [
     { key: 'usd-va',     label: 'Global Account', blurb: availableVaCurrencies.length > 0 ? `${availableVaCurrencies.join(' / ')} account rails available for your country` : 'Not available for your country', Icon: Banknote, accent: '#10B981' },
@@ -222,7 +244,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   // ── Global Account (USD / EUR / GBP) ────────────────────────────────
   const submitUsdVa = async () => {
     const ccy = (currency || 'USD').toUpperCase();
-    if (!isBridgeVirtualAccountCurrencyAvailable(country, ccy)) {
+    if (!availableVaCurrencies.includes(ccy as BridgeVirtualAccountCurrency)) {
       setErrMessage(`${ccy} global accounts are not available for your country.`);
       return;
     }

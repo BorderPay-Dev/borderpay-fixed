@@ -28,6 +28,12 @@ import { assertBridgeIngressDecision, evaluateBridgeIngressEvent } from "../_sha
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const PUBLIC_KEY_PEM        = Deno.env.get("BRIDGE_WEBHOOK_PUBLIC_KEY") ?? "";
+const BREVO_API_KEY         = Deno.env.get("BREVO_API_KEY") ?? "";
+const INCIDENT_ALERT_FROM   = Deno.env.get("INCIDENT_ALERT_FROM") ?? "BorderPay Ops <ops@mail.borderpayafrica.com>";
+const INCIDENT_ALERT_RECIPIENTS = (Deno.env.get("INCIDENT_ALERT_RECIPIENTS") ?? "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
 const REPLAY_WINDOW_MS      = 10 * 60 * 1000;
 
 const CORS = {
@@ -45,6 +51,45 @@ function webhookLog(stage: string, detail: Record<string, unknown> = {}) {
     at: new Date().toISOString(),
     ...detail,
   }));
+}
+
+function parseFrom(raw: string): { name: string; email: string } {
+  const m = raw.match(/^\s*([^<]+)\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1].trim(), email: m[2].trim().toLowerCase() };
+  const email = raw.trim().toLowerCase();
+  return { name: "BorderPay Ops", email };
+}
+
+async function sendContractRejectAlert(input: {
+  eventId: string;
+  eventType: string;
+  reasonCode: string;
+}): Promise<void> {
+  if (!BREVO_API_KEY || INCIDENT_ALERT_RECIPIENTS.length === 0) return;
+  const payload = {
+    sender: parseFrom(INCIDENT_ALERT_FROM),
+    to: INCIDENT_ALERT_RECIPIENTS.map((email) => ({ email })),
+    subject: `[P1] Bridge webhook contract reject: ${input.reasonCode}`,
+    textContent: [
+      "BorderPay webhook ingress rejected a Bridge event due to payload contract failure.",
+      `event_id: ${input.eventId}`,
+      `event_type: ${input.eventType}`,
+      `reason_code: ${input.reasonCode}`,
+      `timestamp: ${new Date().toISOString()}`,
+    ].join("\n"),
+  };
+  try {
+    await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": BREVO_API_KEY,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Never block webhook processing on alerting transport.
+  }
 }
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
@@ -191,7 +236,23 @@ Deno.serve(async (req) => {
   assertBridgeIngressDecision(ingress);
   if (ingress.decision === "reject") {
     webhookLog("signature_rejected", { event_type: ingress.derived_event_type, reason_code: ingress.reason_code });
-    return json({ error: "invalid signature", reason_code: ingress.reason_code }, 401);
+    if (String(ingress.reason_code || "").startsWith("invalid_payload_contract_")) {
+      void sendContractRejectAlert({
+        eventId: String(eventId),
+        eventType: ingress.derived_event_type,
+        reasonCode: ingress.reason_code,
+      });
+    }
+    return json({
+      success: false,
+      error: "Invalid signature",
+      code: "invalid_signature",
+      reason_code: ingress.reason_code,
+      summary: {
+        code: "invalid_signature",
+        reason_code: ingress.reason_code,
+      },
+    }, 401);
   }
   if (ingress.routing_target !== "queue") {
     webhookLog("event_ignored", {

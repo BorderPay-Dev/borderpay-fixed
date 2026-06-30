@@ -20,7 +20,6 @@ import { backendAPI } from '../../../utils/api/backendAPI';
 import { authAPI } from '../../../utils/supabase/client';
 import {
   bridgeVirtualAccountCurrenciesForCountry,
-  isBridgeVirtualAccountCurrencyAvailable,
   type BridgeVirtualAccountCurrency,
 } from '../../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
@@ -61,10 +60,11 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const [selected, setSelected] = useState<VARow | null>(null);
 
   const isApproved = kycApproved ?? derivedApproved;
-  const availableCurrencies = useMemo(
+  const fallbackCurrencies = useMemo(
     () => bridgeVirtualAccountCurrenciesForCountry(country),
     [country],
   );
+  const [availableCurrencies, setAvailableCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackCurrencies);
 
   const refresh = async () => {
     // Mirror Bridge → local first so dashboard-created / unsynced VAs appear.
@@ -110,11 +110,32 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     return () => { alive = false; };
   }, [userId, isBusiness, kycApproved]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const caps = await backendAPI.bridge.virtualAccount.capabilities();
+        if (!alive || !caps?.success) return;
+        const supported = Array.isArray(caps.data?.supported_currencies)
+          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+          : [];
+        if (supported.length > 0) setAvailableCurrencies(supported);
+      } catch {
+        // Keep fallback.
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId, isBusiness]);
+
+  useEffect(() => {
+    setAvailableCurrencies((prev) => prev.length > 0 ? prev : fallbackCurrencies);
+  }, [fallbackCurrencies]);
+
   const haveCurrencies = useMemo(() => new Set(rows.map(r => r.currency)), [rows]);
   const missingCurrencies = availableCurrencies.filter(c => !haveCurrencies.has(c));
 
   const handleCreate = async (currency: Currency) => {
-    if (!isBridgeVirtualAccountCurrencyAvailable(country, currency)) {
+    if (!availableCurrencies.includes(currency)) {
       showToast.error(`${currency} virtual accounts are not available for your country.`);
       return;
     }

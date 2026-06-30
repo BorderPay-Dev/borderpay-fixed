@@ -19,6 +19,7 @@ import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
 import {
+  bridgeVirtualAccountCurrenciesForCountry,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -68,13 +69,12 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const userId = (storedUser.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
 
-  // Bridge is the source of truth for VA support. UI must not hardcode
-  // country-policy assumptions; expose all supported product currencies and
-  // let server-side Bridge capability checks decide eligibility.
-  const availableVaCurrencies = useMemo<BridgeVirtualAccountCurrency[]>(
-    () => ['USD', 'EUR', 'GBP'],
-    [],
+  const country = (storedUser.country as string | null | undefined) ?? null;
+  const fallbackVaCurrencies = useMemo(
+    () => bridgeVirtualAccountCurrenciesForCountry(country),
+    [country],
   );
+  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -186,6 +186,25 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const caps = await backendAPI.bridge.virtualAccount.capabilities();
+        if (!alive || !caps?.success) return;
+        const supported = Array.isArray(caps.data?.supported_currencies)
+          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+          : [];
+        if (supported.length > 0) setAvailableVaCurrencies(supported);
+      } catch {
+        // Keep fallback.
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+  useEffect(() => {
+    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
+  }, [fallbackVaCurrencies]);
   useEffect(() => {
     const prewarmKey = `borderpay_receive_prewarm_v1:${userId}`;
     try {
