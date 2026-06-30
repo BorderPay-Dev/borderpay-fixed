@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 import { verifyFlutterwaveWebhookSignature } from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
@@ -14,6 +15,11 @@ const json = (body: unknown, status = 200) =>
   });
 
 const REPLAY_WINDOW_MINUTES = Number(Deno.env.get("FLW_WEBHOOK_REPLAY_WINDOW_MINUTES") || "1440");
+const supa = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  { auth: { persistSession: false, autoRefreshToken: false } },
+);
 
 function extractEventTimestampMs(payload: Record<string, unknown>): number | null {
   const data = (payload.data && typeof payload.data === "object")
@@ -52,11 +58,61 @@ function extractEventId(payload: Record<string, unknown>): string {
   ).trim();
 }
 
+function extractTransferEnvelope(payload: Record<string, unknown>): {
+  reference: string | null;
+  providerTransferId: string | null;
+  providerStatus: string | null;
+  userIdFromMeta: string | null;
+} {
+  const data = (payload.data && typeof payload.data === "object")
+    ? (payload.data as Record<string, unknown>)
+    : null;
+  const meta = (data?.meta && typeof data.meta === "object")
+    ? (data.meta as Record<string, unknown>)
+    : null;
+  const reference = String(
+    data?.reference
+    || data?.tx_ref
+    || payload.reference
+    || payload.tx_ref
+    || "",
+  ).trim() || null;
+  const providerTransferId = String(
+    data?.id
+    || payload.id
+    || payload.event_id
+    || "",
+  ).trim() || null;
+  const providerStatus = String(
+    data?.status
+    || payload.status
+    || "",
+  ).trim() || null;
+  const userIdFromMeta = String(
+    meta?.borderpay_user_id
+    || data?.user_id
+    || "",
+  ).trim() || null;
+  return { reference, providerTransferId, providerStatus, userIdFromMeta };
+}
+
+function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return "unknown";
+  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
+  if (["failed", "error", "cancelled", "canceled"].includes(s)) return "failed";
+  if (["reversed", "refunded"].includes(s)) return "reversed";
+  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
+  return "unknown";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
   const rawBody = await req.text();
+  const payloadHashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody || ""));
+  const payloadHash = Array.from(new Uint8Array(payloadHashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
 
   const verified = await verifyFlutterwaveWebhookSignature(req.headers);
   if (!verified) {
@@ -86,9 +142,106 @@ Deno.serve(async (req) => {
 
   const eventId = extractEventId(payload);
   const eventType = String(payload.event || payload.event_type || "unknown");
+  const transfer = extractTransferEnvelope(payload);
+  const mappedStatus = mapTransferState(transfer.providerStatus);
 
-  // Stage scaffold: acknowledge only.
-  // Bridge remains the active money-movement source until FLW execution cutover.
+  // Idempotent event sink.
+  const { data: existingEvent } = await supa
+    .from("flutterwave_webhook_events")
+    .select("id, event_id, processing_status")
+    .eq("event_id", eventId)
+    .maybeSingle();
+  if (!existingEvent) {
+    await supa.from("flutterwave_webhook_events").insert({
+      event_id: eventId,
+      event_type: eventType,
+      signature_ok: true,
+      payload,
+      payload_hash: payloadHash,
+      headers: {
+        "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
+        "x-verif-hash": req.headers.get("x-verif-hash") || null,
+        "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
+      },
+      transfer_reference: transfer.reference,
+      provider_transfer_id: transfer.providerTransferId,
+      processing_status: "received",
+    });
+  } else {
+    await supa.from("flutterwave_webhook_events")
+      .update({
+        payload,
+        payload_hash: payloadHash,
+        transfer_reference: transfer.reference,
+        provider_transfer_id: transfer.providerTransferId,
+        processing_status: "duplicate",
+      })
+      .eq("event_id", eventId);
+  }
+
+  // Reconciliation path: reference first, then provider id.
+  let reconciled = false;
+  if (transfer.reference) {
+    const update = await supa.from("flutterwave_transfers")
+      .update({
+        provider_transfer_id: transfer.providerTransferId,
+        status: mappedStatus,
+        provider_status: transfer.providerStatus,
+        provider_response: payload,
+        webhook_last_event_id: eventId,
+        last_error: null,
+        last_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("reference", transfer.reference)
+      .select("id")
+      .limit(1);
+    reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
+  } else if (transfer.providerTransferId) {
+    const update = await supa.from("flutterwave_transfers")
+      .update({
+        status: mappedStatus,
+        provider_status: transfer.providerStatus,
+        provider_response: payload,
+        webhook_last_event_id: eventId,
+        last_error: null,
+        last_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("provider_transfer_id", transfer.providerTransferId)
+      .select("id")
+      .limit(1);
+    reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
+  }
+
+  // If no record exists yet but webhook includes both user + reference, seed one.
+  if (!reconciled && transfer.reference && transfer.userIdFromMeta) {
+    await supa.from("flutterwave_transfers").upsert({
+      user_id: transfer.userIdFromMeta,
+      direction: "payout",
+      reference: transfer.reference,
+      provider_transfer_id: transfer.providerTransferId,
+      source: "flutterwave",
+      status: mappedStatus,
+      provider_status: transfer.providerStatus,
+      request_payload: {},
+      provider_response: payload,
+      metadata: { seeded_from_webhook: true },
+      webhook_last_event_id: eventId,
+      last_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "reference" });
+    reconciled = true;
+  }
+
+  await supa.from("flutterwave_webhook_events")
+    .update({
+      processing_status: reconciled ? "processed" : "ignored",
+      processed_at: new Date().toISOString(),
+      processing_error: reconciled ? null : "no_matching_transfer_record",
+    })
+    .eq("event_id", eventId);
+
   return json({
     success: true,
     code: "flutterwave_webhook_accepted",
@@ -96,8 +249,12 @@ Deno.serve(async (req) => {
       event_id: eventId,
       event_type: eventType,
       replay_window_minutes: REPLAY_WINDOW_MINUTES,
+      transfer_reference: transfer.reference,
+      provider_transfer_id: transfer.providerTransferId,
+      mapped_status: mappedStatus,
+      reconciled,
       received_at: new Date().toISOString(),
-      processing_mode: "scaffold_ack_only",
+      processing_mode: "persist_and_reconcile",
     },
   }, 202);
 });

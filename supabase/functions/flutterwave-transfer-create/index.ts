@@ -30,6 +30,26 @@ function toPositiveNumber(v: unknown): number | null {
   return n;
 }
 
+function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return "submitted";
+  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
+  if (["failed", "error", "cancelled", "canceled"].includes(s)) return "failed";
+  if (["reversed", "refunded"].includes(s)) return "reversed";
+  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
+  return "unknown";
+}
+
+function transferData(input: any): any {
+  return input?.data && typeof input.data === "object" ? input.data : input;
+}
+
+function maskAccountNumber(v: string): string {
+  const trimmed = String(v || "").trim();
+  if (trimmed.length <= 4) return trimmed;
+  return `${"*".repeat(Math.max(0, trimmed.length - 4))}${trimmed.slice(-4)}`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -59,9 +79,37 @@ Deno.serve(async (req) => {
   const mode = String(body?.mode || "create").trim().toLowerCase();
   if (mode === "retry") {
     const transferId = String(body?.transfer_id || "").trim();
-    if (!transferId) return json({ success: false, error: "transfer_id is required for retry mode" }, 400);
-    const res = await flutterwaveRetryTransfer(transferId, body?.retry_payload || {});
+    const reference = String(body?.reference || "").trim();
+    if (!transferId && !reference) {
+      return json({ success: false, error: "transfer_id or reference is required for retry mode" }, 400);
+    }
+    let providerTransferId = transferId;
+    if (!providerTransferId && reference) {
+      const { data: existing } = await supa
+        .from("flutterwave_transfers")
+        .select("id, provider_transfer_id, reference")
+        .eq("reference", reference)
+        .eq("user_id", authData.user.id)
+        .maybeSingle();
+      providerTransferId = String(existing?.provider_transfer_id || "").trim();
+      if (!providerTransferId) {
+        return json({ success: false, error: "No provider transfer found for this reference yet." }, 404);
+      }
+    }
+
+    const res = await flutterwaveRetryTransfer(providerTransferId, body?.retry_payload || {});
     if (!res.ok) {
+      await supa
+        .from("flutterwave_transfers")
+        .update({
+          status: "failed",
+          provider_response: res.data ?? {},
+          last_error: res.error || "retry_failed",
+          last_synced_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("provider_transfer_id", providerTransferId)
+        .eq("user_id", authData.user.id);
       return json({
         success: false,
         code: "upstream_error",
@@ -69,11 +117,30 @@ Deno.serve(async (req) => {
         data: { capabilities: caps },
       }, 502);
     }
+
+    const rData = transferData(res.data);
+    const providerStatus = String(rData?.status || "");
+    const mappedStatus = mapTransferState(providerStatus);
+    await supa
+      .from("flutterwave_transfers")
+      .update({
+        status: mappedStatus,
+        provider_status: providerStatus || null,
+        provider_response: res.data ?? {},
+        last_error: null,
+        last_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("provider_transfer_id", providerTransferId)
+      .eq("user_id", authData.user.id);
+
     return json({
       success: true,
       data: {
         mode: "retry",
         capabilities: caps,
+        transfer_id: providerTransferId,
+        status: mappedStatus,
         transfer: res.data,
       },
     });
@@ -91,6 +158,11 @@ Deno.serve(async (req) => {
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);
   if (!reference) return json({ success: false, error: "reference is required" }, 400);
 
+  const requestMeta = {
+    borderpay_user_id: authData.user.id,
+    borderpay_source: "flutterwave-transfer-create",
+  };
+
   const res = await flutterwaveCreateTransfer({
     amount,
     currency,
@@ -101,10 +173,41 @@ Deno.serve(async (req) => {
     callback_url: body?.callback_url ? String(body.callback_url) : undefined,
     debit_currency: body?.debit_currency ? String(body.debit_currency).toUpperCase() : undefined,
     beneficiary_name: body?.beneficiary_name ? String(body.beneficiary_name) : undefined,
-    meta: typeof body?.meta === "object" && body?.meta !== null ? body.meta : undefined,
+    meta: {
+      ...(typeof body?.meta === "object" && body?.meta !== null ? body.meta : {}),
+      ...requestMeta,
+    },
   });
 
   if (!res.ok) {
+    await supa.from("flutterwave_transfers").upsert({
+      user_id: authData.user.id,
+      direction: "payout",
+      reference,
+      source: "flutterwave",
+      idempotency_key: reference,
+      amount,
+      currency,
+      destination_country: body?.destination_country ? String(body.destination_country).toUpperCase() : null,
+      destination_currency: body?.destination_currency ? String(body.destination_currency).toUpperCase() : null,
+      channel: body?.channel ? String(body.channel).toLowerCase() : "bank",
+      status: "failed",
+      provider_status: null,
+      request_payload: {
+        amount,
+        currency,
+        account_bank: accountBank,
+        account_number_masked: maskAccountNumber(accountNumber),
+        reference,
+        narration: body?.narration ? String(body.narration) : null,
+      },
+      provider_response: res.data ?? {},
+      metadata: requestMeta,
+      last_error: res.error || "create_failed",
+      last_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "reference" });
+
     return json({
       success: false,
       code: "upstream_error",
@@ -113,11 +216,48 @@ Deno.serve(async (req) => {
     }, 502);
   }
 
+  const responseData = transferData(res.data);
+  const providerTransferId = String(responseData?.id || responseData?.transfer_id || "").trim() || null;
+  const providerStatus = String(responseData?.status || "").trim() || null;
+  const mappedStatus = mapTransferState(providerStatus);
+
+  await supa.from("flutterwave_transfers").upsert({
+    user_id: authData.user.id,
+    direction: "payout",
+    reference,
+    provider_transfer_id: providerTransferId,
+    source: "flutterwave",
+    idempotency_key: reference,
+    amount,
+    currency,
+    destination_country: body?.destination_country ? String(body.destination_country).toUpperCase() : null,
+    destination_currency: body?.destination_currency ? String(body.destination_currency).toUpperCase() : null,
+    channel: body?.channel ? String(body.channel).toLowerCase() : "bank",
+    status: mappedStatus,
+    provider_status: providerStatus,
+    request_payload: {
+      amount,
+      currency,
+      account_bank: accountBank,
+      account_number_masked: maskAccountNumber(accountNumber),
+      reference,
+      narration: body?.narration ? String(body.narration) : null,
+    },
+    provider_response: res.data ?? {},
+    metadata: requestMeta,
+    last_error: null,
+    last_synced_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "reference" });
+
   return json({
     success: true,
     data: {
       mode: "create",
       capabilities: caps,
+      reference,
+      transfer_id: providerTransferId,
+      status: mappedStatus,
       transfer: res.data,
     },
   });
