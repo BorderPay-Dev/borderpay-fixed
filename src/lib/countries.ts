@@ -690,6 +690,16 @@ export const getActiveCountries = (): CountryConfig[] =>
 export const getSignupEligibleCountries = (): CountryConfig[] =>
   getActiveCountries().filter(c => !isBridgeBlocked(c.code));
 
+/** Fast first-paint bootstrap list for signup before Bridge countries API resolves. */
+export const getSignupBootstrapCountries = (): CountryConfig[] => {
+  const eligible = getSignupEligibleCountries();
+  if (eligible.length <= 24) return eligible;
+  const popular = new Set(POPULAR_COUNTRY_CODES);
+  const preferred = eligible.filter((c) => popular.has(c.code));
+  const remainder = eligible.filter((c) => !popular.has(c.code));
+  return [...preferred, ...remainder].slice(0, 24);
+};
+
 export const getComingSoonCountries = (): CountryConfig[] =>
   COUNTRY_CONFIG.filter(c => c.status === 'coming_soon')
     .sort((a, b) => a.name.localeCompare(b.name));
