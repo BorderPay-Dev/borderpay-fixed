@@ -185,25 +185,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const startVerification = async (isResume = false) => {
     setVerifying(true);
     try {
-      // Fast-path for mobile/PWA clients: if we already have a hosted link
-      // cached for this user, open it immediately to avoid extra network
-      // dependency on slower Android WebViews.
-      try {
-        const profileResult = await backendAPI.user.getProfile();
-        const prof = profileResult?.success ? profileResult?.data?.user : null;
-        const existing =
-          (accountType === 'business'
-            ? (prof?.bridge_kyb_link_url || prof?.kyb_link_url)
-            : (prof?.bridge_kyc_link_url || prof?.kyc_link_url)) ||
-          localStorage.getItem(`borderpay_last_verify_url:${userId}`);
-        if (existing && typeof existing === 'string') {
-          openHostedVerificationUrl(existing);
-          return;
-        }
-      } catch {
-        // continue with fresh hosted-link generation
-      }
-
       // Always resolve account type from fresh profile before routing to KYC/KYB.
       let currentAccountType: AccountType = accountType;
       try {
@@ -217,11 +198,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       const r: any = currentAccountType === 'business'
         ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
         : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
-      if (r?.success && r.data?.link_url) {
-        // Product contract: route users directly to hosted verification URL.
-        openHostedVerificationUrl(r.data.link_url);
-        return;
-      }
       if (r?.success && r.data?.tos_link_url) {
         // Bridge may require ToS acceptance before issuing a KYC/KYB link.
         // Open ToS first, then auto-resume verification on return.
@@ -230,6 +206,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           toast.info('Please accept Terms first, then we will continue verification.');
         }
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
+        return;
+      }
+      if (r?.success && r.data?.link_url) {
+        // Product contract: route users directly to hosted verification URL.
+        openHostedVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -242,17 +223,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       const safe = friendlyError(r?.error || 'Could not open verification link. Please try again.', 'Could not start verification. Please try again.');
-      // Network fallback: reuse the last successful hosted link for this user.
-      if (/unable to connect|timed out|network|fetch/i.test(String(safe || ''))) {
-        try {
-          const fallback = localStorage.getItem(`borderpay_last_verify_url:${userId}`);
-          if (fallback) {
-            toast.info('Opening your previous verification link.');
-            openHostedVerificationUrl(fallback);
-            return;
-          }
-        } catch { /* noop */ }
-      }
       toast.error(safe);
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
@@ -357,17 +327,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
               </p>
             </div>
           )}
-
-          {lastHostedUrl && (status === 'not_started' || status === 'pending') && !pendingVerifyStep && (
-            <button
-              type="button"
-              onClick={() => openHostedVerificationUrl(lastHostedUrl)}
-              className={`mt-3 w-full inline-flex items-center justify-center gap-2 py-3 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg}`}
-            >
-              Open verification link
-            </button>
-          )}
-
           {/* Support entry for the failed state (no developer reasons shown) */}
           {status === 'rejected' && (
             <a
