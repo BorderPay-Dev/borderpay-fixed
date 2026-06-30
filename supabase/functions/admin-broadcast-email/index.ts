@@ -246,19 +246,29 @@ Deno.serve(async (req) => {
       action === "business_verification_delay" ? "business.platform_live" :
       action === "business_platform_live" ? "business.platform_live" :
       action === "verification_business_kyb_completion" ? "business.verification_authorized" :
-      action === "business_verification_reminder" ? "business.verification_authorized" :
+      action === "business_verification_reminder" ? "business.kyb_additional_details" :
       action === "verification_tos_stuck_recovery" ? "individual.verification_authorized" :
       action === "verification_pending_no_attempt" ? "individual.verification_authorized" :
       action === "individual_verification_reminder" ? "individual.verification_authorized" :
       action === "verification_reminder_all"
-        ? (accountType === "business" ? "business.verification_authorized" : "individual.verification_authorized") :
+        ? (accountType === "business" ? "business.kyb_additional_details" : "individual.verification_authorized") :
       action === "individual_platform_live" ? "individual.platform_live" :
       (accountType === "business" ? "business.platform_live" : "individual.platform_live");
     const props = template === "business.platform_live"
       ? { company_name: bizNameByUser.get(userId) || "Your business" }
-      : template === "business.verification_authorized"
-        ? { company_name: bizNameByUser.get(userId) || "Your business", full_name: String(u.full_name || "") }
-      : { full_name: String(u.full_name || "") };
+      : template === "business.kyb_additional_details"
+        ? {
+            company_name: bizNameByUser.get(userId) || "Your business",
+            verification_url: `${Deno.env.get("APP_URL") || "https://app.borderpayafrica.com"}/dashboard`,
+            tasks: ["Continue your business verification from your dashboard."],
+          }
+        : template === "business.verification_authorized"
+          ? {
+              company_name: bizNameByUser.get(userId) || "Your business",
+              full_name: String(u.full_name || ""),
+              action_message: `Your business verification is missing shareholder details. Please add your shareholder in Settings > Team, then continue verification.`,
+            }
+          : { full_name: String(u.full_name || "") };
     const idempotencyKey = `broadcast:${action}:${campaignId}:${userId}`;
 
     try {
