@@ -5,6 +5,7 @@ import {
   flutterwaveRetryTransfer,
   getFlutterwaveCapabilities,
 } from "../_shared/providers/flutterwave.ts";
+import { normalizeFlutterwaveTransferState } from "../_shared/providers/flutterwave-transfer-state.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -74,6 +75,10 @@ Deno.serve(async (req) => {
       data: {
         mode: "retry",
         capabilities: caps,
+        lifecycle: normalizeFlutterwaveTransferState(
+          (res.data as Record<string, unknown> | null)?.status
+          ?? (res.data as Record<string, unknown> | null)?.data?.status,
+        ),
         transfer: res.data,
       },
     });
@@ -118,6 +123,10 @@ Deno.serve(async (req) => {
     data: {
       mode: "create",
       capabilities: caps,
+      lifecycle: normalizeFlutterwaveTransferState(
+        (res.data as Record<string, unknown> | null)?.status
+        ?? (res.data as Record<string, unknown> | null)?.data?.status,
+      ),
       transfer: res.data,
     },
   });

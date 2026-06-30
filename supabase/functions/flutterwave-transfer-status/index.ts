@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { flutterwaveGetTransfer, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import { normalizeFlutterwaveTransferState } from "../_shared/providers/flutterwave-transfer-state.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -64,6 +65,10 @@ Deno.serve(async (req) => {
     data: {
       capabilities: caps,
       transfer_id: transferId,
+      lifecycle: normalizeFlutterwaveTransferState(
+        (res.data as Record<string, unknown> | null)?.status
+        ?? (res.data as Record<string, unknown> | null)?.data?.status,
+      ),
       transfer: res.data,
     },
   });
