@@ -32,6 +32,12 @@ function toPositiveNumber(v: unknown): number | null {
   return n;
 }
 
+function validReference(value: string): boolean {
+  const v = String(value || "").trim();
+  // Restrict to safe idempotency-compatible chars and practical length.
+  return /^[A-Za-z0-9._:-]{6,120}$/.test(v);
+}
+
 function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
   const s = String(raw || "").trim().toLowerCase();
   if (!s) return "submitted";
@@ -189,6 +195,12 @@ Deno.serve(async (req) => {
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);
   if (!reference) return json({ success: false, error: "reference is required" }, 400);
+  if (!validReference(reference)) {
+    return json({
+      success: false,
+      error: "reference must be 6-120 chars and include only letters, numbers, dot, underscore, colon, or dash",
+    }, 400);
+  }
 
   const { data: profile } = await supa
     .from("user_profiles")
