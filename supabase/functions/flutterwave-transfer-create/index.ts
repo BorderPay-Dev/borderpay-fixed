@@ -5,6 +5,7 @@ import {
   flutterwaveRetryTransfer,
   getFlutterwaveCapabilities,
 } from "../_shared/providers/flutterwave.ts";
+import { evaluateProviderCorridorPolicy } from "../_shared/providers/provider-corridor-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -48,6 +49,14 @@ function maskAccountNumber(v: string): string {
   const trimmed = String(v || "").trim();
   if (trimmed.length <= 4) return trimmed;
   return `${"*".repeat(Math.max(0, trimmed.length - 4))}${trimmed.slice(-4)}`;
+}
+
+function isBridgeVerified(profile: any): boolean {
+  const accountStatus = String(profile?.bridge_account_status || "").toLowerCase();
+  if (["active", "approved", "authorized"].includes(accountStatus)) return true;
+  const accountType = String(profile?.account_type || "individual").toLowerCase();
+  const status = String(accountType === "business" ? profile?.bridge_kyb_status : profile?.bridge_kyc_status || "").toLowerCase();
+  return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(status);
 }
 
 Deno.serve(async (req) => {
@@ -148,15 +157,46 @@ Deno.serve(async (req) => {
 
   const amount = toPositiveNumber(body?.amount);
   const currency = String(body?.currency || "").trim().toUpperCase();
+  const destinationCountry = String(body?.destination_country || "").trim().toUpperCase();
+  const destinationCurrency = String(body?.destination_currency || currency).trim().toUpperCase();
+  const channel = String(body?.channel || "bank").trim().toLowerCase();
   const accountBank = String(body?.account_bank || "").trim();
   const accountNumber = String(body?.account_number || "").trim();
   const reference = String(body?.reference || "").trim();
 
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
+  if (!destinationCountry) return json({ success: false, error: "destination_country is required" }, 400);
+  if (!["bank", "mobile_money"].includes(channel)) {
+    return json({ success: false, error: "channel must be bank or mobile_money" }, 400);
+  }
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);
   if (!reference) return json({ success: false, error: "reference is required" }, 400);
+
+  const { data: profile } = await supa
+    .from("user_profiles")
+    .select("id, account_type, country, bridge_kyc_status, bridge_kyb_status, bridge_account_status")
+    .eq("id", authData.user.id)
+    .maybeSingle();
+  if (!profile) {
+    return json({ success: false, code: "profile_missing", error: "User profile is missing." }, 404);
+  }
+  const corridorDecision = await evaluateProviderCorridorPolicy(supa, {
+    provider: "flutterwave",
+    direction: "payout",
+    userCountry: profile.country,
+    destinationCountry,
+    destinationCurrency,
+    channel: channel as "bank" | "mobile_money",
+    bridgeVerified: isBridgeVerified(profile),
+  });
+  if (!corridorDecision.allowed) {
+    return json(
+      { success: false, code: corridorDecision.code, error: corridorDecision.message },
+      corridorDecision.code === "policy_lookup_failed" ? 503 : 403,
+    );
+  }
 
   const requestMeta = {
     borderpay_user_id: authData.user.id,
@@ -188,9 +228,9 @@ Deno.serve(async (req) => {
       idempotency_key: reference,
       amount,
       currency,
-      destination_country: body?.destination_country ? String(body.destination_country).toUpperCase() : null,
-      destination_currency: body?.destination_currency ? String(body.destination_currency).toUpperCase() : null,
-      channel: body?.channel ? String(body.channel).toLowerCase() : "bank",
+      destination_country: destinationCountry,
+      destination_currency: destinationCurrency,
+      channel,
       status: "failed",
       provider_status: null,
       request_payload: {
@@ -202,7 +242,7 @@ Deno.serve(async (req) => {
         narration: body?.narration ? String(body.narration) : null,
       },
       provider_response: res.data ?? {},
-      metadata: requestMeta,
+      metadata: { ...requestMeta, corridor_policy: corridorDecision.policy || null },
       last_error: res.error || "create_failed",
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -230,9 +270,9 @@ Deno.serve(async (req) => {
     idempotency_key: reference,
     amount,
     currency,
-    destination_country: body?.destination_country ? String(body.destination_country).toUpperCase() : null,
-    destination_currency: body?.destination_currency ? String(body.destination_currency).toUpperCase() : null,
-    channel: body?.channel ? String(body.channel).toLowerCase() : "bank",
+    destination_country: destinationCountry,
+    destination_currency: destinationCurrency,
+    channel,
     status: mappedStatus,
     provider_status: providerStatus,
     request_payload: {
@@ -244,7 +284,7 @@ Deno.serve(async (req) => {
       narration: body?.narration ? String(body.narration) : null,
     },
     provider_response: res.data ?? {},
-    metadata: requestMeta,
+    metadata: { ...requestMeta, corridor_policy: corridorDecision.policy || null },
     last_error: null,
     last_synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
