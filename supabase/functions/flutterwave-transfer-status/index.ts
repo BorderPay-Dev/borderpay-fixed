@@ -113,6 +113,8 @@ Deno.serve(async (req) => {
       .update({
         last_error: res.error || "status_fetch_failed",
         provider_response: res.data ?? {},
+        provider_request_id: res.requestId || null,
+        provider_http_status: Number.isFinite(res.status) ? res.status : null,
         last_synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -135,6 +137,8 @@ Deno.serve(async (req) => {
       status: mappedStatus,
       provider_status: providerStatus,
       provider_response: res.data ?? {},
+      provider_request_id: res.requestId || null,
+      provider_http_status: Number.isFinite(res.status) ? res.status : null,
       last_error: null,
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
