@@ -33,6 +33,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 24. LOCAL — Reconcile collection webhooks as receive-direction money movement
 25. LOCAL — Add authenticated flutterwave-transfers-list endpoint (ownership + bounded filters)
 26. LOCAL — Extend Flutterwave backend contract audit to include collections/list endpoints
+27. LOCAL — Make flutterwave-capabilities direction-aware (payout/receive)
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
