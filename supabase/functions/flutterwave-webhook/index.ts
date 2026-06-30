@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
         webhook_last_event_id: eventId,
         last_synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }, { onConflict: "reference" });
+      }, { onConflict: "user_id,reference" });
       reconciled = true;
     }
 
