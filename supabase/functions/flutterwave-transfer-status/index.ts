@@ -109,6 +109,7 @@ Deno.serve(async (req) => {
 
   const res = await flutterwaveGetTransfer(providerTransferId);
   if (!res.ok) {
+    const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
     await supa.from("flutterwave_transfers")
       .update({
         last_error: res.error || "status_fetch_failed",
@@ -122,10 +123,12 @@ Deno.serve(async (req) => {
       .eq("user_id", authData.user.id);
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to retrieve transfer status",
+      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      error: isIpGuard
+        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        : (res.error || "Failed to retrieve transfer status"),
       data: { capabilities: caps, transfer_id: providerTransferId, local_transfer_id: localRecord.id },
-    }, 502);
+    }, isIpGuard ? 503 : 502);
   }
 
   const rData = transferData(res.data);

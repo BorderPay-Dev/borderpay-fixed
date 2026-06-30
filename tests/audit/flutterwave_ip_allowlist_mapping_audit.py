@@ -34,6 +34,11 @@ CHECKS = [
         "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
         "account-resolve maps to static_ip_not_ready response code",
     ),
+    (
+        "supabase/functions/flutterwave-transfer-status/index.ts",
+        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "transfer-status maps to static_ip_not_ready response code",
+    ),
 ]
 
 
