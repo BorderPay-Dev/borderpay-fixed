@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   getFlutterwaveCapabilities,
+  getFlutterwaveLocalRailPolicy,
   flutterwaveHealthCheck,
   flutterwaveListBanks,
   flutterwaveListMobileNetworks,
@@ -19,7 +20,7 @@ const json = (body: unknown, status = 200) =>
     headers: { ...CORS, "Content-Type": "application/json" },
   });
 
-type Action = "health" | "payment_methods" | "banks" | "mobile_networks";
+type Action = "health" | "payment_methods" | "banks" | "mobile_networks" | "corridor_policy";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -83,6 +84,15 @@ Deno.serve(async (req) => {
     return json({ success: true, data: { capabilities: caps, country, mobile_networks: res.data } });
   }
 
+  if (action === "corridor_policy") {
+    return json({
+      success: true,
+      data: {
+        capabilities: caps,
+        local_rail_policy: getFlutterwaveLocalRailPolicy(),
+      },
+    });
+  }
+
   return json({ success: false, error: "Unsupported action" }, 400);
 });
-

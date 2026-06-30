@@ -16,6 +16,9 @@ export interface FlutterwaveCapabilities {
   base_url: string;
 }
 
+const FLW_LOCAL_COUNTRIES = ["NG", "KE", "GH", "UG", "TZ", "RW", "ZM", "ZA"] as const;
+const FLW_LOCAL_CURRENCIES = ["NGN", "KES", "GHS", "UGX", "TZS", "RWF", "ZMW", "ZAR"] as const;
+
 function envEnabled(name: string): boolean {
   return (Deno.env.get(name) || "").toLowerCase() === "true";
 }
@@ -26,6 +29,14 @@ export function getFlutterwaveCapabilities(): FlutterwaveCapabilities {
     receive_enabled: envEnabled("FLW_RECEIVE_ENABLED"),
     payout_enabled: envEnabled("FLW_PAYOUT_ENABLED"),
     base_url: (Deno.env.get("FLW_BASE_URL") || "https://api.flutterwave.com").replace(/\/+$/, ""),
+  };
+}
+
+export function getFlutterwaveLocalRailPolicy() {
+  return {
+    countries: [...FLW_LOCAL_COUNTRIES],
+    currencies: [...FLW_LOCAL_CURRENCIES],
+    methods: ["bank", "mobile_money"] as const,
   };
 }
 
