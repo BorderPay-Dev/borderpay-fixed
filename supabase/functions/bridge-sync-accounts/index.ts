@@ -27,6 +27,8 @@ const json = (b: unknown, s = 200) =>
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+const BRIDGE_SYNC_ALLOW_WALLET_AUTO_IMPORT =
+  String(Deno.env.get("BRIDGE_SYNC_ALLOW_WALLET_AUTO_IMPORT") || "false").toLowerCase() === "true";
 
 function normalizeDeveloperFeePercent(value: unknown): number | null {
   const n = Number(value);
@@ -183,8 +185,11 @@ Deno.serve(async (req) => {
         status:             "active",
         updated_at:         new Date().toISOString(),
       };
-      if (existing?.id) await supa.from("bridge_wallets").update(row).eq("id", existing.id);
-      else              await supa.from("bridge_wallets").insert(row);
+      if (existing?.id) {
+        await supa.from("bridge_wallets").update(row).eq("id", existing.id);
+      } else if (BRIDGE_SYNC_ALLOW_WALLET_AUTO_IMPORT) {
+        await supa.from("bridge_wallets").insert(row);
+      }
     }
   } catch (e) {
     // Non-fatal: still try VAs, surface a soft note.

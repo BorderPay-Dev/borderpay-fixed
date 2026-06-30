@@ -1214,21 +1214,35 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     }
   }
 
+  const { data: existingWalletRow } = await supabase
+    .from("bridge_wallets")
+    .select("id")
+    .eq("bridge_wallet_id", String(walletId))
+    .maybeSingle();
+  const walletAlreadyKnown = Boolean(existingWalletRow?.id);
+
   const amountValue = Number(d?.amount);
   const shouldProjectWalletActivityTx =
     isActivity && Number.isFinite(amountValue) && amountValue > 0 && !!resolved;
 
-  await supabase.from("bridge_wallets").upsert({
-    bridge_wallet_id:    String(walletId),
-    bridge_customer_id:  String(customer),
-    user_id:             account_type === "individual" ? resolved : null,
-    business_user_id:    account_type === "business"   ? resolved : null,
-    currency:            String(d?.currency ?? "usdc").toLowerCase(),
-    chain:               String(d?.chain ?? "base").toLowerCase(),
-    address:             String(d?.address ?? d?.deposit_address ?? ""),
-    status:              String(d?.status ?? "active").toLowerCase(),
-    updated_at:          new Date().toISOString(),
-  }, { onConflict: "bridge_wallet_id" });
+  // Product contract: stablecoin wallets are manual-add only.
+  // Never auto-create local wallet rows from passive lifecycle webhooks.
+  // We only mirror if:
+  //  - wallet already exists locally (manual add path), or
+  //  - we are processing a real wallet activity event (money movement evidence).
+  if (walletAlreadyKnown || shouldProjectWalletActivityTx) {
+    await supabase.from("bridge_wallets").upsert({
+      bridge_wallet_id:    String(walletId),
+      bridge_customer_id:  String(customer),
+      user_id:             account_type === "individual" ? resolved : null,
+      business_user_id:    account_type === "business"   ? resolved : null,
+      currency:            String(d?.currency ?? "usdc").toLowerCase(),
+      chain:               String(d?.chain ?? "base").toLowerCase(),
+      address:             String(d?.address ?? d?.deposit_address ?? ""),
+      status:              String(d?.status ?? "active").toLowerCase(),
+      updated_at:          new Date().toISOString(),
+    }, { onConflict: "bridge_wallet_id" });
+  }
 
   if (!shouldProjectWalletActivityTx) {
     const walletStatus = String(d?.status ?? ev.payload?.event_object_status ?? "").toLowerCase();
