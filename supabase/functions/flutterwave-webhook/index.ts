@@ -301,6 +301,7 @@ Deno.serve(async (req) => {
       webhook_mode: "accept_and_reconcile",
       processing_scope: "webhook_event",
       webhook_source_locked_to_flutterwave: true,
+      webhook_accept_http_status: 202,
       provider: "flutterwave",
       webhook_scope: "money_movement",
       response_contract_version: 1,
