@@ -66,12 +66,21 @@ Deno.serve(async (req) => {
     }, mapped.status);
   }
 
+  const accountType = String(body?.account_type || "individual").toLowerCase();
+  const ownerColumn = accountType === "business" ? "business_user_id" : "user_id";
+  const { data: projectedCollections } = await supa
+    .from("flutterwave_collections")
+    .select("tx_ref,flutterwave_collection_id,amount,currency,status,metadata,created_at,updated_at")
+    .eq(ownerColumn, authData.user.id)
+    .order("updated_at", { ascending: false })
+    .limit(Number.isFinite(Number(body?.limit)) ? Math.max(1, Math.min(100, Number(body.limit))) : 50);
+
   return json({
     success: true,
     data: {
       capabilities: caps,
       collections: res.data,
+      projected_collections: projectedCollections || [],
     },
   });
 });
-
