@@ -89,18 +89,23 @@ Deno.serve(async (req) => {
   });
   if (!res.ok) {
     const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
+    const isInactive = res.error === "flutterwave_account_inactive" || res.error === "flutterwave_auth_error";
     return json({
       success: false,
-      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      code: isIpGuard
+        ? "static_ip_not_ready"
+        : (isInactive ? "provider_inactive" : "upstream_error"),
       error: isIpGuard
         ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
-        : (res.error || "Failed to resolve account"),
+        : (isInactive
+          ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
+          : (res.error || "Failed to resolve account")),
       data: {
         capabilities: caps,
         destination_country: destinationCountry,
         destination_currency: destinationCurrency || null,
       },
-    }, isIpGuard ? 503 : 502);
+    }, (isIpGuard || isInactive) ? 503 : 502);
   }
 
   return json({

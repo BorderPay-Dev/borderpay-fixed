@@ -103,8 +103,26 @@ export async function flutterwaveFetch<T = unknown>(
         `Flutterwave HTTP ${res.status}`;
       const lowered = String(msg || "").toLowerCase();
       const normalized =
-        lowered.includes("not whitelisted") || lowered.includes("account administrator")
+        lowered.includes("not whitelisted") ||
+        lowered.includes("not allowlisted") ||
+        lowered.includes("allowlist") ||
+        lowered.includes("whitelist") ||
+        lowered.includes("unauthorized ip") ||
+        lowered.includes("ip address")
           ? "flutterwave_ip_not_allowlisted" :
+        lowered.includes("inactive account") ||
+        lowered.includes("account inactive") ||
+        lowered.includes("merchant inactive") ||
+        lowered.includes("account disabled") ||
+        lowered.includes("merchant disabled") ||
+        lowered.includes("not activated") ||
+        lowered.includes("not active")
+          ? "flutterwave_account_inactive" :
+        lowered.includes("invalid api key") ||
+        lowered.includes("invalid secret") ||
+        lowered.includes("authentication failed") ||
+        lowered.includes("access denied")
+          ? "flutterwave_auth_error" :
         res.status === 429 ? "flutterwave_rate_limited" :
         res.status >= 500 ? "flutterwave_upstream_unavailable" :
         msg;

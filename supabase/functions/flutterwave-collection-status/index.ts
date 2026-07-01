@@ -116,6 +116,7 @@ Deno.serve(async (req) => {
   const res = await flutterwaveGetCharge(chargeId);
   if (!res.ok) {
     const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
+    const isInactive = res.error === "flutterwave_account_inactive" || res.error === "flutterwave_auth_error";
     await supa.from("flutterwave_transfers").update({
       provider_response: res.data ?? {},
       provider_request_id: res.requestId || null,
@@ -127,12 +128,16 @@ Deno.serve(async (req) => {
 
     return json({
       success: false,
-      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      code: isIpGuard
+        ? "static_ip_not_ready"
+        : (isInactive ? "provider_inactive" : "upstream_error"),
       error: isIpGuard
         ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
-        : (res.error || "Failed to fetch collection status"),
+        : (isInactive
+          ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
+          : (res.error || "Failed to fetch collection status")),
       data: { reference: row.reference, provider_transfer_id: chargeId },
-    }, isIpGuard ? 503 : 502);
+    }, (isIpGuard || isInactive) ? 503 : 502);
   }
 
   const rData: any = (res.data && typeof res.data === "object" && (res.data as any).data)

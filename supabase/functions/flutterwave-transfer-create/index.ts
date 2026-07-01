@@ -132,6 +132,7 @@ Deno.serve(async (req) => {
     const res = await flutterwaveRetryTransfer(providerTransferId, body?.retry_payload || {});
     if (!res.ok) {
       const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
+      const isInactive = res.error === "flutterwave_account_inactive" || res.error === "flutterwave_auth_error";
       await supa
         .from("flutterwave_transfers")
         .update({
@@ -147,12 +148,16 @@ Deno.serve(async (req) => {
         .eq("user_id", authData.user.id);
       return json({
         success: false,
-        code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+        code: isIpGuard
+          ? "static_ip_not_ready"
+          : (isInactive ? "provider_inactive" : "upstream_error"),
         error: isIpGuard
           ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
-          : (res.error || "Failed to retry transfer"),
+          : (isInactive
+            ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
+            : (res.error || "Failed to retry transfer")),
         data: { capabilities: caps },
-      }, isIpGuard ? 503 : 502);
+      }, (isIpGuard || isInactive) ? 503 : 502);
     }
 
     const rData = transferData(res.data);
@@ -273,6 +278,7 @@ Deno.serve(async (req) => {
 
   if (!res.ok) {
     const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
+    const isInactive = res.error === "flutterwave_account_inactive" || res.error === "flutterwave_auth_error";
     await supa.from("flutterwave_transfers").upsert({
       user_id: authData.user.id,
       direction: "payout",
@@ -305,12 +311,16 @@ Deno.serve(async (req) => {
 
     return json({
       success: false,
-      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      code: isIpGuard
+        ? "static_ip_not_ready"
+        : (isInactive ? "provider_inactive" : "upstream_error"),
       error: isIpGuard
         ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
-        : (res.error || "Failed to create transfer"),
+        : (isInactive
+          ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
+          : (res.error || "Failed to create transfer")),
       data: { capabilities: caps },
-    }, isIpGuard ? 503 : 502);
+    }, (isIpGuard || isInactive) ? 503 : 502);
   }
 
   const responseData = transferData(res.data);

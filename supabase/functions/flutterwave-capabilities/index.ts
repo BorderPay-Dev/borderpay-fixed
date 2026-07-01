@@ -69,10 +69,22 @@ Deno.serve(async (req) => {
 
   if (action === "health") {
     const res = await flutterwaveHealthCheck();
+    const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
+    const isInactive = res.error === "flutterwave_account_inactive" || res.error === "flutterwave_auth_error";
     return json({
       success: res.ok,
-      code: res.ok ? "ok" : "upstream_unhealthy",
-      error: res.ok ? undefined : (res.error || "Flutterwave healthcheck failed"),
+      code: res.ok
+        ? "ok"
+        : (isIpGuard ? "static_ip_not_ready" : (isInactive ? "provider_inactive" : "upstream_unhealthy")),
+      error: res.ok
+        ? undefined
+        : (
+          isIpGuard
+            ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+            : (isInactive
+              ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
+              : (res.error || "Flutterwave healthcheck failed"))
+        ),
       data: {
         capabilities: caps,
         provider_status: {
@@ -84,7 +96,7 @@ Deno.serve(async (req) => {
           money_movement: moneyMovementGuard,
         },
       },
-    }, res.ok ? 200 : 502);
+    }, res.ok ? 200 : ((isIpGuard || isInactive) ? 503 : 502));
   }
 
   if (action === "payment_methods") {
