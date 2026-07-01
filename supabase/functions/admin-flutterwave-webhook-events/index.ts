@@ -51,12 +51,17 @@ Deno.serve(async (req) => {
 
   const status = String(body?.status || "failed").trim().toLowerCase();
   const flow = String(body?.flow || "").trim().toLowerCase();
+  const includePayload = body?.include_payload === true;
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
   const from = Number(body?.from || 0);
 
+  const selectCols = includePayload
+    ? "event_id,event_type,flow,processing_status,processing_attempts,last_error,payload,received_at,processed_at"
+    : "event_id,event_type,flow,processing_status,processing_attempts,last_error,received_at,processed_at";
+
   let query = supa
     .from("flutterwave_webhook_events")
-    .select("event_id,event_type,flow,processing_status,processing_attempts,last_error,received_at,processed_at", { count: "exact" })
+    .select(selectCols, { count: "exact" })
     .order("received_at", { ascending: false })
     .range(from, from + limit - 1);
 
@@ -68,13 +73,29 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "query_failed", error: error.message }, 500);
   }
 
+  const events = (data || []).map((row: Record<string, unknown>) => {
+    if (includePayload) return row;
+    const payload = (row.payload as Record<string, unknown>) || {};
+    return {
+      ...row,
+      payload_preview: {
+        event: payload?.event || payload?.event_type || null,
+        data_id: (payload?.data as Record<string, unknown> | undefined)?.id || null,
+        tx_ref:
+          (payload?.data as Record<string, unknown> | undefined)?.tx_ref
+          || (payload?.data as Record<string, unknown> | undefined)?.reference
+          || null,
+      },
+    };
+  });
+
   return json({
     success: true,
     data: {
-      events: data || [],
+      events,
       total: count || 0,
       page: { from, limit },
-      filters: { status, flow: flow || null },
+      filters: { status, flow: flow || null, include_payload: includePayload },
     },
   });
 });
