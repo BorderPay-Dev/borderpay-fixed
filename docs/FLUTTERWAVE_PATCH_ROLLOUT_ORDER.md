@@ -36,6 +36,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 27. LOCAL — Make flutterwave-capabilities direction-aware (payout/receive)
 28. LOCAL — Tighten webhook user-scoped reconcile audit for direction-aware updates
 29. LOCAL — Extend static IP guard audit to enforce collection-create protection
+30. LOCAL — Centralize Flutterwave status mapping across transfer/collection/webhook paths
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
