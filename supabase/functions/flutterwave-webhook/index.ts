@@ -283,9 +283,11 @@ Deno.serve(async (req) => {
     processingError = String(err?.message || "webhook_processing_failed");
   }
 
+  const processingStatus = reconciled ? "processed" : (processingError ? "failed" : "ignored");
+
   await supa.from("flutterwave_webhook_events")
     .update({
-      processing_status: reconciled ? "processed" : (processingError ? "failed" : "ignored"),
+      processing_status: processingStatus,
       processed_at: new Date().toISOString(),
       processing_error: reconciled ? null : (processingError || "no_matching_transfer_record"),
     })
@@ -307,6 +309,7 @@ Deno.serve(async (req) => {
       transfer_event_eligible: transferEventEligible,
       movement_direction: movementDirection,
       reconciled,
+      processing_status: processingStatus,
       processing_error: processingError,
       received_at: new Date().toISOString(),
       processing_mode: "persist_and_reconcile",
