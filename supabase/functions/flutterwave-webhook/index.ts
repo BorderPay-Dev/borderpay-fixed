@@ -190,8 +190,15 @@ Deno.serve(async (req) => {
     } else {
       await supa.from("flutterwave_webhook_events")
         .update({
+          signature_ok: true,
+          event_type: eventType,
           payload,
           payload_hash: payloadHash,
+          headers: {
+            "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
+            "x-verif-hash": req.headers.get("x-verif-hash") || null,
+            "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
+          },
           transfer_reference: transfer.reference,
           provider_transfer_id: transfer.providerTransferId,
           processing_status: "duplicate",

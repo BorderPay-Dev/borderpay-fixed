@@ -106,6 +106,7 @@ def main() -> int:
         ("webhook", webhook_fn, "flutterwave_webhook_events"),
         ("webhook", webhook_fn, "flutterwave_transfers"),
         ("webhook", webhook_fn, '.eq("source", "flutterwave")'),
+        ("webhook", webhook_fn, "signature_ok: true"),
     ]:
         if token not in content:
             fail(f"{label} missing token: {token}")

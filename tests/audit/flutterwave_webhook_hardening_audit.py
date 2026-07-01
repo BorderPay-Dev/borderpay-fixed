@@ -24,6 +24,16 @@ CHECKS = [
         "hash:${payloadHash.slice(0, 32)}",
         "event id falls back to payload hash when missing",
     ),
+    (
+        "supabase/functions/flutterwave-webhook/index.ts",
+        "signature_ok: true",
+        "duplicate path preserves signature_ok",
+    ),
+    (
+        "supabase/functions/flutterwave-webhook/index.ts",
+        "\"x-flutterwave-signature\": req.headers.get(\"x-flutterwave-signature\") || req.headers.get(\"X-Flutterwave-Signature\") || null",
+        "duplicate path persists normalized signature headers",
+    ),
 ]
 
 
@@ -52,4 +62,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
