@@ -74,6 +74,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 65. LOCAL — Echo effective direction in transfers-list filter contract
 66. LOCAL — Enforce flutterwave source scope inside webhook reconciliation updates
 67. LOCAL — Scope idempotency uniqueness to user+source+reference
+68. LOCAL — Scope provider_transfer_id uniqueness to source
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
