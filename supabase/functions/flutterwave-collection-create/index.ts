@@ -106,6 +106,7 @@ Deno.serve(async (req) => {
       initiated_by: authData.user.id,
       source: "flutterwave",
     },
+    last_provider_status_at: new Date().toISOString(),
     raw_payload: res.data ?? {},
   }, { onConflict: "tx_ref" });
 

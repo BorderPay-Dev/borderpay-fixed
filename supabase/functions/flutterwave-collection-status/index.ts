@@ -97,6 +97,7 @@ Deno.serve(async (req) => {
       account_type: accountType,
       polled: true,
     },
+    last_provider_status_at: new Date().toISOString(),
     raw_payload: collection,
   };
 

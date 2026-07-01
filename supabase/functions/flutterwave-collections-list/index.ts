@@ -21,6 +21,33 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function withProjectionAlerts(rows: Record<string, unknown>[]) {
+  const now = Date.now();
+  const staleMinutes = Number(Deno.env.get("FLW_PROJECTION_STALE_MINUTES") || 30);
+  return rows.map((row) => {
+    const providerAt = row.last_provider_status_at ? Date.parse(String(row.last_provider_status_at)) : NaN;
+    const webhookAt = row.last_webhook_event_at ? Date.parse(String(row.last_webhook_event_at)) : NaN;
+    const status = String(row.status || "").toLowerCase();
+    const providerAgeMinutes = Number.isFinite(providerAt) ? Math.floor((now - providerAt) / 60000) : null;
+    const webhookLagMinutes =
+      Number.isFinite(providerAt) && Number.isFinite(webhookAt)
+        ? Math.floor(Math.max(0, providerAt - webhookAt) / 60000)
+        : null;
+    return {
+      ...row,
+      projection_alerts: {
+        stale_provider_status: providerAgeMinutes !== null ? providerAgeMinutes > staleMinutes : false,
+        missing_webhook_after_terminal_poll:
+          (status === "completed" || status === "failed")
+            ? !Number.isFinite(webhookAt) || (webhookLagMinutes !== null && webhookLagMinutes > 5)
+            : false,
+      },
+      provider_age_minutes: providerAgeMinutes,
+      webhook_lag_minutes: webhookLagMinutes,
+    };
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -70,7 +97,7 @@ Deno.serve(async (req) => {
   const ownerColumn = accountType === "business" ? "business_user_id" : "user_id";
   const { data: projectedCollections } = await supa
     .from("flutterwave_collections")
-    .select("tx_ref,flutterwave_collection_id,amount,currency,status,metadata,created_at,updated_at")
+    .select("tx_ref,flutterwave_collection_id,amount,currency,status,metadata,last_provider_status_at,last_webhook_event_at,created_at,updated_at")
     .eq(ownerColumn, authData.user.id)
     .order("updated_at", { ascending: false })
     .limit(Number.isFinite(Number(body?.limit)) ? Math.max(1, Math.min(100, Number(body.limit))) : 50);
@@ -80,7 +107,7 @@ Deno.serve(async (req) => {
     data: {
       capabilities: caps,
       collections: res.data,
-      projected_collections: projectedCollections || [],
+      projected_collections: withProjectionAlerts((projectedCollections || []) as Record<string, unknown>[]),
     },
   });
 });

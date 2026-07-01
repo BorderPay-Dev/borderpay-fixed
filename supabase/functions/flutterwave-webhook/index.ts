@@ -226,6 +226,8 @@ Deno.serve(async (req) => {
         account_type: accountType || null,
         source: "flutterwave",
       },
+      last_provider_status_at: new Date().toISOString(),
+      last_webhook_event_at: new Date().toISOString(),
       raw_payload: payload,
     };
 
@@ -369,6 +371,8 @@ Deno.serve(async (req) => {
       account_type: accountType || null,
       source: "flutterwave",
     },
+    last_provider_status_at: new Date().toISOString(),
+    last_webhook_event_at: new Date().toISOString(),
     raw_payload: payload,
   };
 
