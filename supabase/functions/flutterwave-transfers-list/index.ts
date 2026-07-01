@@ -99,6 +99,8 @@ Deno.serve(async (req) => {
     }, 503);
   }
 
+  let effectiveDirection: "payout" | "receive" | null = direction ? (direction as "payout" | "receive") : null;
+
   let query = supa
     .from("flutterwave_transfers")
     .select([
@@ -129,8 +131,10 @@ Deno.serve(async (req) => {
   if (!direction) {
     if (!caps.payout_enabled && caps.receive_enabled) {
       query = query.eq("direction", "receive");
+      effectiveDirection = "receive";
     } else if (!caps.receive_enabled && caps.payout_enabled) {
       query = query.eq("direction", "payout");
+      effectiveDirection = "payout";
     }
   }
 
@@ -173,7 +177,7 @@ Deno.serve(async (req) => {
       capabilities: caps,
       rows,
       filters: {
-        direction: direction || null,
+        direction: effectiveDirection,
         status: status || null,
         source: "flutterwave",
         channel: channel || null,

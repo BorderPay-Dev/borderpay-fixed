@@ -71,6 +71,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 62. LOCAL — Include explicit provider_status in transfer/collection status responses
 63. LOCAL — Add deterministic list pagination metadata (has_more/next_before)
 64. LOCAL — Echo fixed receive direction in collections-list filter contract
+65. LOCAL — Echo effective direction in transfers-list filter contract
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`

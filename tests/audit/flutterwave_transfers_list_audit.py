@@ -43,6 +43,8 @@ def main() -> int:
         ("both-rails disabled guard", "Flutterwave transfer list endpoint is not enabled in this environment."),
         ("implicit receive scoping", '.eq("direction", "receive")'),
         ("implicit payout scoping", '.eq("direction", "payout")'),
+        ("effective direction variable", "let effectiveDirection"),
+        ("direction echoed from effective value", "direction: effectiveDirection"),
         ("limit clamp helper", "toPositiveInt("),
         ("cursor parser helper", "parseIsoTimestamp("),
         ("cursor filter", '.lt("created_at", before)'),
