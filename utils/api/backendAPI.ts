@@ -2697,6 +2697,15 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  auditFlutterwaveProjection: async (input: { limit?: number } = {}) =>
+    apiCall<{
+      sampled: { collections: number; transfers: number };
+      total_issues: number;
+      issues: Array<Record<string, unknown>>;
+    }>('admin-flutterwave-projection-audit', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 };
 
 export interface SupportTicket {
