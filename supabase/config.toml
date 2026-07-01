@@ -147,6 +147,9 @@ verify_jwt = true
 [functions.flutterwave-collection-status]
 verify_jwt = true
 
+[functions.flutterwave-collections-list]
+verify_jwt = true
+
 # Flutterwave webhook receiver — provider-signed; no JWT.
 [functions.flutterwave-webhook]
 verify_jwt = false

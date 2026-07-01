@@ -19,6 +19,7 @@ REQUIRED = {
     "flutterwave-transfers-list": True,
     "flutterwave-collection-create": True,
     "flutterwave-collection-status": True,
+    "flutterwave-collections-list": True,
     "flutterwave-webhook": False,
 }
 
@@ -53,4 +54,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

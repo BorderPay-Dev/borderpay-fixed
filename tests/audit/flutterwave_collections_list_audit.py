@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""
+Ensure flutterwave-collections-list endpoint stays auth-bound and receive-scoped.
+"""
+
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+TARGET = ROOT / "supabase/functions/flutterwave-collections-list/index.ts"
+CFG = ROOT / "supabase/config.toml"
+
+
+def fail(msg: str) -> int:
+    print("flutterwave_collections_list_audit: FAIL")
+    print(f" - {msg}")
+    return 1
+
+
+def main() -> int:
+    if not TARGET.exists():
+        return fail("missing file: supabase/functions/flutterwave-collections-list/index.ts")
+
+    text = TARGET.read_text(encoding="utf-8")
+    required = [
+        ("auth required", "Authorization required"),
+        ("auth user lookup", "supa.auth.getUser(token)"),
+        ("ownership filter", '.eq("user_id", authData.user.id)'),
+        ("receive direction lock", '.eq("direction", "receive")'),
+        ("status filter guard", "ALLOWED_STATUS"),
+        ("source filter guard", "ALLOWED_SOURCE"),
+        ("source whitelist message", "source must be flutterwave"),
+        ("capability guard", "getFlutterwaveCapabilities"),
+        ("receive-enabled guard", "flutterwave_receive_disabled"),
+    ]
+    missing = [label for label, token in required if token not in text]
+    if missing:
+        return fail("missing tokens: " + ", ".join(missing))
+
+    if not CFG.exists():
+        return fail("missing file: supabase/config.toml")
+    cfg = CFG.read_text(encoding="utf-8")
+    if not re.search(r"\[functions\.flutterwave-collections-list\]\s*verify_jwt\s*=\s*true", cfg, re.MULTILINE):
+        return fail("supabase/config.toml missing flutterwave-collections-list verify_jwt=true pin")
+
+    print("[OK] flutterwave-collections-list endpoint enforces auth + ownership + receive scope")
+    print("flutterwave_collections_list_audit: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
