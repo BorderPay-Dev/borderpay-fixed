@@ -1053,6 +1053,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         minUsd={fundMinUsd}
         accountType={accountType}
         onOpenWallet={() => navigateTo('wallet-detail')}
+        onOpenReceive={() => navigateTo('receive-money')}
         userId={userId}
       />
 
