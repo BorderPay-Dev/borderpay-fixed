@@ -142,6 +142,7 @@ def main() -> int:
         ("webhook", webhook_fn, '.eq("source", "flutterwave")'),
         ("webhook", webhook_fn, "signature_ok: true"),
         ("webhook", webhook_fn, 'endpoint: "flutterwave-webhook"'),
+        ("webhook", webhook_fn, 'webhook_mode: "accept_and_reconcile"'),
         ("webhook", webhook_fn, 'provider: "flutterwave"'),
         ("webhook", webhook_fn, 'webhook_scope: "money_movement"'),
         ("webhook", webhook_fn, "response_contract_version: 1"),
