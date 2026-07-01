@@ -132,6 +132,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                  .reduce((s, w) => s + (w.balance || 0), 0),
     [wallets],
   );
+  const hasVirtualAccounts = useMemo(
+    () => wallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
+    [wallets],
+  );
 
   const toWalletRows = (raw: any[]): WalletRow[] => raw.map((w: any) => ({
     currency: String(w?.currency || '').toUpperCase(),
@@ -384,6 +388,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             planKey={planKey ?? null}
             accountType="business"
             userId={userId}
+            hasVirtualAccounts={hasVirtualAccounts}
             onManagePlans={() => onNavigate('pricing')}
             onUpgrade={onUpgrade}
           />
