@@ -21,6 +21,8 @@ def main() -> int:
         "function shouldReconcileMoneyMovementEvent(",
         "t.includes(\"transfer\") || t.includes(\"payout\") || t.includes(\"charge\") || t.includes(\"collection\")",
         "if (transferEventEligible) {",
+        'provider: "flutterwave"',
+        'webhook_scope: "money_movement"',
         "transfer_event_eligible",
         "movement_direction",
     ]

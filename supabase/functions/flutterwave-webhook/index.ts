@@ -295,6 +295,8 @@ Deno.serve(async (req) => {
     success: true,
     code: "flutterwave_webhook_accepted",
     data: {
+      provider: "flutterwave",
+      webhook_scope: "money_movement",
       event_id: eventId,
       event_type: eventType,
       replay_window_minutes: REPLAY_WINDOW_MINUTES,
