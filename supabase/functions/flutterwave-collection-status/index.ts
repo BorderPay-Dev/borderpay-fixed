@@ -4,6 +4,7 @@ import {
   flutterwaveGetCharge,
   getFlutterwaveCapabilities,
   getFlutterwaveNetworkGuard,
+  mapFlutterwaveProviderStatus,
 } from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
@@ -23,15 +24,6 @@ const supa = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
-
-function mapCollectionState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "unknown" {
-  const s = String(raw || "").trim().toLowerCase();
-  if (!s) return "submitted";
-  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
-  if (["failed", "error", "cancelled", "canceled", "declined"].includes(s)) return "failed";
-  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
-  return "unknown";
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -129,7 +121,7 @@ Deno.serve(async (req) => {
     ? (res.data as any).data
     : res.data;
   const providerStatus = String(rData?.status || "").trim();
-  const mappedStatus = mapCollectionState(providerStatus);
+  const mappedStatus = mapFlutterwaveProviderStatus(providerStatus);
 
   await supa.from("flutterwave_transfers").update({
     status: mappedStatus,

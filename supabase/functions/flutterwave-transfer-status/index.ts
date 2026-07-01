@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveGetTransfer, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import { flutterwaveGetTransfer, getFlutterwaveCapabilities, mapFlutterwaveProviderStatus } from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -22,16 +22,6 @@ const supa = createClient(
 
 function transferData(input: any): any {
   return input?.data && typeof input.data === "object" ? input.data : input;
-}
-
-function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
-  const s = String(raw || "").trim().toLowerCase();
-  if (!s) return "unknown";
-  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
-  if (["failed", "error", "cancelled", "canceled"].includes(s)) return "failed";
-  if (["reversed", "refunded"].includes(s)) return "reversed";
-  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
-  return "unknown";
 }
 
 Deno.serve(async (req) => {
@@ -133,7 +123,7 @@ Deno.serve(async (req) => {
 
   const rData = transferData(res.data);
   const providerStatus = String(rData?.status || "").trim() || null;
-  const mappedStatus = mapTransferState(providerStatus);
+  const mappedStatus = mapFlutterwaveProviderStatus(providerStatus);
   await supa.from("flutterwave_transfers")
     .update({
       provider_transfer_id: providerTransferId,

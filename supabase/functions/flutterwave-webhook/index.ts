@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { verifyFlutterwaveWebhookSignature } from "../_shared/providers/flutterwave.ts";
+import { mapFlutterwaveProviderStatus, verifyFlutterwaveWebhookSignature } from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -113,16 +113,6 @@ function inferMovementDirection(eventType: string): "payout" | "receive" {
   return "payout";
 }
 
-function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
-  const s = String(raw || "").trim().toLowerCase();
-  if (!s) return "unknown";
-  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
-  if (["failed", "error", "cancelled", "canceled"].includes(s)) return "failed";
-  if (["reversed", "refunded"].includes(s)) return "reversed";
-  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
-  return "unknown";
-}
-
 function isUuid(value: string | null | undefined): boolean {
   const v = String(value || "").trim();
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -170,7 +160,7 @@ Deno.serve(async (req) => {
   const transfer = extractTransferEnvelope(payload);
   const transferEventEligible = shouldReconcileMoneyMovementEvent(eventType, transfer);
   const movementDirection = inferMovementDirection(eventType);
-  const mappedStatus = mapTransferState(transfer.providerStatus);
+  const mappedStatus = mapFlutterwaveProviderStatus(transfer.providerStatus);
 
   let reconciled = false;
   let processingError: string | null = null;

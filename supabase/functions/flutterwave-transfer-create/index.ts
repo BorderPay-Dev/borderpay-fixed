@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   flutterwaveCreateTransfer,
+  mapFlutterwaveProviderStatus,
   flutterwaveRetryTransfer,
   getFlutterwaveCapabilities,
   getFlutterwaveNetworkGuard,
@@ -41,16 +42,6 @@ function validReference(value: string): boolean {
   const v = String(value || "").trim();
   // Restrict to safe idempotency-compatible chars and practical length.
   return /^[A-Za-z0-9._:-]{6,120}$/.test(v);
-}
-
-function mapTransferState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "reversed" | "unknown" {
-  const s = String(raw || "").trim().toLowerCase();
-  if (!s) return "submitted";
-  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
-  if (["failed", "error", "cancelled", "canceled"].includes(s)) return "failed";
-  if (["reversed", "refunded"].includes(s)) return "reversed";
-  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
-  return "unknown";
 }
 
 function transferData(input: any): any {
@@ -166,7 +157,7 @@ Deno.serve(async (req) => {
 
     const rData = transferData(res.data);
     const providerStatus = String(rData?.status || "");
-    const mappedStatus = mapTransferState(providerStatus);
+    const mappedStatus = mapFlutterwaveProviderStatus(providerStatus);
     await supa
       .from("flutterwave_transfers")
       .update({
@@ -314,7 +305,7 @@ Deno.serve(async (req) => {
   const responseData = transferData(res.data);
   const providerTransferId = String(responseData?.id || responseData?.transfer_id || "").trim() || null;
   const providerStatus = String(responseData?.status || "").trim() || null;
-  const mappedStatus = mapTransferState(providerStatus);
+  const mappedStatus = mapFlutterwaveProviderStatus(providerStatus);
 
   await supa.from("flutterwave_transfers").upsert({
     user_id: authData.user.id,

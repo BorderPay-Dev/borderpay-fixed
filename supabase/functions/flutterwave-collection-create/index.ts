@@ -4,6 +4,7 @@ import {
   flutterwaveCreateCharge,
   getFlutterwaveCapabilities,
   getFlutterwaveNetworkGuard,
+  mapFlutterwaveProviderStatus,
 } from "../_shared/providers/flutterwave.ts";
 import {
   evaluateProviderCorridorPolicy,
@@ -37,15 +38,6 @@ function toPositiveNumber(v: unknown): number | null {
 function validReference(value: string): boolean {
   const v = String(value || "").trim();
   return /^[A-Za-z0-9._:-]{6,120}$/.test(v);
-}
-
-function mapCollectionState(raw: unknown): "submitted" | "processing" | "completed" | "failed" | "unknown" {
-  const s = String(raw || "").trim().toLowerCase();
-  if (!s) return "submitted";
-  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
-  if (["failed", "error", "cancelled", "canceled", "declined"].includes(s)) return "failed";
-  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
-  return "unknown";
 }
 
 Deno.serve(async (req) => {
@@ -187,7 +179,7 @@ Deno.serve(async (req) => {
     : res.data;
   const providerId = String(rData?.id || rData?.flw_ref || "").trim() || null;
   const providerStatus = String(rData?.status || "").trim();
-  const mappedStatus = mapCollectionState(providerStatus);
+  const mappedStatus = mapFlutterwaveProviderStatus(providerStatus);
 
   await supa.from("flutterwave_transfers").upsert({
     user_id: authData.user.id,

@@ -18,6 +18,14 @@ export interface FlutterwaveCapabilities {
   static_ip_ready: boolean;
 }
 
+export type FlutterwaveMovementState =
+  | "submitted"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "reversed"
+  | "unknown";
+
 const FLW_LOCAL_COUNTRIES = ["NG", "KE", "GH", "UG", "TZ", "RW", "ZM", "ZA"] as const;
 const FLW_LOCAL_CURRENCIES = ["NGN", "KES", "GHS", "UGX", "TZS", "RWF", "ZMW", "ZAR"] as const;
 
@@ -211,6 +219,16 @@ export async function flutterwaveGetCharge(chargeId: string) {
     method: "GET",
     path: `/v3/charges/${encodeURIComponent(chargeId)}`,
   });
+}
+
+export function mapFlutterwaveProviderStatus(raw: unknown): FlutterwaveMovementState {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return "unknown";
+  if (["successful", "success", "completed", "complete", "paid"].includes(s)) return "completed";
+  if (["failed", "error", "cancelled", "canceled", "declined"].includes(s)) return "failed";
+  if (["reversed", "refunded"].includes(s)) return "reversed";
+  if (["pending", "processing", "queued", "new", "initiated"].includes(s)) return "processing";
+  return "unknown";
 }
 
 export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promise<boolean> {
