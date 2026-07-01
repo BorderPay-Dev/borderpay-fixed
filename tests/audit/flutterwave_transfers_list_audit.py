@@ -35,6 +35,8 @@ def main() -> int:
         ("status filter whitelist", "ALLOWED_STATUS"),
         ("source filter whitelist", "ALLOWED_SOURCE"),
         ("source selected in response rows", '"source",'),
+        ("payout capability guard", "Flutterwave payout rails are not enabled in this environment."),
+        ("receive capability guard", "Flutterwave receive rails are not enabled in this environment."),
         ("limit clamp helper", "toPositiveInt("),
         ("cursor parser helper", "parseIsoTimestamp("),
         ("cursor filter", '.lt("created_at", before)'),

@@ -72,6 +72,22 @@ Deno.serve(async (req) => {
   if (body?.before && !before) {
     return json({ success: false, error: "before must be a valid ISO timestamp" }, 400);
   }
+  if (direction === "payout" && !caps.payout_enabled) {
+    return json({
+      success: false,
+      code: "flutterwave_not_enabled",
+      error: "Flutterwave payout rails are not enabled in this environment.",
+      data: { capabilities: caps },
+    }, 503);
+  }
+  if (direction === "receive" && !caps.receive_enabled) {
+    return json({
+      success: false,
+      code: "flutterwave_not_enabled",
+      error: "Flutterwave receive rails are not enabled in this environment.",
+      data: { capabilities: caps },
+    }, 503);
+  }
 
   let query = supa
     .from("flutterwave_transfers")
