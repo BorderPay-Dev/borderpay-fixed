@@ -2683,6 +2683,20 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify({ event_id }),
     }),
+  cleanupFlutterwaveWebhookEvents: async (input: {
+    dry_run?: boolean;
+    retain_days?: number;
+  } = {}) =>
+    apiCall<{
+      retain_days: number;
+      cutoff: string;
+      eligible_count: number;
+      sample_event_ids?: string[];
+      deleted_count?: number;
+    }>('admin-flutterwave-webhook-cleanup', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 };
 
 export interface SupportTicket {
