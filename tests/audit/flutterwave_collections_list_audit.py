@@ -29,6 +29,7 @@ def main() -> int:
         ("ownership filter", '.eq("user_id", authData.user.id)'),
         ("receive direction lock", '.eq("direction", "receive")'),
         ("direction selected in response rows", '"direction",'),
+        ("source selected in response rows", '"source",'),
         ("status filter guard", "ALLOWED_STATUS"),
         ("source filter guard", "ALLOWED_SOURCE"),
         ("source whitelist message", "source must be flutterwave"),
