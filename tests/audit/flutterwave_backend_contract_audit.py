@@ -123,6 +123,8 @@ def main() -> int:
         ("webhook", webhook_fn, 'provider: "flutterwave"'),
         ("webhook", webhook_fn, 'webhook_scope: "money_movement"'),
         ("webhook", webhook_fn, 'event_classification: transferEventEligible ? "money_movement" : "non_money_movement"'),
+        ("webhook", webhook_fn, "signature_verified: true"),
+        ("webhook", webhook_fn, "replay_window_enforced: true"),
         ("webhook", webhook_fn, "processing_status: processingStatus"),
     ]:
         if token not in content:
