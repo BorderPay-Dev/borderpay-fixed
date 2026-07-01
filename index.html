@@ -134,20 +134,7 @@
         margin-top: 0.5rem;
       }
     </style>
-    <!-- Brevo Conversations -->
-    <script>
-      (function(d, w, c) {
-          w.BrevoConversationsID = '6a3fe77311fae62ab305c72c';
-          w[c] = w[c] || function() {
-              (w[c].q = w[c].q || []).push(arguments);
-          };
-          var s = d.createElement('script');
-          s.async = true;
-          s.src = 'https://conversations-widget.brevo.com/brevo-conversations.js';
-          if (d.head) d.head.appendChild(s);
-      })(document, window, 'BrevoConversations');
-    </script>
-    <!-- /Brevo Conversations -->
+
     <script>
       (function () {
         var BOOT_KEY = 'borderpay_boot_recovery_once_v1';
@@ -203,8 +190,9 @@
             + '</div>';
           var btn = document.getElementById('boot-reload-btn');
           if (btn) btn.addEventListener('click', safeClearCachesAndReload);
-          safeClearCachesAndReload();
-        }, 12000);
+          // Do not auto-reload here; forcing repeated reloads can destabilize
+          // PWA sessions on slower devices. User explicitly triggers recovery.
+        }, 20000);
       })();
     </script>
   </head>
