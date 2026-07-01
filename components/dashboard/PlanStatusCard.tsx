@@ -86,6 +86,9 @@ export function PlanStatusCard({
           <ArrowRight className="w-3 h-3" />
         </button>
       </div>
+      <p className={`text-[11px] ${tc.textMuted} mt-2 ml-[3.25rem]`}>
+        Funds stay in your wallet. No fees. No hidden charges.
+      </p>
     </div>
   );
 }
