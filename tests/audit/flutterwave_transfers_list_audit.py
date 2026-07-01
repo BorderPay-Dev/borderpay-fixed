@@ -39,6 +39,7 @@ def main() -> int:
         ("source selected in response rows", '"source",'),
         ("endpoint marker", 'endpoint: "flutterwave-transfers-list"'),
         ("list scope marker", 'list_scope: "transfers"'),
+        ("source scope marker", 'source_scope: "flutterwave_only"'),
         ("response contract version marker", "response_contract_version: 1"),
         ("provider marker", 'provider: "flutterwave"'),
         ("channel filter validation message", "channel must be bank or mobile_money"),

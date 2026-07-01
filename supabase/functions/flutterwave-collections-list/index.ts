@@ -141,6 +141,7 @@ Deno.serve(async (req) => {
     data: {
       endpoint: "flutterwave-collections-list",
       list_scope: "collections",
+      source_scope: "flutterwave_only",
       response_contract_version: 1,
       contract_generated_at: new Date().toISOString(),
       provider: "flutterwave",
