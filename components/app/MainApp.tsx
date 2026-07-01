@@ -151,11 +151,6 @@ if (typeof window !== 'undefined') {
 
 function canonicalizeScreen(screen: AppScreen | string): AppScreen {
   switch (screen as string) {
-    case 'converter':
-      return 'exchange';
-    case 'deposit':
-    case 'add-money':
-      return 'wallet-detail';
     default:
       return screen as AppScreen;
   }
@@ -398,10 +393,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   // ─── Upgrade paywall ──────────────────────────────────────────────────
   // `upgradeTarget` holds the plan_key the user is being asked to upgrade to.
-  // null = modal closed. Triggered by:
-  //   • Manual upgrade CTAs (window.__borderpay_open_upgrade(planKey))
-  //   • Backend 402 `plan_required` responses (apiCall dispatches
-  //     `borderpay:plan_required` CustomEvent; we listen below and pop it).
+  // null = modal closed. Triggered by manual upgrade CTAs only.
   
   // ─── Shell display props (avatar / name / unread bell badge) ───────────
   // Hydrated from cache for first paint, then refreshed by the
@@ -579,8 +571,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, [userId, accountType, refreshKey]);
 
   // ─── Funding gate: open FundWalletSheet on 402 funding_required ────────
-  // (plan_required is kept as a legacy alias so older clients in flight don't
-  //  break, but the new model is a minimum wallet balance, not a paid plan.)
   const [fundCurrentUsd, setFundCurrentUsd] = useState<number | undefined>(undefined);
   const [fundMinUsd, setFundMinUsd] = useState<number | undefined>(undefined);
   const [fundOpen, setFundOpen] = useState(false);
@@ -592,11 +582,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       setFundOpen(true);
     };
     window.addEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-    // legacy event name (any in-flight UI still using it)
-    window.addEventListener('borderpay:plan_required',    onFundingRequired as EventListener);
     return () => {
       window.removeEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-      window.removeEventListener('borderpay:plan_required',    onFundingRequired as EventListener);
     };
   }, []);
 
@@ -1066,6 +1053,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         minUsd={fundMinUsd}
         accountType={accountType}
         onOpenWallet={() => navigateTo('wallet-detail')}
+        onOpenReceive={() => navigateTo('receive-money')}
         userId={userId}
       />
 

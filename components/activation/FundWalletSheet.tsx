@@ -22,14 +22,14 @@ import { AssetBadge, chainLabel, assetName } from '../dashboard/bridge/WalletVis
 import { showToast } from '../common/StatusToast';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
-/** Per-CEO floors. Individuals $20, businesses $100. Sheet receives the exact
+/** Per-policy floors. Individuals $20, businesses $50. Sheet receives the exact
  *  min via the 402 detail when triggered by a gate; falls back to these per
  *  account_type when opened manually. */
 export const FUNDING_MIN_USD_INDIVIDUAL = 20;
-export const FUNDING_MIN_USD_BUSINESS   = 100;
+export const FUNDING_MIN_USD_BUSINESS   = 50;
 const fundingMessage = (minUsd: number) =>
-  `Fund your BorderPay wallet with at least $${minUsd} to unlock global virtual accounts. ` +
-  'Your funds remain yours and can be used for transfers, payments, and treasury operations.';
+  `Receive your first transfer or deposit at least $${minUsd} in USDC or USDT to unlock your USD, EUR and GBP accounts automatically. ` +
+  'Your funds stay in your wallet and are available for transfers and payouts.';
 
 interface Props {
   open: boolean;
@@ -41,12 +41,14 @@ interface Props {
   accountType?: 'individual' | 'business';
   /** Navigates the host app (e.g. to the Wallet tab). */
   onOpenWallet?: () => void;
+  /** Optional: jump straight to Receive so the user can copy funding details. */
+  onOpenReceive?: () => void;
   userId?: string;
 }
 
 interface Stable { id: string; currency: string; chain: string; address: string }
 
-export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType, onOpenWallet, userId }: Props) {
+export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType, onOpenWallet, onOpenReceive, userId }: Props) {
   const minRequired = minUsd ?? (accountType === 'business' ? FUNDING_MIN_USD_BUSINESS : FUNDING_MIN_USD_INDIVIDUAL);
   const tc = useThemeClasses();
   const stableWalletsCacheKey = useMemo(
@@ -180,6 +182,10 @@ export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType
                 <div className="mt-5 flex gap-2">
                   <button onClick={onClose} className={`flex-1 py-3 rounded-full border ${tc.cardBorder} ${tc.text} font-semibold text-sm`}>
                     Not now
+                  </button>
+                  <button onClick={() => { onClose(); onOpenReceive?.(); }}
+                    className={`flex-1 py-3 rounded-full border ${tc.cardBorder} ${tc.text} font-semibold text-sm inline-flex items-center justify-center gap-1.5`}>
+                    Receive
                   </button>
                   <button onClick={() => { onClose(); onOpenWallet?.(); }}
                     className="flex-1 py-3 rounded-full bg-[#C7FF00] text-black font-semibold text-sm inline-flex items-center justify-center gap-1.5">

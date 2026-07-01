@@ -63,10 +63,12 @@ export function PlanStatusCard({
 
         <div className="flex-1 min-w-0">
           <h3 className={`text-sm font-semibold ${tc.text}`}>
-            {isBusiness ? 'Fund your business wallet' : 'Fund your wallet'}
+            {isBusiness ? 'Receive first funds to unlock business accounts' : 'Receive first funds to unlock your accounts'}
           </h3>
           <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
-            Verify your ID to unlock USD, EUR &amp; GBP accounts, cards and your wallet.
+            {isBusiness
+              ? 'Receive your first transfer or deposit at least $50 in USDC/USDT to unlock USD, EUR & GBP accounts automatically.'
+              : 'Receive your first transfer or deposit at least $20 in USDC/USDT to unlock USD, EUR & GBP accounts automatically.'}
           </p>
         </div>
 

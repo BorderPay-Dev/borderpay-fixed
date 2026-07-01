@@ -3,7 +3,7 @@
  *
  * Product rule:
  * - Individual: >= $20
- * - Business:   >= $100
+ * - Business:   >= $50
  *
  * Source of truth:
  * - Bridge stablecoin wallet balances only.
@@ -16,9 +16,9 @@
 import { bridgeProvider } from "./providers/bridge.ts";
 
 export const FUNDING_REQUIRED_CODE = "funding_required";
-// Per CEO: individuals must hold ≥ $20, businesses ≥ $100. Funds are NOT deducted.
+// Per product policy: individuals must hold ≥ $20, businesses ≥ $50. Funds are NOT deducted.
 export const MIN_WALLET_BALANCE_USD          = 20;   // individual floor
-export const MIN_WALLET_BALANCE_USD_BUSINESS = 100;  // business floor
+export const MIN_WALLET_BALANCE_USD_BUSINESS = 50;   // business floor
 export const minimumWalletBalanceUsd = (isBusiness: boolean) =>
   isBusiness ? MIN_WALLET_BALANCE_USD_BUSINESS : MIN_WALLET_BALANCE_USD;
 
@@ -55,7 +55,7 @@ async function resolveBridgeCustomerId(
 
 /**
  * Returns { allowed:true } when total wallet balance ≥ the per-account-type
- * minimum (individual $20, business $100). Returns funding_required (402) with
+ * minimum (individual $20, business $50). Returns funding_required (402) with
  * the user-facing funding message otherwise. Callers SHOULD pass `isBusiness`
  * (or a custom `minUsd`); we default to the individual floor for safety.
  */
@@ -120,7 +120,7 @@ export async function requireMinimumWalletBalance(
         body: {
           success: false,
           code: "funding_balance_unavailable",
-          error: "We could not verify your Bridge wallet balances right now. Please retry shortly.",
+          error: "We could not verify your wallet balances right now. Please retry shortly.",
           minimum_usd: minUsd,
           account_type: isBusiness ? "business" : "individual",
           retryable: true,

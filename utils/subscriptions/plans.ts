@@ -1,26 +1,16 @@
 /**
- * BorderPay Africa — account activation catalogue (one-time fee model).
+ * BorderPay Africa — activation catalogue (funding-threshold model).
  *
- * Billing model (Wise-style, bootstrapped): there are NO monthly subscriptions.
+ * There are no monthly subscriptions and no activation charges.
  * Each account type has two states:
  *   • a free, view-only DEFAULT state (…_starter) assigned at signup, and
- *   • an ACTIVATED state (…_activated) unlocked by a single ONE-TIME fee.
- *
- * The one-time activation fee is the absolute requirement to unlock multi-wallet
- * creation and to trigger the manual KYC/KYB review gate. The upfront cash also
- * clears the provider's KYC ($2) / KYB ($10) onboarding cost.
+ *   • an ACTIVATED state (…_activated) unlocked when the account keeps the
+ *     minimum required wallet balance.
  *
  *   • individual_starter    Free (view-only)
- *   • individual_activated  $9.99 one-time — "Wallet Activation Fee"
+ *   • individual_activated  Minimum balance $20
  *   • business_starter      Free (view-only)
- *   • business_activated    $29.99 one-time — "Corporate Onboarding & Activation Fee"
- *
- * After activation, active virtual accounts incur a monthly maintenance fee
- * debited directly from wallet balance (no markup) — see the maintenance logic
- * in the backend; outbound money movement is blocked while underfunded.
- *
- * Activation is charged from a USD virtual-account balance via the atomic
- * `pay_subscription_invoice_from_va` RPC (one-time, no recurring period).
+ *   • business_activated    Minimum balance $50
  */
 
 export type PlanKey =
@@ -50,7 +40,7 @@ export interface PlanDef {
   account_type:      AccountType;
   display_name:      string;
   tagline:           string;
-  /** ONE-TIME activation fee in USD cents. 0 = free/default (not activated). */
+  /** Minimum required wallet balance in USD cents. 0 = starter/free tier. */
   activation_fee_usd: number;
   limits:            PlanLimits;
   features:          readonly PlanFeature[];
@@ -69,13 +59,13 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'individual_starter',
     account_type:       'individual',
     display_name:       'Starter',
-    tagline:            'View-only. Activate to open your wallets.',
+    tagline:            'View-only. Fund wallet to unlock money movement.',
     activation_fee_usd: 0,
     limits: { va_currencies: [], max_team_members: null, cards_enabled: false },
     features: [
       { title: 'Browse the app' },
       { title: 'Live exchange rates' },
-      { title: 'Activate to unlock USD / EUR / GBP wallets' },
+      { title: 'Fund at least $20 to unlock USD / EUR / GBP accounts' },
     ],
     cta_label:          'Get started',
     is_default:         true,
@@ -86,8 +76,8 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'individual_activated',
     account_type:       'individual',
     display_name:       'Activated',
-    tagline:            'One-time fee. Multi-currency wallets unlocked.',
-    activation_fee_usd: 999,
+    tagline:            'Minimum balance met. Multi-currency accounts unlocked.',
+    activation_fee_usd: 2000,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: null, cards_enabled: false },
     features: [
       { title: 'USD virtual account (ACH)',             highlight: true },
@@ -96,7 +86,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
       { title: 'All stablecoin wallets' },
       { title: 'Identity verification included' },
     ],
-    cta_label:          'Activate — $9.99 one-time',
+    cta_label:          'Requires minimum $20 balance',
     is_default:         false,
     is_activated:       true,
   },
@@ -105,13 +95,13 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'business_starter',
     account_type:       'business',
     display_name:       'Starter',
-    tagline:            'View-only. Activate to onboard your business.',
+    tagline:            'View-only. Fund wallet to unlock business rails.',
     activation_fee_usd: 0,
     limits: { va_currencies: [], max_team_members: BUSINESS_TEAM_SEATS, cards_enabled: false },
     features: [
       { title: 'Browse the app' },
       { title: 'Live exchange rates' },
-      { title: 'Activate to unlock business wallets + team' },
+      { title: 'Fund at least $50 to unlock business wallets + team' },
     ],
     cta_label:          'Get started',
     is_default:         true,
@@ -122,8 +112,8 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'business_activated',
     account_type:       'business',
     display_name:       'Activated',
-    tagline:            'One-time onboarding. Corporate wallets unlocked.',
-    activation_fee_usd: 2999,
+    tagline:            'Minimum balance met. Corporate wallets unlocked.',
+    activation_fee_usd: 5000,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: BUSINESS_TEAM_SEATS, cards_enabled: false },
     features: [
       { title: 'USD / EUR / GBP business virtual accounts', highlight: true },
@@ -132,7 +122,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
       { title: 'Business verification (KYB) included' },
       { title: 'Cross-border payments' },
     ],
-    cta_label:          'Activate — $29.99 one-time',
+    cta_label:          'Requires minimum $50 balance',
     is_default:         false,
     is_activated:       true,
   },
@@ -179,8 +169,8 @@ export function planAllowsTeamSeat(planKey: PlanKey, currentCount: number): bool
   return max === null || currentCount < max;
 }
 
-/** Formatted display price, e.g. "$9.99 one-time" or "Free". */
+/** Formatted display threshold, e.g. "Min balance $20.00" or "Free". */
 export function formatPlanPrice(plan: PlanDef): string {
   if (plan.activation_fee_usd === 0) return 'Free';
-  return `$${(plan.activation_fee_usd / 100).toFixed(2)} one-time`;
+  return `Min balance $${(plan.activation_fee_usd / 100).toFixed(2)}`;
 }
