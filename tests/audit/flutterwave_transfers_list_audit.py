@@ -34,6 +34,8 @@ def main() -> int:
         ("direction filter whitelist", "ALLOWED_DIRECTION"),
         ("status filter whitelist", "ALLOWED_STATUS"),
         ("limit clamp helper", "toPositiveInt("),
+        ("cursor parser helper", "parseIsoTimestamp("),
+        ("cursor filter", '.lt("created_at", before)'),
         ("flutterwave capability guard", "getFlutterwaveCapabilities"),
     ]
     missing = [label for (label, token) in checks if token not in text]
@@ -53,4 +55,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

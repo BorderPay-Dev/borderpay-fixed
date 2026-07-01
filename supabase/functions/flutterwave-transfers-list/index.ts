@@ -29,6 +29,14 @@ function toPositiveInt(value: unknown, fallback = 25, max = 100): number {
   return Math.min(max, Math.floor(n));
 }
 
+function parseIsoTimestamp(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -59,6 +67,10 @@ Deno.serve(async (req) => {
   const direction = String(body?.direction || "").trim().toLowerCase();
   const status = String(body?.status || "").trim().toLowerCase();
   const source = String(body?.source || "").trim().toLowerCase();
+  const before = parseIsoTimestamp(body?.before);
+  if (body?.before && !before) {
+    return json({ success: false, error: "before must be a valid ISO timestamp" }, 400);
+  }
 
   let query = supa
     .from("flutterwave_transfers")
@@ -98,6 +110,7 @@ Deno.serve(async (req) => {
     query = query.eq("status", status);
   }
   if (source) query = query.eq("source", source);
+  if (before) query = query.lt("created_at", before);
 
   const { data, error } = await query;
   if (error) {
@@ -114,6 +127,7 @@ Deno.serve(async (req) => {
         status: status || null,
         source: source || null,
         limit,
+        before: before || null,
       },
     },
   });
