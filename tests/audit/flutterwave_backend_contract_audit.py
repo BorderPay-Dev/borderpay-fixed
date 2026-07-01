@@ -99,6 +99,7 @@ def main() -> int:
         ("collections-list", collections_list_fn, "ALLOWED_CHANNEL"),
         ("collections-list", collections_list_fn, '.eq("source", "flutterwave")'),
         ("collections-list", collections_list_fn, '"source",'),
+        ("collections-list", collections_list_fn, 'direction: "receive"'),
         ("collections-list", collections_list_fn, "next_before: nextBefore"),
         ("webhook", webhook_fn, "verifyFlutterwaveWebhookSignature"),
         ("webhook", webhook_fn, "flutterwave_webhook_events"),

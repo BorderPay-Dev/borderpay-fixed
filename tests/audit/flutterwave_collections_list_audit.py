@@ -36,6 +36,7 @@ def main() -> int:
         ("channel filter guard", "ALLOWED_CHANNEL"),
         ("channel whitelist message", "channel must be bank or mobile_money"),
         ("source whitelist message", "source must be flutterwave"),
+        ("direction echoed in filters", 'direction: "receive"'),
         ("pagination has_more", "has_more: Boolean(nextBefore)"),
         ("pagination next_before", "next_before: nextBefore"),
         ("capability guard", "getFlutterwaveCapabilities"),

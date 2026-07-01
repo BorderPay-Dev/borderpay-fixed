@@ -142,6 +142,7 @@ Deno.serve(async (req) => {
       capabilities: caps,
       rows,
       filters: {
+        direction: "receive",
         status: status || null,
         source: "flutterwave",
         channel: channel || null,
