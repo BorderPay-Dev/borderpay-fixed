@@ -297,6 +297,7 @@ Deno.serve(async (req) => {
     data: {
       provider: "flutterwave",
       webhook_scope: "money_movement",
+      event_classification: transferEventEligible ? "money_movement" : "non_money_movement",
       event_id: eventId,
       event_type: eventType,
       replay_window_minutes: REPLAY_WINDOW_MINUTES,

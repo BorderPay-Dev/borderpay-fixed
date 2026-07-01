@@ -122,6 +122,7 @@ def main() -> int:
         ("webhook", webhook_fn, "signature_ok: true"),
         ("webhook", webhook_fn, 'provider: "flutterwave"'),
         ("webhook", webhook_fn, 'webhook_scope: "money_movement"'),
+        ("webhook", webhook_fn, 'event_classification: transferEventEligible ? "money_movement" : "non_money_movement"'),
     ]:
         if token not in content:
             fail(f"{label} missing token: {token}")

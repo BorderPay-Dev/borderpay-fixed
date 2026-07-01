@@ -23,6 +23,7 @@ def main() -> int:
         "if (transferEventEligible) {",
         'provider: "flutterwave"',
         'webhook_scope: "money_movement"',
+        'event_classification: transferEventEligible ? "money_movement" : "non_money_movement"',
         "transfer_event_eligible",
         "movement_direction",
     ]
