@@ -2633,6 +2633,11 @@ export const adminAPI = {
       would_replay?: boolean;
       replay_ready?: boolean;
       replay_prerequisites?: Record<string, boolean>;
+      replay_policy?: {
+        attempts: number;
+        max_attempts: number;
+        force_required: boolean;
+      };
       event_id?: string;
       correlation_id?: string;
       webhook_http_status?: number;

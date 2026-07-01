@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
   const force = body.force === true;
   const reason = String(body.reason || "").trim().slice(0, 500);
   const correlationId = crypto.randomUUID();
+  const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
 
   const replayEnabled = (Deno.env.get("FLW_WEBHOOK_ALLOW_REPROCESS_FAILED") || "false").toLowerCase() === "true";
@@ -80,6 +81,21 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "event_not_found", error: "Webhook event not found" }, 404);
   }
 
+  const attempts = Number(eventRow.processing_attempts || 0);
+  if (!force && attempts >= maxReplayAttempts) {
+    return json({
+      success: false,
+      code: "max_replay_attempts_exceeded",
+      error: "Replay blocked: maximum replay attempts reached. Use force=true only after root-cause review.",
+      data: {
+        event_id: eventId,
+        attempts,
+        max_attempts: maxReplayAttempts,
+        correlation_id: correlationId,
+      },
+    }, 409);
+  }
+
   if (!force && String(eventRow.processing_status || "") !== "failed") {
     return json({
       success: false,
@@ -103,6 +119,11 @@ Deno.serve(async (req) => {
         event: eventRow,
         would_replay: true,
         reason: reason || null,
+        replay_policy: {
+          attempts,
+          max_attempts: maxReplayAttempts,
+          force_required: attempts >= maxReplayAttempts,
+        },
         replay_ready: replayEnabled && replayKey.length > 0 && signature.length > 0,
         replay_prerequisites: {
           FLW_WEBHOOK_ALLOW_REPROCESS_FAILED: replayEnabled,
