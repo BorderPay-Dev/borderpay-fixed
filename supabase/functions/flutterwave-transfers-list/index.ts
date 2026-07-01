@@ -174,6 +174,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     data: {
+      list_scope: "transfers",
       capabilities: caps,
       rows,
       filters: {

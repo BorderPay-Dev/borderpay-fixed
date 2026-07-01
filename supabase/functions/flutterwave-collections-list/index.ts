@@ -139,6 +139,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     data: {
+      list_scope: "collections",
       capabilities: caps,
       rows,
       filters: {

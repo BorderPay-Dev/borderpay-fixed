@@ -37,6 +37,7 @@ def main() -> int:
         ("source filter whitelist", "ALLOWED_SOURCE"),
         ("channel filter whitelist", "ALLOWED_CHANNEL"),
         ("source selected in response rows", '"source",'),
+        ("list scope marker", 'list_scope: "transfers"'),
         ("channel filter validation message", "channel must be bank or mobile_money"),
         ("payout capability guard", "Flutterwave payout rails are not enabled in this environment."),
         ("receive capability guard", "Flutterwave receive rails are not enabled in this environment."),

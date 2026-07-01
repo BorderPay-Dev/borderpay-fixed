@@ -77,6 +77,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 68. LOCAL — Scope provider_transfer_id uniqueness to source
 69. LOCAL — Persist signature/header metadata on duplicate webhook events
 70. LOCAL — Add returned_count metadata to list pagination contracts
+71. LOCAL — Add explicit list_scope markers to list response contracts
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
