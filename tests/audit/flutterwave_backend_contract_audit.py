@@ -77,6 +77,7 @@ def main() -> int:
         ("collection-create", collection_create_fn, "evaluateProviderCorridorPolicy"),
         ("collection-status", collection_status_fn, "flutterwaveGetCharge"),
         ("collection-status", collection_status_fn, '.eq("direction", "receive")'),
+        ("collection-status", collection_status_fn, "local_transfer_id"),
         ("collections-list", collections_list_fn, '.eq("user_id", authData.user.id)'),
         ("collections-list", collections_list_fn, '.eq("direction", "receive")'),
         ("collections-list", collections_list_fn, "ALLOWED_STATUS"),

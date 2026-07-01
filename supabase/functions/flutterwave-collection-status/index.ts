@@ -63,12 +63,22 @@ Deno.serve(async (req) => {
 
   const reference = String(body?.reference || "").trim();
   const providerId = String(body?.provider_transfer_id || "").trim();
-  if (!reference && !providerId) {
-    return json({ success: false, error: "reference or provider_transfer_id is required" }, 400);
+  const localTransferId = String(body?.local_transfer_id || "").trim();
+  if (!reference && !providerId && !localTransferId) {
+    return json({ success: false, error: "reference, provider_transfer_id, or local_transfer_id is required" }, 400);
   }
 
   let row: any = null;
-  if (providerId) {
+  if (localTransferId) {
+    const { data } = await supa
+      .from("flutterwave_transfers")
+      .select("*")
+      .eq("id", localTransferId)
+      .eq("user_id", authData.user.id)
+      .eq("direction", "receive")
+      .maybeSingle();
+    row = data || null;
+  } else if (providerId) {
     const { data } = await supa
       .from("flutterwave_transfers")
       .select("*")
@@ -142,6 +152,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     data: {
+      local_transfer_id: row.id,
       reference: row.reference,
       provider_transfer_id: chargeId,
       status: mappedStatus,
