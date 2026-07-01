@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { getFlutterwaveCapabilities, flutterwaveResolveBankAccount } from "../_shared/providers/flutterwave.ts";
+import {
+  evaluateProviderCorridorPolicy,
+  isBridgeProfileVerified,
+} from "../_shared/providers/provider-corridor-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -48,8 +52,35 @@ Deno.serve(async (req) => {
 
   const accountNumber = String(body?.account_number || "").trim();
   const bankCode = String(body?.bank_code || "").trim();
-  if (!accountNumber || !bankCode) {
-    return json({ success: false, error: "account_number and bank_code are required" }, 400);
+  const destinationCountry = String(body?.destination_country || "").trim().toUpperCase();
+  const destinationCurrency = String(body?.destination_currency || "").trim().toUpperCase();
+  if (!accountNumber || !bankCode || !destinationCountry) {
+    return json({ success: false, error: "account_number, bank_code and destination_country are required" }, 400);
+  }
+
+  const { data: profile } = await supa
+    .from("user_profiles")
+    .select("id, account_type, country, bridge_kyc_status, bridge_kyb_status, bridge_account_status")
+    .eq("id", authData.user.id)
+    .maybeSingle();
+  if (!profile) {
+    return json({ success: false, code: "profile_missing", error: "User profile is missing." }, 404);
+  }
+
+  const corridorDecision = await evaluateProviderCorridorPolicy(supa, {
+    provider: "flutterwave",
+    direction: "payout",
+    userCountry: profile.country,
+    destinationCountry,
+    destinationCurrency: destinationCurrency || undefined,
+    channel: "bank",
+    bridgeVerified: isBridgeProfileVerified(profile),
+  });
+  if (!corridorDecision.allowed) {
+    return json(
+      { success: false, code: corridorDecision.code, error: corridorDecision.message },
+      corridorDecision.code === "policy_lookup_failed" ? 503 : 403,
+    );
   }
 
   const res = await flutterwaveResolveBankAccount({
@@ -57,20 +88,28 @@ Deno.serve(async (req) => {
     bank_code: bankCode,
   });
   if (!res.ok) {
+    const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to resolve account",
-      data: { capabilities: caps },
-    }, 502);
+      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      error: isIpGuard
+        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        : (res.error || "Failed to resolve account"),
+      data: {
+        capabilities: caps,
+        destination_country: destinationCountry,
+        destination_currency: destinationCurrency || null,
+      },
+    }, isIpGuard ? 503 : 502);
   }
 
   return json({
     success: true,
     data: {
       capabilities: caps,
+      destination_country: destinationCountry,
+      destination_currency: destinationCurrency || null,
       resolution: res.data,
     },
   });
 });
-

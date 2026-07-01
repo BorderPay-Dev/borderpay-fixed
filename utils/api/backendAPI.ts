@@ -2355,23 +2355,30 @@ export const payoutsAPI = {
   feeQuote: async (input: {
     direction: 'payout' | 'receive';
     channel: 'bank' | 'mobile_money';
+    destination_country?: string;
+    source_currency?: string;
+    destination_currency?: string;
     currency: string;
     amount: number | string;
   }) =>
     apiCall<{
-      direction: 'payout' | 'receive';
+      capabilities?: Record<string, unknown>;
+      source_currency: string;
+      destination_currency: string;
+      destination_country: string;
       channel: 'bank' | 'mobile_money';
-      currency: string;
-      amount: number;
-      product: string;
-      provider_fee: number;
-      markup_fee: number;
-      total_fee: number;
-      effective_multiplier: number;
-      hard_cap_multiplier: number | null;
-      pricing_version: string;
-      quoted_at: string;
-    }>('flutterwave-fee-quote', { method: 'POST', body: JSON.stringify(input) }),
+      amount: number | null;
+      rates?: unknown;
+    }>('flutterwave-transfer-rates', {
+      method: 'POST',
+      body: JSON.stringify({
+        source_currency: input.source_currency || input.currency,
+        destination_currency: input.destination_currency || input.currency,
+        destination_country: input.destination_country || 'NG',
+        channel: input.channel,
+        amount: input.amount,
+      }),
+    }),
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */

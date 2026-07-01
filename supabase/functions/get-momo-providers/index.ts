@@ -14,6 +14,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { flutterwaveListMobileNetworks, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import { isProviderCorridorEnabled } from "../_shared/providers/provider-corridor-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -75,6 +76,25 @@ Deno.serve(async (req) => {
 
   const country = String(body?.country || body?.country_code || "").trim().toUpperCase();
   if (!country) return json({ success: false, error: "country is required" }, 400);
+  const destinationCurrency = String(body?.destination_currency || "").trim().toUpperCase();
+
+  const corridor = await isProviderCorridorEnabled(supa, {
+    provider: "flutterwave",
+    direction: "payout",
+    countryCode: country,
+    channel: "mobile_money",
+    destinationCurrency: destinationCurrency || undefined,
+  });
+  if (!corridor.enabled) {
+    return json({
+      success: false,
+      code: corridor.code,
+      error: corridor.code === "policy_lookup_failed"
+        ? "Unable to validate corridor policy right now."
+        : "Mobile money corridor is not enabled for this country.",
+      data: { capabilities: caps, country },
+    }, corridor.code === "policy_lookup_failed" ? 503 : 403);
+  }
 
   const res = await flutterwaveListMobileNetworks(country);
   if (!res.ok) {
@@ -95,4 +115,3 @@ Deno.serve(async (req) => {
     },
   });
 });
-

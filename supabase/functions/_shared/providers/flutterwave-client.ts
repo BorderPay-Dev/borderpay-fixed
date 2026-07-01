@@ -101,7 +101,10 @@ export async function flutterwaveFetch<T = unknown>(
         (typeof payload?.message === "string" && payload.message) ||
         (typeof payload?.error === "string" && payload.error) ||
         `Flutterwave HTTP ${res.status}`;
+      const lowered = String(msg || "").toLowerCase();
       const normalized =
+        lowered.includes("not whitelisted") || lowered.includes("account administrator")
+          ? "flutterwave_ip_not_allowlisted" :
         res.status === 429 ? "flutterwave_rate_limited" :
         res.status >= 500 ? "flutterwave_upstream_unavailable" :
         msg;

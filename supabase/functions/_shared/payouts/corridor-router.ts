@@ -19,10 +19,6 @@ export type PayoutRoute = "bridge_payout" | "stablecoin" | "flutterwave_local";
 
 export type AfricanLocalMethod = "bank" | "mobile_money";
 
-const FLW_PAYOUT_ENABLED = (Deno.env.get("FLW_PAYOUT_ENABLED") || "").toLowerCase() === "true";
-const FLW_SUPPORTED_COUNTRIES = new Set(["NG", "KE", "GH", "UG", "TZ", "RW", "ZM", "ZA"]);
-const FLW_SUPPORTED_CURRENCIES = new Set(["NGN", "KES", "GHS", "UGX", "TZS", "RWF", "ZMW", "ZAR"]);
-
 export function classifyCorridor(destinationCountry: string | null | undefined): Corridor {
   return isAfricanPayoutCountry(destinationCountry) ? "african" : "international";
 }
@@ -38,22 +34,17 @@ export function routeForCountry(destinationCountry: string | null | undefined): 
 }
 
 /**
- * Stage-0 Flutterwave routing helper (not yet wired into live transfer
- * execution): returns true only when payout rails are enabled and the
- * destination country/currency are explicitly in our allowlist.
+ * Legacy Stage-0 helper retained only for backwards compatibility.
+ *
+ * Do not use this helper for execution decisions.
+ * All Flutterwave routing decisions now come from DB-backed
+ * `provider_corridor_policy` enforcement in edge functions.
  */
 export function canUseFlutterwaveLocalRail(input: {
   destinationCountry: string | null | undefined;
   destinationCurrency: string | null | undefined;
   method: AfricanLocalMethod;
 }): boolean {
-  if (!FLW_PAYOUT_ENABLED) return false;
-  const country = String(input.destinationCountry || "").trim().toUpperCase();
-  const currency = String(input.destinationCurrency || "").trim().toUpperCase();
-  if (!country || !currency) return false;
-  if (!FLW_SUPPORTED_COUNTRIES.has(country)) return false;
-  if (!FLW_SUPPORTED_CURRENCIES.has(currency)) return false;
-  // Both bank and mobile_money are supported in the adapter scaffold;
-  // final per-corridor enablement remains server-config controlled.
-  return input.method === "bank" || input.method === "mobile_money";
+  void input;
+  return false;
 }
