@@ -67,6 +67,8 @@ def main() -> int:
     for label, content, token in [
         ("transfer-create", create_fn, "flutterwaveCreateTransfer"),
         ("transfer-create", create_fn, "flutterwaveRetryTransfer"),
+        ("transfer-create", create_fn, 'direction: "payout"'),
+        ("transfer-create", create_fn, 'source: "flutterwave"'),
         ("transfer-status", status_fn, "flutterwaveGetTransfer"),
         ("transfer-status", status_fn, "ALLOWED_DIRECTION"),
         ("transfer-status", status_fn, "direction must be payout or receive"),
@@ -75,6 +77,8 @@ def main() -> int:
         ("transfers-list", list_fn, "ALLOWED_STATUS"),
         ("collection-create", collection_create_fn, "flutterwaveCreateCharge"),
         ("collection-create", collection_create_fn, "evaluateProviderCorridorPolicy"),
+        ("collection-create", collection_create_fn, 'direction: "receive"'),
+        ("collection-create", collection_create_fn, 'source: "flutterwave"'),
         ("collection-status", collection_status_fn, "flutterwaveGetCharge"),
         ("collection-status", collection_status_fn, '.eq("direction", "receive")'),
         ("collection-status", collection_status_fn, "local_transfer_id"),
