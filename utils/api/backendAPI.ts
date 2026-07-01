@@ -2612,6 +2612,7 @@ export const adminAPI = {
     limit?: number;
     from?: number;
     include_payload?: boolean;
+    only_replayable?: boolean;
   } = {}) =>
     apiCall<{
       events: Array<Record<string, unknown>>;

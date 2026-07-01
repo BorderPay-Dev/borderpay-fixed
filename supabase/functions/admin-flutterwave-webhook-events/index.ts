@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
   const status = String(body?.status || "failed").trim().toLowerCase();
   const flow = String(body?.flow || "").trim().toLowerCase();
   const includePayload = body?.include_payload === true;
+  const onlyReplayable = body?.only_replayable === true;
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
   const from = Number(body?.from || 0);
@@ -74,7 +75,7 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "query_failed", error: error.message }, 500);
   }
 
-  const events = (data || []).map((row: Record<string, unknown>) => {
+  let events = (data || []).map((row: Record<string, unknown>) => {
     const attempts = Number(row.processing_attempts || 0);
     const statusValue = String(row.processing_status || "").toLowerCase();
     const replayEligible = statusValue === "failed" && attempts < maxReplayAttempts;
@@ -101,13 +102,17 @@ Deno.serve(async (req) => {
     };
   });
 
+  if (onlyReplayable) {
+    events = events.filter((row: any) => row.replay_eligible === true);
+  }
+
   return json({
     success: true,
     data: {
       events,
       total: count || 0,
       page: { from, limit },
-      filters: { status, flow: flow || null, include_payload: includePayload },
+      filters: { status, flow: flow || null, include_payload: includePayload, only_replayable: onlyReplayable },
       replay_policy: { max_attempts: maxReplayAttempts },
     },
   });
