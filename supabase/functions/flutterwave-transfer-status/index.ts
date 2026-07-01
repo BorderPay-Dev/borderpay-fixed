@@ -20,6 +20,8 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+const ALLOWED_DIRECTION = new Set(["payout", "receive"]);
+
 function transferData(input: any): any {
   return input?.data && typeof input.data === "object" ? input.data : input;
 }
@@ -53,34 +55,57 @@ Deno.serve(async (req) => {
   const transferId = String(body?.transfer_id || "").trim();
   const reference = String(body?.reference || "").trim();
   const localTransferId = String(body?.local_transfer_id || "").trim();
+  const direction = String(body?.direction || "").trim().toLowerCase();
+  if (direction && !ALLOWED_DIRECTION.has(direction)) {
+    return json({ success: false, error: "direction must be payout or receive" }, 400);
+  }
+  if (direction === "payout" && !caps.payout_enabled) {
+    return json({
+      success: false,
+      code: "flutterwave_not_enabled",
+      error: "Flutterwave payout rails are not enabled in this environment.",
+      data: { capabilities: caps },
+    }, 503);
+  }
+  if (direction === "receive" && !caps.receive_enabled) {
+    return json({
+      success: false,
+      code: "flutterwave_not_enabled",
+      error: "Flutterwave receive rails are not enabled in this environment.",
+      data: { capabilities: caps },
+    }, 503);
+  }
   if (!transferId && !reference && !localTransferId) {
     return json({ success: false, error: "transfer_id, reference, or local_transfer_id is required" }, 400);
   }
 
   let localRecord: any = null;
   if (localTransferId) {
-    const { data } = await supa
+    let q = supa
       .from("flutterwave_transfers")
       .select("*")
       .eq("id", localTransferId)
-      .eq("user_id", authData.user.id)
-      .maybeSingle();
+      .eq("user_id", authData.user.id);
+    if (direction) q = q.eq("direction", direction);
+    const { data } = await q.maybeSingle();
     localRecord = data || null;
   } else if (reference) {
-    const { data } = await supa
+    let q = supa
       .from("flutterwave_transfers")
       .select("*")
       .eq("reference", reference)
-      .eq("user_id", authData.user.id)
-      .maybeSingle();
+      .eq("user_id", authData.user.id);
+    if (direction) q = q.eq("direction", direction);
+    const { data } = await q.maybeSingle();
     localRecord = data || null;
   } else if (transferId) {
-    const { data } = await supa
+    let q = supa
       .from("flutterwave_transfers")
       .select("*")
       .eq("provider_transfer_id", transferId)
-      .eq("user_id", authData.user.id)
-      .maybeSingle();
+      .eq("user_id", authData.user.id);
+    if (direction) q = q.eq("direction", direction);
+    const { data } = await q.maybeSingle();
     localRecord = data || null;
   }
 
@@ -141,12 +166,13 @@ Deno.serve(async (req) => {
 
   return json({
     success: true,
-    data: {
-      capabilities: caps,
-      local_transfer_id: localRecord.id,
-      reference: localRecord.reference,
-      transfer_id: providerTransferId,
-      status: mappedStatus,
+      data: {
+        capabilities: caps,
+        local_transfer_id: localRecord.id,
+        direction: localRecord.direction || null,
+        reference: localRecord.reference,
+        transfer_id: providerTransferId,
+        status: mappedStatus,
       transfer: res.data,
     },
   });

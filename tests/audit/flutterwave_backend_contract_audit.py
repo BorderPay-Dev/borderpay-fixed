@@ -68,6 +68,8 @@ def main() -> int:
         ("transfer-create", create_fn, "flutterwaveCreateTransfer"),
         ("transfer-create", create_fn, "flutterwaveRetryTransfer"),
         ("transfer-status", status_fn, "flutterwaveGetTransfer"),
+        ("transfer-status", status_fn, "ALLOWED_DIRECTION"),
+        ("transfer-status", status_fn, "direction must be payout or receive"),
         ("transfers-list", list_fn, '.eq("user_id", authData.user.id)'),
         ("transfers-list", list_fn, "ALLOWED_DIRECTION"),
         ("transfers-list", list_fn, "ALLOWED_STATUS"),

@@ -45,6 +45,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 36. LOCAL — Enforce FLW_MIN_COLLECTION_AMOUNT presence in env contract audit
 37. LOCAL — Add authenticated flutterwave-collections-list endpoint (receive scope)
 38. LOCAL — Enforce receive-direction scoping in collection-status DB path
+39. LOCAL — Add explicit direction filtering/capability guard in transfer-status
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
