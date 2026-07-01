@@ -164,6 +164,8 @@ Deno.serve(async (req) => {
         status: mappedStatus,
         provider_status: providerStatus || null,
         provider_response: res.data ?? {},
+        provider_request_id: res.requestId || null,
+        provider_http_status: Number.isFinite(res.status) ? res.status : null,
         last_error: null,
         last_synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
