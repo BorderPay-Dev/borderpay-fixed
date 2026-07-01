@@ -216,6 +216,8 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       mode: "collection_create",
+      direction: "receive",
+      source: "flutterwave",
       capabilities: caps,
       reference,
       provider_transfer_id: providerId,
