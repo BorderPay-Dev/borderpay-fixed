@@ -170,10 +170,11 @@ Deno.serve(async (req) => {
         capabilities: caps,
         local_transfer_id: localRecord.id,
         direction: localRecord.direction || null,
+        source: localRecord.source || "flutterwave",
         reference: localRecord.reference,
         transfer_id: providerTransferId,
         status: mappedStatus,
-      transfer: res.data,
-    },
+        transfer: res.data,
+      },
   });
 });

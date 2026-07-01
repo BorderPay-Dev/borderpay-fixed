@@ -28,6 +28,7 @@ def main() -> int:
         ("receive capability guard code", "Flutterwave receive rails are not enabled in this environment."),
         ("direction filter on local record query", '.eq("direction", direction)'),
         ("direction echoed in response payload", "direction: localRecord.direction || null"),
+        ("source echoed in response payload", 'source: localRecord.source || "flutterwave"'),
     ]
     missing = [label for label, token in required if token not in text]
     if missing:
