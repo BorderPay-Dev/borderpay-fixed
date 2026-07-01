@@ -33,6 +33,7 @@ def main() -> int:
     required = [
         'endpoint: "flutterwave-collection-create"',
         'create_scope: "collection_create"',
+        'write_scope: "money_movement"',
         "response_contract_version: 1",
         'provider: "flutterwave"',
         'direction: "receive"',

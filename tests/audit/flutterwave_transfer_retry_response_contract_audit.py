@@ -33,6 +33,7 @@ def main() -> int:
     required = [
         'endpoint: "flutterwave-transfer-create"',
         'create_scope: "transfer_retry"',
+        'write_scope: "money_movement"',
         "response_contract_version: 1",
         'provider: "flutterwave"',
         'direction: "payout"',
