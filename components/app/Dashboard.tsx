@@ -486,6 +486,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // and bottom-nav chrome; Dashboard renders body-only.
   const setupDone = setupSteps.filter(s => s.completed).length;
   const setupTotal = setupSteps.length;
+  const hasVirtualAccounts = useMemo(
+    () => wallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
+    [wallets],
+  );
   const greeting   = (() => {
     const h = new Date().getHours();
     if (h < 5)  return tt('dashboard.greet.night',   'Good evening');
@@ -595,6 +599,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           userId={userId}
           onManagePlans={() => handleNavigate('pricing')}
           onUpgrade={onUpgrade}
+          hasVirtualAccounts={hasVirtualAccounts}
         />
       </section>
 

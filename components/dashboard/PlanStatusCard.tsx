@@ -28,10 +28,12 @@ export interface PlanStatusCardProps {
   onManagePlans:  () => void;
   /** Opens the activation flow (UpgradeModal) for the appropriate tier. */
   onUpgrade?:     () => void;
+  /** Hide activation prompt once user already has any VA (USD/EUR/GBP). */
+  hasVirtualAccounts?: boolean;
 }
 
 export function PlanStatusCard({
-  planKey, accountType, onManagePlans, onUpgrade,
+  planKey, accountType, onManagePlans, onUpgrade, hasVirtualAccounts = false,
 }: PlanStatusCardProps) {
   const tc = useThemeClasses();
 
@@ -50,6 +52,9 @@ export function PlanStatusCard({
 
   // Activated → the card disappears. Nothing to show, nothing to manage.
   if (getPlan(planKey).is_activated) return null;
+  // If the user already has virtual accounts, they are effectively unlocked;
+  // never keep showing the first-funding activation banner.
+  if (hasVirtualAccounts) return null;
 
   const onActivate = onUpgrade ?? onManagePlans;
   const isBusiness = accountType === 'business';
