@@ -34,6 +34,7 @@ def main() -> int:
         ("direction filter whitelist", "ALLOWED_DIRECTION"),
         ("status filter whitelist", "ALLOWED_STATUS"),
         ("source filter whitelist", "ALLOWED_SOURCE"),
+        ("source selected in response rows", '"source",'),
         ("limit clamp helper", "toPositiveInt("),
         ("cursor parser helper", "parseIsoTimestamp("),
         ("cursor filter", '.lt("created_at", before)'),

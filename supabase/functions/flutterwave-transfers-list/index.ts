@@ -80,6 +80,7 @@ Deno.serve(async (req) => {
       "created_at",
       "updated_at",
       "direction",
+      "source",
       "reference",
       "provider_transfer_id",
       "amount",
