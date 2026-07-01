@@ -40,6 +40,36 @@ function isTransferEvent(eventType: string): boolean {
   return e.includes("transfer") || e.includes("payout");
 }
 
+async function claimWebhookEvent(eventId: string, eventType: string, flow: "collection" | "transfer" | "unknown", payload: unknown) {
+  const { data, error } = await supa
+    .from("flutterwave_webhook_events")
+    .insert({
+      event_id: eventId,
+      event_type: eventType,
+      flow,
+      processing_status: "processing",
+      payload: payload ?? {},
+      metadata: { source: "flutterwave" },
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    // Postgres 23505 unique_violation => duplicate event_id
+    if ((error as any)?.code === "23505") return { claimed: false, duplicate: true as const };
+    throw error;
+  }
+
+  return { claimed: Boolean(data?.id), duplicate: false as const };
+}
+
+async function markWebhookEventStatus(eventId: string, status: "completed" | "failed") {
+  await supa
+    .from("flutterwave_webhook_events")
+    .update({ processing_status: status, processed_at: new Date().toISOString() })
+    .eq("event_id", eventId);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -80,6 +110,21 @@ Deno.serve(async (req) => {
   const eventId = String(payload?.id || `${eventType}:${collectionId || transferReference || txRef}:${Date.now()}`);
   const accountType = String(data?.meta?.borderpay_account_type || "").toLowerCase();
   const userIdFromMeta = String(data?.meta?.borderpay_user_id || "").trim();
+  const flow: "collection" | "transfer" | "unknown" = transferEvent ? "transfer" : "collection";
+
+  const claim = await claimWebhookEvent(eventId, eventType, flow, payload);
+  if (!claim.claimed) {
+    return json({
+      success: true,
+      code: "flutterwave_webhook_duplicate_ignored",
+      data: {
+        event_type: eventType,
+        event_id: eventId,
+        flow,
+        processing_mode: "duplicate_ignored",
+      },
+    }, 200);
+  }
 
   if (transferEvent) {
     const transferPayload: Record<string, unknown> = {
@@ -112,6 +157,7 @@ Deno.serve(async (req) => {
       .upsert(transferPayload, { onConflict: "reference" });
 
     if (transferErr) {
+      await markWebhookEventStatus(eventId, "failed");
       return json({
         success: false,
         code: "transfer_projection_failed",
@@ -208,6 +254,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    await markWebhookEventStatus(eventId, "completed");
     return json({
       success: true,
       code: "flutterwave_webhook_accepted",
@@ -253,6 +300,7 @@ Deno.serve(async (req) => {
     .upsert(collectionPayload, { onConflict: "tx_ref" });
 
   if (colErr) {
+    await markWebhookEventStatus(eventId, "failed");
     return json({
       success: false,
       code: "collection_projection_failed",
@@ -342,6 +390,7 @@ Deno.serve(async (req) => {
     }
   }
 
+  await markWebhookEventStatus(eventId, "completed");
   return json({
     success: true,
     code: "flutterwave_webhook_accepted",
