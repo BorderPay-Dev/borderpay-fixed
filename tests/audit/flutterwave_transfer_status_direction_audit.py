@@ -28,6 +28,7 @@ def main() -> int:
         ("receive capability guard code", "Flutterwave receive rails are not enabled in this environment."),
         ("direction filter on local record query", '.eq("direction", direction)'),
         ("endpoint marker", 'endpoint: "flutterwave-transfer-status"'),
+        ("read scope marker", 'read_scope: "status"'),
         ("status scope marker", 'status_scope: "transfer"'),
         ("response contract version marker", "response_contract_version: 1"),
         ("provider marker", 'provider: "flutterwave"'),

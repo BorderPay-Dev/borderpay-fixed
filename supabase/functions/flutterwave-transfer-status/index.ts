@@ -173,6 +173,7 @@ Deno.serve(async (req) => {
     success: true,
       data: {
         endpoint: "flutterwave-transfer-status",
+        read_scope: "status",
         status_scope: "transfer",
         response_contract_version: 1,
         contract_generated_at: new Date().toISOString(),
