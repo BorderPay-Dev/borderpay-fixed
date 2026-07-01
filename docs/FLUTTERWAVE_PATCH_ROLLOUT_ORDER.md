@@ -87,6 +87,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 78. LOCAL — Add explicit signature/replay enforcement flags in webhook accepted response
 79. LOCAL — Add webhook response_contract_version marker for deterministic parsing
 80. LOCAL — Add response_contract_version marker across create/list/status response contracts
+81. LOCAL — Add explicit create_scope markers across transfer/collection create success contracts
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
