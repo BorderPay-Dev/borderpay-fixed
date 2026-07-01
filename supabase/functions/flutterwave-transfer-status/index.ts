@@ -28,6 +28,12 @@ function normStatus(input: unknown): "pending" | "completed" | "failed" {
   return "pending";
 }
 
+function keepTerminalStatus(existingStatus: unknown, incomingStatus: "pending" | "completed" | "failed") {
+  const current = String(existingStatus || "").toLowerCase();
+  if (current === "completed" || current === "failed") return current as "completed" | "failed";
+  return incomingStatus;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -86,12 +92,19 @@ Deno.serve(async (req) => {
   const status = normStatus(transfer?.status || transfer?.payment_status);
   const currency = String(transfer?.currency || "").toUpperCase();
   const amount = Number(transfer?.amount || transfer?.charged_amount || 0);
+  const { data: existingProjection } = await supa
+    .from("flutterwave_transfers")
+    .select("status")
+    .eq("reference", reference)
+    .maybeSingle();
+  const effectiveStatus = keepTerminalStatus(existingProjection?.status, status);
+
   const upsertPayload: Record<string, unknown> = {
     reference,
     flutterwave_transfer_id: String(transfer?.id || transferId),
     amount: Number.isFinite(amount) ? amount : null,
     currency: currency || null,
-    status,
+    status: effectiveStatus,
     metadata: {
       source: "flutterwave",
       account_type: accountType,

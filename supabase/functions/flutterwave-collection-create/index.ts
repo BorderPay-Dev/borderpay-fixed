@@ -100,7 +100,6 @@ Deno.serve(async (req) => {
     business_user_id: businessUserId,
     amount,
     currency,
-    status: "pending",
     metadata: {
       account_type: accountType,
       initiated_by: authData.user.id,

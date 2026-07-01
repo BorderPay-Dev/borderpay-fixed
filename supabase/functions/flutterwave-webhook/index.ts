@@ -40,6 +40,12 @@ function isTransferEvent(eventType: string): boolean {
   return e.includes("transfer") || e.includes("payout");
 }
 
+function keepTerminalStatus(existingStatus: unknown, incomingStatus: "pending" | "completed" | "failed") {
+  const current = String(existingStatus || "").toLowerCase();
+  if (current === "completed" || current === "failed") return current as "completed" | "failed";
+  return incomingStatus;
+}
+
 async function sha256Hex(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -214,13 +220,21 @@ Deno.serve(async (req) => {
 
   try {
   if (transferEvent) {
+    const transferProjectionKey = transferReference || transferId || eventId;
+    const { data: existingTransfer } = await supa
+      .from("flutterwave_transfers")
+      .select("status")
+      .eq("reference", transferProjectionKey)
+      .maybeSingle();
+    const effectiveStatus = keepTerminalStatus(existingTransfer?.status, status);
+
     const transferPayload: Record<string, unknown> = {
-      reference: transferReference || transferId || eventId,
+      reference: transferProjectionKey,
       flutterwave_transfer_id: transferId || null,
       flutterwave_event_id: eventId,
       amount: Number.isFinite(amount) ? amount : null,
       currency,
-      status,
+      status: effectiveStatus,
       metadata: {
         event_type: eventType,
         account_type: accountType || null,
@@ -265,7 +279,7 @@ Deno.serve(async (req) => {
 
     if (resolvedUserId) {
       const reference = `flutterwave:transfer:${String(transferPayload.reference)}`;
-      const txStatus = status === "completed" ? "completed" : status === "failed" ? "failed" : "pending";
+      const txStatus = effectiveStatus === "completed" ? "completed" : effectiveStatus === "failed" ? "failed" : "pending";
 
       await supa.from("transactions").upsert({
         user_id: resolvedUserId,
@@ -287,7 +301,7 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       }, { onConflict: "reference" });
 
-      if (status === "completed" || status === "failed") {
+      if (effectiveStatus === "completed" || effectiveStatus === "failed") {
         const { data: existingNotification } = await supa
           .from("notifications")
           .select("id")
@@ -297,8 +311,8 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (!existingNotification?.id) {
-          const title = status === "completed" ? "Transfer completed" : "Transfer failed";
-          const body = status === "completed"
+          const title = effectiveStatus === "completed" ? "Transfer completed" : "Transfer failed";
+          const body = effectiveStatus === "completed"
             ? `Sent ${Number.isFinite(amount) ? amount : 0} ${currency}.`
             : `Transfer of ${Number.isFinite(amount) ? amount : 0} ${currency} failed.`;
           await supa.from("notifications").insert({
@@ -313,13 +327,13 @@ Deno.serve(async (req) => {
               flutterwave_event_id: eventId,
               amount: Number.isFinite(amount) ? amount : 0,
               currency,
-              status,
+              status: effectiveStatus,
             },
           });
         }
       }
 
-      if (status === "completed") {
+      if (effectiveStatus === "completed") {
         const amountMinor = toMinorUnits(amount, currency);
         if (amountMinor) {
           await supa.from("bridge_balance_ledger").upsert({
@@ -354,18 +368,26 @@ Deno.serve(async (req) => {
         flow: "transfer",
         reference: transferReference || null,
         tx_ref: null,
-        status,
+        status: effectiveStatus,
       },
     }, 202);
   }
 
+  const collectionProjectionKey = txRef || collectionId || eventId;
+  const { data: existingCollection } = await supa
+    .from("flutterwave_collections")
+    .select("status")
+    .eq("tx_ref", collectionProjectionKey)
+    .maybeSingle();
+  const effectiveStatus = keepTerminalStatus(existingCollection?.status, status);
+
   const collectionPayload: Record<string, unknown> = {
-    tx_ref: txRef || collectionId || eventId,
+    tx_ref: collectionProjectionKey,
     flutterwave_collection_id: collectionId || null,
     flutterwave_event_id: eventId,
     amount: Number.isFinite(amount) ? amount : null,
     currency,
-    status,
+    status: effectiveStatus,
     metadata: {
       event_type: eventType,
       account_type: accountType || null,
@@ -410,7 +432,7 @@ Deno.serve(async (req) => {
 
   if (resolvedUserId) {
     const reference = `flutterwave:collection:${String(collectionPayload.tx_ref)}`;
-    const txStatus = status === "completed" ? "completed" : status === "failed" ? "failed" : "pending";
+    const txStatus = effectiveStatus === "completed" ? "completed" : effectiveStatus === "failed" ? "failed" : "pending";
 
     await supa.from("transactions").upsert({
       user_id: resolvedUserId,
@@ -432,7 +454,7 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     }, { onConflict: "reference" });
 
-    if (status === "completed") {
+    if (effectiveStatus === "completed") {
       const { data: existingNotification } = await supa
         .from("notifications")
         .select("id")
@@ -492,7 +514,7 @@ Deno.serve(async (req) => {
       flow: "collection",
       tx_ref: txRef || null,
       reference: null,
-      status,
+      status: effectiveStatus,
     },
   }, 202);
   } catch {
