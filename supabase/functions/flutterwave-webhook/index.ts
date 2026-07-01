@@ -4,7 +4,7 @@ import { verifyFlutterwaveWebhookSignature } from "../_shared/providers/flutterw
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "content-type, verif-hash, x-verif-hash, x-flutterwave-signature",
+  "Access-Control-Allow-Headers": "content-type, verif-hash, x-verif-hash, x-flutterwave-signature, x-borderpay-replay-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -64,7 +64,48 @@ async function deriveEventId(params: {
   return `flw:${params.eventType}:${stableRef}:${payloadHash.slice(0, 24)}`;
 }
 
-async function claimWebhookEvent(eventId: string, eventType: string, flow: "collection" | "transfer" | "unknown", payload: unknown) {
+async function claimWebhookEvent(
+  eventId: string,
+  eventType: string,
+  flow: "collection" | "transfer" | "unknown",
+  payload: unknown,
+  replayKey: string,
+) {
+  const allowReprocessFailed = (Deno.env.get("FLW_WEBHOOK_ALLOW_REPROCESS_FAILED") || "false").toLowerCase() === "true";
+  const expectedReplayKey = String(Deno.env.get("FLW_WEBHOOK_REPLAY_KEY") || "").trim();
+
+  const { data: existing, error: existingErr } = await supa
+    .from("flutterwave_webhook_events")
+    .select("id,processing_status")
+    .eq("event_id", eventId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+
+  if (existing?.id) {
+    if (
+      existing.processing_status === "failed"
+      && allowReprocessFailed
+      && expectedReplayKey.length > 0
+      && replayKey === expectedReplayKey
+    ) {
+      const { error: reprocessErr } = await supa
+        .from("flutterwave_webhook_events")
+        .update({
+          processing_status: "processing",
+          processed_at: null,
+          metadata: { source: "flutterwave", replayed: true, replayed_at: new Date().toISOString() },
+          payload: payload ?? {},
+        })
+        .eq("event_id", eventId);
+      if (reprocessErr) throw reprocessErr;
+      return { claimed: true as const, duplicate: false as const, replayed: true as const, blocked: false as const };
+    }
+    if (existing.processing_status === "failed" && allowReprocessFailed && expectedReplayKey.length > 0 && replayKey !== expectedReplayKey) {
+      return { claimed: false as const, duplicate: false as const, replayed: false as const, blocked: true as const, block_reason: "replay_key_required" as const };
+    }
+    return { claimed: false as const, duplicate: true as const, replayed: false as const, blocked: false as const };
+  }
+
   const { data, error } = await supa
     .from("flutterwave_webhook_events")
     .insert({
@@ -79,12 +120,11 @@ async function claimWebhookEvent(eventId: string, eventType: string, flow: "coll
     .maybeSingle();
 
   if (error) {
-    // Postgres 23505 unique_violation => duplicate event_id
-    if ((error as any)?.code === "23505") return { claimed: false, duplicate: true as const };
+    if ((error as any)?.code === "23505") return { claimed: false as const, duplicate: true as const, replayed: false as const, blocked: false as const };
     throw error;
   }
 
-  return { claimed: Boolean(data?.id), duplicate: false as const };
+  return { claimed: Boolean(data?.id), duplicate: false as const, replayed: false as const, blocked: false as const };
 }
 
 async function markWebhookEventStatus(eventId: string, status: "completed" | "failed") {
@@ -142,9 +182,24 @@ Deno.serve(async (req) => {
   const accountType = String(data?.meta?.borderpay_account_type || "").toLowerCase();
   const userIdFromMeta = String(data?.meta?.borderpay_user_id || "").trim();
   const flow: "collection" | "transfer" | "unknown" = transferEvent ? "transfer" : "collection";
+  const replayKey = String(req.headers.get("x-borderpay-replay-key") || "").trim();
 
-  const claim = await claimWebhookEvent(eventId, eventType, flow, payload);
+  const claim = await claimWebhookEvent(eventId, eventType, flow, payload, replayKey);
   if (!claim.claimed) {
+    if (claim.blocked) {
+      return json({
+        success: false,
+        code: "flutterwave_webhook_replay_blocked",
+        error: "Replay denied. Valid replay key is required for failed-event reprocessing.",
+        data: {
+          event_type: eventType,
+          event_id: eventId,
+          flow,
+          processing_mode: "replay_blocked",
+          reason: claim.block_reason || "policy_blocked",
+        },
+      }, 403);
+    }
     return json({
       success: true,
       code: "flutterwave_webhook_duplicate_ignored",
@@ -152,7 +207,7 @@ Deno.serve(async (req) => {
         event_type: eventType,
         event_id: eventId,
         flow,
-        processing_mode: "duplicate_ignored",
+        processing_mode: claim.replayed ? "replayed" : "duplicate_ignored",
       },
     }, 200);
   }
