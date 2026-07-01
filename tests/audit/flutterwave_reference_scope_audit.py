@@ -30,6 +30,11 @@ CHECKS = [
         "transfer-create upsert uses user+source-scoped conflict target",
     ),
     (
+        "supabase/functions/flutterwave-collection-create/index.ts",
+        'onConflict: "user_id,source,reference"',
+        "collection-create upsert uses user+source-scoped conflict target",
+    ),
+    (
         "supabase/functions/flutterwave-webhook/index.ts",
         'onConflict: "user_id,source,reference"',
         "webhook seed upsert uses user+source-scoped conflict target",

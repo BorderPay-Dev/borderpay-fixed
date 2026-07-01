@@ -92,6 +92,7 @@ def main() -> int:
         ("collection-create", collection_create_fn, "flutterwaveCreateCharge"),
         ("collection-create", collection_create_fn, "evaluateProviderCorridorPolicy"),
         ("collection-create", collection_create_fn, 'provider: "flutterwave"'),
+        ("collection-create", collection_create_fn, 'onConflict: "user_id,source,reference"'),
         ("collection-create", collection_create_fn, 'direction: "receive"'),
         ("collection-create", collection_create_fn, 'source: "flutterwave"'),
         ("collection-status", collection_status_fn, "flutterwaveGetCharge"),

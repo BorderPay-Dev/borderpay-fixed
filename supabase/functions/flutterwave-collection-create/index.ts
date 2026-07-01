@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
       last_error: res.error || "collection_create_failed",
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id,reference" });
+    }, { onConflict: "user_id,source,reference" });
 
     return json({
       success: false,
@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
     last_error: null,
     last_synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }, { onConflict: "user_id,reference" });
+  }, { onConflict: "user_id,source,reference" });
 
   return json({
     success: true,
