@@ -37,6 +37,7 @@ def main() -> int:
         ("source filter whitelist", "ALLOWED_SOURCE"),
         ("channel filter whitelist", "ALLOWED_CHANNEL"),
         ("source selected in response rows", '"source",'),
+        ("endpoint marker", 'endpoint: "flutterwave-transfers-list"'),
         ("list scope marker", 'list_scope: "transfers"'),
         ("response contract version marker", "response_contract_version: 1"),
         ("provider marker", 'provider: "flutterwave"'),

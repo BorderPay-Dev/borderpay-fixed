@@ -174,6 +174,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     data: {
+      endpoint: "flutterwave-transfers-list",
       list_scope: "transfers",
       response_contract_version: 1,
       provider: "flutterwave",

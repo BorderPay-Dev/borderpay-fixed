@@ -172,6 +172,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
       data: {
+        endpoint: "flutterwave-transfer-status",
         status_scope: "transfer",
         response_contract_version: 1,
         provider: "flutterwave",

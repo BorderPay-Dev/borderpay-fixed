@@ -216,6 +216,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       mode: "collection_create",
+      endpoint: "flutterwave-collection-create",
       create_scope: "collection_create",
       response_contract_version: 1,
       provider: "flutterwave",

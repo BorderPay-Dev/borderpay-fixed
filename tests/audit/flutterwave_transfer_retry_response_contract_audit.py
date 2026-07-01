@@ -31,6 +31,7 @@ def main() -> int:
     block = text[start:end]
 
     required = [
+        'endpoint: "flutterwave-transfer-create"',
         'create_scope: "transfer_retry"',
         "response_contract_version: 1",
         'provider: "flutterwave"',

@@ -177,6 +177,7 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         mode: "retry",
+        endpoint: "flutterwave-transfer-create",
         create_scope: "transfer_retry",
         response_contract_version: 1,
         provider: "flutterwave",
@@ -349,6 +350,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       mode: "create",
+      endpoint: "flutterwave-transfer-create",
       create_scope: "transfer_create",
       response_contract_version: 1,
       provider: "flutterwave",

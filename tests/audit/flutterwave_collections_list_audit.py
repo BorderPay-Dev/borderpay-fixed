@@ -31,6 +31,7 @@ def main() -> int:
         ("flutterwave source lock", '.eq("source", "flutterwave")'),
         ("direction selected in response rows", '"direction",'),
         ("source selected in response rows", '"source",'),
+        ("endpoint marker", 'endpoint: "flutterwave-collections-list"'),
         ("list scope marker", 'list_scope: "collections"'),
         ("response contract version marker", "response_contract_version: 1"),
         ("provider marker", 'provider: "flutterwave"'),
