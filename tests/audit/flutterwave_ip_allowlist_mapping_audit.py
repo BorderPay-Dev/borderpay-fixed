@@ -39,6 +39,16 @@ CHECKS = [
         "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
         "transfer-status maps to static_ip_not_ready response code",
     ),
+    (
+        "supabase/functions/flutterwave-collection-create/index.ts",
+        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "collection-create maps to static_ip_not_ready response code",
+    ),
+    (
+        "supabase/functions/flutterwave-collection-status/index.ts",
+        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "collection-status maps to static_ip_not_ready response code",
+    ),
 ]
 
 

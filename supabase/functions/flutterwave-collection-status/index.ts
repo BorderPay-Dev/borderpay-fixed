@@ -100,21 +100,24 @@ Deno.serve(async (req) => {
 
   const res = await flutterwaveGetCharge(chargeId);
   if (!res.ok) {
+    const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
     await supa.from("flutterwave_transfers").update({
       provider_response: res.data ?? {},
       provider_request_id: res.requestId || null,
       provider_http_status: Number.isFinite(res.status) ? res.status : null,
-      last_error: res.error || "collection_status_failed",
+      last_error: isIpGuard ? "static_ip_not_ready" : (res.error || "collection_status_failed"),
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq("id", row.id);
 
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to fetch collection status",
+      code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
+      error: isIpGuard
+        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        : (res.error || "Failed to fetch collection status"),
       data: { reference: row.reference, provider_transfer_id: chargeId },
-    }, 502);
+    }, isIpGuard ? 503 : 502);
   }
 
   const rData: any = (res.data && typeof res.data === "object" && (res.data as any).data)
