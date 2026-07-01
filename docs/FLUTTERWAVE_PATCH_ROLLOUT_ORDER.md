@@ -38,6 +38,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 29. LOCAL — Extend static IP guard audit to enforce collection-create protection
 30. LOCAL — Centralize Flutterwave status mapping across transfer/collection/webhook paths
 31. LOCAL — Add strict config pin audit for all Flutterwave edge functions (verify_jwt contract)
+32. LOCAL — Normalize collection-status IP allowlist failures to static_ip_not_ready
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
