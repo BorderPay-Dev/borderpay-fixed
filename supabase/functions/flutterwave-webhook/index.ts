@@ -40,6 +40,30 @@ function isTransferEvent(eventType: string): boolean {
   return e.includes("transfer") || e.includes("payout");
 }
 
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function deriveEventId(params: {
+  payloadEventId: unknown;
+  eventType: string;
+  collectionId: string;
+  transferReference: string;
+  txRef: string;
+  rawBody: string;
+}): Promise<string> {
+  const payloadId = String(params.payloadEventId || "").trim();
+  if (payloadId) return payloadId;
+
+  const stableRef = params.collectionId || params.transferReference || params.txRef || "no-ref";
+  const payloadHash = await sha256Hex(params.rawBody || "{}");
+  return `flw:${params.eventType}:${stableRef}:${payloadHash.slice(0, 24)}`;
+}
+
 async function claimWebhookEvent(eventId: string, eventType: string, flow: "collection" | "transfer" | "unknown", payload: unknown) {
   const { data, error } = await supa
     .from("flutterwave_webhook_events")
@@ -107,7 +131,14 @@ Deno.serve(async (req) => {
   const status = normStatus(data?.status || data?.payment_status);
   const currency = String(data?.currency || "").trim().toUpperCase() || "USD";
   const amount = Number(data?.amount || data?.charged_amount || 0);
-  const eventId = String(payload?.id || `${eventType}:${collectionId || transferReference || txRef}:${Date.now()}`);
+  const eventId = await deriveEventId({
+    payloadEventId: payload?.id,
+    eventType,
+    collectionId,
+    transferReference,
+    txRef,
+    rawBody,
+  });
   const accountType = String(data?.meta?.borderpay_account_type || "").toLowerCase();
   const userIdFromMeta = String(data?.meta?.borderpay_user_id || "").trim();
   const flow: "collection" | "transfer" | "unknown" = transferEvent ? "transfer" : "collection";
