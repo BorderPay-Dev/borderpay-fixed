@@ -308,6 +308,8 @@ Deno.serve(async (req) => {
       replay_window_enforced: true,
       event_id: eventId,
       event_type: eventType,
+      headers_captured: true,
+      payload_persisted: true,
       replay_window_minutes: REPLAY_WINDOW_MINUTES,
       transfer_reference: transfer.reference,
       provider_transfer_id: transfer.providerTransferId,

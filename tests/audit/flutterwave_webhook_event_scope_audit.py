@@ -28,6 +28,8 @@ def main() -> int:
         "response_contract_version: 1",
         "contract_generated_at: new Date().toISOString()",
         'event_classification: transferEventEligible ? "money_movement" : "non_money_movement"',
+        "headers_captured: true",
+        "payload_persisted: true",
         "signature_verified: true",
         "replay_window_enforced: true",
         "processing_status: processingStatus",

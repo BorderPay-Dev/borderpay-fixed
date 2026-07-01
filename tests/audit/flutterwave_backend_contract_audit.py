@@ -150,6 +150,8 @@ def main() -> int:
         ("webhook", webhook_fn, "response_contract_version: 1"),
         ("webhook", webhook_fn, "contract_generated_at: new Date().toISOString()"),
         ("webhook", webhook_fn, 'event_classification: transferEventEligible ? "money_movement" : "non_money_movement"'),
+        ("webhook", webhook_fn, "headers_captured: true"),
+        ("webhook", webhook_fn, "payload_persisted: true"),
         ("webhook", webhook_fn, "signature_verified: true"),
         ("webhook", webhook_fn, "replay_window_enforced: true"),
         ("webhook", webhook_fn, "processing_status: processingStatus"),
