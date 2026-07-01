@@ -158,6 +158,7 @@ Deno.serve(async (req) => {
       endpoint: "flutterwave-collection-status",
       status_scope: "collection",
       response_contract_version: 1,
+      contract_generated_at: new Date().toISOString(),
       provider: "flutterwave",
       capabilities: caps,
       local_transfer_id: row.id,

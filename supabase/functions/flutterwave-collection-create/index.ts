@@ -219,6 +219,7 @@ Deno.serve(async (req) => {
       endpoint: "flutterwave-collection-create",
       create_scope: "collection_create",
       response_contract_version: 1,
+      contract_generated_at: new Date().toISOString(),
       provider: "flutterwave",
       direction: "receive",
       source: "flutterwave",
