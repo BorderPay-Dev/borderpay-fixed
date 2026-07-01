@@ -344,6 +344,8 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       mode: "create",
+      direction: "payout",
+      source: "flutterwave",
       capabilities: caps,
       reference,
       transfer_id: providerTransferId,
