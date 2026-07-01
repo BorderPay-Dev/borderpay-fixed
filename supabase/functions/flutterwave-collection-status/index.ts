@@ -169,6 +169,7 @@ Deno.serve(async (req) => {
       provider_transfer_id: chargeId,
       status: mappedStatus,
       provider_status: providerStatus || null,
+      status_source: providerStatus ? "provider" : "local",
       collection: res.data,
     },
   });

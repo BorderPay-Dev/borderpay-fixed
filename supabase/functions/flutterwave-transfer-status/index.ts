@@ -186,6 +186,7 @@ Deno.serve(async (req) => {
         transfer_id: providerTransferId,
         status: mappedStatus,
         provider_status: providerStatus,
+        status_source: providerStatus ? "provider" : "local",
         transfer: res.data,
       },
   });

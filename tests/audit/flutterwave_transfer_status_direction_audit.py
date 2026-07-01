@@ -34,6 +34,7 @@ def main() -> int:
         ("direction echoed in response payload", "direction: localRecord.direction || null"),
         ("source echoed in response payload", 'source: localRecord.source || "flutterwave"'),
         ("provider status echoed in response payload", "provider_status: providerStatus"),
+        ("status source echoed in response payload", 'status_source: providerStatus ? "provider" : "local"'),
     ]
     missing = [label for label, token in required if token not in text]
     if missing:

@@ -141,6 +141,12 @@ def main() -> int:
     )
     require(
         "supabase/functions/flutterwave-collection-status/index.ts",
+        r"status_source:\s*providerStatus\s*\?\s*\"provider\"\s*:\s*\"local\"",
+        "collection-status returns status source in response",
+        failures,
+    )
+    require(
+        "supabase/functions/flutterwave-collection-status/index.ts",
         r"getFlutterwaveNetworkGuard\(\"read\"\)",
         "collection-status uses read-scope network guard",
         failures,
