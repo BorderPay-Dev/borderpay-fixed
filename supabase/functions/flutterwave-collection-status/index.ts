@@ -56,6 +56,19 @@ Deno.serve(async (req) => {
 
   const collection_id = String(body?.collection_id || body?.charge_id || body?.id || "").trim();
   if (!collection_id) return json({ success: false, error: "collection_id is required" }, 400);
+  const accountType = String(body?.account_type || "individual").toLowerCase();
+
+  const { data: ownerProbe } = await supa
+    .from("flutterwave_collections")
+    .select("user_id,business_user_id")
+    .eq("flutterwave_collection_id", collection_id)
+    .maybeSingle();
+  if (ownerProbe) {
+    const ownerId = accountType === "business" ? ownerProbe.business_user_id : ownerProbe.user_id;
+    if (ownerId && ownerId !== authData.user.id) {
+      return json({ success: false, error: "Collection does not belong to current user" }, 403);
+    }
+  }
 
   const res = await flutterwaveGetCollection(collection_id);
   if (!res.ok) {
@@ -73,8 +86,6 @@ Deno.serve(async (req) => {
   const status = normStatus(collection?.status || collection?.payment_status);
   const currency = String(collection?.currency || "").toUpperCase();
   const amount = Number(collection?.amount || collection?.charged_amount || 0);
-  const accountType = String(body?.account_type || "individual").toLowerCase();
-
   const upsertPayload: Record<string, unknown> = {
     tx_ref: txRef || collection_id,
     flutterwave_collection_id: String(collection?.id || collection_id),

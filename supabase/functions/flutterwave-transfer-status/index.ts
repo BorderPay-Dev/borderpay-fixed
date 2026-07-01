@@ -56,6 +56,19 @@ Deno.serve(async (req) => {
 
   const transferId = String(body?.transfer_id || "").trim();
   if (!transferId) return json({ success: false, error: "transfer_id is required" }, 400);
+  const accountType = String(body?.account_type || "individual").toLowerCase();
+
+  const { data: ownerProbe } = await supa
+    .from("flutterwave_transfers")
+    .select("user_id,business_user_id")
+    .eq("flutterwave_transfer_id", transferId)
+    .maybeSingle();
+  if (ownerProbe) {
+    const ownerId = accountType === "business" ? ownerProbe.business_user_id : ownerProbe.user_id;
+    if (ownerId && ownerId !== authData.user.id) {
+      return json({ success: false, error: "Transfer does not belong to current user" }, 403);
+    }
+  }
 
   const res = await flutterwaveGetTransfer(transferId);
   if (!res.ok) {
@@ -73,8 +86,6 @@ Deno.serve(async (req) => {
   const status = normStatus(transfer?.status || transfer?.payment_status);
   const currency = String(transfer?.currency || "").toUpperCase();
   const amount = Number(transfer?.amount || transfer?.charged_amount || 0);
-  const accountType = String(body?.account_type || "individual").toLowerCase();
-
   const upsertPayload: Record<string, unknown> = {
     reference,
     flutterwave_transfer_id: String(transfer?.id || transferId),
