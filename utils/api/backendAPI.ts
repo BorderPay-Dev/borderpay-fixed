@@ -2626,6 +2626,7 @@ export const adminAPI = {
     event_id: string;
     dry_run?: boolean;
     force?: boolean;
+    reason?: string;
   }) =>
     apiCall<{
       event?: Record<string, unknown>;

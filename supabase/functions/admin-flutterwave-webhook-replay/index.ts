@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
   const eventId = String(body.event_id || "").trim();
   const dryRun = body.dry_run === true;
   const force = body.force === true;
+  const reason = String(body.reason || "").trim().slice(0, 500);
   const correlationId = crypto.randomUUID();
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
 
@@ -101,6 +102,7 @@ Deno.serve(async (req) => {
         correlation_id: correlationId,
         event: eventRow,
         would_replay: true,
+        reason: reason || null,
         replay_ready: replayEnabled && replayKey.length > 0 && signature.length > 0,
         replay_prerequisites: {
           FLW_WEBHOOK_ALLOW_REPROCESS_FAILED: replayEnabled,
@@ -149,11 +151,12 @@ Deno.serve(async (req) => {
         processing_attempts: eventRow.processing_attempts,
         last_error: eventRow.last_error,
       },
-      after_state: {
-        replay_error: String((e as any)?.message || "replay_fetch_failed"),
-        forced: force,
-      },
-    });
+    after_state: {
+      replay_error: String((e as any)?.message || "replay_fetch_failed"),
+      forced: force,
+      reason: reason || null,
+    },
+  });
     return json({
       success: false,
       code: "replay_request_failed",
@@ -182,6 +185,7 @@ Deno.serve(async (req) => {
       webhook_result: webhookJson,
       forced: force,
       correlation_id: correlationId,
+      reason: reason || null,
     },
   });
 
@@ -191,6 +195,7 @@ Deno.serve(async (req) => {
     data: {
       event_id: eventId,
       correlation_id: correlationId,
+      reason: reason || null,
       webhook_http_status: webhookRes.status,
       webhook_result: webhookJson,
     },
