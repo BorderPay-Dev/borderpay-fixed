@@ -176,6 +176,7 @@ Deno.serve(async (req) => {
     data: {
       endpoint: "flutterwave-transfers-list",
       list_scope: "transfers",
+      read_scope: "history",
       source_scope: "flutterwave_only",
       filters_locked_to_source: true,
       response_contract_version: 1,
