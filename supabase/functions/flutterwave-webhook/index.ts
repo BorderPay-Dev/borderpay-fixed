@@ -216,6 +216,7 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq("provider_transfer_id", transfer.providerTransferId)
+          .eq("source", "flutterwave")
           .select("id")
           .limit(1);
         reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;
@@ -237,6 +238,7 @@ Deno.serve(async (req) => {
           .eq("user_id", transfer.userIdFromMeta)
           .eq("direction", movementDirection)
           .eq("reference", transfer.reference)
+          .eq("source", "flutterwave")
           .select("id")
           .limit(1);
         reconciled = !update.error && Array.isArray(update.data) && update.data.length > 0;

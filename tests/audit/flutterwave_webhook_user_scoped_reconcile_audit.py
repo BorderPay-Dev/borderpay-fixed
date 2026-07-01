@@ -24,6 +24,7 @@ def main() -> int:
         '.eq("user_id", transfer.userIdFromMeta)',
         '.eq("direction", movementDirection)',
         '.eq("reference", transfer.reference)',
+        '.eq("source", "flutterwave")',
         'insufficient_identity_for_reference_reconcile',
     ]
     missing = [c for c in checks if c not in text]
