@@ -60,6 +60,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 51. LOCAL — Add explicit direction/source response contract for transfer-create
 52. LOCAL — Add explicit direction/source response contract for collection-create
 53. LOCAL — Lock create-response direction/source in central backend contract audit
+54. LOCAL — Add explicit direction/source response contract for transfer-retry
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`

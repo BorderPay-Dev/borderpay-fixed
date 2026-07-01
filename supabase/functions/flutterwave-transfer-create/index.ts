@@ -177,6 +177,8 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         mode: "retry",
+        direction: "payout",
+        source: "flutterwave",
         capabilities: caps,
         transfer_id: providerTransferId,
         status: mappedStatus,
