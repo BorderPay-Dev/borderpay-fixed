@@ -42,6 +42,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 33. LOCAL — Add before-cursor pagination for flutterwave-transfers-list
 34. LOCAL — Add minimum collection amount guard via FLW_MIN_COLLECTION_AMOUNT
 35. LOCAL — Whitelist source filter in flutterwave-transfers-list
+36. LOCAL — Enforce FLW_MIN_COLLECTION_AMOUNT presence in env contract audit
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`

@@ -19,6 +19,7 @@ ENV_REQUIRED = [
     "FLW_WEBHOOK_REPLAY_WINDOW_MINUTES=",
     "FLW_STATIC_IP_REQUIRED=",
     "FLW_STATIC_IP_READY=",
+    "FLW_MIN_COLLECTION_AMOUNT=",
 ]
 
 
@@ -60,4 +61,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
