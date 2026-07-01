@@ -85,6 +85,7 @@ Deno.serve(async (req) => {
       "id",
       "created_at",
       "updated_at",
+      "direction",
       "reference",
       "provider_transfer_id",
       "amount",
