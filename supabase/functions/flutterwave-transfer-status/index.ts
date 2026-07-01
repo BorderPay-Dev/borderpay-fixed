@@ -172,6 +172,7 @@ Deno.serve(async (req) => {
   return json({
     success: true,
       data: {
+        status_scope: "transfer",
         capabilities: caps,
         local_transfer_id: localRecord.id,
         direction: localRecord.direction || null,

@@ -105,6 +105,12 @@ def main() -> int:
     )
     require(
         "supabase/functions/flutterwave-collection-status/index.ts",
+        r"status_scope:\s*\"collection\"",
+        "collection-status returns status scope marker",
+        failures,
+    )
+    require(
+        "supabase/functions/flutterwave-collection-status/index.ts",
         r"capabilities:\s*caps",
         "collection-status returns capabilities in response",
         failures,

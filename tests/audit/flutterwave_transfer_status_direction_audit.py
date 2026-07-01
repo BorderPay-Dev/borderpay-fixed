@@ -27,6 +27,7 @@ def main() -> int:
         ("payout capability guard code", "Flutterwave payout rails are not enabled in this environment."),
         ("receive capability guard code", "Flutterwave receive rails are not enabled in this environment."),
         ("direction filter on local record query", '.eq("direction", direction)'),
+        ("status scope marker", 'status_scope: "transfer"'),
         ("direction echoed in response payload", "direction: localRecord.direction || null"),
         ("source echoed in response payload", 'source: localRecord.source || "flutterwave"'),
         ("provider status echoed in response payload", "provider_status: providerStatus"),
