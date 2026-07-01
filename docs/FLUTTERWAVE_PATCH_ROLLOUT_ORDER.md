@@ -99,6 +99,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 90. LOCAL — Add explicit processing_scope marker in webhook accepted response contract
 91. LOCAL — Add explicit filters_locked_to_source marker in list response contracts
 92. LOCAL — Add explicit source_locked_to_flutterwave marker in status response contracts
+93. LOCAL — Add explicit source_locked_to_flutterwave marker in create/retry response contracts
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`

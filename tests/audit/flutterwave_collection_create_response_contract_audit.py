@@ -37,6 +37,7 @@ def main() -> int:
         'provider: "flutterwave"',
         'direction: "receive"',
         'source: "flutterwave"',
+        "source_locked_to_flutterwave: true",
         "reference,",
         "provider_transfer_id: providerId,",
         "status: mappedStatus,",
