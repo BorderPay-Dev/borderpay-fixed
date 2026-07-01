@@ -2647,6 +2647,25 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  flutterwaveWebhookMetrics: async () =>
+    apiCall<{
+      totals: {
+        tracked_events: number;
+        failed_24h: number;
+        replayable_failed: number;
+      };
+      counts: {
+        by_status: Record<string, number>;
+        by_flow: Record<string, number>;
+        failed_by_code: Record<string, number>;
+        attempts_buckets: Record<string, number>;
+      };
+      replay_policy: { max_attempts: number };
+      sampled_window: { latest_events_sampled: number; sample_limit: number };
+    }>('admin-flutterwave-webhook-metrics', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 };
 
 export interface SupportTicket {
