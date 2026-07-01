@@ -157,6 +157,7 @@ Deno.serve(async (req) => {
     }, 200);
   }
 
+  try {
   if (transferEvent) {
     const transferPayload: Record<string, unknown> = {
       reference: transferReference || transferId || eventId,
@@ -435,4 +436,17 @@ Deno.serve(async (req) => {
       status,
     },
   }, 202);
+  } catch {
+    await markWebhookEventStatus(eventId, "failed");
+    return json({
+      success: false,
+      code: "flutterwave_webhook_processing_failed",
+      error: "Failed to process webhook event.",
+      data: {
+        event_type: eventType,
+        event_id: eventId,
+        flow,
+      },
+    }, 500);
+  }
 });
