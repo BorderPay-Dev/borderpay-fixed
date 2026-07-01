@@ -31,6 +31,7 @@ def main() -> int:
         ("auth token required", "Authorization required"),
         ("jwt user lookup", ".auth.getUser(token)"),
         ("user ownership filter", '.eq("user_id", authData.user.id)'),
+        ("flutterwave source lock", '.eq("source", "flutterwave")'),
         ("direction filter whitelist", "ALLOWED_DIRECTION"),
         ("status filter whitelist", "ALLOWED_STATUS"),
         ("source filter whitelist", "ALLOWED_SOURCE"),
@@ -54,7 +55,7 @@ def main() -> int:
     if not re.search(r"\[functions\.flutterwave-transfers-list\]\s*verify_jwt\s*=\s*true", cfg, re.MULTILINE):
         return fail("supabase/config.toml missing flutterwave-transfers-list verify_jwt=true pin")
 
-    print("[OK] flutterwave-transfers-list endpoint enforces auth + ownership + bounded filters")
+    print("[OK] flutterwave-transfers-list endpoint enforces auth + ownership + flutterwave source scope + bounded filters")
     print("flutterwave_transfers_list_audit: PASS")
     return 0
 

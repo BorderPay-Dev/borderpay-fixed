@@ -28,6 +28,7 @@ def main() -> int:
         ("auth user lookup", "supa.auth.getUser(token)"),
         ("ownership filter", '.eq("user_id", authData.user.id)'),
         ("receive direction lock", '.eq("direction", "receive")'),
+        ("flutterwave source lock", '.eq("source", "flutterwave")'),
         ("direction selected in response rows", '"direction",'),
         ("source selected in response rows", '"source",'),
         ("status filter guard", "ALLOWED_STATUS"),
@@ -48,7 +49,7 @@ def main() -> int:
     if not re.search(r"\[functions\.flutterwave-collections-list\]\s*verify_jwt\s*=\s*true", cfg, re.MULTILINE):
         return fail("supabase/config.toml missing flutterwave-collections-list verify_jwt=true pin")
 
-    print("[OK] flutterwave-collections-list endpoint enforces auth + ownership + receive scope")
+    print("[OK] flutterwave-collections-list endpoint enforces auth + ownership + receive scope + flutterwave source lock")
     print("flutterwave_collections_list_audit: PASS")
     return 0
 

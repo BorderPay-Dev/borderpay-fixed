@@ -114,6 +114,7 @@ Deno.serve(async (req) => {
       "provider_http_status",
     ].join(","))
     .eq("user_id", authData.user.id)
+    .eq("source", "flutterwave")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -133,7 +134,6 @@ Deno.serve(async (req) => {
     if (!ALLOWED_SOURCE.has(source)) {
       return json({ success: false, error: "source must be flutterwave" }, 400);
     }
-    query = query.eq("source", source);
   }
   if (channel) {
     if (!ALLOWED_CHANNEL.has(channel)) {
@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
       filters: {
         direction: direction || null,
         status: status || null,
-        source: source || null,
+        source: "flutterwave",
         channel: channel || null,
         limit,
         before: before || null,
