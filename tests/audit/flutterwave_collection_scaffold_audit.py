@@ -111,6 +111,12 @@ def main() -> int:
     )
     require(
         "supabase/functions/flutterwave-collection-status/index.ts",
+        r"response_contract_version:\s*1",
+        "collection-status returns response contract version marker",
+        failures,
+    )
+    require(
+        "supabase/functions/flutterwave-collection-status/index.ts",
         r"provider:\s*\"flutterwave\"",
         "collection-status returns provider marker",
         failures,

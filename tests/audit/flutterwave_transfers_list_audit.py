@@ -38,6 +38,7 @@ def main() -> int:
         ("channel filter whitelist", "ALLOWED_CHANNEL"),
         ("source selected in response rows", '"source",'),
         ("list scope marker", 'list_scope: "transfers"'),
+        ("response contract version marker", "response_contract_version: 1"),
         ("provider marker", 'provider: "flutterwave"'),
         ("channel filter validation message", "channel must be bank or mobile_money"),
         ("payout capability guard", "Flutterwave payout rails are not enabled in this environment."),

@@ -31,6 +31,7 @@ def main() -> int:
     block = text[start:end]
 
     required = [
+        "response_contract_version: 1",
         'provider: "flutterwave"',
         'direction: "receive"',
         'source: "flutterwave"',
