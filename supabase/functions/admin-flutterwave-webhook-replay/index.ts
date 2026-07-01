@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
   const eventId = String(body.event_id || "").trim();
   const dryRun = body.dry_run === true;
   const force = body.force === true;
+  const correlationId = crypto.randomUUID();
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
 
   const replayEnabled = (Deno.env.get("FLW_WEBHOOK_ALLOW_REPROCESS_FAILED") || "false").toLowerCase() === "true";
@@ -61,6 +62,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "replay_disabled",
       error: "Webhook replay is disabled. Set FLW_WEBHOOK_ALLOW_REPROCESS_FAILED=true.",
+      data: { correlation_id: correlationId },
     }, 412);
   }
 
@@ -90,12 +92,21 @@ Deno.serve(async (req) => {
   }
 
   if (dryRun) {
+    const replayKey = String(Deno.env.get("FLW_WEBHOOK_REPLAY_KEY") || "").trim();
+    const signature = String(Deno.env.get("FLW_WEBHOOK_SECRET_HASH") || "").trim();
     return json({
       success: true,
       code: "dry_run_ready",
       data: {
+        correlation_id: correlationId,
         event: eventRow,
         would_replay: true,
+        replay_ready: replayEnabled && replayKey.length > 0 && signature.length > 0,
+        replay_prerequisites: {
+          FLW_WEBHOOK_ALLOW_REPROCESS_FAILED: replayEnabled,
+          FLW_WEBHOOK_REPLAY_KEY: replayKey.length > 0,
+          FLW_WEBHOOK_SECRET_HASH: signature.length > 0,
+        },
       },
     });
   }
@@ -110,15 +121,48 @@ Deno.serve(async (req) => {
     }, 500);
   }
 
-  const webhookRes = await fetch(`${SUPABASE_URL}/functions/v1/flutterwave-webhook`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-flutterwave-signature": signature,
-      "x-borderpay-replay-key": replayKey,
-    },
-    body: JSON.stringify(eventRow.payload || {}),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let webhookRes: Response;
+  try {
+    webhookRes = await fetch(`${SUPABASE_URL}/functions/v1/flutterwave-webhook`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-flutterwave-signature": signature,
+        "x-borderpay-replay-key": replayKey,
+        "x-correlation-id": correlationId,
+      },
+      body: JSON.stringify(eventRow.payload || {}),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    clearTimeout(timeout);
+    await supa.from("admin_action_audit").insert({
+      actor_id: admin.userId,
+      role: "admin",
+      action_type: "flutterwave_webhook_replay",
+      target_resource: `flutterwave_webhook_events:${eventId}`,
+      request_id: correlationId,
+      before_state: {
+        processing_status: eventRow.processing_status,
+        processing_attempts: eventRow.processing_attempts,
+        last_error: eventRow.last_error,
+      },
+      after_state: {
+        replay_error: String((e as any)?.message || "replay_fetch_failed"),
+        forced: force,
+      },
+    });
+    return json({
+      success: false,
+      code: "replay_request_failed",
+      error: "Replay request could not be delivered to webhook endpoint.",
+      data: { event_id: eventId, correlation_id: correlationId },
+    }, 502);
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const webhookJson = await webhookRes.json().catch(() => ({}));
 
@@ -137,6 +181,7 @@ Deno.serve(async (req) => {
       webhook_http_status: webhookRes.status,
       webhook_result: webhookJson,
       forced: force,
+      correlation_id: correlationId,
     },
   });
 
@@ -145,6 +190,7 @@ Deno.serve(async (req) => {
     code: webhookRes.ok ? "replay_submitted" : "replay_failed",
     data: {
       event_id: eventId,
+      correlation_id: correlationId,
       webhook_http_status: webhookRes.status,
       webhook_result: webhookJson,
     },
