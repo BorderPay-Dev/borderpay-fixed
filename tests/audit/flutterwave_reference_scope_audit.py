@@ -10,24 +10,29 @@ ROOT = Path(__file__).resolve().parents[2]
 
 CHECKS = [
     (
+        "supabase/migrations/20260701010000_flutterwave_reference_scope_user_source.sql",
+        "drop index if exists public.flw_transfers_user_reference_uq;",
+        "drops legacy user+reference unique index",
+    ),
+    (
+        "supabase/migrations/20260701010000_flutterwave_reference_scope_user_source.sql",
+        "create unique index if not exists flw_transfers_user_source_reference_uq",
+        "creates user+source+reference unique index",
+    ),
+    (
         "supabase/migrations/20260630201000_flutterwave_reference_scope_user.sql",
         "drop index if exists public.flw_transfers_reference_uq;",
         "drops global reference unique index",
     ),
     (
-        "supabase/migrations/20260630201000_flutterwave_reference_scope_user.sql",
-        "create unique index if not exists flw_transfers_user_reference_uq",
-        "creates user+reference unique index",
-    ),
-    (
         "supabase/functions/flutterwave-transfer-create/index.ts",
-        'onConflict: "user_id,reference"',
-        "transfer-create upsert uses user-scoped conflict target",
+        'onConflict: "user_id,source,reference"',
+        "transfer-create upsert uses user+source-scoped conflict target",
     ),
     (
         "supabase/functions/flutterwave-webhook/index.ts",
-        'onConflict: "user_id,reference"',
-        "webhook seed upsert uses user-scoped conflict target",
+        'onConflict: "user_id,source,reference"',
+        "webhook seed upsert uses user+source-scoped conflict target",
     ),
 ]
 
@@ -57,4 +62,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
