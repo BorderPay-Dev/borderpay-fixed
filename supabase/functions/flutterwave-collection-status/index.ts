@@ -21,6 +21,13 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function normStatus(input: unknown): "pending" | "completed" | "failed" {
+  const s = String(input || "").trim().toLowerCase();
+  if (["successful", "success", "completed", "paid", "succeeded"].includes(s)) return "completed";
+  if (["failed", "cancelled", "canceled", "reversed", "declined", "error"].includes(s)) return "failed";
+  return "pending";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -61,6 +68,37 @@ Deno.serve(async (req) => {
     }, mapped.status);
   }
 
+  const collection = (res.data || {}) as Record<string, unknown>;
+  const txRef = String(collection?.tx_ref || collection?.reference || collection?.txRef || "").trim();
+  const status = normStatus(collection?.status || collection?.payment_status);
+  const currency = String(collection?.currency || "").toUpperCase();
+  const amount = Number(collection?.amount || collection?.charged_amount || 0);
+  const accountType = String(body?.account_type || "individual").toLowerCase();
+
+  const upsertPayload: Record<string, unknown> = {
+    tx_ref: txRef || collection_id,
+    flutterwave_collection_id: String(collection?.id || collection_id),
+    amount: Number.isFinite(amount) ? amount : null,
+    currency: currency || null,
+    status,
+    metadata: {
+      source: "flutterwave",
+      account_type: accountType,
+      polled: true,
+    },
+    raw_payload: collection,
+  };
+
+  if (accountType === "business") {
+    upsertPayload.business_user_id = authData.user.id;
+    upsertPayload.user_id = null;
+  } else {
+    upsertPayload.user_id = authData.user.id;
+    upsertPayload.business_user_id = null;
+  }
+
+  await supa.from("flutterwave_collections").upsert(upsertPayload, { onConflict: "tx_ref" });
+
   return json({
     success: true,
     data: {
@@ -70,4 +108,3 @@ Deno.serve(async (req) => {
     },
   });
 });
-
