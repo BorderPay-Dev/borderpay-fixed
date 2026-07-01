@@ -33,6 +33,7 @@ def main() -> int:
         ("provider marker", 'provider: "flutterwave"'),
         ("direction echoed in response payload", "direction: localRecord.direction || null"),
         ("source echoed in response payload", 'source: localRecord.source || "flutterwave"'),
+        ("source lock marker", "source_locked_to_flutterwave: true"),
         ("provider status echoed in response payload", "provider_status: providerStatus"),
         ("status source echoed in response payload", 'status_source: providerStatus ? "provider" : "local"'),
     ]

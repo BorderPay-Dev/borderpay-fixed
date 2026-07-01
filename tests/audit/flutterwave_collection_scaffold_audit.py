@@ -105,6 +105,12 @@ def main() -> int:
     )
     require(
         "supabase/functions/flutterwave-collection-status/index.ts",
+        r"source_locked_to_flutterwave:\s*true",
+        "collection-status returns source lock marker",
+        failures,
+    )
+    require(
+        "supabase/functions/flutterwave-collection-status/index.ts",
         r"endpoint:\s*\"flutterwave-collection-status\"",
         "collection-status returns endpoint marker",
         failures,
