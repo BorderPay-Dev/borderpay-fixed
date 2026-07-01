@@ -158,6 +158,7 @@ Deno.serve(async (req) => {
       local_transfer_id: row.id,
       direction: row.direction || "receive",
       source: row.source || "flutterwave",
+      channel: row.channel || null,
       reference: row.reference,
       provider_transfer_id: chargeId,
       status: mappedStatus,

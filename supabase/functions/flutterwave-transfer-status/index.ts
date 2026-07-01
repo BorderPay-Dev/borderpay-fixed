@@ -176,6 +176,7 @@ Deno.serve(async (req) => {
         local_transfer_id: localRecord.id,
         direction: localRecord.direction || null,
         source: localRecord.source || "flutterwave",
+        channel: localRecord.channel || null,
         reference: localRecord.reference,
         transfer_id: providerTransferId,
         status: mappedStatus,
