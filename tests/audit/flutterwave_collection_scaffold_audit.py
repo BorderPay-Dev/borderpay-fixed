@@ -93,6 +93,18 @@ def main() -> int:
     )
     require(
         "supabase/functions/flutterwave-collection-status/index.ts",
+        r"direction:\s*row\.direction\s*\|\|\s*\"receive\"",
+        "collection-status returns explicit direction in response",
+        failures,
+    )
+    require(
+        "supabase/functions/flutterwave-collection-status/index.ts",
+        r"source:\s*row\.source\s*\|\|\s*\"flutterwave\"",
+        "collection-status returns explicit source in response",
+        failures,
+    )
+    require(
+        "supabase/functions/flutterwave-collection-status/index.ts",
         r"getFlutterwaveNetworkGuard\(\"read\"\)",
         "collection-status uses read-scope network guard",
         failures,
@@ -122,4 +134,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
