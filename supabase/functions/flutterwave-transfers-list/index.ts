@@ -52,6 +52,14 @@ Deno.serve(async (req) => {
       data: { capabilities: caps },
     }, 503);
   }
+  if (!caps.payout_enabled && !caps.receive_enabled) {
+    return json({
+      success: false,
+      code: "flutterwave_not_enabled",
+      error: "Flutterwave transfer list endpoint is not enabled in this environment.",
+      data: { capabilities: caps },
+    }, 503);
+  }
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
@@ -117,6 +125,14 @@ Deno.serve(async (req) => {
     .eq("source", "flutterwave")
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  if (!direction) {
+    if (!caps.payout_enabled && caps.receive_enabled) {
+      query = query.eq("direction", "receive");
+    } else if (!caps.receive_enabled && caps.payout_enabled) {
+      query = query.eq("direction", "payout");
+    }
+  }
 
   if (direction) {
     if (!ALLOWED_DIRECTION.has(direction)) {

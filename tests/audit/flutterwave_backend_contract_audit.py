@@ -79,6 +79,7 @@ def main() -> int:
         ("transfers-list", list_fn, "ALLOWED_STATUS"),
         ("transfers-list", list_fn, "ALLOWED_CHANNEL"),
         ("transfers-list", list_fn, '.eq("source", "flutterwave")'),
+        ("transfers-list", list_fn, "Flutterwave transfer list endpoint is not enabled in this environment."),
         ("collection-create", collection_create_fn, "flutterwaveCreateCharge"),
         ("collection-create", collection_create_fn, "evaluateProviderCorridorPolicy"),
         ("collection-create", collection_create_fn, 'direction: "receive"'),

@@ -67,6 +67,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 58. LOCAL — Enforce Flutterwave source scoping in transfer/collection list endpoints
 59. LOCAL — Add explicit channel field to transfer/collection status responses
 60. LOCAL — Include capabilities in collection-status success contract
+61. LOCAL — Fail-closed transfers-list when rails disabled + auto-scope by enabled direction
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
