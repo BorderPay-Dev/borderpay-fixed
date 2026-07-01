@@ -132,18 +132,25 @@ Deno.serve(async (req) => {
   if (error) {
     return json({ success: false, code: "db_error", error: error.message || "Failed to list collections" }, 500);
   }
+  const rows = data || [];
+  const tailCreatedAt = rows.length ? String(rows[rows.length - 1]?.created_at || "").trim() : "";
+  const nextBefore = rows.length === limit && tailCreatedAt ? tailCreatedAt : null;
 
   return json({
     success: true,
     data: {
       capabilities: caps,
-      rows: data || [],
+      rows,
       filters: {
         status: status || null,
         source: "flutterwave",
         channel: channel || null,
         limit,
         before: before || null,
+      },
+      pagination: {
+        has_more: Boolean(nextBefore),
+        next_before: nextBefore,
       },
     },
   });

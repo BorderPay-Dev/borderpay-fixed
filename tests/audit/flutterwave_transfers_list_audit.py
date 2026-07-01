@@ -46,6 +46,8 @@ def main() -> int:
         ("limit clamp helper", "toPositiveInt("),
         ("cursor parser helper", "parseIsoTimestamp("),
         ("cursor filter", '.lt("created_at", before)'),
+        ("pagination has_more", "has_more: Boolean(nextBefore)"),
+        ("pagination next_before", "next_before: nextBefore"),
         ("flutterwave capability guard", "getFlutterwaveCapabilities"),
     ]
     missing = [label for (label, token) in checks if token not in text]
