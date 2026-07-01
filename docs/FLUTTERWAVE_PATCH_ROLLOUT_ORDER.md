@@ -47,6 +47,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 38. LOCAL — Enforce receive-direction scoping in collection-status DB path
 39. LOCAL — Add explicit direction filtering/capability guard in transfer-status
 40. LOCAL — Add local_transfer_id lookup support to collection-status
+41. LOCAL — Add transfer-status direction gating audit to lock regression
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
