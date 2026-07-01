@@ -33,6 +33,7 @@ def main() -> int:
         ("user ownership filter", '.eq("user_id", authData.user.id)'),
         ("direction filter whitelist", "ALLOWED_DIRECTION"),
         ("status filter whitelist", "ALLOWED_STATUS"),
+        ("source filter whitelist", "ALLOWED_SOURCE"),
         ("limit clamp helper", "toPositiveInt("),
         ("cursor parser helper", "parseIsoTimestamp("),
         ("cursor filter", '.lt("created_at", before)'),

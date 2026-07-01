@@ -22,6 +22,7 @@ const supa = createClient(
 
 const ALLOWED_DIRECTION = new Set(["payout", "receive"]);
 const ALLOWED_STATUS = new Set(["submitted", "processing", "completed", "failed", "reversed", "unknown"]);
+const ALLOWED_SOURCE = new Set(["flutterwave"]);
 
 function toPositiveInt(value: unknown, fallback = 25, max = 100): number {
   const n = Number(value);
@@ -109,7 +110,12 @@ Deno.serve(async (req) => {
     }
     query = query.eq("status", status);
   }
-  if (source) query = query.eq("source", source);
+  if (source) {
+    if (!ALLOWED_SOURCE.has(source)) {
+      return json({ success: false, error: "source must be flutterwave" }, 400);
+    }
+    query = query.eq("source", source);
+  }
   if (before) query = query.lt("created_at", before);
 
   const { data, error } = await query;
