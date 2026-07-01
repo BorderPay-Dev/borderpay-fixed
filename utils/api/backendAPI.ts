@@ -2720,6 +2720,23 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  replayFlutterwaveWebhookBatch: async (input: {
+    dry_run?: boolean;
+    limit?: number;
+    reason?: string;
+  } = {}) =>
+    apiCall<{
+      requested_limit?: number;
+      replayable_count?: number;
+      candidates?: Array<Record<string, unknown>>;
+      attempted?: number;
+      succeeded?: number;
+      failed?: number;
+      results?: Array<Record<string, unknown>>;
+    }>('admin-flutterwave-webhook-replay-batch', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 };
 
 export interface SupportTicket {
