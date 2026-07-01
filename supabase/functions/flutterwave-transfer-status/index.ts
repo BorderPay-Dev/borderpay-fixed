@@ -85,7 +85,8 @@ Deno.serve(async (req) => {
       .from("flutterwave_transfers")
       .select("*")
       .eq("id", localTransferId)
-      .eq("user_id", authData.user.id);
+      .eq("user_id", authData.user.id)
+      .eq("source", "flutterwave");
     if (direction) q = q.eq("direction", direction);
     const { data } = await q.maybeSingle();
     localRecord = data || null;
@@ -94,7 +95,8 @@ Deno.serve(async (req) => {
       .from("flutterwave_transfers")
       .select("*")
       .eq("reference", reference)
-      .eq("user_id", authData.user.id);
+      .eq("user_id", authData.user.id)
+      .eq("source", "flutterwave");
     if (direction) q = q.eq("direction", direction);
     const { data } = await q.maybeSingle();
     localRecord = data || null;
@@ -103,7 +105,8 @@ Deno.serve(async (req) => {
       .from("flutterwave_transfers")
       .select("*")
       .eq("provider_transfer_id", transferId)
-      .eq("user_id", authData.user.id);
+      .eq("user_id", authData.user.id)
+      .eq("source", "flutterwave");
     if (direction) q = q.eq("direction", direction);
     const { data } = await q.maybeSingle();
     localRecord = data || null;
@@ -135,7 +138,8 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       })
       .eq("id", localRecord.id)
-      .eq("user_id", authData.user.id);
+      .eq("user_id", authData.user.id)
+      .eq("source", "flutterwave");
     return json({
       success: false,
       code: isIpGuard ? "static_ip_not_ready" : "upstream_error",
@@ -162,7 +166,8 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     })
     .eq("id", localRecord.id)
-    .eq("user_id", authData.user.id);
+    .eq("user_id", authData.user.id)
+    .eq("source", "flutterwave");
 
   return json({
     success: true,

@@ -76,6 +76,7 @@ Deno.serve(async (req) => {
       .eq("id", localTransferId)
       .eq("user_id", authData.user.id)
       .eq("direction", "receive")
+      .eq("source", "flutterwave")
       .maybeSingle();
     row = data || null;
   } else if (providerId) {
@@ -85,6 +86,7 @@ Deno.serve(async (req) => {
       .eq("provider_transfer_id", providerId)
       .eq("user_id", authData.user.id)
       .eq("direction", "receive")
+      .eq("source", "flutterwave")
       .maybeSingle();
     row = data || null;
   } else {
@@ -94,6 +96,7 @@ Deno.serve(async (req) => {
       .eq("reference", reference)
       .eq("user_id", authData.user.id)
       .eq("direction", "receive")
+      .eq("source", "flutterwave")
       .maybeSingle();
     row = data || null;
   }
@@ -120,7 +123,7 @@ Deno.serve(async (req) => {
       last_error: isIpGuard ? "static_ip_not_ready" : (res.error || "collection_status_failed"),
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", row.id).eq("direction", "receive");
+    }).eq("id", row.id).eq("direction", "receive").eq("source", "flutterwave");
 
     return json({
       success: false,
@@ -147,7 +150,7 @@ Deno.serve(async (req) => {
     last_error: null,
     last_synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }).eq("id", row.id).eq("direction", "receive");
+  }).eq("id", row.id).eq("direction", "receive").eq("source", "flutterwave");
 
   return json({
     success: true,
