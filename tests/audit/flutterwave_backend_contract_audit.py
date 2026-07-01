@@ -81,6 +81,7 @@ def main() -> int:
         ("collections-list", collections_list_fn, '.eq("user_id", authData.user.id)'),
         ("collections-list", collections_list_fn, '.eq("direction", "receive")'),
         ("collections-list", collections_list_fn, "ALLOWED_STATUS"),
+        ("collections-list", collections_list_fn, '"source",'),
         ("webhook", webhook_fn, "verifyFlutterwaveWebhookSignature"),
         ("webhook", webhook_fn, "flutterwave_webhook_events"),
         ("webhook", webhook_fn, "flutterwave_transfers"),
