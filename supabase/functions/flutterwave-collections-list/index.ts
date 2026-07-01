@@ -22,6 +22,7 @@ const supa = createClient(
 
 const ALLOWED_STATUS = new Set(["submitted", "processing", "completed", "failed", "reversed", "unknown"]);
 const ALLOWED_SOURCE = new Set(["flutterwave"]);
+const ALLOWED_CHANNEL = new Set(["bank", "mobile_money"]);
 
 function toPositiveInt(value: unknown, fallback = 25, max = 100): number {
   const n = Number(value);
@@ -74,6 +75,7 @@ Deno.serve(async (req) => {
   const limit = toPositiveInt(body?.limit, 25, 100);
   const status = String(body?.status || "").trim().toLowerCase();
   const source = String(body?.source || "").trim().toLowerCase();
+  const channel = String(body?.channel || "").trim().toLowerCase();
   const before = parseIsoTimestamp(body?.before);
   if (body?.before && !before) {
     return json({ success: false, error: "before must be a valid ISO timestamp" }, 400);
@@ -118,6 +120,12 @@ Deno.serve(async (req) => {
     }
     query = query.eq("source", source);
   }
+  if (channel) {
+    if (!ALLOWED_CHANNEL.has(channel)) {
+      return json({ success: false, error: "channel must be bank or mobile_money" }, 400);
+    }
+    query = query.eq("channel", channel);
+  }
   if (before) query = query.lt("created_at", before);
 
   const { data, error } = await query;
@@ -133,6 +141,7 @@ Deno.serve(async (req) => {
       filters: {
         status: status || null,
         source: source || null,
+        channel: channel || null,
         limit,
         before: before || null,
       },

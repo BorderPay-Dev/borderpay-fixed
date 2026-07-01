@@ -32,6 +32,8 @@ def main() -> int:
         ("source selected in response rows", '"source",'),
         ("status filter guard", "ALLOWED_STATUS"),
         ("source filter guard", "ALLOWED_SOURCE"),
+        ("channel filter guard", "ALLOWED_CHANNEL"),
+        ("channel whitelist message", "channel must be bank or mobile_money"),
         ("source whitelist message", "source must be flutterwave"),
         ("capability guard", "getFlutterwaveCapabilities"),
         ("receive-enabled guard", "flutterwave_receive_disabled"),
