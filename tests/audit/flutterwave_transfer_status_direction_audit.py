@@ -29,6 +29,7 @@ def main() -> int:
         ("direction filter on local record query", '.eq("direction", direction)'),
         ("direction echoed in response payload", "direction: localRecord.direction || null"),
         ("source echoed in response payload", 'source: localRecord.source || "flutterwave"'),
+        ("provider status echoed in response payload", "provider_status: providerStatus"),
     ]
     missing = [label for label, token in required if token not in text]
     if missing:

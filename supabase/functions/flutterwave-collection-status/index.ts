@@ -163,6 +163,7 @@ Deno.serve(async (req) => {
       reference: row.reference,
       provider_transfer_id: chargeId,
       status: mappedStatus,
+      provider_status: providerStatus || null,
       collection: res.data,
     },
   });

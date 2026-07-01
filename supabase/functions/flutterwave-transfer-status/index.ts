@@ -180,6 +180,7 @@ Deno.serve(async (req) => {
         reference: localRecord.reference,
         transfer_id: providerTransferId,
         status: mappedStatus,
+        provider_status: providerStatus,
         transfer: res.data,
       },
   });
