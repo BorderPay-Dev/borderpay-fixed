@@ -1,19 +1,6 @@
-/**
- * get-momo-providers — Flutterwave-backed mobile network directory shim.
- *
- * Legacy endpoint kept for backend compatibility while we converge all
- * African rails to Flutterwave adapters.
- *
- * Input:
- *  - country: ISO2 country code (required)
- *
- * Output:
- *  - providers: normalized array of mobile network entries
- */
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveListMobileNetworks, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import { getFlutterwaveCapabilities, flutterwaveGetTransferRates } from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -34,30 +21,16 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
-function normalizeProviders(payload: any): Array<Record<string, unknown>> {
-  const list =
-    (Array.isArray(payload?.data) && payload.data)
-    || (Array.isArray(payload?.mobile_networks) && payload.mobile_networks)
-    || (Array.isArray(payload) && payload)
-    || [];
-  return list.map((row: any) => ({
-    code: String(row?.code || row?.id || row?.network || "").trim(),
-    name: String(row?.name || row?.network || row?.provider || "").trim(),
-    country: String(row?.country || row?.country_code || "").toUpperCase().trim() || null,
-    raw: row,
-  })).filter((r) => r.code || r.name);
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
   const caps = getFlutterwaveCapabilities();
-  if (!caps.configured || !caps.receive_enabled) {
+  if (!caps.configured || !(caps.receive_enabled || caps.payout_enabled)) {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Mobile money provider directory is not enabled in this environment.",
+      error: "Flutterwave transfer rates are not enabled in this environment.",
       data: { capabilities: caps },
     }, 503);
   }
@@ -74,26 +47,47 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON body" }, 400);
   }
 
-  const country = String(body?.country || body?.country_code || "").trim().toUpperCase();
-  if (!country) return json({ success: false, error: "country is required" }, 400);
+  const source = String(body?.source_currency || "").trim().toUpperCase();
+  const destination = String(body?.destination_currency || "").trim().toUpperCase();
+  const amountRaw = body?.amount;
+  const amount = amountRaw === undefined || amountRaw === null || amountRaw === ""
+    ? undefined
+    : Number(amountRaw);
 
-  const res = await flutterwaveListMobileNetworks(country);
+  if (!source || !destination) {
+    return json({ success: false, error: "source_currency and destination_currency are required" }, 400);
+  }
+  if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
+    return json({ success: false, error: "amount must be > 0" }, 400);
+  }
+
+  const res = await flutterwaveGetTransferRates({
+    source_currency: source,
+    destination_currency: destination,
+    amount,
+  });
   if (!res.ok) {
-    const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load mobile money providers");
+    const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to fetch transfer rates");
     return json({
       success: false,
       code: mapped.code,
       error: mapped.error,
-      data: { capabilities: caps, country },
+      data: {
+        capabilities: caps,
+        source_currency: source,
+        destination_currency: destination,
+      },
     }, mapped.status);
   }
 
   return json({
     success: true,
     data: {
-      country,
-      providers: normalizeProviders(res.data),
       capabilities: caps,
+      source_currency: source,
+      destination_currency: destination,
+      amount: amount ?? null,
+      rates: res.data,
     },
   });
 });

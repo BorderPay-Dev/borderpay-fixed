@@ -5,6 +5,7 @@ import {
   flutterwaveRetryTransfer,
   getFlutterwaveCapabilities,
 } from "../_shared/providers/flutterwave.ts";
+import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -62,12 +63,13 @@ Deno.serve(async (req) => {
     if (!transferId) return json({ success: false, error: "transfer_id is required for retry mode" }, 400);
     const res = await flutterwaveRetryTransfer(transferId, body?.retry_payload || {});
     if (!res.ok) {
+      const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to retry transfer");
       return json({
         success: false,
-        code: "upstream_error",
-        error: res.error || "Failed to retry transfer",
+        code: mapped.code,
+        error: mapped.error,
         data: { capabilities: caps },
-      }, 502);
+      }, mapped.status);
     }
     return json({
       success: true,
@@ -105,12 +107,13 @@ Deno.serve(async (req) => {
   });
 
   if (!res.ok) {
+    const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to create transfer");
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to create transfer",
+      code: mapped.code,
+      error: mapped.error,
       data: { capabilities: caps },
-    }, 502);
+    }, mapped.status);
   }
 
   return json({

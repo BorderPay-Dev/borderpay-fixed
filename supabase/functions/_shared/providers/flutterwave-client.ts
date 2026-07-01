@@ -47,6 +47,58 @@ function parseJson(raw: string): any {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
+function flattenErrorText(payload: Record<string, unknown> | null): string {
+  if (!payload) return "";
+  const direct = [
+    payload.message,
+    payload.error,
+    payload.status,
+  ].filter((v) => typeof v === "string") as string[];
+
+  const data = payload.data && typeof payload.data === "object"
+    ? payload.data as Record<string, unknown>
+    : null;
+
+  const nested = data
+    ? [
+      data.message,
+      data.error,
+      data.status,
+      data.response_message,
+      data.processor_response,
+    ].filter((v) => typeof v === "string") as string[]
+    : [];
+
+  return [...direct, ...nested].join(" | ").trim();
+}
+
+function normalizeFlutterwaveError(status: number, payload: Record<string, unknown> | null): string {
+  const raw = flattenErrorText(payload);
+  const normalized = raw.toLowerCase();
+  if (status === 429) return "flutterwave_rate_limited";
+  if (status >= 500) return "flutterwave_upstream_unavailable";
+
+  if (
+    /allowlist|allowlisted|whitelist|whitelisted|ip.*not.*allow|ip.*not.*whitelist|unauthori[sz]ed ip|source ip/.test(normalized)
+  ) {
+    return "flutterwave_ip_not_allowlisted";
+  }
+
+  if (
+    /account.*inactive|inactive.*account|merchant.*inactive|account.*disabled|merchant.*disabled|account.*suspend|merchant.*suspend|not activated|not active/.test(normalized)
+  ) {
+    return "flutterwave_account_inactive";
+  }
+
+  if (
+    /invalid api key|invalid secret|unauthorized|forbidden|authentication failed|auth failed|access denied/.test(normalized)
+  ) {
+    return "flutterwave_auth_error";
+  }
+
+  return raw || `Flutterwave HTTP ${status}`;
+}
+
 export function flutterwaveClientConfigured(): boolean {
   return Boolean(FLW_SECRET_KEY);
 }
@@ -97,14 +149,7 @@ export async function flutterwaveFetch<T = unknown>(
 
     if (!res.ok) {
       const payload = parsed as Record<string, unknown> | null;
-      const msg =
-        (typeof payload?.message === "string" && payload.message) ||
-        (typeof payload?.error === "string" && payload.error) ||
-        `Flutterwave HTTP ${res.status}`;
-      const normalized =
-        res.status === 429 ? "flutterwave_rate_limited" :
-        res.status >= 500 ? "flutterwave_upstream_unavailable" :
-        msg;
+      const normalized = normalizeFlutterwaveError(res.status, payload);
       return { ok: false, status: res.status, data: parsed, rawText, requestId, error: normalized };
     }
 

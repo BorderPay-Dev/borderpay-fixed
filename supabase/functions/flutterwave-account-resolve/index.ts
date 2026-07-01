@@ -1,19 +1,6 @@
-/**
- * get-momo-providers — Flutterwave-backed mobile network directory shim.
- *
- * Legacy endpoint kept for backend compatibility while we converge all
- * African rails to Flutterwave adapters.
- *
- * Input:
- *  - country: ISO2 country code (required)
- *
- * Output:
- *  - providers: normalized array of mobile network entries
- */
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveListMobileNetworks, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import { getFlutterwaveCapabilities, flutterwaveResolveBankAccount } from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -34,30 +21,16 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
-function normalizeProviders(payload: any): Array<Record<string, unknown>> {
-  const list =
-    (Array.isArray(payload?.data) && payload.data)
-    || (Array.isArray(payload?.mobile_networks) && payload.mobile_networks)
-    || (Array.isArray(payload) && payload)
-    || [];
-  return list.map((row: any) => ({
-    code: String(row?.code || row?.id || row?.network || "").trim(),
-    name: String(row?.name || row?.network || row?.provider || "").trim(),
-    country: String(row?.country || row?.country_code || "").toUpperCase().trim() || null,
-    raw: row,
-  })).filter((r) => r.code || r.name);
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
   const caps = getFlutterwaveCapabilities();
-  if (!caps.configured || !caps.receive_enabled) {
+  if (!caps.configured || !caps.payout_enabled) {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Mobile money provider directory is not enabled in this environment.",
+      error: "Flutterwave payout rails are not enabled in this environment.",
       data: { capabilities: caps },
     }, 503);
   }
@@ -74,26 +47,31 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON body" }, 400);
   }
 
-  const country = String(body?.country || body?.country_code || "").trim().toUpperCase();
-  if (!country) return json({ success: false, error: "country is required" }, 400);
+  const accountNumber = String(body?.account_number || "").trim();
+  const bankCode = String(body?.bank_code || "").trim();
+  if (!accountNumber || !bankCode) {
+    return json({ success: false, error: "account_number and bank_code are required" }, 400);
+  }
 
-  const res = await flutterwaveListMobileNetworks(country);
+  const res = await flutterwaveResolveBankAccount({
+    account_number: accountNumber,
+    bank_code: bankCode,
+  });
   if (!res.ok) {
-    const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load mobile money providers");
+    const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to resolve account");
     return json({
       success: false,
       code: mapped.code,
       error: mapped.error,
-      data: { capabilities: caps, country },
+      data: { capabilities: caps },
     }, mapped.status);
   }
 
   return json({
     success: true,
     data: {
-      country,
-      providers: normalizeProviders(res.data),
       capabilities: caps,
+      resolution: res.data,
     },
   });
 });

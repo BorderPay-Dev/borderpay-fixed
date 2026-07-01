@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { flutterwaveGetTransfer, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -51,12 +52,13 @@ Deno.serve(async (req) => {
 
   const res = await flutterwaveGetTransfer(transferId);
   if (!res.ok) {
+    const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to retrieve transfer status");
     return json({
       success: false,
-      code: "upstream_error",
-      error: res.error || "Failed to retrieve transfer status",
+      code: mapped.code,
+      error: mapped.error,
       data: { capabilities: caps, transfer_id: transferId },
-    }, 502);
+    }, mapped.status);
   }
 
   return json({
