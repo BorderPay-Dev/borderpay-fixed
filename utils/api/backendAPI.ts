@@ -2706,6 +2706,20 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  repairFlutterwaveProjection: async (input: {
+    dry_run?: boolean;
+    flow?: 'collection' | 'transfer';
+    limit?: number;
+  } = {}) =>
+    apiCall<{
+      dry_run: boolean;
+      flow: 'all' | 'collection' | 'transfer';
+      actions_count: number;
+      actions: Array<Record<string, unknown>>;
+    }>('admin-flutterwave-projection-repair', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 };
 
 export interface SupportTicket {
