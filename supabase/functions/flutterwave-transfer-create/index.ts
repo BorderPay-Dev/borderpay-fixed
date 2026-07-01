@@ -103,7 +103,17 @@ Deno.serve(async (req) => {
     callback_url: body?.callback_url ? String(body.callback_url) : undefined,
     debit_currency: body?.debit_currency ? String(body.debit_currency).toUpperCase() : undefined,
     beneficiary_name: body?.beneficiary_name ? String(body.beneficiary_name) : undefined,
-    meta: typeof body?.meta === "object" && body?.meta !== null ? body.meta : undefined,
+    ...(() => {
+      const inputMeta = typeof body?.meta === "object" && body?.meta !== null ? body.meta : {};
+      return {
+        meta: {
+          ...inputMeta,
+          borderpay_user_id: authData.user.id,
+          borderpay_account_type: String((body?.account_type || "individual")).toLowerCase(),
+          borderpay_transfer_reference: reference,
+        },
+      };
+    })(),
   });
 
   if (!res.ok) {
@@ -115,6 +125,24 @@ Deno.serve(async (req) => {
       data: { capabilities: caps },
     }, mapped.status);
   }
+
+  const accountType = String(body?.account_type || "individual").toLowerCase();
+  const businessUserId = accountType === "business" ? authData.user.id : null;
+  await supa.from("flutterwave_transfers").upsert({
+    reference,
+    flutterwave_transfer_id: String((res.data as any)?.id || (res.data as any)?.data?.id || ""),
+    user_id: accountType === "business" ? null : authData.user.id,
+    business_user_id: businessUserId,
+    amount,
+    currency,
+    status: "pending",
+    metadata: {
+      account_type: accountType,
+      initiated_by: authData.user.id,
+      source: "flutterwave",
+    },
+    raw_payload: res.data ?? {},
+  }, { onConflict: "reference" });
 
   return json({
     success: true,

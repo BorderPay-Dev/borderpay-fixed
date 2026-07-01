@@ -35,6 +35,11 @@ function toMinorUnits(amount: unknown, currency: string): string | null {
   return String(Math.round(n * factor));
 }
 
+function isTransferEvent(eventType: string): boolean {
+  const e = eventType.toLowerCase();
+  return e.includes("transfer") || e.includes("payout");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -50,6 +55,8 @@ Deno.serve(async (req) => {
 
   const eventType = String(payload?.event || payload?.event_type || "unknown");
   const data = (payload?.data && typeof payload.data === "object") ? payload.data : payload;
+  const transferEvent = isTransferEvent(eventType);
+
   const txRef = String(
     data?.tx_ref
     || data?.reference
@@ -57,14 +64,166 @@ Deno.serve(async (req) => {
     || data?.meta?.borderpay_tx_ref
     || "",
   ).trim();
+
+  const transferReference = String(
+    data?.reference
+    || data?.tx_ref
+    || data?.meta?.borderpay_transfer_reference
+    || "",
+  ).trim();
+
   const collectionId = String(data?.id || data?.flw_ref || txRef || "").trim();
+  const transferId = String(data?.id || data?.transfer_id || data?.flw_ref || "").trim();
   const status = normStatus(data?.status || data?.payment_status);
   const currency = String(data?.currency || "").trim().toUpperCase() || "USD";
   const amount = Number(data?.amount || data?.charged_amount || 0);
-  const eventId = String(payload?.id || `${eventType}:${collectionId || txRef}:${Date.now()}`);
+  const eventId = String(payload?.id || `${eventType}:${collectionId || transferReference || txRef}:${Date.now()}`);
   const accountType = String(data?.meta?.borderpay_account_type || "").toLowerCase();
+  const userIdFromMeta = String(data?.meta?.borderpay_user_id || "").trim();
 
-  const upsertPayload: Record<string, unknown> = {
+  if (transferEvent) {
+    const transferPayload: Record<string, unknown> = {
+      reference: transferReference || transferId || eventId,
+      flutterwave_transfer_id: transferId || null,
+      flutterwave_event_id: eventId,
+      amount: Number.isFinite(amount) ? amount : null,
+      currency,
+      status,
+      metadata: {
+        event_type: eventType,
+        account_type: accountType || null,
+        source: "flutterwave",
+      },
+      raw_payload: payload,
+    };
+
+    if (userIdFromMeta) {
+      if (accountType === "business") {
+        transferPayload.business_user_id = userIdFromMeta;
+        transferPayload.user_id = null;
+      } else {
+        transferPayload.user_id = userIdFromMeta;
+        transferPayload.business_user_id = null;
+      }
+    }
+
+    const { error: transferErr } = await supa
+      .from("flutterwave_transfers")
+      .upsert(transferPayload, { onConflict: "reference" });
+
+    if (transferErr) {
+      return json({
+        success: false,
+        code: "transfer_projection_failed",
+        error: "Failed to project transfer webhook.",
+        data: { event_type: eventType, reference: transferReference || null },
+      }, 500);
+    }
+
+    const { data: projectedTransfer } = await supa
+      .from("flutterwave_transfers")
+      .select("reference,user_id,business_user_id")
+      .eq("reference", String(transferPayload.reference))
+      .maybeSingle();
+
+    const resolvedUserId = projectedTransfer?.user_id || projectedTransfer?.business_user_id || null;
+
+    if (resolvedUserId) {
+      const reference = `flutterwave:transfer:${String(transferPayload.reference)}`;
+      const txStatus = status === "completed" ? "completed" : status === "failed" ? "failed" : "pending";
+
+      await supa.from("transactions").upsert({
+        user_id: resolvedUserId,
+        type: "transfer",
+        amount: Number.isFinite(amount) ? amount : 0,
+        currency,
+        status: txStatus,
+        reference,
+        provider: "bridge",
+        description: "Transfer payout",
+        metadata: {
+          source: "flutterwave",
+          event_type: eventType,
+          reference: String(transferPayload.reference),
+          flutterwave_transfer_id: transferId || null,
+          flutterwave_event_id: eventId,
+          raw: data,
+        },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "reference" });
+
+      if (status === "completed" || status === "failed") {
+        const { data: existingNotification } = await supa
+          .from("notifications")
+          .select("id")
+          .eq("user_id", resolvedUserId)
+          .eq("type", "transaction")
+          .contains("metadata", { reference: String(transferPayload.reference), source: "flutterwave" })
+          .maybeSingle();
+
+        if (!existingNotification?.id) {
+          const title = status === "completed" ? "Transfer completed" : "Transfer failed";
+          const body = status === "completed"
+            ? `Sent ${Number.isFinite(amount) ? amount : 0} ${currency}.`
+            : `Transfer of ${Number.isFinite(amount) ? amount : 0} ${currency} failed.`;
+          await supa.from("notifications").insert({
+            user_id: resolvedUserId,
+            type: "transaction",
+            title,
+            body,
+            metadata: {
+              source: "flutterwave",
+              reference: String(transferPayload.reference),
+              flutterwave_transfer_id: transferId || null,
+              flutterwave_event_id: eventId,
+              amount: Number.isFinite(amount) ? amount : 0,
+              currency,
+              status,
+            },
+          });
+        }
+      }
+
+      if (status === "completed") {
+        const amountMinor = toMinorUnits(amount, currency);
+        if (amountMinor) {
+          await supa.from("bridge_balance_ledger").upsert({
+            event_id: `flw:${eventId}`,
+            provider: "flutterwave",
+            entity_type: "transfer",
+            entity_id: transferId || String(transferPayload.reference),
+            user_id: accountType === "business" ? null : resolvedUserId,
+            business_user_id: accountType === "business" ? resolvedUserId : null,
+            currency,
+            amount_minor: amountMinor,
+            direction: "debit",
+            metadata: {
+              source: "flutterwave",
+              reference: String(transferPayload.reference),
+              flutterwave_transfer_id: transferId || null,
+              flutterwave_event_id: eventId,
+            },
+          }, { onConflict: "event_id" });
+        }
+      }
+    }
+
+    return json({
+      success: true,
+      code: "flutterwave_webhook_accepted",
+      data: {
+        event_type: eventType,
+        received_at: new Date().toISOString(),
+        processing_mode: "projected",
+        flow: "transfer",
+        reference: transferReference || null,
+        tx_ref: null,
+        status,
+      },
+    }, 202);
+  }
+
+  const collectionPayload: Record<string, unknown> = {
     tx_ref: txRef || collectionId || eventId,
     flutterwave_collection_id: collectionId || null,
     flutterwave_event_id: eventId,
@@ -79,20 +238,20 @@ Deno.serve(async (req) => {
     raw_payload: payload,
   };
 
-  const userIdFromMeta = String(data?.meta?.borderpay_user_id || "").trim();
   if (userIdFromMeta) {
     if (accountType === "business") {
-      upsertPayload.business_user_id = userIdFromMeta;
-      upsertPayload.user_id = null;
+      collectionPayload.business_user_id = userIdFromMeta;
+      collectionPayload.user_id = null;
     } else {
-      upsertPayload.user_id = userIdFromMeta;
-      upsertPayload.business_user_id = null;
+      collectionPayload.user_id = userIdFromMeta;
+      collectionPayload.business_user_id = null;
     }
   }
 
   const { error: colErr } = await supa
     .from("flutterwave_collections")
-    .upsert(upsertPayload, { onConflict: "tx_ref" });
+    .upsert(collectionPayload, { onConflict: "tx_ref" });
+
   if (colErr) {
     return json({
       success: false,
@@ -105,14 +264,15 @@ Deno.serve(async (req) => {
   const { data: projectedCollection } = await supa
     .from("flutterwave_collections")
     .select("tx_ref,user_id,business_user_id")
-    .eq("tx_ref", String(upsertPayload.tx_ref))
+    .eq("tx_ref", String(collectionPayload.tx_ref))
     .maybeSingle();
 
   const resolvedUserId = projectedCollection?.user_id || projectedCollection?.business_user_id || null;
 
   if (resolvedUserId) {
-    const reference = `flutterwave:collection:${String(upsertPayload.tx_ref)}`;
+    const reference = `flutterwave:collection:${String(collectionPayload.tx_ref)}`;
     const txStatus = status === "completed" ? "completed" : status === "failed" ? "failed" : "pending";
+
     await supa.from("transactions").upsert({
       user_id: resolvedUserId,
       type: "deposit",
@@ -125,7 +285,7 @@ Deno.serve(async (req) => {
       metadata: {
         source: "flutterwave",
         event_type: eventType,
-        tx_ref: String(upsertPayload.tx_ref),
+        tx_ref: String(collectionPayload.tx_ref),
         flutterwave_collection_id: collectionId || null,
         flutterwave_event_id: eventId,
         raw: data,
@@ -139,7 +299,7 @@ Deno.serve(async (req) => {
         .select("id")
         .eq("user_id", resolvedUserId)
         .eq("type", "transaction")
-        .contains("metadata", { tx_ref: String(upsertPayload.tx_ref), source: "flutterwave" })
+        .contains("metadata", { tx_ref: String(collectionPayload.tx_ref), source: "flutterwave" })
         .maybeSingle();
 
       if (!existingNotification?.id) {
@@ -150,7 +310,7 @@ Deno.serve(async (req) => {
           body: `Received ${Number.isFinite(amount) ? amount : 0} ${currency}.`,
           metadata: {
             source: "flutterwave",
-            tx_ref: String(upsertPayload.tx_ref),
+            tx_ref: String(collectionPayload.tx_ref),
             flutterwave_collection_id: collectionId || null,
             flutterwave_event_id: eventId,
             amount: Number.isFinite(amount) ? amount : 0,
@@ -165,7 +325,7 @@ Deno.serve(async (req) => {
           event_id: `flw:${eventId}`,
           provider: "flutterwave",
           entity_type: "transfer",
-          entity_id: collectionId || String(upsertPayload.tx_ref),
+          entity_id: collectionId || String(collectionPayload.tx_ref),
           user_id: accountType === "business" ? null : resolvedUserId,
           business_user_id: accountType === "business" ? resolvedUserId : null,
           currency,
@@ -173,7 +333,7 @@ Deno.serve(async (req) => {
           direction: "credit",
           metadata: {
             source: "flutterwave",
-            tx_ref: String(upsertPayload.tx_ref),
+            tx_ref: String(collectionPayload.tx_ref),
             flutterwave_collection_id: collectionId || null,
             flutterwave_event_id: eventId,
           },
@@ -189,7 +349,9 @@ Deno.serve(async (req) => {
       event_type: eventType,
       received_at: new Date().toISOString(),
       processing_mode: "projected",
+      flow: "collection",
       tx_ref: txRef || null,
+      reference: null,
       status,
     },
   }, 202);
