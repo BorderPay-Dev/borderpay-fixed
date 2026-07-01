@@ -2666,6 +2666,23 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+  flutterwaveWebhookEventDetail: async (event_id: string) =>
+    apiCall<{
+      event: Record<string, unknown>;
+      extracted_refs: {
+        tx_ref: string | null;
+        transfer_reference: string | null;
+        payload_id: string | null;
+      };
+      projection: Record<string, unknown> | null;
+      triage: {
+        has_projection: boolean;
+        replay_recommended: boolean;
+      };
+    }>('admin-flutterwave-webhook-event-detail', {
+      method: 'POST',
+      body: JSON.stringify({ event_id }),
+    }),
 };
 
 export interface SupportTicket {
