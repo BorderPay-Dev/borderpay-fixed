@@ -90,6 +90,7 @@ Purpose: deterministic merge/deploy sequence for Flutterwave backend-only harden
 81. LOCAL — Add explicit create_scope markers across transfer/collection create success contracts
 82. LOCAL — Add explicit endpoint markers across create/list/status success contracts
 83. LOCAL — Add contract_generated_at timestamp marker across create/list/status success contracts
+84. LOCAL — Add explicit endpoint marker in webhook accepted response contract
 
 ## Required Secrets/Flags Before Enabling Live Money Movement
 - `FLW_SECRET_KEY`
