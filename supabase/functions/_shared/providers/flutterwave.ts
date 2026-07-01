@@ -130,6 +130,27 @@ export async function flutterwaveGetTransfer(transferId: string) {
   });
 }
 
+export async function flutterwaveListTransfers(query?: {
+  status?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const path = Deno.env.get("FLW_TRANSFER_LIST_PATH") || "/v3/transfers";
+  return flutterwaveFetch({
+    method: "GET",
+    path,
+    query: {
+      status: query?.status,
+      from: query?.from,
+      to: query?.to,
+      page: query?.page,
+      limit: query?.limit,
+    },
+  });
+}
+
 export async function flutterwaveCreateCollection(input: {
   amount: number | string;
   currency: string;

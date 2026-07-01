@@ -2425,6 +2425,22 @@ export const payoutsAPI = {
       body: JSON.stringify({ transfer_id }),
     }),
 
+  /** List payout transfers with optional filters. */
+  transfersList: async (filters: {
+    status?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  } = {}) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      transfers?: Record<string, unknown>;
+    }>('flutterwave-transfers-list', {
+      method: 'POST',
+      body: JSON.stringify(filters),
+    }),
+
   /** Fetch transfer rates for corridor preview. */
   transferRates: async (input: {
     source_currency: string;
