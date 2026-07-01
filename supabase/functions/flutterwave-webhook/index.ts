@@ -82,7 +82,7 @@ async function claimWebhookEvent(
 
   const { data: existing, error: existingErr } = await supa
     .from("flutterwave_webhook_events")
-    .select("id,processing_status")
+    .select("id,processing_status,processing_attempts")
     .eq("event_id", eventId)
     .maybeSingle();
   if (existingErr) throw existingErr;
@@ -99,6 +99,8 @@ async function claimWebhookEvent(
         .update({
           processing_status: "processing",
           processed_at: null,
+          processing_attempts: Number(existing.processing_attempts || 0) + 1,
+          last_error: {},
           metadata: { source: "flutterwave", replayed: true, replayed_at: new Date().toISOString() },
           payload: payload ?? {},
         })
@@ -119,6 +121,7 @@ async function claimWebhookEvent(
       event_type: eventType,
       flow,
       processing_status: "processing",
+      processing_attempts: 1,
       payload: payload ?? {},
       metadata: { source: "flutterwave" },
     })
@@ -133,10 +136,14 @@ async function claimWebhookEvent(
   return { claimed: Boolean(data?.id), duplicate: false as const, replayed: false as const, blocked: false as const };
 }
 
-async function markWebhookEventStatus(eventId: string, status: "completed" | "failed") {
+async function markWebhookEventStatus(eventId: string, status: "completed" | "failed", lastError: Record<string, unknown> = {}) {
   await supa
     .from("flutterwave_webhook_events")
-    .update({ processing_status: status, processed_at: new Date().toISOString() })
+    .update({
+      processing_status: status,
+      processed_at: new Date().toISOString(),
+      last_error: status === "failed" ? lastError : {},
+    })
     .eq("event_id", eventId);
 }
 
@@ -193,6 +200,11 @@ Deno.serve(async (req) => {
   const claim = await claimWebhookEvent(eventId, eventType, flow, payload, replayKey);
   if (!claim.claimed) {
     if (claim.blocked) {
+      await markWebhookEventStatus(eventId, "failed", {
+        code: "replay_blocked",
+        reason: claim.block_reason || "policy_blocked",
+        at: new Date().toISOString(),
+      });
       return json({
         success: false,
         code: "flutterwave_webhook_replay_blocked",
@@ -260,7 +272,11 @@ Deno.serve(async (req) => {
       .upsert(transferPayload, { onConflict: "reference" });
 
     if (transferErr) {
-      await markWebhookEventStatus(eventId, "failed");
+      await markWebhookEventStatus(eventId, "failed", {
+        code: "transfer_projection_failed",
+        reason: transferErr.message || "upsert_failed",
+        at: new Date().toISOString(),
+      });
       return json({
         success: false,
         code: "transfer_projection_failed",
@@ -413,7 +429,11 @@ Deno.serve(async (req) => {
     .upsert(collectionPayload, { onConflict: "tx_ref" });
 
   if (colErr) {
-    await markWebhookEventStatus(eventId, "failed");
+    await markWebhookEventStatus(eventId, "failed", {
+      code: "collection_projection_failed",
+      reason: colErr.message || "upsert_failed",
+      at: new Date().toISOString(),
+    });
     return json({
       success: false,
       code: "collection_projection_failed",
@@ -517,8 +537,12 @@ Deno.serve(async (req) => {
       status: effectiveStatus,
     },
   }, 202);
-  } catch {
-    await markWebhookEventStatus(eventId, "failed");
+  } catch (e) {
+    await markWebhookEventStatus(eventId, "failed", {
+      code: "webhook_processing_failed",
+      reason: String((e as any)?.message || "unexpected_error"),
+      at: new Date().toISOString(),
+    });
     return json({
       success: false,
       code: "flutterwave_webhook_processing_failed",
