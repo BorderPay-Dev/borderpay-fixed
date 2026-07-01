@@ -152,6 +152,7 @@ Deno.serve(async (req) => {
       pagination: {
         has_more: Boolean(nextBefore),
         next_before: nextBefore,
+        returned_count: rows.length,
       },
     },
   });

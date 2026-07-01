@@ -39,6 +39,7 @@ def main() -> int:
         ("direction echoed in filters", 'direction: "receive"'),
         ("pagination has_more", "has_more: Boolean(nextBefore)"),
         ("pagination next_before", "next_before: nextBefore"),
+        ("pagination returned_count", "returned_count: rows.length"),
         ("capability guard", "getFlutterwaveCapabilities"),
         ("receive-enabled guard", "flutterwave_receive_disabled"),
     ]
