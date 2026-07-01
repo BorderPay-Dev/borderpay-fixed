@@ -74,6 +74,7 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("provider_transfer_id", providerId)
       .eq("user_id", authData.user.id)
+      .eq("direction", "receive")
       .maybeSingle();
     row = data || null;
   } else {
@@ -82,6 +83,7 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("reference", reference)
       .eq("user_id", authData.user.id)
+      .eq("direction", "receive")
       .maybeSingle();
     row = data || null;
   }
@@ -108,7 +110,7 @@ Deno.serve(async (req) => {
       last_error: isIpGuard ? "static_ip_not_ready" : (res.error || "collection_status_failed"),
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", row.id);
+    }).eq("id", row.id).eq("direction", "receive");
 
     return json({
       success: false,
@@ -135,7 +137,7 @@ Deno.serve(async (req) => {
     last_error: null,
     last_synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }).eq("id", row.id);
+  }).eq("id", row.id).eq("direction", "receive");
 
   return json({
     success: true,
