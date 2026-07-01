@@ -82,7 +82,7 @@ async function claimWebhookEvent(
 
   const { data: existing, error: existingErr } = await supa
     .from("flutterwave_webhook_events")
-    .select("id,processing_status,processing_attempts")
+    .select("id,processing_status,processing_attempts,last_error")
     .eq("event_id", eventId)
     .maybeSingle();
   if (existingErr) throw existingErr;
@@ -106,12 +106,33 @@ async function claimWebhookEvent(
         })
         .eq("event_id", eventId);
       if (reprocessErr) throw reprocessErr;
-      return { claimed: true as const, duplicate: false as const, replayed: true as const, blocked: false as const };
+      return {
+        claimed: true as const,
+        duplicate: false as const,
+        replayed: true as const,
+        blocked: false as const,
+        processing_attempts: Number(existing.processing_attempts || 0) + 1,
+      };
     }
     if (existing.processing_status === "failed" && allowReprocessFailed && expectedReplayKey.length > 0 && replayKey !== expectedReplayKey) {
-      return { claimed: false as const, duplicate: false as const, replayed: false as const, blocked: true as const, block_reason: "replay_key_required" as const };
+      return {
+        claimed: false as const,
+        duplicate: false as const,
+        replayed: false as const,
+        blocked: true as const,
+        block_reason: "replay_key_required" as const,
+        processing_attempts: Number(existing.processing_attempts || 0),
+        last_error: existing.last_error || {},
+      };
     }
-    return { claimed: false as const, duplicate: true as const, replayed: false as const, blocked: false as const };
+    return {
+      claimed: false as const,
+      duplicate: true as const,
+      replayed: false as const,
+      blocked: false as const,
+      processing_attempts: Number(existing.processing_attempts || 0),
+      last_error: existing.last_error || {},
+    };
   }
 
   const { data, error } = await supa
@@ -133,7 +154,13 @@ async function claimWebhookEvent(
     throw error;
   }
 
-  return { claimed: Boolean(data?.id), duplicate: false as const, replayed: false as const, blocked: false as const };
+  return {
+    claimed: Boolean(data?.id),
+    duplicate: false as const,
+    replayed: false as const,
+    blocked: false as const,
+    processing_attempts: 1,
+  };
 }
 
 async function markWebhookEventStatus(eventId: string, status: "completed" | "failed", lastError: Record<string, unknown> = {}) {
@@ -215,6 +242,8 @@ Deno.serve(async (req) => {
           flow,
           processing_mode: "replay_blocked",
           reason: claim.block_reason || "policy_blocked",
+          processing_attempts: claim.processing_attempts ?? null,
+          last_error: claim.last_error ?? {},
         },
       }, 403);
     }
@@ -226,6 +255,8 @@ Deno.serve(async (req) => {
         event_id: eventId,
         flow,
         processing_mode: claim.replayed ? "replayed" : "duplicate_ignored",
+        processing_attempts: claim.processing_attempts ?? null,
+        last_error: claim.last_error ?? {},
       },
     }, 200);
   }
