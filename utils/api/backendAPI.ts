@@ -2340,12 +2340,154 @@ export const subscriptionAPI = {
 /** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
-  listBanks: async (_country: string) =>
-    BRIDGE_ONLY_DISABLED as any,
+  listBanks: async (country: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      country: string;
+      banks: Array<Record<string, unknown>>;
+    }>('flutterwave-capabilities', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'banks', country }),
+    }),
+
+  /** List mobile money networks/providers by country. */
+  listMobileNetworks: async (country: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      country: string;
+      mobile_networks: Array<Record<string, unknown>>;
+    }>('flutterwave-capabilities', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'mobile_networks', country }),
+    }),
+
+  /** Fetch Flutterwave rail capabilities + corridor policy exposed by backend. */
+  capabilities: async (
+    action: 'health' | 'payment_methods' | 'banks' | 'mobile_networks' | 'corridor_policy' = 'corridor_policy',
+    payload: Record<string, unknown> = {},
+  ) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      local_rail_policy?: {
+        countries?: string[];
+        currencies?: string[];
+        methods?: Array<'bank' | 'mobile_money'>;
+      };
+      payment_methods?: Array<Record<string, unknown>>;
+      banks?: Array<Record<string, unknown>>;
+      mobile_networks?: Array<Record<string, unknown>>;
+      provider_status?: Record<string, unknown>;
+    }>('flutterwave-capabilities', {
+      method: 'POST',
+      body: JSON.stringify({ action, ...payload }),
+    }),
 
   /** Verify a bank account number → account holder name before payout. */
-  resolveAccount: async (_account_number: string, _bank_code: string) =>
-    BRIDGE_ONLY_DISABLED as any,
+  resolveAccount: async (account_number: string, bank_code: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      resolution?: Record<string, unknown>;
+    }>('flutterwave-account-resolve', {
+      method: 'POST',
+      body: JSON.stringify({ account_number, bank_code }),
+    }),
+
+  /** Create a Flutterwave local payout transfer (bank/mobile rails). */
+  createTransfer: async (payload: {
+    amount: number | string;
+    currency: string;
+    account_bank: string;
+    account_number: string;
+    reference: string;
+    narration?: string;
+    callback_url?: string;
+    debit_currency?: string;
+    beneficiary_name?: string;
+    meta?: Record<string, unknown>;
+  }) =>
+    apiCall<{
+      mode: 'create' | 'retry';
+      capabilities?: Record<string, unknown>;
+      transfer?: Record<string, unknown>;
+    }>('flutterwave-transfer-create', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** Retrieve transfer status by provider transfer id. */
+  transferStatus: async (transfer_id: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      transfer_id: string;
+      transfer?: Record<string, unknown>;
+    }>('flutterwave-transfer-status', {
+      method: 'POST',
+      body: JSON.stringify({ transfer_id }),
+    }),
+
+  /** Fetch transfer rates for corridor preview. */
+  transferRates: async (input: {
+    source_currency: string;
+    destination_currency: string;
+    amount?: number | string;
+  }) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      source_currency: string;
+      destination_currency: string;
+      amount: number | null;
+      rates?: Record<string, unknown>;
+    }>('flutterwave-transfer-rates', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  /** Create a local collection request/charge for receive flows. */
+  createCollection: async (payload: {
+    amount: number | string;
+    currency: string;
+    tx_ref: string;
+    customer?: Record<string, unknown>;
+    payment_options?: string;
+    redirect_url?: string;
+    customizations?: Record<string, unknown>;
+    meta?: Record<string, unknown>;
+  }) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      collection?: Record<string, unknown>;
+    }>('flutterwave-collection-create', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** Retrieve one collection/charge status. */
+  collectionStatus: async (collection_id: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      collection_id: string;
+      collection?: Record<string, unknown>;
+    }>('flutterwave-collection-status', {
+      method: 'POST',
+      body: JSON.stringify({ collection_id }),
+    }),
+
+  /** List collections/charges with optional filters. */
+  collectionsList: async (filters: {
+    tx_ref?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  } = {}) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      collections?: Record<string, unknown>;
+    }>('flutterwave-collections-list', {
+      method: 'POST',
+      body: JSON.stringify(filters),
+    }),
 
   /**
    * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same

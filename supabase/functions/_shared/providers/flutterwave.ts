@@ -130,6 +130,57 @@ export async function flutterwaveGetTransfer(transferId: string) {
   });
 }
 
+export async function flutterwaveCreateCollection(input: {
+  amount: number | string;
+  currency: string;
+  tx_ref: string;
+  customer?: Record<string, unknown>;
+  payment_options?: string;
+  redirect_url?: string;
+  customizations?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+}) {
+  const path = Deno.env.get("FLW_COLLECTION_CREATE_PATH") || "/v3/charges";
+  return flutterwaveFetch({
+    method: "POST",
+    path,
+    body: input,
+    idempotencyKey: input.tx_ref,
+  });
+}
+
+export async function flutterwaveGetCollection(collectionId: string) {
+  const template = Deno.env.get("FLW_COLLECTION_STATUS_PATH_TEMPLATE") || "/v3/charges/{id}";
+  const path = template.replace("{id}", encodeURIComponent(collectionId));
+  return flutterwaveFetch({
+    method: "GET",
+    path,
+  });
+}
+
+export async function flutterwaveListCollections(query?: {
+  tx_ref?: string;
+  status?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const path = Deno.env.get("FLW_COLLECTION_LIST_PATH") || "/v3/charges";
+  return flutterwaveFetch({
+    method: "GET",
+    path,
+    query: {
+      tx_ref: query?.tx_ref,
+      status: query?.status,
+      from: query?.from,
+      to: query?.to,
+      page: query?.page,
+      limit: query?.limit,
+    },
+  });
+}
+
 export async function flutterwaveRetryTransfer(transferId: string, body?: Record<string, unknown>) {
   const template = Deno.env.get("FLW_TRANSFER_RETRY_PATH_TEMPLATE") || "/v3/transfers/{id}/retries";
   const path = template.replace("{id}", encodeURIComponent(transferId));
