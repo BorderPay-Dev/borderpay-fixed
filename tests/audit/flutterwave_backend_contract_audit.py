@@ -87,6 +87,7 @@ def main() -> int:
         ("collection-status", collection_status_fn, '.eq("direction", "receive")'),
         ("collection-status", collection_status_fn, '.eq("source", "flutterwave")'),
         ("collection-status", collection_status_fn, "local_transfer_id"),
+        ("collection-status", collection_status_fn, "capabilities: caps"),
         ("collection-status", collection_status_fn, "channel: row.channel || null"),
         ("collections-list", collections_list_fn, '.eq("user_id", authData.user.id)'),
         ("collections-list", collections_list_fn, '.eq("direction", "receive")'),
