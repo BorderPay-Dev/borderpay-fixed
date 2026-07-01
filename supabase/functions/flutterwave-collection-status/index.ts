@@ -156,6 +156,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       status_scope: "collection",
+      provider: "flutterwave",
       capabilities: caps,
       local_transfer_id: row.id,
       direction: row.direction || "receive",

@@ -32,6 +32,7 @@ def main() -> int:
         ("direction selected in response rows", '"direction",'),
         ("source selected in response rows", '"source",'),
         ("list scope marker", 'list_scope: "collections"'),
+        ("provider marker", 'provider: "flutterwave"'),
         ("status filter guard", "ALLOWED_STATUS"),
         ("source filter guard", "ALLOWED_SOURCE"),
         ("channel filter guard", "ALLOWED_CHANNEL"),

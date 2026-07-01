@@ -31,6 +31,7 @@ def main() -> int:
     block = text[start:end]
 
     required = [
+        'provider: "flutterwave"',
         'direction: "payout"',
         'source: "flutterwave"',
         "transfer_id: providerTransferId,",
@@ -40,7 +41,7 @@ def main() -> int:
     if missing:
         return fail("missing retry response contract tokens: " + ", ".join(missing))
 
-    print("[OK] transfer-create retry success response includes explicit direction/source contract")
+    print("[OK] transfer-create retry success response includes explicit provider/direction/source contract")
     print("flutterwave_transfer_retry_response_contract_audit: PASS")
     return 0
 

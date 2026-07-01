@@ -175,6 +175,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       list_scope: "transfers",
+      provider: "flutterwave",
       capabilities: caps,
       rows,
       filters: {

@@ -31,6 +31,7 @@ def main() -> int:
     block = text[start:end]
 
     required = [
+        'provider: "flutterwave"',
         'direction: "payout"',
         'source: "flutterwave"',
         "reference,",
@@ -41,7 +42,7 @@ def main() -> int:
     if missing:
         return fail("missing create response contract tokens: " + ", ".join(missing))
 
-    print("[OK] transfer-create success response includes explicit direction/source contract")
+    print("[OK] transfer-create success response includes explicit provider/direction/source contract")
     print("flutterwave_transfer_create_response_contract_audit: PASS")
     return 0
 

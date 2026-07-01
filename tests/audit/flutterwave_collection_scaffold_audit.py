@@ -111,6 +111,12 @@ def main() -> int:
     )
     require(
         "supabase/functions/flutterwave-collection-status/index.ts",
+        r"provider:\s*\"flutterwave\"",
+        "collection-status returns provider marker",
+        failures,
+    )
+    require(
+        "supabase/functions/flutterwave-collection-status/index.ts",
         r"capabilities:\s*caps",
         "collection-status returns capabilities in response",
         failures,

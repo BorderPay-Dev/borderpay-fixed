@@ -31,6 +31,7 @@ def main() -> int:
     block = text[start:end]
 
     required = [
+        'provider: "flutterwave"',
         'direction: "receive"',
         'source: "flutterwave"',
         "reference,",
@@ -41,7 +42,7 @@ def main() -> int:
     if missing:
         return fail("missing collection create response contract tokens: " + ", ".join(missing))
 
-    print("[OK] collection-create success response includes explicit direction/source contract")
+    print("[OK] collection-create success response includes explicit provider/direction/source contract")
     print("flutterwave_collection_create_response_contract_audit: PASS")
     return 0
 

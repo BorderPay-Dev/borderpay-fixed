@@ -177,6 +177,7 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         mode: "retry",
+        provider: "flutterwave",
         direction: "payout",
         source: "flutterwave",
         capabilities: caps,
@@ -346,6 +347,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       mode: "create",
+      provider: "flutterwave",
       direction: "payout",
       source: "flutterwave",
       capabilities: caps,
