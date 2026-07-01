@@ -2606,6 +2606,40 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  flutterwaveWebhookEvents: async (input: {
+    status?: 'processing' | 'completed' | 'failed' | 'duplicate_ignored';
+    flow?: 'collection' | 'transfer' | 'unknown';
+    limit?: number;
+    from?: number;
+    include_payload?: boolean;
+  } = {}) =>
+    apiCall<{
+      events: Array<Record<string, unknown>>;
+      total: number;
+      page: { from: number; limit: number };
+      filters: Record<string, unknown>;
+    }>('admin-flutterwave-webhook-events', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  replayFlutterwaveWebhook: async (input: {
+    event_id: string;
+    dry_run?: boolean;
+    force?: boolean;
+  }) =>
+    apiCall<{
+      event?: Record<string, unknown>;
+      would_replay?: boolean;
+      replay_ready?: boolean;
+      replay_prerequisites?: Record<string, boolean>;
+      event_id?: string;
+      correlation_id?: string;
+      webhook_http_status?: number;
+      webhook_result?: Record<string, unknown>;
+    }>('admin-flutterwave-webhook-replay', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 };
 
 export interface SupportTicket {
