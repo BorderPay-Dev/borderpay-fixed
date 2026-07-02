@@ -15,6 +15,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // Service-role: used ONLY for the admin client (createUser + table upserts).
@@ -69,6 +70,71 @@ function normalizeBusinessOwners(input: SignupBody["business_owners"]): Array<{ 
 function normalizeCountryCode(value: unknown): string | null {
   const v = String(value || "").trim().toUpperCase();
   return /^[A-Z]{2}$/.test(v) ? v : null;
+}
+
+const BRIDGE_SIGNUP_AUTO_CREATE =
+  String(Deno.env.get("BRIDGE_SIGNUP_AUTO_CREATE") || "true").toLowerCase() === "true";
+
+async function provisionBridgeCustomerBestEffort(params: {
+  supabaseAdmin: ReturnType<typeof createClient>;
+  userId: string;
+  email: string;
+  fullName: string;
+  accountType: "individual" | "business";
+  countryCode: string;
+  phoneNumber?: string;
+  companyName?: string;
+  registrationNumber?: string;
+}): Promise<{ bridgeCustomerId: string | null; provisionCode: string }> {
+  if (!BRIDGE_SIGNUP_AUTO_CREATE) {
+    return { bridgeCustomerId: null, provisionCode: "bridge_signup_auto_create_disabled" };
+  }
+  try {
+    const created = await bridgeProvider.createCustomer({
+      account_type: params.accountType,
+      email: params.email,
+      full_name: params.fullName,
+      company_name: params.companyName,
+      registration_number: params.registrationNumber,
+      country_code: params.countryCode,
+      phone_e164: params.phoneNumber || undefined,
+      borderpay_user_id: params.userId,
+    });
+    const bridgeCustomerId = String(created.provider_id || "").trim();
+    if (!bridgeCustomerId) {
+      return { bridgeCustomerId: null, provisionCode: "bridge_customer_missing_id" };
+    }
+
+    const profileUpdate: Record<string, unknown> = {
+      bridge_customer_id: bridgeCustomerId,
+      updated_at: new Date().toISOString(),
+      ...(params.accountType === "business"
+        ? { bridge_kyb_status: "not_started" }
+        : { bridge_kyc_status: "not_started" }),
+    };
+    await params.supabaseAdmin
+      .from("user_profiles")
+      .update(profileUpdate)
+      .eq("id", params.userId);
+
+    if (params.accountType === "business") {
+      await params.supabaseAdmin
+        .from("business_profiles")
+        .update({
+          bridge_customer_id: bridgeCustomerId,
+          bridge_kyb_status: "not_started",
+        })
+        .eq("user_id", params.userId);
+    }
+    return { bridgeCustomerId, provisionCode: "bridge_customer_created" };
+  } catch (e) {
+    const providerCode = e instanceof BridgeProviderError ? (e.bridge_code || "unknown") : "unknown";
+    const providerStatus = e instanceof BridgeProviderError ? (e.status || 0) : 0;
+    console.warn(
+      `auth-signup bridge customer provisioning failed for ${params.userId}: ${providerCode} (${providerStatus})`,
+    );
+    return { bridgeCustomerId: null, provisionCode: "bridge_customer_provision_failed" };
+  }
 }
 
 async function verifySignupCaptcha(
@@ -317,8 +383,20 @@ Deno.serve(async (req: Request) => {
       if (bizErr) return rollbackAuthUser("business_profiles_create_failed", `business_profiles create failed: ${bizErr.message}`);
     }
 
-    // Bridge identity is intentionally deferred to explicit hosted KYC/KYB start.
-    const bridgeCustomerId: string | null = null;
+    // Bridge identity should exist at signup so users never hit missing-id
+    // verification dead-ends later.
+    const bridgeProvision = await provisionBridgeCustomerBestEffort({
+      supabaseAdmin,
+      userId,
+      email,
+      fullName: full_name,
+      accountType: normalizedAccountType,
+      countryCode: normalizedCountryCode,
+      phoneNumber: phone_number,
+      companyName: normalizedAccountType === "business" ? company_name : undefined,
+      registrationNumber: normalizedAccountType === "business" ? (registration_number || undefined) : undefined,
+    });
+    const bridgeCustomerId = bridgeProvision.bridgeCustomerId;
 
     // ── Seed the free-tier subscription + owner team-membership ────────
     // Failure here is non-fatal for signup itself — the user gets a verified
@@ -446,6 +524,10 @@ Deno.serve(async (req: Request) => {
           kyc_status:         "not_started",
           bridge_customer_id: bridgeCustomerId,
           email_verified:     false,
+        },
+        bridge_identity: {
+          status: bridgeProvision.provisionCode,
+          bridge_customer_id: bridgeCustomerId,
         },
         email_sent:   true,
         access_token: "",

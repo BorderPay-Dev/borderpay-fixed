@@ -211,7 +211,27 @@ Deno.serve(async (req) => {
         continue;
       }
       const { data: existing } = await supa.from("bridge_virtual_accounts")
-        .select("id,developer_fee_percent").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+        .select("id,developer_fee_percent,account_details").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+      const incomingDetails = (v.account_details && typeof v.account_details === "object")
+        ? (v.account_details as Record<string, unknown>)
+        : {};
+      const existingDetails = (existing?.account_details && typeof existing.account_details === "object")
+        ? (existing.account_details as Record<string, unknown>)
+        : {};
+      const incomingSourceDeposit =
+        incomingDetails.source_deposit_instructions &&
+        typeof incomingDetails.source_deposit_instructions === "object"
+          ? (incomingDetails.source_deposit_instructions as Record<string, unknown>)
+          : {};
+      const existingSourceDeposit =
+        existingDetails.source_deposit_instructions &&
+        typeof existingDetails.source_deposit_instructions === "object"
+          ? (existingDetails.source_deposit_instructions as Record<string, unknown>)
+          : {};
+      const mergedSourceDeposit = {
+        ...existingSourceDeposit,
+        ...incomingSourceDeposit,
+      };
       const row = {
         ...ownerCols,
         bridge_customer_id:        customerId,
@@ -223,7 +243,13 @@ Deno.serve(async (req) => {
           normalizeDeveloperFeePercent(v.developer_fee_percent) ??
           normalizeDeveloperFeePercent(existing?.developer_fee_percent) ??
           canonicalVaDeveloperFee,
-        account_details:           v.account_details ?? null,
+        account_details: {
+          ...existingDetails,
+          ...incomingDetails,
+          source_deposit_instructions: mergedSourceDeposit,
+          deposit_instructions: mergedSourceDeposit,
+          bridge_response: incomingDetails,
+        },
         updated_at:                new Date().toISOString(),
       };
       if (existing?.id) await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id);
