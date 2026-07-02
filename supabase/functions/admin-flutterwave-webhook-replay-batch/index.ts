@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
 
   const dryRun = body?.dry_run !== false;
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
+  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
   const batchLimit = Math.max(1, Math.min(50, Number(body?.limit || 10)));
   const reason = String(body?.reason || "batch_replay").slice(0, 250);
   const flow = String(body?.flow || "").toLowerCase();
@@ -63,7 +64,7 @@ Deno.serve(async (req) => {
 
   let q = supa
     .from("flutterwave_webhook_events")
-    .select("event_id,processing_attempts,flow,processing_status,last_error")
+    .select("event_id,processing_attempts,flow,processing_status,last_error,last_replay_attempt_at")
     .eq("processing_status", status || "failed")
     .order("received_at", { ascending: true })
     .limit(200);
@@ -78,6 +79,10 @@ Deno.serve(async (req) => {
     .filter((r: any) => {
       const attemptsOk = Number(r.processing_attempts || 0) < maxReplayAttempts;
       if (!attemptsOk) return false;
+      const lastReplayMs = r.last_replay_attempt_at ? Date.parse(String(r.last_replay_attempt_at)) : NaN;
+      const elapsed = Number.isFinite(lastReplayMs) ? Math.floor((Date.now() - lastReplayMs) / 1000) : null;
+      const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
+      if (cooldownActive && !force) return false;
       if (excludeErrorCodes.length === 0) return true;
       const code = String((r.last_error || {}).code || "").trim();
       return !excludeErrorCodes.includes(code);
@@ -96,6 +101,7 @@ Deno.serve(async (req) => {
           exclude_error_codes: excludeErrorCodes,
           force,
           force_reason: forceReason || null,
+          replay_cooldown_seconds: replayCooldownSeconds,
         },
         replayable_count: replayable.length,
         candidates: replayable.map((r: any) => ({
@@ -149,6 +155,7 @@ Deno.serve(async (req) => {
         exclude_error_codes: excludeErrorCodes,
         force,
         force_reason: forceReason || null,
+        replay_cooldown_seconds: replayCooldownSeconds,
       },
       succeeded: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
