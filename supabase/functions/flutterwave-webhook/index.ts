@@ -334,6 +334,8 @@ Deno.serve(async (req) => {
       webhook_scope: "money_movement",
       response_contract_version: 1,
       contract_generated_at: new Date().toISOString(),
+      source_filter: "flutterwave",
+      direction_scope: movementDirection,
       event_classification: transferEventEligible ? "money_movement" : "non_money_movement",
       signature_verified: true,
       replay_window_enforced: true,
