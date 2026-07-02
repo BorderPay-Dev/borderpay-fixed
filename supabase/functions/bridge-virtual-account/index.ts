@@ -14,7 +14,6 @@ import {
   isBridgeBlocked,
   bridgeCountryBlockResponse,
   logControlledBridgeTraffic,
-  isBridgeVirtualAccountCurrencyAvailable,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -135,9 +134,10 @@ Deno.serve(async (req) => {
     if (isBridgeBlocked(productCountry)) {
       return json(bridgeCountryBlockResponse(productCountry!), 403);
     }
-    const supported_currencies = (["USD", "EUR", "GBP"] as const).filter((c) =>
-      isBridgeVirtualAccountCurrencyAvailable(productCountry, c)
-    );
+    // Bridge is the source of truth for rail/currency entitlement at runtime.
+    // We expose the full BorderPay-supported VA set here, then rely on the
+    // provider response during create to enforce per-customer/corridor grants.
+    const supported_currencies = ["USD", "EUR", "GBP"] as const;
     return json({
       success: true,
       code: "virtual_account_supported_currencies_ready",
@@ -180,20 +180,6 @@ Deno.serve(async (req) => {
 
   if (isBridgeBlocked(productCountry)) {
     return json(bridgeCountryBlockResponse(productCountry!), 403);
-  }
-  if (!isBridgeVirtualAccountCurrencyAvailable(productCountry, currency)) {
-    return json({
-      success: false,
-      code: "country_rail_not_supported",
-      error: "This virtual account currency is not available for your country.",
-      country: productCountry,
-      currency,
-      summary: {
-        code: "country_rail_not_supported",
-        country: productCountry || null,
-        currency,
-      },
-    }, 403);
   }
   logControlledBridgeTraffic("bridge-virtual-account", productCountry, user.id);
   if (!profile.bridge_customer_id) {
