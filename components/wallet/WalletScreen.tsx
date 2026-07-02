@@ -24,9 +24,7 @@ import {
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { authAPI } from '../../utils/supabase/client';
 import {
-  bridgeVirtualAccountCurrenciesForCountry,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
 import { usePreferences } from '../../utils/hooks/usePreferences';
@@ -72,12 +70,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   });
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
-  const country = authAPI.getStoredUser()?.country ?? null;
-  const fallbackVaCurrencies = useMemo(
-    () => bridgeVirtualAccountCurrenciesForCountry(country),
-    [country],
-  );
-  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
+  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -268,10 +261,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   }, [userId]);
 
   useEffect(() => {
-    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
-  }, [fallbackVaCurrencies]);
-
-  useEffect(() => {
     const prewarmKey = `borderpay_wallet_prewarm_v1:${userId}`;
     try {
       const last = Number(sessionStorage.getItem(prewarmKey) || '0');
@@ -307,12 +296,25 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   // ── Missing VA currencies (the "deposit chooser") ────────────────────────
   const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
   const missingVa = availableVaCurrencies.filter(c => !haveVa.has(c));
+  const haveStable = useMemo(
+    () => new Set(stables.map((s) => String(s.currency || '').toUpperCase()).filter(Boolean)),
+    [stables],
+  );
+  const missingStable = useMemo(
+    () => (['USDC', 'USDT'] as const).filter((s) => !haveStable.has(s)),
+    [haveStable],
+  );
 
   const handleCreate = async (currency: BridgeVirtualAccountCurrency) => {
     setCreating(currency);
     const r = await backendAPI.bridge.virtualAccount.create({ currency });
     setCreating(null);
     if (!r.success) {
+      const code = String((r as any)?.code || '').toLowerCase();
+      if (code === 'country_rail_not_supported') {
+        showToast.error(`${currency} is not available in your region yet.`);
+        return;
+      }
       const lower = String((r as any)?.code || '').toLowerCase();
       if (currency === 'GBP') {
         showToast.error(
@@ -327,6 +329,24 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     }
     showToast.success(`${currency} account opened`);
     refresh();
+  };
+
+  const handleCreateStable = async (symbol: 'USDC' | 'USDT') => {
+    setCreating(symbol);
+    const defaultChain = symbol === 'USDT' ? 'TRON' : 'BASE';
+    const r = await backendAPI.bridge.wallet.create({ symbol, chain: defaultChain });
+    setCreating(null);
+    if (!r.success) {
+      const code = String((r as any)?.code || '').toLowerCase();
+      if (code === 'wallet_country_not_supported' || code === 'country_not_supported') {
+        showToast.error(`${symbol} wallet is not available in your region yet.`);
+        return;
+      }
+      showToast.error(friendlyError(r.error, `Could not add ${symbol} wallet right now.`));
+      return;
+    }
+    showToast.success(`${symbol} wallet added`);
+    refresh(true);
   };
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
@@ -468,6 +488,30 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                   <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
                 </div>
                 {creating === c
+                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
+                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {missingStable.length > 0 && (
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
+            {missingStable.map((sym, i) => (
+              <button
+                key={sym}
+                disabled={creating === sym}
+                onClick={() => handleCreateStable(sym)}
+                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}
+              >
+                <AssetBadge symbol={sym} size={40} />
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[15px] font-semibold ${tc.text}`}>
+                    Add {sym} wallet
+                  </div>
+                  <div className={`text-[11px] ${tc.textMuted}`}>Request {sym} deposit wallet from provider</div>
+                </div>
+                {creating === sym
                   ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
                   : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
               </button>
