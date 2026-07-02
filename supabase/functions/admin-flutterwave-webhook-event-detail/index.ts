@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
     data: {
       event: {
         ...eventRow,
-        error_code: String(((eventRow.last_error as Record<string, unknown> | null)?.code) || "").trim() || null,
+        error_code: String(((eventRow.last_error as Record<string, unknown> | null)?.code) || "").trim().toLowerCase() || null,
       },
       extracted_refs: {
         tx_ref: txRef || null,
