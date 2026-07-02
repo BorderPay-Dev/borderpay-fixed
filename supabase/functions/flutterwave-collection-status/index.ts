@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveGetCollection, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import {
+  flutterwaveGetCollection,
+  getFlutterwaveCapabilities,
+  getFlutterwaveLocalRailPolicy,
+} from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -118,6 +122,15 @@ Deno.serve(async (req) => {
   const txRef = String(collection?.tx_ref || collection?.reference || collection?.txRef || "").trim();
   const status = normStatus(collection?.status || collection?.payment_status);
   const currency = String(collection?.currency || "").toUpperCase();
+  const supportedCurrencies = getFlutterwaveLocalRailPolicy().currencies as readonly string[];
+  if (currency && !supportedCurrencies.includes(currency)) {
+    return json({
+      success: false,
+      code: "corridor_not_supported",
+      error: "Collection currency is not enabled on local rails.",
+      data: { supported_currencies: supportedCurrencies, collection_id },
+    }, 409);
+  }
   const amount = Number(collection?.amount || collection?.charged_amount || 0);
   const { data: existingProjection } = await supa
     .from("flutterwave_collections")

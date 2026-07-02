@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveGetTransfer, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import {
+  flutterwaveGetTransfer,
+  getFlutterwaveCapabilities,
+  getFlutterwaveLocalRailPolicy,
+} from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -118,6 +122,15 @@ Deno.serve(async (req) => {
   const reference = String(transfer?.reference || transfer?.tx_ref || transfer?.txRef || transferId).trim();
   const status = normStatus(transfer?.status || transfer?.payment_status);
   const currency = String(transfer?.currency || "").toUpperCase();
+  const supportedCurrencies = getFlutterwaveLocalRailPolicy().currencies as readonly string[];
+  if (currency && !supportedCurrencies.includes(currency)) {
+    return json({
+      success: false,
+      code: "corridor_not_supported",
+      error: "Transfer currency is not enabled on local rails.",
+      data: { supported_currencies: supportedCurrencies, transfer_id: transferId },
+    }, 409);
+  }
   const amount = Number(transfer?.amount || transfer?.charged_amount || 0);
   const { data: existingProjection } = await supa
     .from("flutterwave_transfers")
