@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
 
   const { data: eventRow, error: eventErr } = await supa
     .from("flutterwave_webhook_events")
-    .select("event_id,event_type,flow,processing_status,processing_attempts,last_error,payload,received_at,processed_at")
+    .select("event_id,event_type,flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,payload,received_at,processed_at")
     .eq("event_id", eventId)
     .maybeSingle();
 
@@ -83,6 +83,23 @@ Deno.serve(async (req) => {
   }
 
   const attempts = Number(eventRow.processing_attempts || 0);
+  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
+  const lastReplayAtMs = eventRow.last_replay_attempt_at ? Date.parse(String(eventRow.last_replay_attempt_at)) : NaN;
+  const nowMs = Date.now();
+  const elapsedSinceReplaySeconds = Number.isFinite(lastReplayAtMs) ? Math.floor((nowMs - lastReplayAtMs) / 1000) : null;
+  if (!force && replayCooldownSeconds > 0 && elapsedSinceReplaySeconds !== null && elapsedSinceReplaySeconds < replayCooldownSeconds) {
+    return json({
+      success: false,
+      code: "replay_cooldown_active",
+      error: "Replay blocked by cooldown window. Try again later or use force with explicit reason.",
+      data: {
+        event_id: eventId,
+        correlation_id: correlationId,
+        replay_cooldown_seconds: replayCooldownSeconds,
+        retry_after_seconds: replayCooldownSeconds - elapsedSinceReplaySeconds,
+      },
+    }, 429);
+  }
   if (force && forceReason.length < 12) {
     return json({
       success: false,
@@ -128,11 +145,12 @@ Deno.serve(async (req) => {
         event: eventRow,
         would_replay: true,
         reason: reason || null,
-      replay_policy: {
-        attempts,
-        max_attempts: maxReplayAttempts,
-        force_required: attempts >= maxReplayAttempts,
-      },
+        replay_policy: {
+          attempts,
+          max_attempts: maxReplayAttempts,
+          force_required: attempts >= maxReplayAttempts,
+          replay_cooldown_seconds: replayCooldownSeconds,
+        },
         force_reason: forceReason || null,
         replay_ready: replayEnabled && replayKey.length > 0 && signature.length > 0,
         replay_prerequisites: {
@@ -153,6 +171,11 @@ Deno.serve(async (req) => {
       error: "FLW_WEBHOOK_REPLAY_KEY and FLW_WEBHOOK_SECRET_HASH are required",
     }, 500);
   }
+
+  await supa
+    .from("flutterwave_webhook_events")
+    .update({ last_replay_attempt_at: new Date().toISOString() })
+    .eq("event_id", eventId);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
