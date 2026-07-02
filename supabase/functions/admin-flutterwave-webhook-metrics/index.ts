@@ -44,13 +44,14 @@ Deno.serve(async (req) => {
 
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
+  const metricsSampleLimit = Math.max(100, Math.min(5000, Number(Deno.env.get("FLW_WEBHOOK_METRICS_SAMPLE_LIMIT") || 1000)));
 
   const [{ data: allRows, error: allErr }, { count: failed24hCount, error: failed24Err }] = await Promise.all([
     supa
       .from("flutterwave_webhook_events")
       .select("flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,received_at", { count: "exact" })
       .order("received_at", { ascending: false })
-      .limit(1000),
+      .limit(metricsSampleLimit),
     supa
       .from("flutterwave_webhook_events")
       .select("event_id", { count: "exact", head: true })
@@ -126,7 +127,7 @@ Deno.serve(async (req) => {
       },
       sampled_window: {
         latest_events_sampled: rows.length,
-        sample_limit: 1000,
+        sample_limit: metricsSampleLimit,
       },
     },
   });
