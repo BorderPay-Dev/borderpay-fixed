@@ -306,12 +306,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       const [snapshotRes, securityRes] = await Promise.allSettled([
         withTimeout(
           backendAPI.financial.getSnapshot(5),
-          1800,
+          900,
           { success: false, data: null, error: 'snapshot_timeout' } as any,
         ),
         withTimeout(
           backendAPI.auth.getSecurityStatus(userId),
-          1800,
+          900,
           { success: false, data: null, error: 'security_timeout' } as any,
         ),
       ]);

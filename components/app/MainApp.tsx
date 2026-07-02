@@ -244,7 +244,7 @@ function writeCachedUnreadCount(userId: string, count: number): void {
   } catch { /* ignore notification cache write */ }
 }
 
-const SHELL_SYNC_COOLDOWN_MS = 45_000;
+const SHELL_SYNC_COOLDOWN_MS = 10_000;
 
 function shouldRunShellSync(userId: string, channel: 'profile' | 'unread'): boolean {
   try {
