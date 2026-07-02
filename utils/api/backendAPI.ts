@@ -397,12 +397,8 @@ export const userAPI = {
 // `getWallets` is read-only and provider-neutral — it returns rows from
 // public.wallets which the dashboard / send flows already display.
 //
-// Pre-Phase-2 this called the `get-wallets` edge function. That function
-// was never deployed (drift class also responsible for `send-email`,
-// `get-transactions`, `poa-upload-url`, etc.). Production logs showed
-// repeated `POST 404 /functions/v1/get-wallets` with `deployment_id: null`,
-// causing the BusinessDashboard hero to show $0.00 + a "Could not load
-// wallets" toast on every mount.
+// Historical edge indirection was removed. This reads canonical rows
+// directly through RLS to avoid endpoint drift and unnecessary hops.
 //
 // `public.wallets` has RLS enabled with policy `wallets_own =
 // (auth.uid() = user_id)` covering ALL ops, so a direct supabase-js
@@ -423,7 +419,7 @@ export const walletAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6,
+      USDC: 6, USDT: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -538,23 +534,8 @@ export const walletAPI = {
 // ============================================================================
 
 export const transactionAPI = {
-  // Pre-Phase-2 this called the `get-transactions` edge function, which
-  // was never deployed (same drift class as `get-wallets`, `send-email`,
-  // etc.). Production logs showed repeated `POST 404 /functions/v1/
-  // get-transactions` with `deployment_id: null` — TransactionsScreen
-  // would render an error toast on first mount.
-  //
-  // `public.transactions` has RLS enabled with policy `transactions_own =
-  // (auth.uid() = user_id)` covering ALL ops. Direct supabase-js SELECT
-  // returns the user's own rows, ordered newest-first, with the same
-  // shape the screen already consumes. Return envelope preserved
-  // (`{ success, data: { transactions: TransactionRow[] } }`).
-  //
-  // Note: `getCustomerTransactions`, `exportTransactions`, and
-  // `verifyTransaction` below STILL call undeployed edge functions.
-  // Those are not on the partner onboarding critical path (no UI
-  // component lands on them on first load) and are intentionally out
-  // of scope for this PR. Filed as remaining drift in the audit table.
+  // Read path is direct from canonical ledger tables through RLS.
+  // Compatibility aliases stay fail-closed below.
   async getTransactions(limit = 10, offset = 0) {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
@@ -562,7 +543,7 @@ export const transactionAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6, EURC: 6,
+      USDC: 6, USDT: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -620,10 +601,12 @@ export const transactionAPI = {
   },
 
   async exportTransactions(userId: string, format: 'csv' | 'pdf' | 'excel', filters?: any) {
-    return apiCall('export-transactions', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, format, ...filters }),
-    });
+    // Quarantine unresolved legacy endpoint (`export-transactions`).
+    // Keep signature for callers but fail-closed with structured state.
+    void userId;
+    void format;
+    void filters;
+    return RAILS_FUTURE_STATE;
   },
 
   async verifyTransaction(_transactionId: string) {
@@ -755,7 +738,7 @@ export const financialReadModelAPI = (() => {
       ? (externalListRes as any).data.external_accounts
       : [];
     const externalAccountCapabilities = ((externalCapsRes as any)?.success && Array.isArray((externalCapsRes as any)?.data?.supported_account_types))
-      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
       : [];
     const externalWallets = ((externalWalletsRes as any)?.success && Array.isArray((externalWalletsRes as any)?.data?.wallets))
       ? (externalWalletsRes as any).data.wallets
@@ -975,7 +958,7 @@ export const financialReadModelAPI = (() => {
         ),
       ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
-        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
         : [];
       const externalAccounts = (externalListRes?.success && Array.isArray(externalListRes?.data?.external_accounts))
         ? externalListRes.data.external_accounts
@@ -1480,83 +1463,11 @@ export const kycAPI = {
   },
 };
 
-/**
- * DEPRECATED — proof-of-address was a pre-Bridge step; Bridge now collects it
- * inside the hosted KYC flow. The `poa-submit` / `upload-poa` edge functions
- * and the `address_verifications` table have been removed. These stubs exist
- * only so `components/auth/SignUpFlow.tsx`'s legacy POA branch still compiles
- * — at runtime they short-circuit with a clear error if reached.
- */
-const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = {
-  success: false,
-  error: 'Please continue identity verification in the hosted verification flow.',
-  data: {
-    redirect_screen: 'kyc',
-    code: 'verification_redirect_required',
-  },
-};
-
 const BRIDGE_ONLY_DISABLED = {
   success: false,
   code: 'bridge_path_required',
   error: 'This flow is disabled. Use the Bridge-backed send/receive/external-account path.',
 } as const;
-
-export const proofOfAddressAPI = {
-  getUploadUrl: async (_fileType: string, _fileName: string) => deprecatedPoaResponse,
-  submit:       async (_filePath: string, _documentType: string) => deprecatedPoaResponse,
-};
-
-// ============================================================================
-// LOCAL PAYMENTS (Bank transfers)
-// ============================================================================
-
-export const localPaymentsAPI = {
-  async getInstitutions(_currency: string, _type?: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async fetchBankDetails(_routingNumber: string, _countryCode: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async resolveAccount(_bankCode: string, _accountNumber: string, _currency: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  // QUARANTINED — `transfer` routes to future-state
-  // (future local currency / mobile-wallet / local bank rails).
-  // `verifyTransfer` and `getTransfers` are read-only and kept
-  // operational for history display.
-  async transfer(_data: any) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async verifyTransfer(_transferId: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async getTransfers() {
-    return BRIDGE_ONLY_DISABLED;
-  },
-};
-
-// ============================================================================
-// US PAYMENTS (ACH / Wire)
-// ============================================================================
-
-// QUARANTINED — legacy US counterparty endpoints are hard-disabled.
-// BorderPay send/payout flows must use Bridge-backed transfer orchestration
-// only. Do not route any runtime path through `get-counterparty` here.
-export const usPaymentsAPI = {
-  async transfer(_data: any) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async getCounterparties() { return BRIDGE_ONLY_DISABLED; },
-
-  async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
-};
 
 // ============================================================================
 // CRYPTO / STABLECOIN
@@ -1596,7 +1507,7 @@ export const addressAPI = {
 export const stablecoinAPI = {
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
-    currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
+    currency: 'USDC' | 'USDT';
     amount?: number;
     network?: string;
     address?: string;
@@ -1622,7 +1533,7 @@ export const stablecoinAPI = {
     reason?: string;
     address: string;
     chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon' | 'tron' | 'arbitrum';
-    coin: 'usdc' | 'usdt' | 'pyusd' | 'usdb' | 'eurc';
+    coin: 'usdc' | 'usdt';
     funding_source?: 'USD';
     transaction_pin?: string;
     /**
@@ -2152,6 +2063,17 @@ export const bridgeAPI = {
           business_name?: string;
         }
       | {
+          account_type: 'gb';
+          account_owner_name: string;
+          account_owner_type?: 'individual' | 'business';
+          account_name?: string;
+          first_name?: string;
+          last_name?: string;
+          business_name?: string;
+          bank_name?: string;
+          account: { sort_code: string; account_number: string };
+        }
+      | {
           account_type: 'clabe';
           account_owner_name: string;
           clabe_number: string;
@@ -2172,7 +2094,7 @@ export const bridgeAPI = {
           document_number: string;
         }
     ) =>
-      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'clabe' | 'pix'; currency: 'USD' | 'EUR' | 'MXN' | 'BRL'; rail: string; last_4: string; bank_name: string | null }>(
+      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'gb' | 'clabe' | 'pix'; currency: 'USD' | 'EUR' | 'GBP' | 'MXN' | 'BRL'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
       ),
@@ -2193,7 +2115,7 @@ export const bridgeAPI = {
 
     /** Query Bridge-backed capabilities for external-account rails. */
     capabilities: async () =>
-      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'clabe' | 'pix'> }>(
+      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'> }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
       ),
@@ -2376,6 +2298,11 @@ export const payoutsAPI = {
   ) =>
     apiCall<{
       capabilities?: Record<string, unknown>;
+      static_ip_guard?: {
+        required?: boolean;
+        ready?: boolean;
+        blocked?: boolean;
+      };
       local_rail_policy?: {
         countries?: string[];
         currencies?: string[];
@@ -2391,13 +2318,13 @@ export const payoutsAPI = {
     }),
 
   /** Verify a bank account number → account holder name before payout. */
-  resolveAccount: async (account_number: string, bank_code: string) =>
+  resolveAccount: async (account_number: string, bank_code: string, country?: string) =>
     apiCall<{
       capabilities?: Record<string, unknown>;
       resolution?: Record<string, unknown>;
     }>('flutterwave-account-resolve', {
       method: 'POST',
-      body: JSON.stringify({ account_number, bank_code }),
+      body: JSON.stringify({ account_number, bank_code, ...(country ? { country } : {}) }),
     }),
 
   /** Create a Flutterwave local payout transfer (bank/mobile rails). */
@@ -2406,6 +2333,7 @@ export const payoutsAPI = {
     currency: string;
     account_bank: string;
     account_number: string;
+    country?: string;
     reference: string;
     narration?: string;
     callback_url?: string;
@@ -2483,6 +2411,7 @@ export const payoutsAPI = {
   createCollection: async (payload: {
     amount: number | string;
     currency: string;
+    country?: string;
     tx_ref: string;
     customer?: Record<string, unknown>;
     payment_options?: string;
@@ -2597,7 +2526,11 @@ export const externalWalletsAPI = {
 
 export const adminAPI = {
   broadcast: async (
-    action: 'business_verification_delay' | 'business_platform_live' | 'individual_platform_live',
+    action:
+      | 'founder_welcome_all'
+      | 'business_verification_delay'
+      | 'business_platform_live'
+      | 'individual_platform_live',
     opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {},
   ) =>
     apiCall<{
@@ -2925,9 +2858,6 @@ export const backendAPI = {
   cards: cardAPI,
   fx: fxAPI,
   kyc: kycAPI,
-  proofOfAddress: proofOfAddressAPI,
-  localPayments: localPaymentsAPI,
-  usPayments: usPaymentsAPI,
   address: addressAPI,
   stablecoin: stablecoinAPI,
   mobileMoney: mobileMoneyAPI,

@@ -212,6 +212,7 @@ export function isBridgeBlocked(countryCode: string | null | undefined): boolean
 }
 
 export type BridgeVirtualAccountCurrency = 'USD' | 'EUR' | 'GBP';
+export type BridgeExternalAccountType = 'us' | 'iban' | 'gb';
 
 /**
  * Bridge product availability for the products BorderPay can actually
@@ -293,6 +294,34 @@ export function isBridgeVirtualAccountCurrencyAvailable(
 export function isBridgeCustodialWalletSupported(countryCode: string | null | undefined): boolean {
   if (!countryCode || isBridgeBlocked(countryCode)) return false;
   return !BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES.has(countryCode.toUpperCase());
+}
+
+/**
+ * External bank payout destinations BorderPay can expose for a country.
+ *
+ * Mapping follows currently shipped Bridge products:
+ * - `us`   (USD external account)  ↔ USD rail availability
+ * - `iban` (EUR external account)  ↔ EUR rail availability
+ */
+export function bridgeExternalAccountTypesForCountry(
+  countryCode: string | null | undefined,
+): BridgeExternalAccountType[] {
+  if (!countryCode || isBridgeBlocked(countryCode)) return [];
+  const types: BridgeExternalAccountType[] = [];
+  if (isBridgeVirtualAccountCurrencyAvailable(countryCode, 'USD')) types.push('us');
+  if (isBridgeVirtualAccountCurrencyAvailable(countryCode, 'EUR')) types.push('iban');
+  if (isBridgeVirtualAccountCurrencyAvailable(countryCode, 'GBP')) types.push('gb');
+  return types;
+}
+
+export function isBridgeExternalAccountTypeSupported(
+  countryCode: string | null | undefined,
+  accountType: string | null | undefined,
+): boolean {
+  if (!accountType) return false;
+  return bridgeExternalAccountTypesForCountry(countryCode).includes(
+    accountType.toLowerCase() as BridgeExternalAccountType,
+  );
 }
 
 // ───────────────────────────────────────────────────────────────────────────
