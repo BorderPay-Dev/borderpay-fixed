@@ -46,13 +46,17 @@ Deno.serve(async (req) => {
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   const batchLimit = Math.max(1, Math.min(50, Number(body?.limit || 10)));
   const reason = String(body?.reason || "batch_replay").slice(0, 250);
+  const flow = String(body?.flow || "").toLowerCase();
+  const status = String(body?.status || "failed").toLowerCase();
 
-  const { data: rows, error } = await supa
+  let q = supa
     .from("flutterwave_webhook_events")
-    .select("event_id,processing_attempts")
-    .eq("processing_status", "failed")
+    .select("event_id,processing_attempts,flow,processing_status")
+    .eq("processing_status", status || "failed")
     .order("received_at", { ascending: true })
     .limit(200);
+  if (flow) q = q.eq("flow", flow);
+  const { data: rows, error } = await q;
 
   if (error) {
     return json({ success: false, code: "candidate_query_failed", error: error.message }, 500);
@@ -66,6 +70,7 @@ Deno.serve(async (req) => {
       code: "dry_run_ready",
       data: {
         requested_limit: batchLimit,
+        filters: { flow: flow || null, status: status || "failed" },
         replayable_count: replayable.length,
         candidates: replayable.map((r: any) => ({ event_id: r.event_id, processing_attempts: r.processing_attempts })),
       },
@@ -102,6 +107,7 @@ Deno.serve(async (req) => {
     code: "batch_replay_executed",
     data: {
       attempted: results.length,
+      filters: { flow: flow || null, status: status || "failed" },
       succeeded: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
       results,

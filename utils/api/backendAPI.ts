@@ -2724,6 +2724,8 @@ export const adminAPI = {
     dry_run?: boolean;
     limit?: number;
     reason?: string;
+    flow?: 'collection' | 'transfer' | 'unknown';
+    status?: 'failed' | 'processing' | 'completed' | 'duplicate_ignored';
   } = {}) =>
     apiCall<{
       requested_limit?: number;
