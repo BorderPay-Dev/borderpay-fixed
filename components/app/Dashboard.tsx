@@ -134,16 +134,11 @@ const CURRENCY_LABEL: Record<string, string> = {
   GBP: 'British Pound',
   USDT: 'Tether USD',
   USDC: 'USD Coin',
-  PYUSD: 'PayPal USD',
-  USDB: 'USDB',
-  EURC: 'Euro Coin',
 };
 
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
-  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
-  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {

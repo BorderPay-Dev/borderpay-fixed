@@ -19,7 +19,7 @@
  *   FX (EUR/GBP/MXN) .............. mid-market + 0.50%
  *   FX (BRL) ...................... mid-market + 0.55%
  *   FX (COP) ...................... mid-market + 0.75%
- *   USDB support .................. 0.25% AUM
+ *   Additional stablecoin support . provider-dependent (not exposed in BorderPay UX)
  *   Wallets ....................... $0.25 per active or created wallet
  *   Third-party fees .............. passed through AT COST
  */

@@ -19,9 +19,6 @@ type Brand = { bg: string; fg: string; glyph: string; name: string };
 const BRAND: Record<string, Brand> = {
   USDC:  { bg: '#2775CA', fg: '#FFFFFF', glyph: '$',  name: 'USD Coin' },
   USDT:  { bg: '#26A17B', fg: '#FFFFFF', glyph: '₮',  name: 'Tether'   },
-  USDB:  { bg: '#1F4FFF', fg: '#FFFFFF', glyph: '$',  name: 'USDB'     },
-  PYUSD: { bg: '#2D2FF6', fg: '#FFFFFF', glyph: '$',  name: 'PayPal USD' },
-  EURC:  { bg: '#1A4BD6', fg: '#FFFFFF', glyph: '€',  name: 'Euro Coin' },
   EUR:   { bg: '#4F5BD5', fg: '#FFFFFF', glyph: '€',  name: 'Euro account' },
   GBP:   { bg: '#7B5BD5', fg: '#FFFFFF', glyph: '£',  name: 'Pound account' },
   USD:   { bg: '#1F9D57', fg: '#FFFFFF', glyph: '$',  name: 'US Dollar account' },

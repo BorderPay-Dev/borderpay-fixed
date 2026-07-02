@@ -6,7 +6,7 @@
 export type ProviderName = "bridge";
 export type AccountType  = "individual" | "business";
 export type FiatCurrency = "USD" | "EUR" | "GBP" | "NGN" | "KES" | "GHS" | "UGX" | "TZS" | "XAF" | "XOF" | "ZAR";
-export type StablecoinSymbol = "USDC" | "USDT" | "PYUSD" | "USDB" | "EURC";
+export type StablecoinSymbol = "USDC" | "USDT";
 export type StablecoinChain  = "ETH" | "SOL" | "BSC" | "POLYGON" | "TRON" | "BASE" | "OPTIMISM" | "ARBITRUM";
 
 export interface CustomerCreateInput {

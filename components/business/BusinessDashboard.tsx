@@ -171,7 +171,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   }, [wallets]);
 
   const usdLikeTotal = useMemo(
-    () => wallets.filter(w => ['USD', 'USDT', 'USDC', 'PYUSD', 'USDB'].includes(w.currency))
+    () => wallets.filter(w => ['USD', 'USDT', 'USDC'].includes(w.currency))
                  .reduce((s, w) => s + (w.balance || 0), 0),
     [wallets],
   );

@@ -49,8 +49,6 @@ const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faste
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
-  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
-  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {

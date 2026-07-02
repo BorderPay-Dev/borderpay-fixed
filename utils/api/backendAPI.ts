@@ -423,7 +423,7 @@ export const walletAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6,
+      USDC: 6, USDT: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -562,7 +562,7 @@ export const transactionAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6, EURC: 6,
+      USDC: 6, USDT: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -1596,7 +1596,7 @@ export const addressAPI = {
 export const stablecoinAPI = {
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
-    currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
+    currency: 'USDC' | 'USDT';
     amount?: number;
     network?: string;
     address?: string;
@@ -1622,7 +1622,7 @@ export const stablecoinAPI = {
     reason?: string;
     address: string;
     chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon' | 'tron' | 'arbitrum';
-    coin: 'usdc' | 'usdt' | 'pyusd' | 'usdb' | 'eurc';
+    coin: 'usdc' | 'usdt';
     funding_source?: 'USD';
     transaction_pin?: string;
     /**

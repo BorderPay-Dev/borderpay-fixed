@@ -193,7 +193,7 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
               'Country-dependent wallet and account options',
               'Cards remain locked until BorderPay enables card access',
               'Card network wallets are not live yet',
-              'Stablecoin support (USDT, USDC, PYUSD, USDB)',
+              'Stablecoin support (USDT, USDC)',
               'Local mobile-wallet routes are future-state until enabled',
               'Customer support',
             ].map((item, index) => (

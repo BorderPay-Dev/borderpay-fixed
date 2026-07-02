@@ -367,7 +367,7 @@ function screenToShellRoute(s: AppScreen): AppRoute {
 
 type StablecoinConfirmData = {
   txType: 'deposit' | 'send' | 'receive' | 'swap';
-  currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
+  currency: 'USDC' | 'USDT';
   amount?: number;
   network?: string;
   address?: string;

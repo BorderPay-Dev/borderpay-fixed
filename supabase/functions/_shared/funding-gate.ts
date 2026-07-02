@@ -30,7 +30,7 @@ export type FundingGateResult =
   | { allowed: true;  currentUsd: number }
   | { allowed: false; code: string; status: number; body: Record<string, unknown>; currentUsd: number };
 
-const USD_PEGGED_STABLECOINS = new Set(["USDC", "USDT", "USDB", "PYUSD"]);
+const USD_PEGGED_STABLECOINS = new Set(["USDC", "USDT"]);
 const FUNDING_OUTAGE_POLICY = (Deno.env.get("FUNDING_GATE_OUTAGE_POLICY") || "fail_closed").toLowerCase();
 
 function parseDecimalAmount(v: unknown): number | null {

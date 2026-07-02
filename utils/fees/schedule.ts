@@ -56,7 +56,7 @@ export function africanPayoutMarkupPercentForAccount(accountType: string | null 
 }
 
 const STABLECOIN_SYMBOLS: ReadonlySet<string> = new Set([
-  'USDC', 'USDT', 'PYUSD', 'USDB', 'EURC',
+  'USDC', 'USDT',
 ]);
 
 /** Resolve the automatic Bridge developer-fee percent for a source rail. */

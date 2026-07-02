@@ -38,7 +38,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 // Types
 // ---------------------------------------------------------------------------
 
-type TransferMethod = 'us_ach_wire' | 'stablecoin';
+type TransferMethod = 'us_ach_wire' | 'stablecoin' | 'bank' | 'mobile_money';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
 interface Institution {
@@ -91,17 +91,14 @@ const SUPPORTED_CURRENCIES = [
   { code: 'MWK', name: 'Malawian Kwacha', symbol: 'MK', flag: '🇲🇼', country: 'MW' },
 ];
 
-// Bank transfer only supports NGN (NUBAN)
-const BANK_TRANSFER_CURRENCIES = ['NGN'];
-
-// Mobile Money supported currencies
+// Mobile money supported currencies
 const MOMO_CURRENCIES = ['XAF', 'KES', 'NGN', 'XOF', 'TZS', 'UGX', 'GHS', 'SLE', 'MZN', 'MWK'];
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   NGN: '₦', KES: 'KSh', GHS: '₵', UGX: 'USh',
   XAF: 'FCFA', XOF: 'FCFA', TZS: 'TSh', USD: '$',
   SLE: 'Le', MZN: 'MT', MWK: 'MK',
-  USDT: '$', USDC: '$', PYUSD: '$',
+  USDT: '$', USDC: '$',
 };
 
 function getCurrencySymbol(code: string) {
@@ -168,6 +165,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Step & method
   const [step, setStep] = useState<Step>('method');
   const [method, setMethod] = useState<TransferMethod>('stablecoin');
+  const [flwCaps, setFlwCaps] = useState<{ configured?: boolean; payout_enabled?: boolean; receive_enabled?: boolean } | null>(null);
+  const [flwPolicy, setFlwPolicy] = useState<{ countries?: string[]; currencies?: string[]; methods?: Array<'bank' | 'mobile_money'> } | null>(null);
 
   // Currency & wallet
   const [wallets, setWallets] = useState<Wallet[]>(cachedSendWallets);
@@ -244,6 +243,25 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     () => externalAccounts.find((x) => x.bridge_external_account_id === selectedExternalAccountId) || null,
     [externalAccounts, selectedExternalAccountId],
   );
+  const currencyMeta = useMemo(
+    () => new Map(SUPPORTED_CURRENCIES.map((c) => [c.code, c])),
+    [],
+  );
+  const enabledLocalMethods = useMemo(
+    () => new Set((flwPolicy?.methods || []).filter((m): m is 'bank' | 'mobile_money' => m === 'bank' || m === 'mobile_money')),
+    [flwPolicy],
+  );
+  const flutterwaveReady = Boolean(flwCaps?.configured && flwCaps?.payout_enabled);
+  const bankCurrencies = useMemo(() => {
+    const policyCurrencies = new Set((flwPolicy?.currencies || []).map((c) => String(c).toUpperCase()));
+    return SUPPORTED_CURRENCIES.filter((c) => policyCurrencies.size === 0 || policyCurrencies.has(c.code));
+  }, [flwPolicy]);
+  const momoCurrencies = useMemo(() => {
+    const policyCurrencies = new Set((flwPolicy?.currencies || []).map((c) => String(c).toUpperCase()));
+    return SUPPORTED_CURRENCIES.filter(
+      (c) => MOMO_CURRENCIES.includes(c.code) && (policyCurrencies.size === 0 || policyCurrencies.has(c.code)),
+    );
+  }, [flwPolicy]);
 
   // Instant fallback fee — shown immediately on first paint.
   const fallbackNetworkFee = useMemo(() => {
@@ -431,6 +449,24 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [selectedCurrency, wallets]);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r: any = await backendAPI.payouts.capabilities('corridor_policy');
+        if (cancelled || !r?.success) return;
+        setFlwCaps((r?.data?.capabilities || null) as any);
+        setFlwPolicy((r?.data?.local_rail_policy || null) as any);
+      } catch {
+        if (!cancelled) {
+          setFlwCaps(null);
+          setFlwPolicy(null);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     if (method !== 'us_ach_wire') return;
     if (selectedExternalAccount?.currency && selectedExternalAccount.currency !== selectedCurrency) {
       setSelectedCurrency(selectedExternalAccount.currency);
@@ -443,6 +479,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     const tokenCurrency = String(crypto.token || 'USDC').toUpperCase();
     if (tokenCurrency !== selectedCurrency) setSelectedCurrency(tokenCurrency);
   }, [method, crypto.token, selectedCurrency]);
+
+  useEffect(() => {
+    if (method !== 'bank' && method !== 'mobile_money') return;
+    const allowed = method === 'bank' ? bankCurrencies : momoCurrencies;
+    if (allowed.length === 0) return;
+    if (!allowed.some((c) => c.code === selectedCurrency)) {
+      setSelectedCurrency(allowed[0].code);
+    }
+  }, [method, selectedCurrency, bankCurrencies, momoCurrencies]);
 
   // ---------------------------------------------------------------------------
   // Load institutions when method/currency changes
@@ -482,16 +527,37 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } catch { /* noop */ }
 
     setLoadingInstitutions(true);
-    setSelectedBank(null);
     try {
-      const res = await backendAPI.localPayments.getInstitutions(selectedCurrency, undefined);
-      if (res.success && res.data?.institutions) {
-        const list = Array.isArray(res.data.institutions) ? res.data.institutions : [];
-        setInstitutions(list);
-        try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
-        try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+      const country = currencyMeta.get(selectedCurrency)?.country;
+      if (!country) {
+        setInstitutions([]);
+        setSelectedBank(null);
+        return;
       }
-    } catch (e) {
+      const resp: any = method === 'bank'
+        ? await backendAPI.payouts.listBanks(country)
+        : await backendAPI.payouts.listMobileNetworks(country);
+
+      const raw = method === 'bank'
+        ? (resp?.data?.banks || [])
+        : (resp?.data?.mobile_networks || []);
+      const mapped: Institution[] = Array.isArray(raw)
+        ? raw.map((row: any, idx: number) => ({
+            code: String(row?.code || row?.id || row?.bank_code || row?.network || `opt_${idx}`).trim(),
+            name: String(row?.name || row?.bank_name || row?.network || row?.provider || 'Unnamed provider').trim(),
+            type: method,
+          })).filter((x: Institution) => x.code && x.name)
+        : [];
+      setInstitutions(mapped);
+      setSelectedBank((prev) => {
+        if (prev && mapped.some((m) => m.code === prev.code)) return prev;
+        return mapped[0] || null;
+      });
+      try { localStorage.setItem(institutionsCacheKey, JSON.stringify(mapped)); } catch { /* noop */ }
+      try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+    } catch {
+      setInstitutions([]);
+      setSelectedBank(null);
     } finally {
       setLoadingInstitutions(false);
     }
@@ -513,28 +579,39 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setResolvedName('');
     setResolveError('');
 
+    if (method !== 'bank') return;
     if (!selectedBank || accountNumber.length < 6) return;
 
     const timer = setTimeout(() => resolveAccount(), 800);
     return () => clearTimeout(timer);
-  }, [selectedBank, accountNumber]);
+  }, [method, selectedBank, accountNumber]);
 
   const resolveAccount = async () => {
     if (!selectedBank || !accountNumber) return;
+    if (method !== 'bank') return;
     setResolving(true);
     setResolvedName('');
     setResolveError('');
     try {
-      const res = await backendAPI.localPayments.resolveAccount(
-        selectedBank.code, accountNumber, selectedCurrency
-      );
-      if (res.success && res.data?.account_name) {
-        setResolvedName(res.data.account_name);
-      } else {
-        setResolveError(res.error || t('send.accountResolveFailed'));
+      const r: any = await backendAPI.payouts.resolveAccount(accountNumber, selectedBank.code);
+      if (!r?.success) {
+        setResolveError(friendlyError(r?.error || 'Unable to verify account details.'));
+        return;
       }
-    } catch {
-      setResolveError(t('send.accountResolveFailed'));
+      const res = r?.data?.resolution || {};
+      const name = String(
+        res?.account_name ||
+        res?.account_holder_name ||
+        res?.beneficiary_name ||
+        '',
+      ).trim();
+      if (!name) {
+        setResolveError('Unable to verify account details.');
+        return;
+      }
+      setResolvedName(name);
+    } catch (error: any) {
+      setResolveError(friendlyError(error, 'Unable to verify account details.'));
     } finally {
       setResolving(false);
     }
@@ -574,6 +651,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const canProceedDetails = () => {
     if (method === 'us_ach_wire') return !!selectedExternalAccount;
     if (method === 'stablecoin') return isValidCryptoAddress(crypto.network, crypto.address);
+    if (method === 'bank') return !!selectedBank && accountNumber.length >= 6 && !!resolvedName;
+    if (method === 'mobile_money') return !!selectedBank && accountNumber.length >= 8;
     return false;
   };
 
@@ -586,7 +665,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (method === 'stablecoin') {
       return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
     }
-    return num > 0 && selectedWallet && num <= selectedWallet.balance;
+    if (method === 'bank' || method === 'mobile_money') {
+      return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
+    }
+    return false;
   };
 
   // ---------------------------------------------------------------------------
@@ -635,30 +717,60 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             external_account_id: selectedExternalAccount.bridge_external_account_id,
           },
         });
+      } else if (method === 'bank' || method === 'mobile_money') {
+        if (!selectedBank) throw new Error('Select a destination provider.');
+        if (!accountNumber) throw new Error('Enter destination account details.');
+        result = await backendAPI.payouts.createTransfer({
+          amount: parseFloat(amount),
+          currency: selectedCurrency,
+          account_bank: selectedBank.code,
+          account_number: accountNumber,
+          reference: transferIdempotencyKey,
+          narration: reason || (method === 'bank' ? 'Local bank payout' : 'Mobile money payout'),
+          debit_currency: selectedCurrency,
+          ...(resolvedName ? { beneficiary_name: resolvedName } : {}),
+          meta: {
+            method,
+            borderpay_user_id: userId,
+          },
+        });
       } else {
         throw new Error('Unsupported transfer method.');
       }
 
       if (result.success) {
+        const transfer = result.data?.transfer || {};
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
-        setTransactionId(result.data?.transaction_id || result.data?.transfer_id || '');
-        setTransactionRef(result.data?.reference || result.data?.transfer_id || '');
+        setTransactionId(
+          result.data?.transaction_id ||
+          result.data?.transfer_id ||
+          transfer?.id ||
+          transfer?.transfer_id ||
+          '',
+        );
+        setTransactionRef(
+          result.data?.reference ||
+          result.data?.transfer_id ||
+          transfer?.reference ||
+          transfer?.id ||
+          '',
+        );
         setNewBalance(result.data?.new_balance ?? null);
         setStep('success');
         toast.success(t('send.txSuccessful'));
       } else {
         // Map structured server codes to friendly user-facing messages.
-        // 402 plan_required is intercepted globally by apiCall and pops
-        // UpgradeModal; we don't surface it as a transfer failure.
         const code = (result as any)?.code;
         const friendly =
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
         : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
+        : code === 'flutterwave_not_enabled' ? 'Local payout rails are currently unavailable. Use stablecoin or external bank payout.'
+        : code === 'provider_inactive'    ? 'Local payout provider is temporarily unavailable.'
+        : code === 'static_ip_not_ready'  ? 'Local payout rails are temporarily unavailable. Please try again shortly.'
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
         : code === 'no_customer'          ? 'Finish account setup before sending funds.'
-        : code === 'plan_required'        ? ''      // UpgradeModal handles it; suppress duplicate toast
         : (result.error || t('send.txFailed'));
 
         setErrorMessage(friendly || t('send.txFailed'));
@@ -854,6 +966,88 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   </div>
                 )
               )}
+
+              {/* Flutterwave local rails (bank + mobile money). These are
+                  source-of-truth gated by backend capabilities. */}
+              {enabledLocalMethods.has('bank') && (
+                flutterwaveReady ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMethod('bank');
+                      setSelectedCurrency(bankCurrencies[0]?.code || 'NGN');
+                      setSelectedBank(null);
+                      setAccountNumber('');
+                      setResolvedName('');
+                      setStep('details');
+                    }}
+                    className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-colors`}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-blue-500/15 flex items-center justify-center flex-shrink-0">
+                      <Building2 size={22} className="text-blue-400" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className={`text-sm font-semibold ${tc.text}`}>{t('send.bankTransfer')}</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>Local bank payout rails</p>
+                    </div>
+                    <ArrowRight size={18} className={tc.textMuted} />
+                  </button>
+                ) : (
+                  <div
+                    className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60 cursor-not-allowed`}
+                    aria-disabled="true"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-blue-500/15 flex items-center justify-center flex-shrink-0">
+                      <Building2 size={22} className="text-blue-400" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className={`text-sm font-semibold ${tc.text}`}>{t('send.bankTransfer')}</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>Local bank payout rails — coming soon</p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
+                  </div>
+                )
+              )}
+
+              {enabledLocalMethods.has('mobile_money') && (
+                flutterwaveReady ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMethod('mobile_money');
+                      setSelectedCurrency(momoCurrencies[0]?.code || 'KES');
+                      setSelectedBank(null);
+                      setAccountNumber('');
+                      setResolvedName('');
+                      setStep('details');
+                    }}
+                    className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-colors`}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-purple-500/15 flex items-center justify-center flex-shrink-0">
+                      <Shield size={22} className="text-purple-300" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className={`text-sm font-semibold ${tc.text}`}>{t('send.mobileMoney')}</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>Mobile money payout rails</p>
+                    </div>
+                    <ArrowRight size={18} className={tc.textMuted} />
+                  </button>
+                ) : (
+                  <div
+                    className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60 cursor-not-allowed`}
+                    aria-disabled="true"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-purple-500/15 flex items-center justify-center flex-shrink-0">
+                      <Shield size={22} className="text-purple-300" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className={`text-sm font-semibold ${tc.text}`}>{t('send.mobileMoney')}</p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>Mobile money payout rails — coming soon</p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
+                  </div>
+                )
+              )}
             </div>
 
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
@@ -879,22 +1073,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             {/* Currency Picker (Africa only — not for P2P, US, or Stablecoin) */}
             {method !== 'us_ach_wire' && method !== 'stablecoin' && (() => {
               const availableCurrencies = method === 'bank'
-                ? SUPPORTED_CURRENCIES.filter(c => BANK_TRANSFER_CURRENCIES.includes(c.code))
-                : SUPPORTED_CURRENCIES.filter(c => MOMO_CURRENCIES.includes(c.code));
+                ? bankCurrencies
+                : momoCurrencies;
               return (
               <div className="mb-5">
                 <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>{t('send.selectCurrency')}</label>
-                {/* Bank transfer is NGN only — show fixed, no picker */}
-                {method === 'bank' ? (
-                  <div className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
-                    <span className="text-xl">🇳🇬</span>
-                    <div>
-                      <p className={`text-sm font-semibold ${tc.text}`}>NGN</p>
-                      <p className={`text-xs ${tc.textMuted}`}>Nigerian Naira (NUBAN)</p>
-                    </div>
-                    <CheckCircle size={16} className="text-[#C7FF00] ml-auto" />
-                  </div>
-                ) : (
                 <>
                   <button
                     onClick={() => setShowCurrencyPicker(!showCurrencyPicker)}
@@ -943,7 +1126,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </motion.div>
                   )}
                 </>
-                )}
               </div>
               );
             })()}

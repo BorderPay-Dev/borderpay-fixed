@@ -41,7 +41,7 @@ export const BRIDGE_DEVELOPER_FEE_PERCENT = {
  *
  * IMPORTANT:
  * - This policy is only applied on USD-denominated transfer sources
- *   (USD / USDC / USDT / PYUSD / USDB) so "$ flat fee" semantics remain
+ *   (USD / USDC / USDT) so "$ flat fee" semantics remain
  *   deterministic.
  * - For non-USD currencies, we keep percent-only developer fee.
  */
@@ -85,7 +85,7 @@ export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> =
 export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
 
 const STABLECOIN_SYMBOLS: ReadonlySet<string> = new Set([
-  "USDC", "USDT", "PYUSD", "USDB", "EURC",
+  "USDC", "USDT",
 ]);
 
 /**
@@ -108,7 +108,7 @@ export function bridgeDeveloperFeePercent(
 /** Whether the source currency is USD-denominated for flat-$ policy usage. */
 export function isUsdDenominatedCurrency(currency: string | null | undefined): boolean {
   const c = String(currency ?? "").toUpperCase();
-  return c === "USD" || c === "USDC" || c === "USDT" || c === "PYUSD" || c === "USDB";
+  return c === "USD" || c === "USDC" || c === "USDT";
 }
 
 /**
