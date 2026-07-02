@@ -1,6 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { verifyFlutterwaveWebhookSignature } from "../_shared/providers/flutterwave.ts";
+import {
+  verifyFlutterwaveWebhookSignature,
+  getFlutterwaveLocalRailPolicy,
+} from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -310,6 +313,22 @@ Deno.serve(async (req) => {
       error: "Webhook payload missing currency",
       data: { event_id: eventId, event_type: eventType, flow },
     }, 422);
+  }
+  const localRailPolicy = getFlutterwaveLocalRailPolicy();
+  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
+  if (!supportedCurrencies.includes(currency)) {
+    await markWebhookEventStatus(eventId, "failed", {
+      code: "webhook_currency_not_supported",
+      reason: "currency_not_enabled_on_local_rails",
+      at: new Date().toISOString(),
+      currency,
+    });
+    return json({
+      success: false,
+      code: "webhook_currency_not_supported",
+      error: "Webhook currency is not enabled on local rails",
+      data: { event_id: eventId, event_type: eventType, flow, currency, supported_currencies: supportedCurrencies },
+    }, 409);
   }
 
   if (transferEvent) {
