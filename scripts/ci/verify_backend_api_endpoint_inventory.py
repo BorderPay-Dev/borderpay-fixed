@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that backendAPI edge endpoints have matching function directories."""
+"""Verify that backendAPI edge endpoints have deployed function handlers."""
 
 from __future__ import annotations
 
@@ -20,12 +20,25 @@ def main() -> int:
     endpoints = sorted(set(re.findall(r"apiCall(?:<[^>]+>)?\(\s*'([^']+)'", text)))
     endpoints = [ep for ep in endpoints if ep not in IGNORED_ENDPOINTS]
 
-    existing = {p.name for p in FUNCTIONS_DIR.iterdir() if p.is_dir()}
-    missing = sorted(ep for ep in endpoints if ep not in existing)
+    missing_dirs: list[str] = []
+    missing_handlers: list[str] = []
+    for ep in endpoints:
+        fn_dir = FUNCTIONS_DIR / ep
+        if not fn_dir.is_dir():
+            missing_dirs.append(ep)
+            continue
+        if not (fn_dir / "index.ts").exists():
+            missing_handlers.append(ep)
 
-    if missing:
+    if missing_dirs:
         print("[backend-endpoint-inventory] ERROR: backendAPI references missing function directories:")
-        for ep in missing:
+        for ep in missing_dirs:
+            print(f"  - {ep}")
+        return 1
+
+    if missing_handlers:
+        print("[backend-endpoint-inventory] ERROR: function directories missing index.ts handler:")
+        for ep in missing_handlers:
             print(f"  - {ep}")
         return 1
 

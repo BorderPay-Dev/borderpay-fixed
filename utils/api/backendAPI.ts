@@ -397,12 +397,8 @@ export const userAPI = {
 // `getWallets` is read-only and provider-neutral — it returns rows from
 // public.wallets which the dashboard / send flows already display.
 //
-// Pre-Phase-2 this called the `get-wallets` edge function. That function
-// was never deployed (drift class also responsible for `send-email`,
-// `get-transactions`, `poa-upload-url`, etc.). Production logs showed
-// repeated `POST 404 /functions/v1/get-wallets` with `deployment_id: null`,
-// causing the BusinessDashboard hero to show $0.00 + a "Could not load
-// wallets" toast on every mount.
+// Historical edge indirection was removed. This reads canonical rows
+// directly through RLS to avoid endpoint drift and unnecessary hops.
 //
 // `public.wallets` has RLS enabled with policy `wallets_own =
 // (auth.uid() = user_id)` covering ALL ops, so a direct supabase-js
