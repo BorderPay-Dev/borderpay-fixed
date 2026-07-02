@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Lock, Plus, Shield } from 'lucide-react';
+import { Lock, Plus, Shield } from 'lucide-react';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
-  bridgeVirtualAccountCurrenciesForCountry,
   isBridgeCustodialWalletSupported,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
@@ -44,6 +43,11 @@ const STABLE_CHAIN: Record<string, string> = {
   USDT: 'TRON',
 };
 
+const STABLE_ICON_URL: Record<string, string> = {
+  USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
+  USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+};
+
 function isApproved(value?: string | null): boolean {
   if (typeof value !== 'string') return false;
   return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
@@ -57,9 +61,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const storedUser = authAPI.getStoredUser() || {};
   const country = (storedUser.country as string | null | undefined) ?? null;
 
-  const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(
-    bridgeVirtualAccountCurrenciesForCountry(country),
-  );
+  const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
   const [stableSupported, setStableSupported] = useState<boolean>(isBridgeCustodialWalletSupported(country));
 
   const [verified, setVerified] = useState<boolean>(() => {
@@ -83,9 +85,30 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     }
   });
 
-  const [stableRows, setStableRows] = useState<StableRow[]>([]);
-  const [vaRows, setVaRows] = useState<VaRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const walletCacheKey = useMemo(
+    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    [userId],
+  );
+  const vaCacheKey = useMemo(
+    () => financialCacheKey('borderpay_va_v1', { userId }),
+    [userId],
+  );
+  const [stableRows, setStableRows] = useState<StableRow[]>(() => {
+    try {
+      const scoped = JSON.parse(localStorage.getItem(walletCacheKey) || '[]');
+      return Array.isArray(scoped) ? scoped : [];
+    } catch {
+      return [];
+    }
+  });
+  const [vaRows, setVaRows] = useState<VaRow[]>(() => {
+    try {
+      const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+      return Array.isArray(scoped) ? scoped : [];
+    } catch {
+      return [];
+    }
+  });
   const [creating, setCreating] = useState<string | null>(null);
   const refreshInFlightRef = useRef(false);
 
@@ -100,12 +123,8 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       const wallets = Array.isArray(routeData?.wallets) ? routeData.wallets : [];
       setStableRows(nextStable);
       setVaRows(nextVa);
-      try {
-        localStorage.setItem(financialCacheKey('borderpay_wallets_v1', { userId }), JSON.stringify(nextStable));
-        localStorage.setItem(financialCacheKey('borderpay_va_v1', { userId }), JSON.stringify(nextVa));
-      } catch {
-        // noop
-      }
+      try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
+      try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
 
       const total = wallets.reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
       setHasFirstFunding(total > 0);
@@ -117,10 +136,11 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           const next = caps.data.supported_currencies
             .filter((c: unknown): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c).toUpperCase()))
             .map((c: string) => c.toUpperCase() as BridgeVirtualAccountCurrency);
-          if (next.length > 0) setSupportedVaCurrencies(next);
+          setSupportedVaCurrencies(next);
         }
       } catch {
-        // keep country fallback
+        // keep empty capabilities on error to avoid displaying unsupported rails.
+        setSupportedVaCurrencies([]);
       }
 
       setStableSupported(isBridgeCustodialWalletSupported(country));
@@ -135,7 +155,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         setVerified(isVerified);
       }
     } finally {
-      setLoading(false);
       refreshInFlightRef.current = false;
     }
   };
@@ -276,12 +295,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         )}
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {loading ? (
-            <div className="px-4 py-10 text-center">
-              <Loader2 className={`w-5 h-5 ${tc.textMuted} animate-spin mx-auto`} />
-            </div>
-          ) : (
-            CARDS.map((card, idx) => {
+          {CARDS.map((card, idx) => {
               const exists = card.type === 'virtual_account'
                 ? existingVa.has(card.code)
                 : existingStable.has(card.code);
@@ -293,7 +307,18 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   key={card.code}
                   className={`px-4 py-3.5 flex items-center gap-3 ${idx > 0 ? `border-t ${tc.borderLight}` : ''}`}
                 >
-                  <AssetBadge symbol={card.code} size={44} />
+                  {card.type === 'stablecoin' && STABLE_ICON_URL[card.code] ? (
+                    <div className="w-11 h-11 rounded-full bg-white/10 overflow-hidden flex items-center justify-center">
+                      <img
+                        src={STABLE_ICON_URL[card.code]}
+                        alt={card.code}
+                        className="w-8 h-8 object-contain"
+                        loading="lazy"
+                      />
+                    </div>
+                  ) : (
+                    <AssetBadge symbol={card.code} size={44} />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
@@ -309,8 +334,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   {renderAction(card)}
                 </div>
               );
-            })
-          )}
+            })}
         </div>
       </div>
     </div>
