@@ -31,6 +31,10 @@ function isCurrencyCode(value: string): boolean {
   return /^[A-Z]{3,5}$/.test(value);
 }
 
+function isSafeTxRef(value: string): boolean {
+  return /^[A-Za-z0-9._:-]{6,120}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -69,6 +73,7 @@ Deno.serve(async (req) => {
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
   if (!tx_ref) return json({ success: false, error: "tx_ref is required" }, 400);
+  if (!isSafeTxRef(tx_ref)) return json({ success: false, error: "tx_ref format is invalid" }, 400);
 
   const res = await flutterwaveCreateCollection({
     amount,
