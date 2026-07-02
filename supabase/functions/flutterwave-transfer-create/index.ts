@@ -39,6 +39,14 @@ function isSafeReference(value: string): boolean {
   return /^[A-Za-z0-9._:-]{6,120}$/.test(value);
 }
 
+function isSafeBankCode(value: string): boolean {
+  return /^[A-Za-z0-9_-]{2,20}$/.test(value);
+}
+
+function isSafeAccountNumber(value: string): boolean {
+  return /^[0-9]{6,34}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -107,7 +115,9 @@ Deno.serve(async (req) => {
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
+  if (!isSafeBankCode(accountBank)) return json({ success: false, error: "account_bank format is invalid" }, 400);
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);
+  if (!isSafeAccountNumber(accountNumber)) return json({ success: false, error: "account_number format is invalid" }, 400);
   if (!reference) return json({ success: false, error: "reference is required" }, 400);
   if (!isSafeReference(reference)) {
     return json({ success: false, error: "reference format is invalid" }, 400);
