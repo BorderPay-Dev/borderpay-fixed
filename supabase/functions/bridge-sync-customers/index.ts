@@ -37,6 +37,18 @@ function normalizeCountryCode(value: unknown): string | null {
   return /^[A-Z]{2}$/.test(v) ? v : null;
 }
 
+function normalizeAsciiName(value: unknown): string | undefined {
+  const raw = String(value || "").trim();
+  if (!raw) return undefined;
+  const ascii = raw
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9 .,'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return ascii || undefined;
+}
+
 function mapSyncCustomerError(
   error: unknown,
   options?: { accountType?: "individual" | "business" | null },
@@ -330,6 +342,18 @@ Deno.serve(async (req) => {
           if (existing?.id) {
             bridgeCustomerId = existing.id;
             resultCode = "adopted_existing";
+          } else if (providerCode === "invalid_parameters" && c.account_type === "individual") {
+            const retryCustomer = await bridgeProvider.createCustomer({
+              account_type: "individual",
+              email: c.email,
+              full_name: normalizeAsciiName(c.full_name) || c.full_name || undefined,
+              country_code: countryCode,
+              // Phone can trigger strict provider validation on old rows.
+              phone_e164: undefined,
+              borderpay_user_id: c.id,
+            });
+            bridgeCustomerId = retryCustomer.provider_id;
+            resultCode = "created_ascii_retry";
           }
         }
         if (!bridgeCustomerId) throw createErr;
