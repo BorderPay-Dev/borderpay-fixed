@@ -85,6 +85,20 @@ Deno.serve(async (req) => {
   if (mode === "retry") {
     const transferId = String(body?.transfer_id || "").trim();
     if (!transferId) return json({ success: false, error: "transfer_id is required for retry mode" }, 400);
+
+    const { data: ownerProbe } = await supa
+      .from("flutterwave_transfers")
+      .select("user_id,business_user_id")
+      .eq("flutterwave_transfer_id", transferId)
+      .maybeSingle();
+    if (!ownerProbe) {
+      return json({ success: false, code: "transfer_not_found", error: "Transfer not found for current account." }, 404);
+    }
+    const knownOwners = [ownerProbe.user_id, ownerProbe.business_user_id].filter(Boolean);
+    if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
+      return json({ success: false, error: "Transfer does not belong to current user" }, 403);
+    }
+
     const res = await flutterwaveRetryTransfer(transferId, body?.retry_payload || {});
     if (!res.ok) {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to retry transfer");
@@ -132,6 +146,19 @@ Deno.serve(async (req) => {
       return json({ success: false, code: "business_profile_required", error: "Business profile is required for business transfers." }, 403);
     }
   }
+
+  const { data: existingReference } = await supa
+    .from("flutterwave_transfers")
+    .select("reference,user_id,business_user_id")
+    .eq("reference", reference)
+    .maybeSingle();
+  if (existingReference) {
+    const knownOwners = [existingReference.user_id, existingReference.business_user_id].filter(Boolean);
+    if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
+      return json({ success: false, code: "reference_conflict", error: "reference is already used by another account" }, 409);
+    }
+  }
+
   const debitCurrency = body?.debit_currency ? String(body.debit_currency).toUpperCase() : undefined;
   if (debitCurrency && !isCurrencyCode(debitCurrency)) {
     return json({ success: false, error: "debit_currency format is invalid" }, 400);
