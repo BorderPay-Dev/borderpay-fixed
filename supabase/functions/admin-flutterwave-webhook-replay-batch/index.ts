@@ -51,6 +51,9 @@ Deno.serve(async (req) => {
   const status = String(body?.status || "failed").toLowerCase();
   const force = body?.force === true;
   const forceReason = String(body?.force_reason || "").trim().slice(0, 500);
+  const allowErrorCodes = Array.isArray(body?.allow_error_codes)
+    ? body.allow_error_codes.map((v: unknown) => String(v || "").trim()).filter(Boolean)
+    : [];
   const excludeErrorCodes = Array.isArray(body?.exclude_error_codes)
     ? body.exclude_error_codes.map((v: unknown) => String(v || "").trim()).filter(Boolean)
     : [];
@@ -83,8 +86,9 @@ Deno.serve(async (req) => {
       const elapsed = Number.isFinite(lastReplayMs) ? Math.floor((Date.now() - lastReplayMs) / 1000) : null;
       const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
       if (cooldownActive && !force) return false;
-      if (excludeErrorCodes.length === 0) return true;
       const code = String((r.last_error || {}).code || "").trim();
+      if (allowErrorCodes.length > 0 && !allowErrorCodes.includes(code)) return false;
+      if (excludeErrorCodes.length === 0) return true;
       return !excludeErrorCodes.includes(code);
     })
     .slice(0, batchLimit);
@@ -98,6 +102,7 @@ Deno.serve(async (req) => {
         filters: {
           flow: flow || null,
           status: status || "failed",
+          allow_error_codes: allowErrorCodes,
           exclude_error_codes: excludeErrorCodes,
           force,
           force_reason: forceReason || null,
@@ -152,6 +157,7 @@ Deno.serve(async (req) => {
       filters: {
         flow: flow || null,
         status: status || "failed",
+        allow_error_codes: allowErrorCodes,
         exclude_error_codes: excludeErrorCodes,
         force,
         force_reason: forceReason || null,

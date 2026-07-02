@@ -2729,6 +2729,7 @@ export const adminAPI = {
     reason?: string;
     flow?: 'collection' | 'transfer' | 'unknown';
     status?: 'failed' | 'processing' | 'completed' | 'duplicate_ignored';
+    allow_error_codes?: string[];
     exclude_error_codes?: string[];
     force?: boolean;
     force_reason?: string;
