@@ -85,6 +85,18 @@ Deno.serve(async (req) => {
     }
   }
 
+  const { data: existingTxRef } = await supa
+    .from("flutterwave_collections")
+    .select("tx_ref,user_id,business_user_id")
+    .eq("tx_ref", tx_ref)
+    .maybeSingle();
+  if (existingTxRef) {
+    const knownOwners = [existingTxRef.user_id, existingTxRef.business_user_id].filter(Boolean);
+    if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
+      return json({ success: false, code: "tx_ref_conflict", error: "tx_ref is already used by another account" }, 409);
+    }
+  }
+
   const res = await flutterwaveCreateCollection({
     amount,
     currency,
