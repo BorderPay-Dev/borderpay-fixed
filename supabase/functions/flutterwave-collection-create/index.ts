@@ -234,6 +234,7 @@ Deno.serve(async (req) => {
       direction: "receive",
       source: "flutterwave",
       source_locked_to_flutterwave: true,
+      source_filter: "flutterwave",
       capabilities: caps,
       reference,
       provider_transfer_id: providerId,
