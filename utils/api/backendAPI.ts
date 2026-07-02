@@ -2408,6 +2408,11 @@ export const payoutsAPI = {
     apiCall<{
       mode: 'create' | 'retry';
       capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
       transfer?: Record<string, unknown>;
     }>('flutterwave-transfer-create', {
       method: 'POST',
@@ -2419,6 +2424,8 @@ export const payoutsAPI = {
     apiCall<{
       capabilities?: Record<string, unknown>;
       transfer_id: string;
+      resolved_account_type?: string;
+      provider_request_id?: string | null;
       transfer?: Record<string, unknown>;
     }>('flutterwave-transfer-status', {
       method: 'POST',
@@ -2435,7 +2442,13 @@ export const payoutsAPI = {
   } = {}) =>
     apiCall<{
       capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
       transfers?: Record<string, unknown>;
+      projected_transfers?: Array<Record<string, unknown>>;
     }>('flutterwave-transfers-list', {
       method: 'POST',
       body: JSON.stringify(filters),
@@ -2471,6 +2484,11 @@ export const payoutsAPI = {
   }) =>
     apiCall<{
       capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
       collection?: Record<string, unknown>;
     }>('flutterwave-collection-create', {
       method: 'POST',
@@ -2482,6 +2500,8 @@ export const payoutsAPI = {
     apiCall<{
       capabilities?: Record<string, unknown>;
       collection_id: string;
+      resolved_account_type?: string;
+      provider_request_id?: string | null;
       collection?: Record<string, unknown>;
     }>('flutterwave-collection-status', {
       method: 'POST',
@@ -2499,7 +2519,13 @@ export const payoutsAPI = {
   } = {}) =>
     apiCall<{
       capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
       collections?: Record<string, unknown>;
+      projected_collections?: Array<Record<string, unknown>>;
     }>('flutterwave-collections-list', {
       method: 'POST',
       body: JSON.stringify(filters),
