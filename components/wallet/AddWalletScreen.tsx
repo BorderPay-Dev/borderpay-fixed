@@ -34,16 +34,24 @@ const CARDS: WalletCard[] = [
   { code: 'GBP', type: 'virtual_account', title: 'British Pound', subtitle: 'Global receive account' },
   { code: 'USDC', type: 'stablecoin', title: 'USD Coin', subtitle: 'Stablecoin wallet' },
   { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Stablecoin wallet' },
+  { code: 'PYUSD', type: 'stablecoin', title: 'PayPal USD', subtitle: 'Stablecoin wallet' },
+  { code: 'USDB', type: 'stablecoin', title: 'USDB', subtitle: 'Stablecoin wallet' },
+  { code: 'EURC', type: 'stablecoin', title: 'Euro Coin', subtitle: 'Stablecoin wallet' },
 ];
 
 const STABLE_CHAIN: Record<string, string> = {
   USDC: 'BASE',
   USDT: 'TRON',
+  PYUSD: 'BASE',
+  USDB: 'BASE',
+  EURC: 'BASE',
 };
 
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
 function isApproved(value?: string | null): boolean {
@@ -58,6 +66,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
 
   const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
   const [stableSupported, setStableSupported] = useState<boolean>(false);
+  const [supportedStableSymbols, setSupportedStableSymbols] = useState<string[]>(['USDC', 'USDT', 'PYUSD', 'USDB', 'EURC']);
 
   const [verified, setVerified] = useState<boolean>(() => {
     try {
@@ -140,13 +149,20 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         }
         if (walletCaps?.success) {
           setStableSupported(Boolean(walletCaps?.data?.supported));
+          if (Array.isArray(walletCaps?.data?.supported_symbols) && walletCaps.data.supported_symbols.length > 0) {
+            setSupportedStableSymbols(walletCaps.data.supported_symbols.map((s: any) => String(s || '').toUpperCase()).filter(Boolean));
+          } else {
+            setSupportedStableSymbols(['USDC', 'USDT', 'PYUSD', 'USDB', 'EURC']);
+          }
         } else {
           setStableSupported(false);
+          setSupportedStableSymbols([]);
         }
       } catch {
         // Fail-closed on capabilities fetch errors.
         setSupportedVaCurrencies([]);
         setStableSupported(false);
+        setSupportedStableSymbols([]);
       }
 
       const p = await backendAPI.user.getProfile();
@@ -185,12 +201,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           currency: card.code as BridgeVirtualAccountCurrency,
         });
         if (!res?.success) {
-          const msg = friendlyError(
-            res?.error,
-            card.code === 'GBP'
-              ? 'GBP account is not available for your region yet. Contact support to enable it.'
-              : `Could not activate ${card.code} account.`,
-          );
+          const msg = friendlyError(res?.error, `Could not activate ${card.code} account.`);
           showToast.error(msg);
           return;
         }
@@ -227,7 +238,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
 
     const supported = card.type === 'virtual_account'
       ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
-      : stableSupported;
+      : (stableSupported && supportedStableSymbols.includes(card.code));
 
     if (!supported) {
       return (
@@ -269,7 +280,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         disabled={creating === card.code}
         className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
       >
-        {creating === card.code ? 'Adding…' : 'Add'}
+        {creating === card.code ? 'Adding…' : (card.type === 'virtual_account' ? 'Activate' : 'Add')}
       </button>
     );
   };
