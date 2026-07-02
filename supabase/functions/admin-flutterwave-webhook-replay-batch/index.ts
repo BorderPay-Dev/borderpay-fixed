@@ -57,6 +57,15 @@ Deno.serve(async (req) => {
   const excludeErrorCodes = Array.isArray(body?.exclude_error_codes)
     ? body.exclude_error_codes.map((v: unknown) => String(v || "").trim()).filter(Boolean)
     : [];
+  const overlappingCodes = allowErrorCodes.filter((code) => excludeErrorCodes.includes(code));
+  if (overlappingCodes.length > 0) {
+    return json({
+      success: false,
+      code: "conflicting_error_code_filters",
+      error: "allow_error_codes and exclude_error_codes cannot include the same values.",
+      data: { overlapping_error_codes: overlappingCodes },
+    }, 400);
+  }
   if (force && forceReason.length < 12) {
     return json({
       success: false,
