@@ -164,13 +164,38 @@ Deno.serve(async (req) => {
 
   let reconciled = false;
   let processingError: string | null = null;
+  let duplicateNoop = false;
   try {
     // Idempotent event sink.
     const { data: existingEvent } = await supa
       .from("flutterwave_webhook_events")
-      .select("id, event_id, processing_status")
+      .select("id, event_id, processing_status, payload_hash")
       .eq("event_id", eventId)
       .maybeSingle();
+
+    const existingHash = String((existingEvent as any)?.payload_hash || "").trim();
+    const existingStatus = String((existingEvent as any)?.processing_status || "").trim().toLowerCase();
+    const samePayload = Boolean(existingHash && existingHash === payloadHash);
+    const alreadyHandled = existingStatus === "processed" || existingStatus === "duplicate";
+    if (existingEvent && samePayload && alreadyHandled) {
+      await supa.from("flutterwave_webhook_events")
+        .update({
+          signature_ok: true,
+          event_type: eventType,
+          headers: {
+            "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
+            "x-verif-hash": req.headers.get("x-verif-hash") || null,
+            "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
+          },
+          transfer_reference: transfer.reference,
+          provider_transfer_id: transfer.providerTransferId,
+          processing_status: "duplicate",
+          processed_at: new Date().toISOString(),
+          processing_error: null,
+        })
+        .eq("event_id", eventId);
+      duplicateNoop = true;
+    }
     if (!existingEvent) {
       await supa.from("flutterwave_webhook_events").insert({
         event_id: eventId,
@@ -187,7 +212,7 @@ Deno.serve(async (req) => {
         provider_transfer_id: transfer.providerTransferId,
         processing_status: "received",
       });
-    } else {
+    } else if (!duplicateNoop) {
       await supa.from("flutterwave_webhook_events")
         .update({
           signature_ok: true,
@@ -206,7 +231,7 @@ Deno.serve(async (req) => {
         .eq("event_id", eventId);
     }
 
-    if (transferEventEligible) {
+    if (!duplicateNoop && transferEventEligible) {
       // Reconciliation path:
       // 1) provider_transfer_id (globally unique)
       // 2) reference + user_id (only when user id is present and valid)
@@ -285,13 +310,15 @@ Deno.serve(async (req) => {
 
   const processingStatus = reconciled ? "processed" : (processingError ? "failed" : "ignored");
 
-  await supa.from("flutterwave_webhook_events")
-    .update({
-      processing_status: processingStatus,
-      processed_at: new Date().toISOString(),
-      processing_error: reconciled ? null : (processingError || "no_matching_transfer_record"),
-    })
-    .eq("event_id", eventId);
+  if (!duplicateNoop) {
+    await supa.from("flutterwave_webhook_events")
+      .update({
+        processing_status: processingStatus,
+        processed_at: new Date().toISOString(),
+        processing_error: reconciled ? null : (processingError || "no_matching_transfer_record"),
+      })
+      .eq("event_id", eventId);
+  }
 
   return json({
     success: true,
@@ -324,6 +351,7 @@ Deno.serve(async (req) => {
       processing_error: processingError,
       received_at: new Date().toISOString(),
       processing_mode: "persist_and_reconcile",
+      duplicate_noop: duplicateNoop,
     },
   }, 202);
 });
