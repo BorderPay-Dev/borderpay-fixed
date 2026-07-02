@@ -19,6 +19,12 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -50,9 +56,9 @@ Deno.serve(async (req) => {
   }
 
   const dryRun = body?.dry_run !== false;
-  const retainDays = Math.max(7, Math.min(365, Number(body?.retain_days || 30)));
-  const maxBatches = Math.max(1, Math.min(20, Number(body?.max_batches || 5)));
-  const batchSize = Math.max(100, Math.min(1000, Number(body?.batch_size || 1000)));
+  const retainDays = parseBoundedInt(body?.retain_days, 30, 7, 365);
+  const maxBatches = parseBoundedInt(body?.max_batches, 5, 1, 20);
+  const batchSize = parseBoundedInt(body?.batch_size, 1000, 100, 1000);
   const cutoffIso = new Date(Date.now() - retainDays * 24 * 60 * 60 * 1000).toISOString();
   const { count: eligibleCount, error: eligibleCountErr } = await supa
     .from("flutterwave_webhook_events")
