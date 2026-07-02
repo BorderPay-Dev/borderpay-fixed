@@ -120,6 +120,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    const resolvedAccountType = ownerProbe.business_user_id === authData.user.id ? "business" : "individual";
     const res = await flutterwaveRetryTransfer(transferId, body?.retry_payload || {});
     if (!res.ok) {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to retry transfer");
@@ -135,6 +136,10 @@ Deno.serve(async (req) => {
       data: {
         mode: "retry",
         capabilities: caps,
+        account_context: {
+          requested_account_type: accountType,
+          resolved_account_type: resolvedAccountType,
+        },
         transfer: res.data,
       },
     });
@@ -251,6 +256,10 @@ Deno.serve(async (req) => {
     data: {
       mode: "create",
       capabilities: caps,
+      account_context: {
+        requested_account_type: accountType,
+        resolved_account_type: accountType,
+      },
       provider_request_id: res.requestId || null,
       transfer: res.data,
     },
