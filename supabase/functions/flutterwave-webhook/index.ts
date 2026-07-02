@@ -182,6 +182,8 @@ Deno.serve(async (req) => {
         .update({
           signature_ok: true,
           event_type: eventType,
+          payload,
+          payload_hash: payloadHash,
           headers: {
             "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
             "x-verif-hash": req.headers.get("x-verif-hash") || null,
@@ -355,6 +357,7 @@ Deno.serve(async (req) => {
       received_at: new Date().toISOString(),
       processing_mode: "persist_and_reconcile",
       duplicate_noop: duplicateNoop,
+      duplicate_noop_reason: duplicateNoop ? "same_event_id_same_payload_already_processed" : null,
     },
   }, 202);
 });
