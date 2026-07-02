@@ -87,6 +87,13 @@ Deno.serve(async (req) => {
       error: "Batch replay only supports status=failed.",
     }, 400);
   }
+  if (flow && !["transfer", "collection"].includes(flow)) {
+    return json({
+      success: false,
+      code: "invalid_flow_filter",
+      error: "flow must be transfer or collection when provided.",
+    }, 400);
+  }
 
   let q = supa
     .from("flutterwave_webhook_events")

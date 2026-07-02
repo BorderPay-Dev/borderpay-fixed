@@ -64,6 +64,13 @@ Deno.serve(async (req) => {
       error: "Invalid status filter. Allowed values: failed, processing, completed, duplicate_ignored.",
     }, 400);
   }
+  if (flow && !["transfer", "collection"].includes(flow)) {
+    return json({
+      success: false,
+      code: "invalid_flow_filter",
+      error: "Invalid flow filter. Allowed values: transfer, collection.",
+    }, 400);
+  }
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
   const from = Math.max(0, Number(body?.from || 0));
 
