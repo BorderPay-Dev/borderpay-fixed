@@ -236,7 +236,7 @@ Deno.serve(async (req) => {
     role: "admin",
     action_type: "flutterwave_webhook_replay",
     target_resource: `flutterwave_webhook_events:${eventId}`,
-    request_id: crypto.randomUUID(),
+    request_id: correlationId,
     before_state: {
       processing_status: eventRow.processing_status,
       processing_attempts: eventRow.processing_attempts,
