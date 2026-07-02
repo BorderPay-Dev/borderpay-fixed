@@ -4,6 +4,7 @@ import {
   flutterwaveCreateTransfer,
   flutterwaveRetryTransfer,
   getFlutterwaveCapabilities,
+  getFlutterwaveLocalRailPolicy,
 } from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
@@ -145,6 +146,16 @@ Deno.serve(async (req) => {
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
+  const localRailPolicy = getFlutterwaveLocalRailPolicy();
+  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
+  if (!supportedCurrencies.includes(currency)) {
+    return json({
+      success: false,
+      code: "corridor_not_supported",
+      error: "This payout currency is not enabled on local rails.",
+      data: { supported_currencies: supportedCurrencies },
+    }, 409);
+  }
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
   if (!isSafeBankCode(accountBank)) return json({ success: false, error: "account_bank format is invalid" }, 400);
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);

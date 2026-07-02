@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveCreateCollection, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import {
+  flutterwaveCreateCollection,
+  getFlutterwaveCapabilities,
+  getFlutterwaveLocalRailPolicy,
+} from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -72,6 +76,16 @@ Deno.serve(async (req) => {
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
+  const localRailPolicy = getFlutterwaveLocalRailPolicy();
+  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
+  if (!supportedCurrencies.includes(currency)) {
+    return json({
+      success: false,
+      code: "corridor_not_supported",
+      error: "This collection currency is not enabled on local rails.",
+      data: { supported_currencies: supportedCurrencies },
+    }, 409);
+  }
   if (!tx_ref) return json({ success: false, error: "tx_ref is required" }, 400);
   if (!isSafeTxRef(tx_ref)) return json({ success: false, error: "tx_ref format is invalid" }, 400);
   if (accountType === "business") {
