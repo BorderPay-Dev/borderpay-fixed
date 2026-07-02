@@ -58,6 +58,13 @@ Deno.serve(async (req) => {
   const correlationId = crypto.randomUUID();
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
+  if (!dryRun && reason.length < 8) {
+    return json({
+      success: false,
+      code: "reason_required",
+      error: "reason is required and must be at least 8 characters for non-dry-run replay.",
+    }, 400);
+  }
 
   const replayEnabled = (Deno.env.get("FLW_WEBHOOK_ALLOW_REPROCESS_FAILED") || "false").toLowerCase() === "true";
   if (!replayEnabled && !dryRun) {
