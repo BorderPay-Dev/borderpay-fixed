@@ -18,12 +18,6 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
-import {
-  bridgeVirtualAccountCurrenciesForCountry,
-  type BridgeVirtualAccountCurrency,
-} from '../../utils/compliance/partnerCountryPolicy';
-import { friendlyError } from '../../utils/errors/friendlyError';
-import { showToast } from '../common/StatusToast';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 interface ReceiveMoneyScreenProps {
@@ -33,7 +27,7 @@ interface ReceiveMoneyScreenProps {
 }
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
-interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
+interface VaRow     { id: string; currency: 'USD' | 'EUR' | 'GBP'; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
 
 const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
@@ -69,12 +63,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const userId = (storedUser.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
 
-  const country = (storedUser.country as string | null | undefined) ?? null;
-  const fallbackVaCurrencies = useMemo(
-    () => bridgeVirtualAccountCurrenciesForCountry(country),
-    [country],
-  );
-  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -106,7 +94,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const hasCachedReceiveRows = stables.length > 0 || vas.length > 0;
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [creating, setCreating] = useState<string | null>(null);
   const refreshInFlightRef = useRef(false);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
@@ -187,25 +174,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const caps = await backendAPI.bridge.virtualAccount.capabilities();
-        if (!alive || !caps?.success) return;
-        const supported = Array.isArray(caps.data?.supported_currencies)
-          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
-          : [];
-        if (supported.length > 0) setAvailableVaCurrencies(supported);
-      } catch {
-        // Keep fallback.
-      }
-    })();
-    return () => { alive = false; };
-  }, [userId]);
-  useEffect(() => {
-    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
-  }, [fallbackVaCurrencies]);
-  useEffect(() => {
     const prewarmKey = `borderpay_receive_prewarm_v1:${userId}`;
     try {
       const last = Number(sessionStorage.getItem(prewarmKey) || '0');
@@ -238,21 +206,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     };
   /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
 
-  // Missing VA currencies (the inline "Open X account" rows)
-  const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
-  const missingVa = availableVaCurrencies.filter(c => !haveVa.has(c));
-
-  const handleCreate = async (currency: BridgeVirtualAccountCurrency) => {
-    setCreating(currency);
-    const r = await backendAPI.bridge.virtualAccount.create({ currency });
-    setCreating(null);
-    if (!r.success) {
-      showToast.error(friendlyError(r.error, `Could not open ${currency} account.`));
-      return;
-    }
-    showToast.success(`${currency} account opened`);
-    refresh();
-  };
+  const visibleVas = useMemo(
+    () => vas.filter((v) => String(v.status || '').toLowerCase() === 'active' && Boolean(v.bridge_virtual_account_id)),
+    [vas],
+  );
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {
@@ -315,14 +272,14 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <div className="px-4 py-8 text-center">
               <Loader2 className={`w-5 h-5 ${tc.textMuted} animate-spin mx-auto`} />
             </div>
-          ) : vas.length === 0 && stables.length === 0 && missingVa.length === 0 ? (
+          ) : visibleVas.length === 0 && stables.length === 0 ? (
             <div className="px-4 py-8 text-center">
-              <p className={`text-sm ${tc.textMuted}`}>No accounts yet. Open one from the Wallet tab.</p>
+              <p className={`text-sm ${tc.textMuted}`}>No receive rails available yet. Open accounts from Wallet.</p>
             </div>
           ) : (
             <>
               {/* Fiat virtual accounts first */}
-              {vas.map((v, i) => {
+              {visibleVas.map((v, i) => {
                 const cur = String(v.currency).toUpperCase();
                 return (
                   <button key={v.id} onClick={() => setSelectedVa(v)}
@@ -344,7 +301,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
               {stables.map((s, i) => {
                 const rawSym = String(s.currency || '').toUpperCase();
                 const sym = rawSym || (String(s.chain).toLowerCase() === 'tron' ? 'USDT' : 'USDC');
-                const showDivider = vas.length > 0 || i > 0;
+                const showDivider = visibleVas.length > 0 || i > 0;
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
@@ -361,25 +318,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 );
               })}
 
-              {/* Inline "Open X account" rows for missing currencies */}
-              {missingVa.map((c, i) => {
-                const showDivider = vas.length > 0 || stables.length > 0 || i > 0;
-                return (
-                  <button key={`open-${c}`} disabled={creating === c} onClick={() => handleCreate(c)}
-                    className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}>
-                    <AssetBadge symbol={c} size={44} />
-                    <div className="flex-1 min-w-0">
-                      <div className={`text-[15px] font-semibold ${tc.text}`}>
-                        Open {c} account <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[c]})</span>
-                      </div>
-                      <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
-                    </div>
-                    {creating === c
-                      ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                      : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-                  </button>
-                );
-              })}
             </>
           )}
         </div>

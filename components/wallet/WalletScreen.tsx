@@ -313,7 +313,16 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const r = await backendAPI.bridge.virtualAccount.create({ currency });
     setCreating(null);
     if (!r.success) {
-      showToast.error(friendlyError(r.error, `Could not open ${currency} account.`));
+      const lower = String((r as any)?.code || '').toLowerCase();
+      if (currency === 'GBP') {
+        showToast.error(
+          lower.includes('unsupported') || lower.includes('not_enabled') || lower.includes('invalid_destination')
+            ? 'GBP account requests are reviewed manually. Contact support to enable GBP for your profile.'
+            : friendlyError(r.error, 'GBP account is not available yet for this profile. Contact support.'),
+        );
+        return;
+      }
+      showToast.error(friendlyError(r.error, `Could not open ${currency} account. Please try again.`));
       return;
     }
     showToast.success(`${currency} account opened`);

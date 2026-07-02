@@ -28,8 +28,8 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { deriveKycStatus } from '../../utils/config/environment';
 import { deriveWalletStatus, type WalletStatus } from '../../utils/financial/walletStatus';
+import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { Skeleton, SkeletonRows } from '../common/Skeleton';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ProfileScreenProps {
   userId: string;
@@ -98,7 +98,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       const cached = localStorage.getItem('borderpay_user');
       if (cached) {
         const u = JSON.parse(cached);
-        return {
+        const merged = {
           full_name: u.full_name || '',
           company_name: u.company_name || cachedBusinessName || '',
           email: u.email || '',
@@ -113,7 +113,14 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           bridge_kyc_status: u.bridge_kyc_status ?? null,
           bridge_kyb_status: u.bridge_kyb_status ?? null,
           bridge_account_status: u.bridge_account_status ?? null,
-          wallet_status: (u.wallet_status as WalletStatus) || 'locked',
+          wallet_status: (u.wallet_status as WalletStatus) || deriveWalletStatus({
+            account_type: u.account_type,
+            bridge_kyc_status: u.bridge_kyc_status,
+            bridge_kyb_status: u.bridge_kyb_status,
+            bridge_account_status: u.bridge_account_status,
+            is_unlocked: Boolean(u.is_unlocked || u.wallet_activated),
+            has_funding_surface: Boolean(u.has_funding_surface),
+          }),
           verification_status: u.verification_status || 'not_started',
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
@@ -121,8 +128,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           last_sign_in_at: u.last_sign_in_at || null,
           created_at: u.created_at || '',
           profile_picture_url: u.profile_picture_url || null,
-          two_factor_enabled: u.two_factor_enabled || false,
+          two_factor_enabled: Boolean(u.two_factor_enabled || (() => {
+            try { return !!SecurityStatus.get(userId).has2FA || TOTPManager.isEnabled(userId); } catch { return false; }
+          })()),
         };
+        return merged;
       }
     } catch {}
     return defaults;
@@ -131,10 +141,6 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
   const profileRefreshTsKey = `borderpay_profile_refreshed_at:${userId}`;
-
-  useEffect(() => {
-    navPerfTrackCache('profile', !loading);
-  }, [loading]);
 
   const mergeProfileCache = (next: Record<string, unknown>) => {
     try {
@@ -193,7 +199,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
             bridge_kyc_status: u.bridge_kyc_status,
             bridge_kyb_status: u.bridge_kyb_status,
             bridge_account_status: u.bridge_account_status,
-            is_unlocked: u.is_unlocked,
+            is_unlocked: Boolean(u.is_unlocked || u.wallet_activated),
             has_funding_surface: Boolean(u.has_funding_surface),
           }),
           verification_status: u.verification_status || 'not_started',
@@ -203,7 +209,9 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           last_sign_in_at: u.last_sign_in_at || null,
           created_at: u.created_at || '',
           profile_picture_url: u.profile_picture_url || null,
-          two_factor_enabled: u.two_factor_enabled || false,
+          two_factor_enabled: Boolean(u.two_factor_enabled || (() => {
+            try { return !!SecurityStatus.get(userId).has2FA || TOTPManager.isEnabled(userId); } catch { return false; }
+          })()),
         };
         setProfile(profileData);
         setEditedProfile(profileData);
@@ -344,8 +352,17 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const displayCity = editing ? editedProfile.city : (profile.city || addressObject.city || '');
   const displayPostalCode = editing ? editedProfile.postal_code : (profile.postal_code || addressObject.postal_code || '');
   const displayCountry = editing ? editedProfile.country : (profile.country || addressObject.country || '');
-  const verificationLabel = String(profile.verification_status || 'not_started').replace(/_/g, ' ');
-  const walletAccessActivated = walletStatus === 'active';
+  const canonicalVerification = deriveKycStatus(profile);
+  const verificationLabel = canonicalVerification === 'verified'
+    ? 'Verified'
+    : canonicalVerification === 'rejected'
+      ? 'Rejected'
+      : canonicalVerification === 'under_review'
+        ? 'Under review'
+        : canonicalVerification === 'pending'
+          ? 'Pending'
+          : 'Not started';
+  const walletAccessActivated = walletStatus === 'active' || canonicalVerification === 'verified';
 
   if (loading) {
     return (

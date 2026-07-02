@@ -43,7 +43,6 @@ import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBa
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { usePreferences } from '../../utils/hooks/usePreferences';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
-import { RequestProvisioningModal } from '../wallet/RequestProvisioningModal';
 import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { PlanStatusCard } from '../dashboard/PlanStatusCard';
@@ -228,7 +227,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // We hydrated synchronously — start with `loading: false` so banners that
   // were gated on `!loading` render immediately.
   const [loading, setLoading]             = useState(false);
-  const [provisioningOpen, setProvisioningOpen] = useState(false);
   // Use parentScreen from MainApp for active state tracking; fallback to 'dashboard'
   const activeScreen = parentScreen || 'dashboard';
 
@@ -738,7 +736,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
             {wallets.length === 0 ? (
               <button
-                onClick={() => setProvisioningOpen(true)}
+                onPointerDown={() => prefetchScreen('wallet-detail')}
+                onMouseEnter={() => prefetchScreen('wallet-detail')}
+                onTouchStart={() => prefetchScreen('wallet-detail')}
+                onClick={() => handleNavigate('wallet-detail')}
                 className={`flex-shrink-0 w-[200px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
               >
                 <div className={`w-8 h-8 rounded-full ${tc.bgAlt} flex items-center justify-center mb-3`}>
@@ -772,7 +773,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                   </button>
                 ))}
                 <button
-                  onClick={() => setProvisioningOpen(true)}
+                  onPointerDown={() => prefetchScreen('wallet-detail')}
+                  onMouseEnter={() => prefetchScreen('wallet-detail')}
+                  onTouchStart={() => prefetchScreen('wallet-detail')}
+                  onClick={() => handleNavigate('wallet-detail')}
                   className={`flex-shrink-0 w-[140px] rounded-2xl border border-dashed ${tc.cardBorder} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors flex flex-col items-start`}
                   aria-label={tt('dashboard.addWallet', 'Add account')}
                 >
@@ -910,31 +914,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       </section>
 
       {/* Bottom navigation lives in AppShell (mounted by MainApp). */}
-
-      {/* Provisioning modal — hooked to "Add wallet" card */}
-      <RequestProvisioningModal
-        open={provisioningOpen}
-        onClose={() => setProvisioningOpen(false)}
-        onProvisioned={() => {
-          // Refresh wallets list after a successful provisioning call.
-          (async () => {
-            try {
-              const res: any = await backendAPI.financial.getSnapshot(20);
-              const list: any[] = Array.isArray(res?.data?.wallets) ? res.data.wallets : [];
-              if (res?.success && list.length > 0) {
-                const mapped = list.map((w: any) => ({
-                  currency: w.currency,
-                  balance: Number(w.balance || 0),
-                  symbol: (CURRENCY_CONFIG as any)[w.currency]?.symbol || w.currency,
-                  color: (CURRENCY_CONFIG as any)[w.currency]?.color || '#C7FF00',
-                }));
-                setWallets(mapped);
-                setTotalBalance(mapped.reduce((a: number, w: any) => a + w.balance, 0));
-              }
-            } catch { /* non-fatal */ }
-          })();
-        }}
-      />
 
       {/* KYC reminder — nudges unverified users to verify (free); opens the
           Identity & KYC screen. Once-per-session; disappears when verified. */}

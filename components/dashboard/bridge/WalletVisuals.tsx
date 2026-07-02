@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Copy, Check, Info, ArrowDownLeft } from 'lucide-react';
+import { X, Copy, Check, Info, ArrowDownLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
@@ -118,10 +118,19 @@ export function ChainChip({ chain, size = 20 }: { chain: string; size?: number }
 // Fiat currencies render a flag (mobile renders these crisply); stablecoins use
 // the brand-coloured coin glyph.
 const FLAG: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+const STABLE_ICON_URL: Record<string, string> = {
+  USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
+  USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
+  USDB: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdb.png',
+};
 
 export function AssetBadge({ symbol, size = 40 }: { symbol: string; size?: number }) {
   const sym = String(symbol || '').toUpperCase();
   const flag = FLAG[sym];
+  const [iconFailed, setIconFailed] = React.useState(false);
+  const iconUrl = STABLE_ICON_URL[sym];
   if (flag) {
     return (
       <div
@@ -130,6 +139,23 @@ export function AssetBadge({ symbol, size = 40 }: { symbol: string; size?: numbe
         aria-hidden
       >
         {flag}
+      </div>
+    );
+  }
+  if (iconUrl && !iconFailed) {
+    return (
+      <div
+        style={{ width: size, height: size }}
+        className="rounded-full flex items-center justify-center flex-shrink-0 bg-white/10 overflow-hidden"
+        aria-hidden
+      >
+        <img
+          src={iconUrl}
+          alt={`${sym} icon`}
+          className="w-[78%] h-[78%] object-contain"
+          onError={() => setIconFailed(true)}
+          loading="lazy"
+        />
       </div>
     );
   }
@@ -218,6 +244,7 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
 }) {
   const tc = useThemeClasses();
   const [done, setDone] = React.useState(false);
+  const [showHowToDeposit, setShowHowToDeposit] = React.useState(false);
   if (!wallet) return <Sheet open={open} onClose={onClose}><div /></Sheet>;
   const sym  = String(wallet.currency).toUpperCase();
   const chn  = String(wallet.chain || '').toLowerCase();
@@ -276,25 +303,35 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
           </p>
         </div>
 
-        {/* Instructions — Binance-style numbered checklist */}
-        <p className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${tc.textMuted} mb-2 px-1`}>
-          How to deposit
-        </p>
-        <ol className={`rounded-2xl border ${tc.cardBorder} ${tc.bgAlt} px-4 py-3 mb-3 space-y-2.5`}>
-          {[
-            <>Copy the address above or scan the QR with the sender's wallet app.</>,
-            <>Make sure the sender picks <b>{chainLabel(chn) || sym}</b> as the network — sending on a different network can lose the funds.</>,
-            <>Verify the sender's preview shows the matching address before they confirm.</>,
-            <>Funds usually arrive within a few minutes after the network confirms; you'll see a transaction in <b>Activity</b>.</>,
-          ].map((step, i) => (
-            <li key={i} className="flex gap-3">
-              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#C7FF00] text-black text-[11px] font-bold flex items-center justify-center">
-                {i + 1}
-              </span>
-              <span className={`text-xs ${tc.textSecondary} leading-relaxed pt-0.5`}>{step}</span>
-            </li>
-          ))}
-        </ol>
+        {/* Collapsible instructions drawer */}
+        <div className={`rounded-2xl border ${tc.cardBorder} ${tc.bgAlt} overflow-hidden mb-3`}>
+          <button
+            onClick={() => setShowHowToDeposit((v) => !v)}
+            className={`w-full px-4 py-3 flex items-center justify-between text-left ${tc.hoverBg}`}
+          >
+            <span className={`text-xs font-semibold ${tc.text}`}>How to deposit <span className={`${tc.textMuted} font-medium`}>see more</span></span>
+            {showHowToDeposit
+              ? <ChevronUp className={`w-4 h-4 ${tc.textMuted}`} />
+              : <ChevronDown className={`w-4 h-4 ${tc.textMuted}`} />}
+          </button>
+          {showHowToDeposit && (
+            <ol className={`px-4 pb-3 space-y-2.5`}>
+              {[
+                <>Copy the address above or scan the QR with the sender&apos;s wallet app.</>,
+                <>Make sure the sender picks <b>{chainLabel(chn) || sym}</b> as the network — sending on a different network can lose the funds.</>,
+                <>Verify the sender&apos;s preview shows the matching address before confirming.</>,
+                <>Funds usually arrive within a few minutes after network confirmations; track it in <b>Activity</b>.</>,
+              ].map((step, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#C7FF00] text-black text-[11px] font-bold flex items-center justify-center">
+                    {i + 1}
+                  </span>
+                  <span className={`text-xs ${tc.textSecondary} leading-relaxed pt-0.5`}>{step}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
 
         {/* Quick facts strip */}
         <div className={`grid grid-cols-3 gap-2`}>
@@ -329,17 +366,42 @@ function pickDeposit(details: any) {
     ...(bridgeDep && typeof bridgeDep === 'object' ? bridgeDep : {}),
     ...(srcDep && typeof srcDep === 'object' ? srcDep : {}),
   };
+  const pickUrlDeep = (node: any, patterns: RegExp[]): string | null => {
+    const visited = new Set<any>();
+    const walk = (value: any): string | null => {
+      if (!value || typeof value !== 'object') return null;
+      if (visited.has(value)) return null;
+      visited.add(value);
+      for (const [k, v] of Object.entries(value)) {
+        const key = String(k).toLowerCase();
+        if (typeof v === 'string' && /^https?:\/\//i.test(v)) {
+          if (patterns.some((p) => p.test(key))) return v;
+        }
+      }
+      for (const v of Object.values(value)) {
+        if (typeof v === 'object' && v) {
+          const found = walk(v);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return walk(node);
+  };
+
   const paymentInstructionsUrl =
     d.payment_instructions_pdf_url ||
     d.payment_instructions_url ||
     d.payment_instruction_pdf_url ||
     d.payment_instruction_url ||
+    pickUrlDeep(d, [/payment.*instruction/, /instruction.*pdf/, /^instructions?$/]) ||
     null;
   const accountLetterUrl =
     d.account_letter_pdf_url ||
     d.account_letter_url ||
     d.bank_letter_pdf_url ||
     d.bank_letter_url ||
+    pickUrlDeep(d, [/account.*letter/, /bank.*letter/, /proof.*account/]) ||
     null;
   return {
     holder:   d.bank_beneficiary_name || d.account_holder_name || d.beneficiary_name || d.account_holder,

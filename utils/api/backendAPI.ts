@@ -1808,33 +1808,15 @@ export interface ProvisioningRequestBody {
 }
 
 export const provisioningAPI = {
-  async request(body: ProvisioningRequestBody) {
-    const currency = (body.currency || '').toUpperCase();
-    switch (body.type) {
-      case 'virtual_account':
-        if (currency === 'USD' || currency === 'EUR' || currency === 'GBP') {
-          return apiCall('bridge-virtual-account', {
-            method: 'POST',
-            body: JSON.stringify({ currency }),
-          });
-        }
-        return RAILS_FUTURE_STATE;
-      case 'local_currency':
-        // African local currencies (NGN/KES/GHS/UGX/...) are future-state.
-        return RAILS_FUTURE_STATE;
-      case 'card':
-        return CARDS_LOCKED;
-      case 'stablecoin':
-        return apiCall('bridge-wallet', {
-          method: 'POST',
-          body: JSON.stringify({
-            symbol: currency.toLowerCase(),
-            chain: (body.network || 'base').toLowerCase(),
-          }),
-        });
-      default:
-        return { success: false, error: `Unknown provisioning type: ${body.type}` };
-    }
+  async request(_body: ProvisioningRequestBody) {
+    // Legacy "Add a new funding option" flow is intentionally retired.
+    // Account/wallet creation is now done from canonical Bridge-backed routes
+    // inside the Wallet/Receive experience.
+    return {
+      success: false,
+      code: 'legacy_provisioning_removed',
+      error: 'This flow has moved. Open Wallet to request accounts and wallets.',
+    };
   },
 };
 
