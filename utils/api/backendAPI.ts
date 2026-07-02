@@ -2711,6 +2711,7 @@ export const adminAPI = {
     dry_run?: boolean;
     flow?: 'collection' | 'transfer';
     limit?: number;
+    user_id?: string;
   } = {}) =>
     apiCall<{
       dry_run: boolean;

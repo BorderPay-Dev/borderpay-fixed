@@ -44,16 +44,21 @@ Deno.serve(async (req) => {
   const dryRun = body?.dry_run !== false;
   const flow = String(body?.flow || "").toLowerCase();
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
+  const targetUserId = String(body?.user_id || "").trim();
 
   const actions: Array<Record<string, unknown>> = [];
 
   if (!flow || flow === "collection") {
-    const { data: rows } = await supa
+    let collectionsQuery = supa
       .from("flutterwave_collections")
       .select("tx_ref,status,amount,currency,user_id,business_user_id,flutterwave_event_id")
       .in("status", ["completed", "failed"])
       .order("updated_at", { ascending: false })
       .limit(limit);
+    if (targetUserId) {
+      collectionsQuery = collectionsQuery.or(`user_id.eq.${targetUserId},business_user_id.eq.${targetUserId}`);
+    }
+    const { data: rows } = await collectionsQuery;
 
     for (const r of (rows || []) as any[]) {
       const txRef = String(r.tx_ref || "");
@@ -86,12 +91,16 @@ Deno.serve(async (req) => {
   }
 
   if (!flow || flow === "transfer") {
-    const { data: rows } = await supa
+    let transfersQuery = supa
       .from("flutterwave_transfers")
       .select("reference,status,amount,currency,user_id,business_user_id,flutterwave_event_id")
       .in("status", ["completed", "failed"])
       .order("updated_at", { ascending: false })
       .limit(limit);
+    if (targetUserId) {
+      transfersQuery = transfersQuery.or(`user_id.eq.${targetUserId},business_user_id.eq.${targetUserId}`);
+    }
+    const { data: rows } = await transfersQuery;
 
     for (const r of (rows || []) as any[]) {
       const ref = String(r.reference || "");
@@ -129,7 +138,7 @@ Deno.serve(async (req) => {
     action_type: "flutterwave_projection_repair",
     target_resource: `flow:${flow || "all"}`,
     request_id: crypto.randomUUID(),
-    before_state: { dry_run: dryRun, flow: flow || "all", limit },
+    before_state: { dry_run: dryRun, flow: flow || "all", limit, target_user_id: targetUserId || null },
     after_state: { actions_count: actions.length },
   });
 
@@ -138,6 +147,7 @@ Deno.serve(async (req) => {
     data: {
       dry_run: dryRun,
       flow: flow || "all",
+      target_user_id: targetUserId || null,
       actions_count: actions.length,
       actions,
     },
