@@ -20,6 +20,10 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function isSafeEventId(value: string): boolean {
+  return /^[A-Za-z0-9._:-]{6,180}$/.test(value);
+}
+
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -58,6 +62,7 @@ Deno.serve(async (req) => {
   const correlationId = crypto.randomUUID();
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
+  if (!isSafeEventId(eventId)) return json({ success: false, code: "invalid_event_id", error: "event_id format is invalid" }, 400);
   if (!dryRun && reason.length < 8) {
     return json({
       success: false,
