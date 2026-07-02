@@ -74,6 +74,19 @@ function envList(name: string, fallback: string[]): string[] {
 }
 const EMAIL_SUPPRESS_LIST    = () => envList("WEBHOOK_EMAIL_SUPPRESS_LIST", []);
 const EMAIL_SUPPRESS_DOMAINS = () => envList("WEBHOOK_EMAIL_SUPPRESS_DOMAINS", ["borderpayafrica.com"]);
+const WEBHOOK_SMOKE_EMAIL_ALLOWLIST = () => envList("WEBHOOK_SMOKE_EMAIL_ALLOWLIST", []);
+
+function isSmokeWebhookEventId(eventId: string): boolean {
+  const v = String(eventId || "").toLowerCase();
+  return v.includes("smoke_") || v.includes(":smoke_");
+}
+
+function isWebhookEmailAllowedForEvent(recipientEmail: string, eventId: string): boolean {
+  if (!isSmokeWebhookEventId(eventId)) return true;
+  const allowlist = WEBHOOK_SMOKE_EMAIL_ALLOWLIST();
+  if (allowlist.length === 0) return false; // Fail closed for smoke events.
+  return allowlist.includes(String(recipientEmail || "").trim().toLowerCase());
+}
 
 /**
  * Resolve the email recipient for a mapped user, applying the suppression
@@ -110,6 +123,7 @@ async function resolveEmailRecipient(userId: string): Promise<{ email: string; f
  */
 async function emailKycDecisionBestEffort(
   userId: string,
+  eventId: string,
   isKyb: boolean,
   decision: "approved" | "rejected",
   reason?: string | null,
@@ -118,11 +132,10 @@ async function emailKycDecisionBestEffort(
     if (!SEND_EMAIL_TOKEN) return;
     const rcpt = await resolveEmailRecipient(userId);
     if (!rcpt) return;
+    if (!isWebhookEmailAllowedForEvent(rcpt.email, eventId)) return;
 
     let template: string;
     let props: Record<string, unknown>;
-    const normalizedReason = reason ? normalizeBridgeCustomerRejectionReason(reason) : null;
-    const retryable = decision === "rejected" && /cannot validate id|upload a clear photo/i.test(String(normalizedReason || ""));
     if (isKyb) {
       const { data: biz } = await supabase
         .from("business_profiles")
@@ -130,10 +143,10 @@ async function emailKycDecisionBestEffort(
         .eq("user_id", userId)
         .maybeSingle();
       template = "business.kyb_decision";
-      props = { company_name: biz?.company_name ?? null, decision, reason: normalizedReason, next_steps: retryable ? "Upload a clear photo of the full ID/document and restart verification from your dashboard." : null };
+      props = { company_name: biz?.company_name ?? null, decision, reason: reason ?? null };
     } else {
       template = "individual.kyc_decision";
-      props = { full_name: rcpt.full_name, decision, reason: normalizedReason, retryable };
+      props = { full_name: rcpt.full_name, decision, reason: reason ?? null };
     }
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
@@ -159,40 +172,100 @@ async function emailKycDecisionBestEffort(
   }
 }
 
+function extractKybAdditionalDetailTasks(payload: any): string[] {
+  const direct = payload?.tasks ?? payload?.required_tasks ?? payload?.additional_details_tasks ?? null;
+  const arr = Array.isArray(direct) ? direct : [];
+  const tasks: string[] = [];
+  for (const raw of arr) {
+    if (typeof raw === "string") {
+      const v = raw.trim();
+      if (v) tasks.push(v);
+      continue;
+    }
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const candidate =
+      item.display_text ??
+      item.customer_message ??
+      item.message ??
+      item.title ??
+      item.name ??
+      item.task ??
+      item.description;
+    const v = String(candidate || "").trim();
+    if (v) tasks.push(v);
+  }
+  return tasks.slice(0, 5);
+}
+
+async function emailKybAdditionalDetailsBestEffort(input: {
+  userId: string;
+  eventId: string;
+  companyName?: string | null;
+  verificationUrl?: string | null;
+  tasks: string[];
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(input.userId);
+    if (!rcpt) return;
+    if (!isWebhookEmailAllowedForEvent(rcpt.email, input.eventId)) return;
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: "business.kyb_additional_details",
+        to: rcpt.email,
+        user_id: input.userId,
+        idempotency_key: `wh:kyb:additional:${input.userId}:${input.eventId}`,
+        props: {
+          company_name: input.companyName ?? null,
+          verification_url: input.verificationUrl ?? null,
+          tasks: input.tasks,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email kyb additional details send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email kyb additional details best-effort error: ${(e as Error).message}`);
+  }
+}
+
 function extractCustomerRejectionReason(payload: any): string | null {
   if (!payload) return null;
 
-  const sharedUnsafe = /developer reason|do not share|informational purposes only|internal/i;
   const direct = [
     payload?.rejection_reason,
     payload?.customer_rejection_reason,
     payload?.user_rejection_reason,
     payload?.reason,
-    payload?.event_object?.rejection_reason,
-    payload?.event_object?.customer_rejection_reason,
-    payload?.event_object?.user_rejection_reason,
-    payload?.event_object?.reason,
-    payload?.data?.rejection_reason,
-    payload?.data?.customer_rejection_reason,
-    payload?.data?.user_rejection_reason,
-    payload?.data?.reason,
   ].find((v) => typeof v === "string" && String(v).trim().length > 0);
   if (typeof direct === "string" && direct.trim()) {
     const v = direct.trim();
-    if (!sharedUnsafe.test(v)) return normalizeBridgeCustomerRejectionReason(v);
+    if (!/developer reason|do not share|informational purposes only|internal/i.test(v)) {
+      return normalizeBridgeCustomerRejectionReason(v);
+    }
   }
 
   const rr = payload?.rejection_reasons;
   if (Array.isArray(rr)) {
     for (const item of rr) {
-      const msg = item?.rejection_reason ?? item?.customer_rejection_reason ?? item?.user_reason ?? item?.reason;
+      const msg = item?.rejection_reason ?? item?.user_reason ?? item?.reason;
       if (typeof msg === "string" && msg.trim()) {
         const v = msg.trim();
-        if (!sharedUnsafe.test(v)) return normalizeBridgeCustomerRejectionReason(v);
+        if (!/developer reason|do not share|informational purposes only|internal/i.test(v)) {
+          return normalizeBridgeCustomerRejectionReason(v);
+        }
       }
     }
   }
-  return null;
+  return normalizeBridgeCustomerRejectionReason(null);
 }
 
 /**
@@ -213,6 +286,7 @@ async function emailTransactionBestEffort(input: {
     if (!SEND_EMAIL_TOKEN) return;
     const rcpt = await resolveEmailRecipient(input.userId);
     if (!rcpt) return;
+    if (!isWebhookEmailAllowedForEvent(rcpt.email, input.eventId)) return;
 
     if (input.accountType === "business") {
       const { data: biz } = await supabase
@@ -281,6 +355,169 @@ async function emailTransactionBestEffort(input: {
   }
 }
 
+/**
+ * Best-effort account provisioning/status email for VA/wallet lifecycle events.
+ * NEVER throws and is idempotent on Bridge event id + product/outcome.
+ */
+async function emailAccountReadyBestEffort(input: {
+  userId: string;
+  accountType: "individual" | "business";
+  eventId: string;
+  product: "virtual_account" | "wallet";
+  outcome: "provisioned" | "failed";
+  currency?: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(input.userId);
+    if (!rcpt) return;
+    if (!isWebhookEmailAllowedForEvent(rcpt.email, input.eventId)) return;
+    if (input.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", input.userId)
+        .maybeSingle();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+        },
+        body: JSON.stringify({
+          template: "business.account_ready",
+          to: rcpt.email,
+          user_id: input.userId,
+          idempotency_key: `wh:acct:${input.eventId}:business:${input.product}:${input.outcome}`,
+          props: {
+            company_name: biz?.company_name ?? null,
+            product: input.product,
+            outcome: input.outcome,
+            currency: input.currency ?? null,
+            reason: input.reason ?? null,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        console.log(`webhook-email account_ready business send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+      }
+      return;
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: "individual.account_ready",
+        to: rcpt.email,
+        user_id: input.userId,
+        idempotency_key: `wh:acct:${input.eventId}:individual:${input.product}:${input.outcome}`,
+        props: {
+          full_name: rcpt.full_name ?? null,
+          product: input.product,
+          outcome: input.outcome,
+          currency: input.currency ?? null,
+          reason: input.reason ?? null,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email account_ready individual send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email account_ready best-effort error: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * Best-effort external-account lifecycle email. NEVER throws.
+ */
+async function emailExternalAccountStatusBestEffort(input: {
+  userId: string;
+  accountType: "individual" | "business";
+  eventId: string;
+  status: string;
+  currency?: string | null;
+  bankName?: string | null;
+  last4?: string | null;
+  rail?: string | null;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(input.userId);
+    if (!rcpt) return;
+    if (!isWebhookEmailAllowedForEvent(rcpt.email, input.eventId)) return;
+
+    if (input.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", input.userId)
+        .maybeSingle();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+        },
+        body: JSON.stringify({
+          template: "business.external_account_status",
+          to: rcpt.email,
+          user_id: input.userId,
+          idempotency_key: `wh:extacct:${input.eventId}:business:${input.status}`,
+          props: {
+            company_name: biz?.company_name ?? null,
+            status: input.status,
+            currency: input.currency ?? null,
+            bank_name: input.bankName ?? null,
+            last_4: input.last4 ?? null,
+            rail: input.rail ?? null,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        console.log(`webhook-email external_account business send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+      }
+      return;
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: "individual.external_account_status",
+        to: rcpt.email,
+        user_id: input.userId,
+        idempotency_key: `wh:extacct:${input.eventId}:individual:${input.status}`,
+        props: {
+          full_name: rcpt.full_name ?? null,
+          status: input.status,
+          currency: input.currency ?? null,
+          bank_name: input.bankName ?? null,
+          last_4: input.last4 ?? null,
+          rail: input.rail ?? null,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email external_account individual send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email external_account best-effort error: ${(e as Error).message}`);
+  }
+}
+
 interface PendingEvent {
   id:           string;
   event_id:     string;
@@ -289,115 +526,6 @@ interface PendingEvent {
   payload:      Record<string, unknown>;
   attempts:     number;
   max_attempts: number;
-}
-
-const DEFAULT_STABLECOIN_WALLETS: ReadonlyArray<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }> = [
-  { symbol: "USDC", chain: "BASE" },
-  { symbol: "USDT", chain: "TRON" },
-];
-
-const PROVISIONING_LOCK_STALE_SECONDS = 180;
-
-async function sha256Hex(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function provisioningLockEventId(customerId: string, symbol: string, chain: string): string {
-  return `provlock:wallet:${customerId}:${symbol.toUpperCase()}:${chain.toLowerCase()}`;
-}
-
-type ProvisioningLockResult =
-  | { state: "acquired" | "stale_acquired"; lockEventId: string }
-  | { state: "busy" | "already_completed"; lockEventId: string };
-
-async function tryAcquireProvisioningLock(customerId: string, symbol: string, chain: string): Promise<ProvisioningLockResult> {
-  const lockEventId = provisioningLockEventId(customerId, symbol, chain);
-  const nowIso = new Date().toISOString();
-  const payloadHash = await sha256Hex(lockEventId);
-  const marker = `worker=${WORKER_ID};symbol=${symbol};chain=${chain.toLowerCase()}`;
-
-  const { error: insertErr } = await supabase
-    .from("webhook_logs")
-    .insert({
-      event_id: lockEventId,
-      source: "bridge",
-      event_type: "provisioning.wallet",
-      status: "processing",
-      signature_ok: true,
-      payload_hash: payloadHash,
-      attempts: 1,
-      last_error: `${marker};state=started`,
-      received_at: nowIso,
-      queued_at: nowIso,
-      completed_at: null,
-    });
-  if (!insertErr) return { state: "acquired", lockEventId };
-
-  // 23505 = unique violation (event_id already exists).
-  if ((insertErr as any)?.code !== "23505") {
-    throw new Error(`provisioning lock insert failed: ${insertErr.message}`);
-  }
-
-  const { data: row, error: readErr } = await supabase
-    .from("webhook_logs")
-    .select("status, received_at, attempts")
-    .eq("event_id", lockEventId)
-    .maybeSingle();
-  if (readErr) throw new Error(`provisioning lock read failed: ${readErr.message}`);
-  const status = String(row?.status || "").toLowerCase();
-  if (status === "completed") return { state: "already_completed", lockEventId };
-
-  // If another worker currently holds this lock, don't compete.
-  const receivedAt = row?.received_at ? new Date(String(row.received_at)) : new Date(0);
-  const staleBefore = new Date(Date.now() - PROVISIONING_LOCK_STALE_SECONDS * 1000);
-  if (status === "processing" && receivedAt > staleBefore) {
-    return { state: "busy", lockEventId };
-  }
-
-  // Stale or failed lock row: takeover with CAS-like predicates.
-  const staleIso = staleBefore.toISOString();
-  const attempts = Number(row?.attempts || 0) + 1;
-  const { data: taken, error: takeoverErr } = await supabase
-    .from("webhook_logs")
-    .update({
-      status: "processing",
-      attempts,
-      last_error: `${marker};state=takeover`,
-      received_at: nowIso,
-      queued_at: nowIso,
-      completed_at: null,
-    })
-    .eq("event_id", lockEventId)
-    .eq("status", status || "failed")
-    .lte("received_at", staleIso)
-    .select("event_id")
-    .maybeSingle();
-  if (takeoverErr) throw new Error(`provisioning lock takeover failed: ${takeoverErr.message}`);
-  if (taken?.event_id) return { state: "stale_acquired", lockEventId };
-  return { state: "busy", lockEventId };
-}
-
-async function completeProvisioningLock(lockEventId: string, note: string): Promise<void> {
-  await supabase
-    .from("webhook_logs")
-    .update({
-      status: "completed",
-      completed_at: new Date().toISOString(),
-      last_error: note.slice(0, 512),
-    })
-    .eq("event_id", lockEventId);
-}
-
-async function failProvisioningLock(lockEventId: string, errorText: string): Promise<void> {
-  await supabase
-    .from("webhook_logs")
-    .update({
-      status: "failed",
-      last_error: errorText.slice(0, 512),
-      completed_at: null,
-    })
-    .eq("event_id", lockEventId);
 }
 
 // ── Top-level router (source-aware) ──────────────────────────────────────
@@ -637,6 +765,7 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
 
   const isKyb = ev.event_type.toLowerCase().includes("kyb")
              || (d?.account_type === "business" || d?.type === "business");
+  const additionalTasks = isKyb ? extractKybAdditionalDetailTasks(d) : [];
 
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
   await syncCountryFromBridgeCustomer(String(customer), {
@@ -650,6 +779,21 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
       bridge_kyb_completed_at: normalized === "approved" ? new Date().toISOString() : null,
       updated_at:             new Date().toISOString(),
     }).eq("user_id", resolved);
+
+    if (additionalTasks.length > 0 && (normalized === "pending" || normalized === "under_review")) {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name, bridge_kyb_link_url")
+        .eq("user_id", resolved)
+        .maybeSingle();
+      await emailKybAdditionalDetailsBestEffort({
+        userId: resolved,
+        eventId: ev.event_id,
+        companyName: String(biz?.company_name || "") || null,
+        verificationUrl: String(biz?.bridge_kyb_link_url || "") || null,
+        tasks: additionalTasks,
+      });
+    }
   } else {
     await supabase.from("user_profiles").update({
       bridge_kyc_status:        normalized,
@@ -669,7 +813,7 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
   // Terminal KYC/KYB decision → best-effort email (approved/rejected only).
   if (normalized === "approved" || normalized === "rejected") {
     const customerReason = normalized === "rejected" ? extractCustomerRejectionReason(d) : null;
-    await emailKycDecisionBestEffort(resolved, isKyb || account_type === "business", normalized, customerReason);
+    await emailKycDecisionBestEffort(resolved, ev.event_id, isKyb || account_type === "business", normalized, customerReason);
   }
 
   await supabase.rpc("complete_pending_event", {
@@ -754,7 +898,7 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
         if (owner.account_type === "individual") {
           const customerReason = canonicalKyc === "rejected" ? extractCustomerRejectionReason(d) : null;
           await emailKycDecisionBestEffort(
-            owner.resolved, false,
+            owner.resolved, ev.event_id, false,
             canonicalKyc === "verified" ? "approved" : "rejected",
             customerReason,
           );
@@ -894,6 +1038,22 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
 
   // Lifecycle event (created/updated/etc): projection already upserted above.
   if (!isActivity) {
+    const vaStatus = String(d?.status ?? ev.payload?.event_object_status ?? "").toLowerCase();
+    const outcome =
+      ["active", "provisioned", "ready", "enabled"].includes(vaStatus) ? "provisioned"
+      : ["failed", "rejected", "error", "disabled", "inactive", "deactivated"].includes(vaStatus) ? "failed"
+      : null;
+    if (outcome) {
+      await emailAccountReadyBestEffort({
+        userId: owner.resolved,
+        accountType: owner.account_type,
+        eventId: ev.event_id,
+        product: "virtual_account",
+        outcome,
+        currency,
+        reason: outcome === "failed" ? extractCustomerRejectionReason(d) : null,
+      });
+    }
     await supabase.from("bridge_webhook_events")
       .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
       .eq("event_id", ev.event_id);
@@ -952,37 +1112,8 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   }
   const creditRow = Array.isArray(creditResult) ? creditResult[0] : creditResult;
 
-  // For individuals only, mirror to the legacy wallets table so the existing
-  // TransactionsScreen (which reads wallets/transactions) keeps working.
-  // bridge_virtual_account_balances is the canonical Bridge balance source.
-  // Business users are NOT mirrored — they read Bridge balance tables only.
-  //
-  // Uses the Bridge-specific RPC (provider='bridge' on the transactions
-  // row). Layered idempotency: the canonical ledger gate above
-  // (creditRow.applied) prevents double-mirroring on duplicate webhooks;
-  // the RPC itself is also idempotent via the transactions.reference
-  // UNIQUE constraint with reference='bridge:<event_id>'.
-  if (account_type === "individual" && creditRow?.applied) {
-    const amountDecimal = Number(amountMinor) / 10 ** (CURRENCY_SCALE[currency] ?? 2);
-    const { error: mirrorErr } = await supabase.rpc("apply_bridge_wallet_credit_and_complete", {
-      p_event_id:     ev.event_id,
-      p_user_id:      resolved,
-      p_currency:     currency,
-      p_amount:       amountDecimal,
-      p_tx_reference: `bridge:${ev.event_id}`,
-      p_tx_metadata:  { virtual_account_id: vaId, bridge_reference: d?.reference ?? null, payload: d, mirror_of: "bridge_balance_ledger" },
-    });
-    if (mirrorErr) {
-      throw new Error(`apply_bridge_wallet_credit_and_complete failed: ${mirrorErr.message}`);
-    }
-    // Backlink the webhook event to the VA for ops visibility (the RPC does
-    // not touch bridge_webhook_events; we always set the entity backlink
-    // for the activity branch here).
-    await supabase.from("bridge_webhook_events")
-      .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
-      .eq("event_id", ev.event_id);
-    return;
-  }
+  // VA credits remain receive-rail attribution in the Bridge ledger path.
+  // Do NOT mirror VA activity into legacy spendable wallet rows.
 
   await supabase.from("bridge_webhook_events")
     .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
@@ -1054,21 +1185,54 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     }
   }
 
+  const { data: existingWalletRow } = await supabase
+    .from("bridge_wallets")
+    .select("id")
+    .eq("bridge_wallet_id", String(walletId))
+    .maybeSingle();
+  const walletAlreadyKnown = Boolean(existingWalletRow?.id);
+
   const amountValue = Number(d?.amount);
   const shouldProjectWalletActivityTx =
     isActivity && Number.isFinite(amountValue) && amountValue > 0 && !!resolved;
 
-  await supabase.from("bridge_wallets").upsert({
-    bridge_wallet_id:    String(walletId),
-    bridge_customer_id:  String(customer),
-    user_id:             account_type === "individual" ? resolved : null,
-    business_user_id:    account_type === "business"   ? resolved : null,
-    currency:            String(d?.currency ?? "usdc").toLowerCase(),
-    chain:               String(d?.chain ?? "base").toLowerCase(),
-    address:             String(d?.address ?? d?.deposit_address ?? ""),
-    status:              String(d?.status ?? "active").toLowerCase(),
-    updated_at:          new Date().toISOString(),
-  }, { onConflict: "bridge_wallet_id" });
+  // Product contract: stablecoin wallets are manual-add only.
+  // Never auto-create local wallet rows from passive lifecycle webhooks.
+  // We only mirror if:
+  //  - wallet already exists locally (manual add path), or
+  //  - we are processing a real wallet activity event (money movement evidence).
+  if (walletAlreadyKnown || shouldProjectWalletActivityTx) {
+    await supabase.from("bridge_wallets").upsert({
+      bridge_wallet_id:    String(walletId),
+      bridge_customer_id:  String(customer),
+      user_id:             account_type === "individual" ? resolved : null,
+      business_user_id:    account_type === "business"   ? resolved : null,
+      currency:            String(d?.currency ?? "usdc").toLowerCase(),
+      chain:               String(d?.chain ?? "base").toLowerCase(),
+      address:             String(d?.address ?? d?.deposit_address ?? ""),
+      status:              String(d?.status ?? "active").toLowerCase(),
+      updated_at:          new Date().toISOString(),
+    }, { onConflict: "bridge_wallet_id" });
+  }
+
+  if (!shouldProjectWalletActivityTx) {
+    const walletStatus = String(d?.status ?? ev.payload?.event_object_status ?? "").toLowerCase();
+    const walletOutcome =
+      ["active", "provisioned", "ready", "enabled"].includes(walletStatus) ? "provisioned"
+      : ["failed", "rejected", "error", "disabled", "inactive", "deactivated"].includes(walletStatus) ? "failed"
+      : null;
+    if (walletOutcome) {
+      await emailAccountReadyBestEffort({
+        userId: resolved,
+        accountType: account_type,
+        eventId: ev.event_id,
+        product: "wallet",
+        outcome: walletOutcome,
+        currency: String(d?.currency ?? "USDC").toUpperCase(),
+        reason: walletOutcome === "failed" ? extractCustomerRejectionReason(d) : null,
+      });
+    }
+  }
 
   // Projection repair/prevention: wallet activity with amount should emit
   // canonical Bridge transaction + user notification idempotently.
@@ -1225,6 +1389,17 @@ async function handleBridgeExternalAccount(ev: PendingEvent): Promise<void> {
     updated_at: new Date().toISOString(),
   }, { onConflict: "bridge_external_account_id" });
 
+  await emailExternalAccountStatusBestEffort({
+    userId: owner.resolved,
+    accountType: owner.account_type,
+    eventId: ev.event_id,
+    status,
+    currency: currency || null,
+    bankName: String(d?.bank_name ?? d?.bank_account?.bank_name ?? ""),
+    last4: last4 || null,
+    rail: String(d?.rail ?? d?.payment_rail ?? ""),
+  });
+
   await supabase.rpc("complete_pending_event", {
     p_event_id: ev.event_id,
     p_summary: {
@@ -1247,6 +1422,12 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
 
   const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
   const mappedState = mapBridgeTransferState(providerState);
+  if (!mappedState.recognized) {
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: "transfer", target_entity_id: String(transferId) })
+      .eq("event_id", ev.event_id);
+    throw new Error(`reconciliation_required:unknown_transfer_state:${mappedState.providerState}`);
+  }
 
   let owner: { resolved: string | null; account_type: "individual" | "business" | null } = { resolved: null, account_type: null };
   let reconciliationReason: string | null = null;
@@ -1268,7 +1449,8 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
 
   const amount   = Number(d?.amount ?? 0);
   const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
-
+  const sourceCurrency = String(d?.source?.currency ?? currency).toUpperCase();
+  const destinationCurrency = String(d?.destination?.currency ?? currency).toUpperCase();
   // 1) Bridge transfer projection + lifecycle state must flow via canonical RPC
   // (no direct runtime upsert on bridge_transfers).
   const transferState = mappedState.recognized
@@ -1316,6 +1498,14 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   //    and tag metadata.account_type='business' — no business transaction
   //    schema invented here per CTO directive.
   if (owner.resolved) {
+    const transactionType =
+      normSource === "wallet" && normDest === "wallet" && sourceCurrency !== destinationCurrency
+        ? "fx_conversion"
+        : "transfer";
+    const flow =
+      transactionType === "fx_conversion"
+        ? "stablecoin_sandwich"
+        : `${normSource}_to_${normDest}`;
     const { error: txErr } = await supabase.rpc("upsert_bridge_transaction", {
       p_user_id:            owner.resolved,
       p_bridge_transfer_id: String(transferId),
@@ -1324,11 +1514,13 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       p_status:             mappedState.transactionStatus,
       p_metadata: {
         source:           "bridge",
-        transaction_type: "fx_conversion",
-        flow:             "stablecoin_sandwich",
+        transaction_type: transactionType,
+        flow,
         account_type:     owner.account_type,
         source_type:      normSource,
         destination_type: normDest,
+        source_currency:  sourceCurrency,
+        destination_currency: destinationCurrency,
         bridge_state:     mappedState.providerState,
         bridge_state_recognized: mappedState.recognized,
         raw:              d,
@@ -1336,6 +1528,20 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
     });
     if (txErr) {
       throw new Error(`upsert_bridge_transaction failed: ${txErr.message}`);
+    }
+
+    if (mappedState.terminal) {
+      const direction: "credit" | "debit" = normSource === "wallet" || normSource === "virtual_account" ? "debit" : "credit";
+      await emailTransactionBestEffort({
+        userId: owner.resolved,
+        accountType: owner.account_type === "business" ? "business" : "individual",
+        eventId: ev.event_id,
+        direction,
+        amount: Math.abs(amount),
+        currency,
+        occurredAt: String(d?.created_at ?? d?.updated_at ?? d?.timestamp ?? ""),
+        description: `Transfer ${mappedState.providerState.replaceAll("_", " ")}`,
+      });
     }
   }
 
@@ -1351,88 +1557,22 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       provider_state: mappedState.providerState,
       internal_status: mappedState.transactionStatus,
       recognized: mappedState.recognized,
+      source_type: normSource,
+      destination_type: normDest,
+      source_currency: sourceCurrency,
+      destination_currency: destinationCurrency,
     },
   });
 }
 
-async function ensureStablecoinWalletsProvisioned(input: {
+async function ensureStablecoinWalletsProvisioned(_input: {
   userId: string;
   bridgeCustomerId: string;
   accountType: "individual" | "business";
 }): Promise<void> {
-  const { data: operatorRow } = await supabase
-    .from("operator_bridge_accounts")
-    .select("bridge_customer_id")
-    .eq("bridge_customer_id", input.bridgeCustomerId)
-    .eq("active", true)
-    .maybeSingle();
-  if (operatorRow?.bridge_customer_id) {
-    // Imported Bridge operator/admin accounts are not BorderPay customer
-    // lifecycle subjects. Skip auto-provisioning entirely.
-    return;
-  }
-
-  const profileTable = input.accountType === "business" ? "business_profiles" : "user_profiles";
-  const idCol = input.accountType === "business" ? "user_id" : "id";
-  const statusCol = input.accountType === "business" ? "bridge_kyb_status" : "bridge_kyc_status";
-  const { data: profile } = await supabase
-    .from(profileTable)
-    .select(`country, ${statusCol}`)
-    .eq(idCol, input.userId)
-    .maybeSingle();
-
-  let country = String(profile?.country || "");
-  if (!country && input.accountType === "business") {
-    const { data: userProfile } = await supabase
-      .from("user_profiles")
-      .select("country")
-      .eq("id", input.userId)
-      .maybeSingle();
-    country = String(userProfile?.country || "");
-  }
-  if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
-  if (String(profile?.[statusCol] || "").toLowerCase() !== "approved") return;
-
-  for (const { symbol, chain } of DEFAULT_STABLECOIN_WALLETS) {
-    const chainLc = chain.toLowerCase();
-    const lock = await tryAcquireProvisioningLock(input.bridgeCustomerId, symbol, chainLc);
-    if (lock.state === "already_completed" || lock.state === "busy") continue;
-
-    try {
-      const { data: existing } = await supabase
-        .from("bridge_wallets")
-        .select("bridge_wallet_id,address")
-        .eq("bridge_customer_id", input.bridgeCustomerId)
-        .ilike("currency", symbol)
-        .ilike("chain", chainLc)
-        .maybeSingle();
-      if (existing?.bridge_wallet_id) {
-        await completeProvisioningLock(lock.lockEventId, "already_exists");
-        continue;
-      }
-
-      const created = await bridgeProvider.createWallet({
-        customer_id: input.bridgeCustomerId,
-        symbol,
-        chain,
-      });
-      await supabase.from("bridge_wallets").upsert({
-        bridge_wallet_id:   created.wallet_id,
-        bridge_customer_id: input.bridgeCustomerId,
-        user_id:            input.accountType === "individual" ? input.userId : null,
-        business_user_id:   input.accountType === "business" ? input.userId : null,
-        currency:           symbol,
-        chain:              chainLc,
-        address:            created.deposit_address,
-        status:             "active",
-        updated_at:         new Date().toISOString(),
-      }, { onConflict: "bridge_wallet_id" });
-      await completeProvisioningLock(lock.lockEventId, "provisioned");
-    } catch (e) {
-      await failProvisioningLock(lock.lockEventId, (e as Error).message || "provision_failed");
-      throw e;
-    }
-  }
+  // Product contract lock: stablecoin wallets are manual-add only.
+  // Never auto-provision from webhook/customer lifecycle workers.
+  return;
 }
 
 async function syncCountryFromBridgeCustomer(
