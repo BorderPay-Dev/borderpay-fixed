@@ -129,6 +129,24 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
   USDC: { symbol: '$',  color: '#2775CA' },
 };
 
+const CURRENCY_LABEL: Record<string, string> = {
+  USD: 'US Dollar',
+  EUR: 'Euro',
+  GBP: 'British Pound',
+  USDT: 'Tether USD',
+  USDC: 'USD Coin',
+  PYUSD: 'PayPal USD',
+  USDB: 'USDB',
+  EURC: 'Euro Coin',
+};
+
+const STABLE_ICON_URL: Record<string, string> = {
+  USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
+  USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
+};
+
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {
   // Synchronous read — no flicker between "unconfirmed/starter" and the real
   // status. If we have a cached profile, derive everything at first render.
@@ -247,6 +265,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const handleNavigate = (screen: string) => {
     if (onNavigate) onNavigate(screen);
   };
+
+  const openWalletForCurrency = useCallback((currency: string) => {
+    try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
+    handleNavigate('wallet-detail');
+  }, [handleNavigate]);
 
   // ─── data loading ─────────────────────────────────────────────────────────
   const loadDashboardData = useCallback(async () => {
@@ -700,7 +723,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               onPointerDown={() => prefetchScreen('wallet-detail')}
               onMouseEnter={() => prefetchScreen('wallet-detail')}
               onTouchStart={() => prefetchScreen('wallet-detail')}
-              onClick={() => handleNavigate('wallet-detail')}
+              onClick={() => {
+                try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+                handleNavigate('wallet-detail');
+              }}
               className="text-[11px] font-semibold text-[#C7FF00]"
             >
               {tt('dashboard.seeAll', 'See all')}
@@ -733,20 +759,15 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     onPointerDown={() => prefetchScreen('wallet-detail')}
                     onMouseEnter={() => prefetchScreen('wallet-detail')}
                     onTouchStart={() => prefetchScreen('wallet-detail')}
-                    onClick={() => handleNavigate('wallet-detail')}
+                    onClick={() => openWalletForCurrency(w.currency)}
                     className={`flex-shrink-0 w-[160px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
                   >
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold mb-3"
-                      style={{ backgroundColor: `${w.color}26`, color: w.color }}
-                    >
-                      {w.currency.slice(0, 3)}
-                    </div>
-                    <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold`}>
+                    <DashboardCurrencyIcon currency={w.currency} color={w.color} />
+                    <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold mt-2`}>
                       {w.currency}
                     </p>
-                    <p className={`text-[15px] font-semibold ${tc.text} tabular-nums font-mono mt-0.5 truncate`}>
-                      {balanceHidden ? '••••' : `${w.symbol}${w.balance.toFixed(2)}`}
+                    <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
+                      {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
                     </p>
                   </button>
                 ))}
@@ -942,6 +963,50 @@ type RatePair = {
   change: number; // 24h % change — approximated from daily drift
   vol: number;    // sparkline volatility, scaled to the pair's magnitude
 };
+
+function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
+  const code = String(currency || '').toUpperCase();
+  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+  const [imgFailed, setImgFailed] = React.useState(false);
+  const iconUrl = STABLE_ICON_URL[code];
+
+  if (flag[code]) {
+    return (
+      <div
+        className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[18px] leading-none"
+        aria-hidden
+      >
+        {flag[code]}
+      </div>
+    );
+  }
+
+  if (iconUrl && !imgFailed) {
+    return (
+      <div className="w-8 h-8 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
+        <img
+          src={iconUrl}
+          alt=""
+          className="w-7 h-7 object-contain"
+          onError={() => setImgFailed(true)}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+      style={{ backgroundColor: `${color}26`, color }}
+      aria-hidden
+    >
+      {code.slice(0, 3)}
+    </div>
+  );
+}
 
 // Major currency pairs (USD / EUR / GBP) surfaced by default. If the live API
 // returns these pairs they replace the fallback; if not, the fallback keeps the

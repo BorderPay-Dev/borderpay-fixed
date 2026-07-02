@@ -120,9 +120,36 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
   const refreshInFlightRef = useRef(false);
+  const preselectConsumedRef = useRef(false);
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
+
+  useEffect(() => {
+    if (preselectConsumedRef.current) return;
+    let requested = '';
+    try { requested = String(sessionStorage.getItem('borderpay_open_wallet_currency') || '').toUpperCase(); } catch { requested = ''; }
+    if (!requested) return;
+
+    const va = vas.find((row) => String(row.currency || '').toUpperCase() === requested);
+    if (va) {
+      setSelectedVa(va);
+      preselectConsumedRef.current = true;
+      try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+      return;
+    }
+    const stable = stables.find((row) => String(row.currency || '').toUpperCase() === requested);
+    if (stable) {
+      setSelectedStable(stable);
+      preselectConsumedRef.current = true;
+      try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+      return;
+    }
+    if (!loading && !refreshing) {
+      preselectConsumedRef.current = true;
+      try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+    }
+  }, [vas, stables, loading, refreshing]);
 
   const shouldRunProviderSync = () => {
     try {
