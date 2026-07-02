@@ -1470,57 +1470,6 @@ const BRIDGE_ONLY_DISABLED = {
 } as const;
 
 // ============================================================================
-// LOCAL PAYMENTS (Bank transfers)
-// ============================================================================
-
-export const localPaymentsAPI = {
-  async getInstitutions(_currency: string, _type?: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async fetchBankDetails(_routingNumber: string, _countryCode: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async resolveAccount(_bankCode: string, _accountNumber: string, _currency: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  // QUARANTINED — `transfer` routes to future-state
-  // (future local currency / mobile-wallet / local bank rails).
-  // `verifyTransfer` and `getTransfers` are read-only and kept
-  // operational for history display.
-  async transfer(_data: any) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async verifyTransfer(_transferId: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async getTransfers() {
-    return BRIDGE_ONLY_DISABLED;
-  },
-};
-
-// ============================================================================
-// US PAYMENTS (ACH / Wire)
-// ============================================================================
-
-// QUARANTINED — legacy US counterparty endpoints are hard-disabled.
-// BorderPay send/payout flows must use Bridge-backed transfer orchestration
-// only. Do not route any runtime path through `get-counterparty` here.
-export const usPaymentsAPI = {
-  async transfer(_data: any) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async getCounterparties() { return BRIDGE_ONLY_DISABLED; },
-
-  async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
-};
-
-// ============================================================================
 // CRYPTO / STABLECOIN
 // ============================================================================
 
@@ -2898,8 +2847,6 @@ export const backendAPI = {
   cards: cardAPI,
   fx: fxAPI,
   kyc: kycAPI,
-  localPayments: localPaymentsAPI,
-  usPayments: usPaymentsAPI,
   address: addressAPI,
   stablecoin: stablecoinAPI,
   mobileMoney: mobileMoneyAPI,
