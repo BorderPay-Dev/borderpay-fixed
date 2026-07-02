@@ -56,6 +56,14 @@ Deno.serve(async (req) => {
   const onlyReplayable = body?.only_replayable === true;
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
+  const allowedStatuses = new Set(["failed", "processing", "completed", "duplicate_ignored"]);
+  if (status && !allowedStatuses.has(status)) {
+    return json({
+      success: false,
+      code: "invalid_status_filter",
+      error: "Invalid status filter. Allowed values: failed, processing, completed, duplicate_ignored.",
+    }, 400);
+  }
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
   const from = Math.max(0, Number(body?.from || 0));
 
