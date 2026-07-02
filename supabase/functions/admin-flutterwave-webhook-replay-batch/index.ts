@@ -64,6 +64,13 @@ Deno.serve(async (req) => {
       error: "force_reason is required and must be at least 12 characters when force=true.",
     }, 400);
   }
+  if (status !== "failed") {
+    return json({
+      success: false,
+      code: "invalid_status_filter",
+      error: "Batch replay only supports status=failed.",
+    }, 400);
+  }
 
   let q = supa
     .from("flutterwave_webhook_events")
