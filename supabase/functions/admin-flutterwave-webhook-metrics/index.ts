@@ -99,6 +99,15 @@ Deno.serve(async (req) => {
     return acc;
   }, {});
 
+  const failedByFlowAndCode = rows.reduce<Record<string, Record<string, number>>>((acc, r) => {
+    if (String(r.processing_status || "").toLowerCase() !== "failed") return acc;
+    const flow = String(r.flow || "unknown");
+    const code = String(((r.last_error as Record<string, unknown> | null)?.code) || "unknown");
+    if (!acc[flow]) acc[flow] = {};
+    acc[flow][code] = (acc[flow][code] || 0) + 1;
+    return acc;
+  }, {});
+
   const attemptsBuckets = rows.reduce<Record<string, number>>((acc, r) => {
     const n = Number(r.processing_attempts || 0);
     const bucket = n >= maxReplayAttempts ? `>=${maxReplayAttempts}` : String(n);
@@ -119,6 +128,7 @@ Deno.serve(async (req) => {
         by_status: statusCounts,
         by_flow: flowCounts,
         failed_by_code: failedByCode,
+        failed_by_flow_and_code: failedByFlowAndCode,
         attempts_buckets: attemptsBuckets,
       },
       replay_policy: {
