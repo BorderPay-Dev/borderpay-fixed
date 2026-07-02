@@ -19,6 +19,12 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -42,9 +48,9 @@ Deno.serve(async (req) => {
   const admin = await requireAdmin(req);
   if (!admin.ok) return json({ success: false, code: admin.code, error: admin.error }, admin.status);
 
-  const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
-  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
-  const metricsSampleLimit = Math.max(100, Math.min(5000, Number(Deno.env.get("FLW_WEBHOOK_METRICS_SAMPLE_LIMIT") || 1000)));
+  const maxReplayAttempts = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS"), 5, 1, 20);
+  const replayCooldownSeconds = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS"), 60, 0, 3600);
+  const metricsSampleLimit = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_METRICS_SAMPLE_LIMIT"), 1000, 100, 5000);
 
   const [{ data: allRows, error: allErr }, { count: failed24hCount, error: failed24Err }] = await Promise.all([
     supa
