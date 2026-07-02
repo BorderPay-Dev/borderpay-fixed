@@ -20,6 +20,12 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -43,9 +49,9 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch {}
 
   const dryRun = body?.dry_run !== false;
-  const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
-  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
-  const batchLimit = Math.max(1, Math.min(50, Number(body?.limit || 10)));
+  const maxReplayAttempts = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS"), 5, 1, 20);
+  const replayCooldownSeconds = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS"), 60, 0, 3600);
+  const batchLimit = parseBoundedInt(body?.limit, 10, 1, 50);
   const reason = String(body?.reason || "batch_replay").slice(0, 250);
   const flow = String(body?.flow || "").toLowerCase();
   const status = String(body?.status || "failed").toLowerCase();
