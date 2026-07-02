@@ -73,6 +73,9 @@ Deno.serve(async (req) => {
     .select("user_id,business_user_id")
     .eq("flutterwave_collection_id", collection_id)
     .maybeSingle();
+  if (!ownerProbe) {
+    return json({ success: false, code: "collection_not_found", error: "Collection not found for current account." }, 404);
+  }
   if (ownerProbe) {
     const knownOwners = [ownerProbe.user_id, ownerProbe.business_user_id].filter(Boolean);
     if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
