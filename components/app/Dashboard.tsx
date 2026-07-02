@@ -807,10 +807,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <BridgeKycStatusCard userId={userId} onStartVerification={() => handleNavigate('kyc')} />
         )}
         <button
-          onPointerDown={() => prefetchScreen('wallet-detail')}
-          onMouseEnter={() => prefetchScreen('wallet-detail')}
-          onTouchStart={() => prefetchScreen('wallet-detail')}
-          onClick={() => handleNavigate('wallet-detail')}
+          onPointerDown={() => prefetchScreen('add-wallet')}
+          onMouseEnter={() => prefetchScreen('add-wallet')}
+          onTouchStart={() => prefetchScreen('add-wallet')}
+          onClick={() => handleNavigate('add-wallet')}
           className={`w-full rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
         >
           <div className={`w-9 h-9 rounded-full bg-[#C7FF00]/15 flex items-center justify-center flex-shrink-0`}>
@@ -818,10 +818,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </div>
           <div className="flex-1 min-w-0">
             <p className={`text-sm font-semibold ${tc.text}`}>
-              {tt('dashboard.manageAccounts', 'Manage accounts & wallets')}
+              {tt('dashboard.manageAccounts', 'Add or activate wallets')}
             </p>
             <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
-              {tt('dashboard.manageAccountsSub', 'Virtual accounts, stablecoin wallets, cards.')}
+              {tt('dashboard.manageAccountsSub', 'Enable available wallets for your region.')}
             </p>
           </div>
           <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />
