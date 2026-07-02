@@ -64,9 +64,14 @@ Deno.serve(async (req) => {
 
   const payload = (eventRow.payload || {}) as Record<string, unknown>;
   const data = (payload.data && typeof payload.data === "object") ? payload.data as Record<string, unknown> : payload;
+  const meta = (data.meta && typeof data.meta === "object") ? data.meta as Record<string, unknown> : {};
   const txRef = String(data?.tx_ref || data?.reference || data?.txRef || "").trim();
   const transferRef = String(data?.reference || data?.tx_ref || "").trim();
   const flow = String(eventRow.flow || "unknown").toLowerCase();
+  const metaUserId = String(meta?.borderpay_user_id || "").trim();
+  const metaAccountType = String(meta?.borderpay_account_type || "").trim().toLowerCase();
+  const metaUserIdValid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metaUserId);
+  const metaAccountTypeValid = ["individual", "business"].includes(metaAccountType);
 
   const attempts = Number(eventRow.processing_attempts || 0);
   const statusLower = String(eventRow.processing_status || "").toLowerCase();
@@ -107,6 +112,12 @@ Deno.serve(async (req) => {
         tx_ref: txRef || null,
         transfer_reference: transferRef || null,
         payload_id: String(payload?.id || "") || null,
+      },
+      owner_meta: {
+        borderpay_user_id: metaUserId || null,
+        borderpay_user_id_valid: metaUserIdValid,
+        borderpay_account_type: metaAccountType || null,
+        borderpay_account_type_valid: metaAccountTypeValid,
       },
       projection,
       triage: {
