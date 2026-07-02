@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
   const dryRun = body.dry_run === true;
   const force = body.force === true;
   const reason = String(body.reason || "").trim().slice(0, 500);
+  const forceReason = String(body.force_reason || "").trim().slice(0, 500);
   const correlationId = crypto.randomUUID();
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
@@ -82,6 +83,14 @@ Deno.serve(async (req) => {
   }
 
   const attempts = Number(eventRow.processing_attempts || 0);
+  if (force && forceReason.length < 12) {
+    return json({
+      success: false,
+      code: "force_reason_required",
+      error: "force_reason is required and must be at least 12 characters when force=true.",
+      data: { event_id: eventId, correlation_id: correlationId },
+    }, 400);
+  }
   if (!force && attempts >= maxReplayAttempts) {
     return json({
       success: false,
@@ -119,11 +128,12 @@ Deno.serve(async (req) => {
         event: eventRow,
         would_replay: true,
         reason: reason || null,
-        replay_policy: {
-          attempts,
-          max_attempts: maxReplayAttempts,
-          force_required: attempts >= maxReplayAttempts,
-        },
+      replay_policy: {
+        attempts,
+        max_attempts: maxReplayAttempts,
+        force_required: attempts >= maxReplayAttempts,
+      },
+        force_reason: forceReason || null,
         replay_ready: replayEnabled && replayKey.length > 0 && signature.length > 0,
         replay_prerequisites: {
           FLW_WEBHOOK_ALLOW_REPROCESS_FAILED: replayEnabled,
@@ -172,12 +182,13 @@ Deno.serve(async (req) => {
         processing_attempts: eventRow.processing_attempts,
         last_error: eventRow.last_error,
       },
-    after_state: {
-      replay_error: String((e as any)?.message || "replay_fetch_failed"),
-      forced: force,
-      reason: reason || null,
-    },
-  });
+      after_state: {
+        replay_error: String((e as any)?.message || "replay_fetch_failed"),
+        forced: force,
+        reason: reason || null,
+        force_reason: forceReason || null,
+      },
+    });
     return json({
       success: false,
       code: "replay_request_failed",
@@ -207,6 +218,7 @@ Deno.serve(async (req) => {
       forced: force,
       correlation_id: correlationId,
       reason: reason || null,
+      force_reason: forceReason || null,
     },
   });
 
@@ -217,6 +229,7 @@ Deno.serve(async (req) => {
       event_id: eventId,
       correlation_id: correlationId,
       reason: reason || null,
+      force_reason: forceReason || null,
       webhook_http_status: webhookRes.status,
       webhook_result: webhookJson,
     },
