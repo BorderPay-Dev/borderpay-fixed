@@ -108,6 +108,14 @@ Deno.serve(async (req) => {
   if (!row) {
     return json({ success: false, error: "Collection record not found for current user" }, 404);
   }
+  const localDirection = String(row.direction || "").trim().toLowerCase();
+  if (localDirection !== "receive") {
+    return json({
+      success: false,
+      code: "direction_mismatch",
+      error: "Collection status is only available for receive-direction records.",
+    }, 409);
+  }
   const chargeId = String(row.provider_transfer_id || "").trim();
   if (!chargeId) {
     return json({

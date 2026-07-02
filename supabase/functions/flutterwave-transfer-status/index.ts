@@ -119,6 +119,23 @@ Deno.serve(async (req) => {
   if (!localRecord) {
     return json({ success: false, error: "Transfer record not found for this account." }, 404);
   }
+  const localDirection = String(localRecord.direction || "").trim().toLowerCase();
+  if (localDirection === "payout" && !caps.payout_enabled) {
+    return json({
+      success: false,
+      code: "flutterwave_not_enabled",
+      error: "Flutterwave payout rails are not enabled in this environment.",
+      data: { capabilities: caps },
+    }, 503);
+  }
+  if (localDirection === "receive" && !caps.receive_enabled) {
+    return json({
+      success: false,
+      code: "flutterwave_not_enabled",
+      error: "Flutterwave receive rails are not enabled in this environment.",
+      data: { capabilities: caps },
+    }, 503);
+  }
 
   const providerTransferId = transferId || String(localRecord.provider_transfer_id || "").trim();
   if (!providerTransferId) {
