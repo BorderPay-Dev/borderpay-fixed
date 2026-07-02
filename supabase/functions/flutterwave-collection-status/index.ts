@@ -64,6 +64,10 @@ Deno.serve(async (req) => {
   const reference = String(body?.reference || "").trim();
   const providerId = String(body?.provider_transfer_id || "").trim();
   const localTransferId = String(body?.local_transfer_id || "").trim();
+  const source = String(body?.source || "").trim().toLowerCase();
+  if (source && source !== "flutterwave") {
+    return json({ success: false, error: "source must be flutterwave" }, 400);
+  }
   if (!reference && !providerId && !localTransferId) {
     return json({ success: false, error: "reference, provider_transfer_id, or local_transfer_id is required" }, 400);
   }
@@ -171,6 +175,7 @@ Deno.serve(async (req) => {
       direction: row.direction || "receive",
       source: row.source || "flutterwave",
       source_locked_to_flutterwave: true,
+      source_filter: "flutterwave",
       channel: row.channel || null,
       reference: row.reference,
       provider_transfer_id: chargeId,

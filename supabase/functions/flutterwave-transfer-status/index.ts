@@ -55,7 +55,11 @@ Deno.serve(async (req) => {
   const transferId = String(body?.transfer_id || "").trim();
   const reference = String(body?.reference || "").trim();
   const localTransferId = String(body?.local_transfer_id || "").trim();
+  const source = String(body?.source || "").trim().toLowerCase();
   const direction = String(body?.direction || "").trim().toLowerCase();
+  if (source && source !== "flutterwave") {
+    return json({ success: false, error: "source must be flutterwave" }, 400);
+  }
   if (direction && !ALLOWED_DIRECTION.has(direction)) {
     return json({ success: false, error: "direction must be payout or receive" }, 400);
   }
@@ -188,6 +192,7 @@ Deno.serve(async (req) => {
         direction: localRecord.direction || null,
         source: localRecord.source || "flutterwave",
         source_locked_to_flutterwave: true,
+        source_filter: "flutterwave",
         channel: localRecord.channel || null,
         reference: localRecord.reference,
         transfer_id: providerTransferId,
