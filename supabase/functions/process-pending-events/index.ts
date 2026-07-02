@@ -983,6 +983,7 @@ async function upsertBridgeVirtualAccountProjection(params: {
   payload: any;
   currency: string;
   existingFeePercent?: unknown;
+  existingAccountDetails?: unknown;
 }) {
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(params.customer);
   const canonicalFee = await getCanonicalVaDeveloperFeePercent();
@@ -994,6 +995,37 @@ async function upsertBridgeVirtualAccountProjection(params: {
     normalizeDeveloperFeePercent(params.existingFeePercent) ??
     canonicalFee;
 
+  const payloadObj = (params.payload && typeof params.payload === "object")
+    ? (params.payload as Record<string, unknown>)
+    : {};
+  const existingDetails = (params.existingAccountDetails && typeof params.existingAccountDetails === "object")
+    ? (params.existingAccountDetails as Record<string, unknown>)
+    : {};
+  const sourceDeposit = (
+    payloadObj.source_deposit_instructions && typeof payloadObj.source_deposit_instructions === "object"
+  )
+    ? (payloadObj.source_deposit_instructions as Record<string, unknown>)
+    : (
+      payloadObj.account_details &&
+      typeof payloadObj.account_details === "object" &&
+      (payloadObj.account_details as Record<string, unknown>).source_deposit_instructions &&
+      typeof (payloadObj.account_details as Record<string, unknown>).source_deposit_instructions === "object"
+    )
+      ? ((payloadObj.account_details as Record<string, unknown>).source_deposit_instructions as Record<string, unknown>)
+      : (
+        existingDetails.source_deposit_instructions && typeof existingDetails.source_deposit_instructions === "object"
+      )
+        ? (existingDetails.source_deposit_instructions as Record<string, unknown>)
+        : {};
+
+  const mergedAccountDetails: Record<string, unknown> = {
+    ...existingDetails,
+    ...payloadObj,
+    source_deposit_instructions: sourceDeposit,
+    deposit_instructions: sourceDeposit,
+    bridge_response: payloadObj,
+  };
+
   await supabase.from("bridge_virtual_accounts").upsert({
     bridge_virtual_account_id: String(params.vaId),
     bridge_customer_id:        String(params.customer),
@@ -1001,7 +1033,7 @@ async function upsertBridgeVirtualAccountProjection(params: {
     business_user_id:          account_type === "business"   ? resolved : null,
     currency:                  params.currency,
     rail:                      params.payload?.rail ?? params.payload?.payment_rail ?? null,
-    account_details:           params.payload?.source_deposit_instructions ?? params.payload?.account_details ?? {},
+    account_details:           mergedAccountDetails,
     status:                    String(params.payload?.status ?? "active").toLowerCase(),
     developer_fee_percent:     effectiveFee,
     updated_at:                new Date().toISOString(),
@@ -1019,7 +1051,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   const payloadCustomer = d?.customer_id ?? d?.customer?.id;
   const { data: existingVa } = await supabase
     .from("bridge_virtual_accounts")
-    .select("bridge_customer_id,developer_fee_percent")
+    .select("bridge_customer_id,developer_fee_percent,account_details")
     .eq("bridge_virtual_account_id", String(vaId))
     .maybeSingle();
   const customer = payloadCustomer ?? existingVa?.bridge_customer_id;
@@ -1034,6 +1066,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     payload: d,
     currency,
     existingFeePercent: existingVa?.developer_fee_percent,
+    existingAccountDetails: existingVa?.account_details,
   });
 
   // Lifecycle event (created/updated/etc): projection already upserted above.
