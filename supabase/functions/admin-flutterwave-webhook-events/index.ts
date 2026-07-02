@@ -57,6 +57,7 @@ Deno.serve(async (req) => {
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
   const allowedStatuses = new Set(["failed", "processing", "completed", "duplicate_ignored"]);
+  const allowedFlows = ["transfer", "collection"] as const;
   if (status && !allowedStatuses.has(status)) {
     return json({
       success: false,
@@ -64,7 +65,7 @@ Deno.serve(async (req) => {
       error: "Invalid status filter. Allowed values: failed, processing, completed, duplicate_ignored.",
     }, 400);
   }
-  if (flow && !["transfer", "collection"].includes(flow)) {
+  if (flow && !allowedFlows.includes(flow as (typeof allowedFlows)[number])) {
     return json({
       success: false,
       code: "invalid_flow_filter",
@@ -174,6 +175,10 @@ Deno.serve(async (req) => {
         error_code: errorCode || null,
         include_payload: includePayload,
         only_replayable: onlyReplayable,
+      },
+      allowed_filters: {
+        statuses: Array.from(allowedStatuses),
+        flows: allowedFlows,
       },
       replay_policy: { max_attempts: maxReplayAttempts, replay_cooldown_seconds: replayCooldownSeconds },
     },
