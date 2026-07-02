@@ -31,6 +31,16 @@ Scope: `borderpay-fixed` backend runtime paths only
 - Webhook replay-window enforcement with keyed override.
 - Webhook processing gated by `FLW_WEBHOOK_ENABLED`.
 
+## Admin/Operator Endpoints (Internal)
+
+| Admin API Surface (`backendAPI.ts`) | Edge Function | Purpose |
+|---|---|---|
+| `admin.flutterwaveWebhookEvents(...)` | `admin-flutterwave-webhook-events` | Inspect webhook processing/event state and failure filters |
+| `admin.replayFlutterwaveWebhook(...)` | `admin-flutterwave-webhook-replay` | Controlled replay for failed/replayable events |
+| `admin.flutterwaveWebhookMetrics()` | `admin-flutterwave-webhook-metrics` | Queue/replay/flow metrics for operations dashboards |
+| `admin.flutterwaveWebhookEventDetail(event_id)` | `admin-flutterwave-webhook-event-detail` | Deep event payload + extracted refs + processing detail |
+| `admin.flutterwaveWebhookCleanup(...)` | `admin-flutterwave-webhook-cleanup` | Retention cleanup for completed/failed webhook event rows |
+
 ## Notes
 
 - No UI route calls provider endpoints directly.
