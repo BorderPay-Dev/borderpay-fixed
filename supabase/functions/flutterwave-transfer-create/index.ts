@@ -146,6 +146,7 @@ Deno.serve(async (req) => {
       account_type: accountType,
       initiated_by: authData.user.id,
       source: "flutterwave",
+      provider_request_id: res.requestId || null,
     },
     last_provider_status_at: new Date().toISOString(),
     raw_payload: res.data ?? {},
@@ -156,6 +157,7 @@ Deno.serve(async (req) => {
     data: {
       mode: "create",
       capabilities: caps,
+      provider_request_id: res.requestId || null,
       transfer: res.data,
     },
   });

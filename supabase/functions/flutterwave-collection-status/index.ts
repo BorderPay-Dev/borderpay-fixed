@@ -112,6 +112,7 @@ Deno.serve(async (req) => {
       source: "flutterwave",
       account_type: accountType,
       polled: true,
+      provider_request_id: res.requestId || null,
     },
     last_provider_status_at: new Date().toISOString(),
     raw_payload: collection,
@@ -132,6 +133,7 @@ Deno.serve(async (req) => {
     data: {
       capabilities: caps,
       collection_id,
+      provider_request_id: res.requestId || null,
       collection: res.data,
     },
   });
