@@ -51,10 +51,12 @@ Deno.serve(async (req) => {
 
   const eventId = String(body?.event_id || "").trim();
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
+  const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
+  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
 
   const { data: eventRow, error: eventErr } = await supa
     .from("flutterwave_webhook_events")
-    .select("event_id,event_type,flow,processing_status,processing_attempts,last_error,payload,received_at,processed_at")
+    .select("event_id,event_type,flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,payload,received_at,processed_at")
     .eq("event_id", eventId)
     .maybeSingle();
   if (eventErr) return json({ success: false, code: "event_lookup_failed", error: eventErr.message }, 500);
@@ -65,6 +67,17 @@ Deno.serve(async (req) => {
   const txRef = String(data?.tx_ref || data?.reference || data?.txRef || "").trim();
   const transferRef = String(data?.reference || data?.tx_ref || "").trim();
   const flow = String(eventRow.flow || "unknown").toLowerCase();
+
+  const attempts = Number(eventRow.processing_attempts || 0);
+  const statusLower = String(eventRow.processing_status || "").toLowerCase();
+  const lastReplayAtMs = eventRow.last_replay_attempt_at ? Date.parse(String(eventRow.last_replay_attempt_at)) : NaN;
+  const elapsedSinceReplaySeconds = Number.isFinite(lastReplayAtMs)
+    ? Math.floor((Date.now() - lastReplayAtMs) / 1000)
+    : null;
+  const cooldownActive = replayCooldownSeconds > 0
+    && elapsedSinceReplaySeconds !== null
+    && elapsedSinceReplaySeconds < replayCooldownSeconds;
+  const replayRecommended = statusLower === "failed" && attempts < maxReplayAttempts && !cooldownActive;
 
   let projection: Record<string, unknown> | null = null;
   if (flow === "collection") {
@@ -95,7 +108,16 @@ Deno.serve(async (req) => {
       projection,
       triage: {
         has_projection: !!projection,
-        replay_recommended: String(eventRow.processing_status || "") === "failed",
+        replay_recommended: replayRecommended,
+        replay_policy: {
+          max_attempts: maxReplayAttempts,
+          attempts,
+          replay_cooldown_seconds: replayCooldownSeconds,
+          cooldown_active: cooldownActive,
+          retry_after_seconds: cooldownActive
+            ? Math.max(0, replayCooldownSeconds - (elapsedSinceReplaySeconds || 0))
+            : 0,
+        },
       },
     },
   });
