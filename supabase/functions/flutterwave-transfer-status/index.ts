@@ -2,10 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   flutterwaveGetTransfer,
-  getFlutterwaveCapabilities,
-  getFlutterwaveLocalRailPolicy,
 } from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
+import {
+  ensureBusinessProfileForAccountType,
+  gateFlutterwaveRuntime,
+  getRuntimeCapsAndPolicy,
+  parseAccountType,
+  validateCurrencyOnPolicy,
+} from "../_shared/services/flutterwave-runtime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -46,15 +51,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
-  const caps = getFlutterwaveCapabilities();
-  if (!caps.configured || !(caps.receive_enabled || caps.payout_enabled)) {
-    return json({
-      success: false,
-      code: "flutterwave_not_enabled",
-      error: "Flutterwave transfer status endpoint is not enabled in this environment.",
-      data: { capabilities: caps },
-    }, 503);
-  }
+  const runtimeGate = gateFlutterwaveRuntime("either");
+  const caps = runtimeGate.caps;
+  const { localRailPolicy } = getRuntimeCapsAndPolicy();
+  if (!runtimeGate.allowed) return json(runtimeGate.body, runtimeGate.status);
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
@@ -71,18 +71,14 @@ Deno.serve(async (req) => {
   const transferId = String(body?.transfer_id || "").trim();
   if (!transferId) return json({ success: false, error: "transfer_id is required" }, 400);
   if (!isSafeProviderId(transferId)) return json({ success: false, error: "transfer_id format is invalid" }, 400);
-  const requestedAccountType = String(body?.account_type || "individual").toLowerCase();
-  if (!["individual", "business"].includes(requestedAccountType)) {
+  const requestedAccountType = parseAccountType(body?.account_type);
+  if (!requestedAccountType) {
     return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
   }
-  let accountType: "individual" | "business" = requestedAccountType === "business" ? "business" : "individual";
+  let accountType: "individual" | "business" = requestedAccountType;
   if (accountType === "business") {
-    const { data: businessProfile } = await supa
-      .from("business_profiles")
-      .select("id,user_id")
-      .eq("user_id", authData.user.id)
-      .maybeSingle();
-    if (!businessProfile?.id) {
+    const hasBusinessProfile = await ensureBusinessProfileForAccountType(supa, authData.user.id, accountType);
+    if (!hasBusinessProfile) {
       return json({ success: false, code: "business_profile_required", error: "Business profile is required for business transfer status." }, 403);
     }
   }
@@ -122,14 +118,15 @@ Deno.serve(async (req) => {
   const reference = String(transfer?.reference || transfer?.tx_ref || transfer?.txRef || transferId).trim();
   const status = normStatus(transfer?.status || transfer?.payment_status);
   const currency = String(transfer?.currency || "").toUpperCase();
-  const supportedCurrencies = getFlutterwaveLocalRailPolicy().currencies as readonly string[];
-  if (currency && !supportedCurrencies.includes(currency)) {
-    return json({
-      success: false,
-      code: "corridor_not_supported",
-      error: "Transfer currency is not enabled on local rails.",
-      data: { supported_currencies: supportedCurrencies, transfer_id: transferId },
-    }, 409);
+  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
+  if (currency) {
+    const currencyCheck = validateCurrencyOnPolicy(currency, supportedCurrencies);
+    if (!currencyCheck.allowed) {
+      return json({
+        ...currencyCheck.body,
+        data: { ...(currencyCheck.body.data as Record<string, unknown> || {}), transfer_id: transferId },
+      }, currencyCheck.status);
+    }
   }
   const amount = Number(transfer?.amount || transfer?.charged_amount || 0);
   const { data: existingProjection } = await supa

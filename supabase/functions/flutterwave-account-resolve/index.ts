@@ -1,11 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
-  getFlutterwaveCapabilities,
-  getFlutterwaveLocalRailPolicy,
   flutterwaveResolveBankAccount,
 } from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
+import {
+  gateFlutterwaveRuntime,
+  getRuntimeCapsAndPolicy,
+  validateCountryOnPolicy,
+} from "../_shared/services/flutterwave-runtime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -29,15 +32,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
-  const caps = getFlutterwaveCapabilities();
-  if (!caps.configured || !caps.payout_enabled) {
-    return json({
-      success: false,
-      code: "flutterwave_not_enabled",
-      error: "Flutterwave payout rails are not enabled in this environment.",
-      data: { capabilities: caps },
-    }, 503);
-  }
+  const runtimeGate = gateFlutterwaveRuntime("payout");
+  const caps = runtimeGate.caps;
+  const { localRailPolicy } = getRuntimeCapsAndPolicy();
+  if (!runtimeGate.allowed) return json(runtimeGate.body, runtimeGate.status);
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
@@ -58,18 +56,8 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "account_number and bank_code are required" }, 400);
   }
   if (country) {
-    if (!/^[A-Z]{2}$/.test(country)) {
-      return json({ success: false, error: "country must be ISO-2" }, 400);
-    }
-    const supportedCountries = getFlutterwaveLocalRailPolicy().countries as readonly string[];
-    if (!supportedCountries.includes(country)) {
-      return json({
-        success: false,
-        code: "corridor_not_supported",
-        error: "This account country is not enabled on local rails.",
-        data: { supported_countries: supportedCountries },
-      }, 409);
-    }
+    const countryCheck = validateCountryOnPolicy(country, localRailPolicy.countries as readonly string[]);
+    if (!countryCheck.allowed) return json(countryCheck.body, countryCheck.status);
   }
 
   const res = await flutterwaveResolveBankAccount({

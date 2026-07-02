@@ -1,7 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { flutterwaveListCollections, getFlutterwaveCapabilities } from "../_shared/providers/flutterwave.ts";
+import { flutterwaveListCollections } from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
+import {
+  ensureBusinessProfileForAccountType,
+  gateFlutterwaveRuntime,
+  parseAccountType,
+} from "../_shared/services/flutterwave-runtime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -52,15 +57,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
-  const caps = getFlutterwaveCapabilities();
-  if (!caps.configured || !caps.receive_enabled) {
-    return json({
-      success: false,
-      code: "flutterwave_not_enabled",
-      error: "Flutterwave collection list endpoint is not enabled in this environment.",
-      data: { capabilities: caps },
-    }, 503);
-  }
+  const runtimeGate = gateFlutterwaveRuntime("receive");
+  const caps = runtimeGate.caps;
+  if (!runtimeGate.allowed) return json(runtimeGate.body, runtimeGate.status);
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
@@ -96,17 +95,13 @@ Deno.serve(async (req) => {
     }, mapped.status);
   }
 
-  const accountType = String(body?.account_type || "individual").toLowerCase();
-  if (!["individual", "business"].includes(accountType)) {
+  const accountType = parseAccountType(body?.account_type);
+  if (!accountType) {
     return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
   }
   if (accountType === "business") {
-    const { data: businessProfile } = await supa
-      .from("business_profiles")
-      .select("id,user_id")
-      .eq("user_id", authData.user.id)
-      .maybeSingle();
-    if (!businessProfile?.id) {
+    const hasBusinessProfile = await ensureBusinessProfileForAccountType(supa, authData.user.id, accountType);
+    if (!hasBusinessProfile) {
       return json({ success: false, code: "business_profile_required", error: "Business profile is required for business collection views." }, 403);
     }
   }

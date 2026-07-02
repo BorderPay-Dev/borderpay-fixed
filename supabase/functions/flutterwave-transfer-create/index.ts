@@ -3,11 +3,16 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   flutterwaveCreateTransfer,
   flutterwaveRetryTransfer,
-  getFlutterwaveCapabilities,
-  getFlutterwaveLocalRailPolicy,
 } from "../_shared/providers/flutterwave.ts";
-import { getFlutterwaveStaticIpGuard } from "../_shared/providers/flutterwave-static-ip-guard.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
+import {
+  ensureBusinessProfileForAccountType,
+  gateFlutterwaveRuntime,
+  getRuntimeCapsAndPolicy,
+  parseAccountType,
+  validateCountryOnPolicy,
+  validateCurrencyOnPolicy,
+} from "../_shared/services/flutterwave-runtime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -37,10 +42,6 @@ function isCurrencyCode(value: string): boolean {
   return /^[A-Z]{3,5}$/.test(value);
 }
 
-function isIso2(value: string): boolean {
-  return /^[A-Z]{2}$/.test(value);
-}
-
 function isSafeReference(value: string): boolean {
   return /^[A-Za-z0-9._:-]{6,120}$/.test(value);
 }
@@ -61,16 +62,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
-  const caps = getFlutterwaveCapabilities();
-  if (!caps.configured || !caps.payout_enabled) {
-    return json({
-      success: false,
-      code: "flutterwave_not_enabled",
-      error: "Flutterwave payout rails are not enabled in this environment.",
-      data: { capabilities: caps },
-    }, 503);
-  }
-  const staticIpGuard = getFlutterwaveStaticIpGuard();
+  const runtimeGate = gateFlutterwaveRuntime("payout");
+  const caps = runtimeGate.caps;
+  const staticIpGuard = runtimeGate.staticIpGuard;
+  const { localRailPolicy } = getRuntimeCapsAndPolicy();
+  if (!runtimeGate.allowed) return json(runtimeGate.body, runtimeGate.status);
   if (staticIpGuard.blocked) {
     return json({
       success: false,
@@ -95,8 +91,8 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON body" }, 400);
   }
 
-  const accountType = String(body?.account_type || "individual").toLowerCase();
-  if (!["individual", "business"].includes(accountType)) {
+  const accountType = parseAccountType(body?.account_type);
+  if (!accountType) {
     return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
   }
 
@@ -127,12 +123,8 @@ Deno.serve(async (req) => {
       return json({ success: false, error: "Transfer does not belong to current user" }, 403);
     }
     if (ownerProbe.business_user_id === authData.user.id) {
-      const { data: businessProfile } = await supa
-        .from("business_profiles")
-        .select("id,user_id")
-        .eq("user_id", authData.user.id)
-        .maybeSingle();
-      if (!businessProfile?.id) {
+      const hasBusinessProfile = await ensureBusinessProfileForAccountType(supa, authData.user.id, "business");
+      if (!hasBusinessProfile) {
         return json({ success: false, code: "business_profile_required", error: "Business profile is required for business transfer retries." }, 403);
       }
     }
@@ -172,28 +164,12 @@ Deno.serve(async (req) => {
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
-  const localRailPolicy = getFlutterwaveLocalRailPolicy();
-  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
-  const supportedCountries = localRailPolicy.countries as readonly string[];
-  if (!supportedCurrencies.includes(currency)) {
-    return json({
-      success: false,
-      code: "corridor_not_supported",
-      error: "This payout currency is not enabled on local rails.",
-      data: { supported_currencies: supportedCurrencies },
-    }, 409);
-  }
-  if (country) {
-    if (!isIso2(country)) return json({ success: false, error: "country format is invalid" }, 400);
-    if (!supportedCountries.includes(country)) {
-      return json({
-        success: false,
-        code: "corridor_not_supported",
-        error: "This payout country is not enabled on local rails.",
-        data: { supported_countries: supportedCountries },
-      }, 409);
-    }
-  }
+  const currencies = localRailPolicy.currencies as readonly string[];
+  const countries = localRailPolicy.countries as readonly string[];
+  const currencyCheck = validateCurrencyOnPolicy(currency, currencies);
+  if (!currencyCheck.allowed) return json(currencyCheck.body, currencyCheck.status);
+  const countryCheck = validateCountryOnPolicy(country, countries);
+  if (!countryCheck.allowed) return json(countryCheck.body, countryCheck.status);
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
   if (!isSafeBankCode(accountBank)) return json({ success: false, error: "account_bank format is invalid" }, 400);
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);
@@ -203,12 +179,8 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "reference format is invalid" }, 400);
   }
   if (accountType === "business") {
-    const { data: businessProfile } = await supa
-      .from("business_profiles")
-      .select("id,user_id")
-      .eq("user_id", authData.user.id)
-      .maybeSingle();
-    if (!businessProfile?.id) {
+    const hasBusinessProfile = await ensureBusinessProfileForAccountType(supa, authData.user.id, accountType);
+    if (!hasBusinessProfile) {
       return json({ success: false, code: "business_profile_required", error: "Business profile is required for business transfers." }, 403);
     }
   }
