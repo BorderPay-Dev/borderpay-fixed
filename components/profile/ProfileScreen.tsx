@@ -28,6 +28,7 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { deriveKycStatus } from '../../utils/config/environment';
 import { deriveWalletStatus, type WalletStatus } from '../../utils/financial/walletStatus';
 import { Skeleton, SkeletonRows } from '../common/Skeleton';
+import { TOTPManager } from '../../utils/security/SecurityManager';
 
 interface ProfileScreenProps {
   userId: string;
@@ -53,11 +54,19 @@ function deriveEmailConfirmed(u: any): boolean {
   return !!(u?.email_confirmed || u?.email_confirmed_at || u?.confirmed_at || readLocalEmailConfirmed());
 }
 
+function humanVerificationStatus(profile: any): string {
+  const status = deriveKycStatus(profile);
+  if (status === 'verified') return 'Verified';
+  if (status === 'rejected') return 'Rejected';
+  if (status === 'under_review') return 'Under review';
+  if (status === 'pending') return 'Pending';
+  return 'Not started';
+}
+
 export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingPic, setUploadingPic] = useState(false);
-  const [walletStatus, setWalletStatus] = useState<WalletStatus>('locked');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
@@ -110,15 +119,22 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           bridge_kyc_status: u.bridge_kyc_status ?? null,
           bridge_kyb_status: u.bridge_kyb_status ?? null,
           bridge_account_status: u.bridge_account_status ?? null,
-          wallet_status: (u.wallet_status as WalletStatus) || 'locked',
-          verification_status: u.verification_status || 'not_started',
+          wallet_status: deriveWalletStatus({
+            account_type: u.account_type,
+            bridge_kyc_status: u.bridge_kyc_status,
+            bridge_kyb_status: u.bridge_kyb_status,
+            bridge_account_status: u.bridge_account_status,
+            is_unlocked: u.is_unlocked,
+            has_funding_surface: false,
+          }),
+          verification_status: humanVerificationStatus(u),
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
           email_confirmed: deriveEmailConfirmed(u),
           last_sign_in_at: u.last_sign_in_at || null,
           created_at: u.created_at || '',
           profile_picture_url: u.profile_picture_url || null,
-          two_factor_enabled: u.two_factor_enabled || false,
+          two_factor_enabled: Boolean(u.two_factor_enabled || TOTPManager.isEnabled(userId)),
         };
       }
     } catch {}
@@ -246,18 +262,17 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
             is_unlocked: u.is_unlocked,
             has_funding_surface: hasFundingSurface,
           }),
-          verification_status: u.verification_status || 'not_started',
+          verification_status: humanVerificationStatus(u),
           account_type: u.account_type || 'individual',
           is_unlocked: u.is_unlocked || false,
           email_confirmed: deriveEmailConfirmed(u),
           last_sign_in_at: u.last_sign_in_at || null,
           created_at: u.created_at || '',
           profile_picture_url: u.profile_picture_url || null,
-          two_factor_enabled: u.two_factor_enabled || false,
+          two_factor_enabled: Boolean(u.two_factor_enabled || TOTPManager.isEnabled(userId)),
         };
         setProfile(profileData);
         setEditedProfile(profileData);
-        setWalletStatus(profileData.wallet_status);
         mergeProfileCache({ ...u, company_name: profileData.company_name });
         try { localStorage.setItem(profileRefreshTsKey, String(Date.now())); } catch { /* noop */ }
         if (profileData.account_type === 'business' && profileData.company_name) {
@@ -381,8 +396,16 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
   const displayCity = editing ? editedProfile.city : (profile.city || addressObject.city || '');
   const displayPostalCode = editing ? editedProfile.postal_code : (profile.postal_code || addressObject.postal_code || '');
   const displayCountry = editing ? editedProfile.country : (profile.country || addressObject.country || '');
-  const verificationLabel = String(profile.verification_status || 'not_started').replace(/_/g, ' ');
-  const walletAccessActivated = walletStatus === 'active';
+  const verificationLabel = humanVerificationStatus(profile);
+  const walletAccessActivated = deriveWalletStatus({
+    account_type: profile.account_type,
+    bridge_kyc_status: profile.bridge_kyc_status,
+    bridge_kyb_status: profile.bridge_kyb_status,
+    bridge_account_status: profile.bridge_account_status,
+    is_unlocked: profile.is_unlocked,
+    has_funding_surface: hasFundingSurfaceFromCache(),
+  }) === 'active';
+  const twoFactorEnabled = Boolean(profile.two_factor_enabled || TOTPManager.isEnabled(userId));
 
   if (loading) {
     return (
@@ -570,7 +593,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
               value={walletAccessActivated ? 'Activated' : 'Locked'}
               valueColor={walletAccessActivated ? 'text-[#C7FF00]' : 'text-orange-400'}
             />
-            <StatusRow label="2FA" value={profile.two_factor_enabled ? 'Enabled' : 'Disabled'} valueColor={profile.two_factor_enabled ? 'text-[#C7FF00]' : 'text-orange-400'} />
+            <StatusRow label="2FA" value={twoFactorEnabled ? 'Enabled' : 'Disabled'} valueColor={twoFactorEnabled ? 'text-[#C7FF00]' : 'text-orange-400'} />
             {profile.last_sign_in_at && (
               <StatusRow
                 label="Last Sign-in"

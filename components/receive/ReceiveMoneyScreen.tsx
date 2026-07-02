@@ -18,9 +18,6 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
-import {
-  type BridgeVirtualAccountCurrency,
-} from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { showToast } from '../common/StatusToast';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
@@ -32,7 +29,7 @@ interface ReceiveMoneyScreenProps {
 }
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
-interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
+interface VaRow     { id: string; currency: 'USD' | 'EUR' | 'GBP'; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
 
 const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
@@ -306,7 +303,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <div className="px-4 py-8 text-center">
               <Loader2 className={`w-5 h-5 ${tc.textMuted} animate-spin mx-auto`} />
             </div>
-          ) : vas.length === 0 && stables.length === 0 && missingVa.length === 0 ? (
+          ) : vas.length === 0 && stables.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <p className={`text-sm ${tc.textMuted}`}>No accounts yet. Open one from the Wallet tab.</p>
             </div>
@@ -352,25 +349,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 );
               })}
 
-              {/* Inline "Open X account" rows for missing currencies */}
-              {missingVa.map((c, i) => {
-                const showDivider = vas.length > 0 || stables.length > 0 || i > 0;
-                return (
-                  <button key={`open-${c}`} disabled={creating === c} onClick={() => handleCreate(c)}
-                    className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}>
-                    <AssetBadge symbol={c} size={44} />
-                    <div className="flex-1 min-w-0">
-                      <div className={`text-[15px] font-semibold ${tc.text}`}>
-                        Open {c} account <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[c]})</span>
-                      </div>
-                      <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
-                    </div>
-                    {creating === c
-                      ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                      : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-                  </button>
-                );
-              })}
+              {/* New account activation lives on dedicated Add Wallet screen. */}
             </>
           )}
         </div>

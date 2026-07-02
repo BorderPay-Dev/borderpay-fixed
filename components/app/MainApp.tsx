@@ -18,6 +18,7 @@ import { BusinessDashboard } from '../business/BusinessDashboard';
 import { KYCVerification } from '../kyc/KYCVerification';
 import { TransactionsScreen } from '../transactions/TransactionsScreen';
 import { WalletScreen } from '../wallet/WalletScreen';
+import { AddWalletScreen } from '../wallet/AddWalletScreen';
 import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
 import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
 import { ExchangeScreen } from '../exchange/ExchangeScreen';
@@ -135,6 +136,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   notifications: eagerPreload,
   'external-accounts':   eagerPreload,
   'external-wallets':    eagerPreload,
+  'add-wallet':          eagerPreload,
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
@@ -320,7 +322,8 @@ export type AppScreen =
   | 'external-wallets'
   | 'bulk-payout'
   | 'payroll'
-  | 'add-external-account';
+  | 'add-external-account'
+  | 'add-wallet';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
 // The shell speaks `AppRoute` (Home/Send/Receive/Account + drawer items).
@@ -663,7 +666,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       if (cancelled) return;
       // Keep runtime light: warm only highest-traffic routes. Other screens are
       // prefetched on intent (tap/hover) via AppShell/route controls.
-      ['wallet-detail', 'receive-money', 'send-money', 'transactions', 'notifications', 'profile']
+      ['wallet-detail', 'add-wallet', 'receive-money', 'send-money', 'transactions', 'notifications', 'profile']
         .forEach(prefetchScreen);
       if (hasBusinessAccountCached() || accountType === 'business') {
         ['team', 'external-accounts', 'bulk-payout', 'payroll'].forEach(prefetchScreen);
@@ -930,6 +933,18 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onBack={navigateBack}
             isVerified={false}
             onNavigate={navigateTo}
+          />
+        );
+
+      case 'add-wallet':
+        return (
+          <AddWalletScreen
+            userId={userId}
+            onBack={navigateBack}
+            onOpenWallet={(currency) => {
+              try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
+              navigateTo('wallet-detail');
+            }}
           />
         );
 

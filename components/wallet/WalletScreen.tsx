@@ -8,7 +8,7 @@
  *     amount + token amount, chevron → tap opens the existing detail sheet
  *     (account "letter" for VA, deposit address for stablecoin).
  *   • Quick actions row (Send / Receive / Deposit / Convert).
- *   • Deposit chooser (USD-ACH / EUR-SEPA / GBP-FPS) for missing currencies.
+ *   • Add wallet/activation now lives in the dedicated Add Wallet screen.
  *
  * The old two-card stack (BridgeVirtualAccountsCard + BridgeWalletsCard) is
  * collapsed into one unified list to match the marketing posters and remove
@@ -19,22 +19,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Shield, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, Plus, RefreshCw,
-  ChevronRight, Loader2,
+  ChevronRight,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { authAPI } from '../../utils/supabase/client';
-import {
-  bridgeVirtualAccountCurrenciesForCountry,
-  type BridgeVirtualAccountCurrency,
-} from '../../utils/compliance/partnerCountryPolicy';
+import type { BridgeVirtualAccountCurrency } from '../../utils/compliance/partnerCountryPolicy';
 import { usePreferences } from '../../utils/hooks/usePreferences';
 import {
   AssetBadge, WalletDetailSheet, AccountDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
-import { friendlyError } from '../../utils/errors/friendlyError';
-import { showToast } from '../common/StatusToast';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
@@ -72,12 +66,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   });
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
-  const country = authAPI.getStoredUser()?.country ?? null;
-  const fallbackVaCurrencies = useMemo(
-    () => bridgeVirtualAccountCurrenciesForCountry(country),
-    [country],
-  );
-  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -115,7 +103,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   });
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [creating, setCreating] = useState<string | null>(null);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
@@ -250,26 +237,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     }
   };
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const caps = await backendAPI.bridge.virtualAccount.capabilities();
-        if (!alive || !caps?.success) return;
-        const supported = Array.isArray(caps.data?.supported_currencies)
-          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
-          : [];
-        if (supported.length > 0) setAvailableVaCurrencies(supported);
-      } catch {
-        // Keep fallback country policy list.
-      }
-    })();
-    return () => { alive = false; };
-  }, [userId]);
-
-  useEffect(() => {
-    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
-  }, [fallbackVaCurrencies]);
 
   useEffect(() => {
     const prewarmKey = `borderpay_wallet_prewarm_v1:${userId}`;
@@ -303,22 +270,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       document.removeEventListener('visibilitychange', onVisibility);
     };
   /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
-
-  // ── Missing VA currencies (the "deposit chooser") ────────────────────────
-  const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
-  const missingVa = availableVaCurrencies.filter(c => !haveVa.has(c));
-
-  const handleCreate = async (currency: BridgeVirtualAccountCurrency) => {
-    setCreating(currency);
-    const r = await backendAPI.bridge.virtualAccount.create({ currency });
-    setCreating(null);
-    if (!r.success) {
-      showToast.error(friendlyError(r.error, `Could not open ${currency} account.`));
-      return;
-    }
-    showToast.success(`${currency} account opened`);
-    refresh();
-  };
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {
@@ -443,28 +394,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           )}
         </div>
 
-        {/* Missing-currency "+ open account" rows now live INLINE at the bottom
-            of the Balances list (one row per currency), so the user has a single
-            unified surface and we don't repeat the promo-card pattern. */}
-        {missingVa.length > 0 && (
-          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-            {missingVa.map((c, i) => (
-              <button key={c} disabled={creating === c} onClick={() => handleCreate(c)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}>
-                <AssetBadge symbol={c} size={40} />
-                <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text}`}>
-                    Open {c} account <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[c]})</span>
-                  </div>
-                  <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
-                </div>
-                {creating === c
-                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* New account activation is centralized in Add Wallet (Dashboard). */}
 
       </div>
 
