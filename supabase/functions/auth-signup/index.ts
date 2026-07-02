@@ -16,6 +16,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
+import { isBridgeBlocked } from "../_shared/providers/bridge-country-policy.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // Service-role: used ONLY for the admin client (createUser + table upserts).
@@ -204,6 +205,17 @@ Deno.serve(async (req: Request) => {
           code: "invalid_country_code",
         },
       }, 400);
+    }
+    if (isBridgeBlocked(normalizedCountryCode)) {
+      return json({
+        success: false,
+        code: "country_not_supported",
+        error: "This country is not currently supported for onboarding.",
+        summary: {
+          code: "country_not_supported",
+          country_code: normalizedCountryCode,
+        },
+      }, 403);
     }
 
     const normalizedAccountType: "individual" | "business" =
