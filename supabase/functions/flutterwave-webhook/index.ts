@@ -272,6 +272,32 @@ Deno.serve(async (req) => {
   }
 
   try {
+  if (transferEvent && !transferReference && !transferId) {
+    await markWebhookEventStatus(eventId, "failed", {
+      code: "webhook_transfer_reference_missing",
+      reason: "transfer_reference_missing_in_payload",
+      at: new Date().toISOString(),
+    });
+    return json({
+      success: false,
+      code: "webhook_transfer_reference_missing",
+      error: "Webhook payload missing transfer reference/id",
+      data: { event_id: eventId, event_type: eventType, flow },
+    }, 422);
+  }
+  if (!transferEvent && !txRef && !collectionId) {
+    await markWebhookEventStatus(eventId, "failed", {
+      code: "webhook_collection_reference_missing",
+      reason: "collection_reference_missing_in_payload",
+      at: new Date().toISOString(),
+    });
+    return json({
+      success: false,
+      code: "webhook_collection_reference_missing",
+      error: "Webhook payload missing collection reference/id",
+      data: { event_id: eventId, event_type: eventType, flow },
+    }, 422);
+  }
   if (!currency) {
     await markWebhookEventStatus(eventId, "failed", {
       code: "webhook_currency_missing",
