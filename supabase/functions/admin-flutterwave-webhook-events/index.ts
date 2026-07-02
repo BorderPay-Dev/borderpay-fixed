@@ -129,11 +129,14 @@ Deno.serve(async (req) => {
     events = events.filter((row: any) => row.replay_eligible === true);
   }
 
+  const filteredTotal = events.length;
+
   return json({
     success: true,
     data: {
       events,
       total: count || 0,
+      filtered_total: filteredTotal,
       page: { from, limit },
       filters: {
         status,
