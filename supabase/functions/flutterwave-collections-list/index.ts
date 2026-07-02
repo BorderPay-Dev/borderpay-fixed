@@ -94,6 +94,9 @@ Deno.serve(async (req) => {
   }
 
   const accountType = String(body?.account_type || "individual").toLowerCase();
+  if (!["individual", "business"].includes(accountType)) {
+    return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
+  }
   const ownerColumn = accountType === "business" ? "business_user_id" : "user_id";
   const { data: projectedCollections } = await supa
     .from("flutterwave_collections")
