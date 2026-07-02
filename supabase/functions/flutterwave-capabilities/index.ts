@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   getFlutterwaveCapabilities,
   getFlutterwaveLocalRailPolicy,
@@ -24,6 +25,12 @@ const json = (body: unknown, status = 200) =>
 type Action = "health" | "payment_methods" | "banks" | "mobile_networks" | "corridor_policy";
 const ALLOWED_ACTIONS: Action[] = ["health", "payment_methods", "banks", "mobile_networks", "corridor_policy"];
 
+const supa = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  { auth: { persistSession: false, autoRefreshToken: false } },
+);
+
 function isIso2(value: string): boolean {
   return /^[A-Z]{2}$/.test(value);
 }
@@ -32,6 +39,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  const { data: authData, error: authErr } = await supa.auth.getUser(token);
+  if (authErr || !authData?.user?.id) return json({ success: false, error: "Unauthorized" }, 401);
+
   let body: any = {};
   try {
     body = await req.json();
@@ -39,7 +51,7 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON body" }, 400);
   }
 
-  const action = String(body?.action || "health").trim() as Action;
+  const action = String(body?.action || "health").trim().toLowerCase() as Action;
   if (!ALLOWED_ACTIONS.includes(action)) {
     return json({
       success: false,
