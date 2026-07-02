@@ -51,45 +51,69 @@ Deno.serve(async (req) => {
 
   const dryRun = body?.dry_run !== false;
   const retainDays = Math.max(7, Math.min(365, Number(body?.retain_days || 30)));
+  const maxBatches = Math.max(1, Math.min(20, Number(body?.max_batches || 5)));
+  const batchSize = Math.max(100, Math.min(1000, Number(body?.batch_size || 1000)));
   const cutoffIso = new Date(Date.now() - retainDays * 24 * 60 * 60 * 1000).toISOString();
-
-  const { data: candidates, error: candidateErr } = await supa
+  const { count: eligibleCount, error: eligibleCountErr } = await supa
     .from("flutterwave_webhook_events")
-    .select("event_id,processing_status,received_at")
+    .select("event_id", { count: "exact", head: true })
     .in("processing_status", ["completed", "duplicate_ignored"])
-    .lt("received_at", cutoffIso)
-    .limit(1000);
-
-  if (candidateErr) {
-    return json({ success: false, code: "cleanup_query_failed", error: candidateErr.message }, 500);
+    .lt("received_at", cutoffIso);
+  if (eligibleCountErr) {
+    return json({ success: false, code: "cleanup_count_failed", error: eligibleCountErr.message }, 500);
   }
 
-  const toDelete = (candidates || []).map((r: any) => String(r.event_id || "")).filter(Boolean);
-
   if (dryRun) {
+    const { data: sampleRows, error: sampleErr } = await supa
+      .from("flutterwave_webhook_events")
+      .select("event_id,processing_status,received_at")
+      .in("processing_status", ["completed", "duplicate_ignored"])
+      .lt("received_at", cutoffIso)
+      .order("received_at", { ascending: true })
+      .limit(batchSize);
+    if (sampleErr) {
+      return json({ success: false, code: "cleanup_query_failed", error: sampleErr.message }, 500);
+    }
+    const sampleIds = (sampleRows || []).map((r: any) => String(r.event_id || "")).filter(Boolean);
     return json({
       success: true,
       code: "dry_run_ready",
       data: {
         retain_days: retainDays,
         cutoff: cutoffIso,
-        eligible_count: toDelete.length,
-        sample_event_ids: toDelete.slice(0, 20),
+        max_batches: maxBatches,
+        batch_size: batchSize,
+        eligible_count: eligibleCount || 0,
+        sample_event_ids: sampleIds.slice(0, 20),
       },
     });
   }
 
   let deletedCount = 0;
-  if (toDelete.length > 0) {
+  for (let i = 0; i < maxBatches; i += 1) {
+    const { data: candidates, error: candidateErr } = await supa
+      .from("flutterwave_webhook_events")
+      .select("event_id,processing_status,received_at")
+      .in("processing_status", ["completed", "duplicate_ignored"])
+      .lt("received_at", cutoffIso)
+      .order("received_at", { ascending: true })
+      .limit(batchSize);
+    if (candidateErr) {
+      return json({ success: false, code: "cleanup_query_failed", error: candidateErr.message }, 500);
+    }
+    const batchIds = (candidates || []).map((r: any) => String(r.event_id || "")).filter(Boolean);
+    if (batchIds.length === 0) break;
+
     const { error: delErr, count } = await supa
       .from("flutterwave_webhook_events")
       .delete({ count: "exact" })
-      .in("event_id", toDelete)
+      .in("event_id", batchIds)
       .in("processing_status", ["completed", "duplicate_ignored"]);
     if (delErr) {
       return json({ success: false, code: "cleanup_delete_failed", error: delErr.message }, 500);
     }
-    deletedCount = count || 0;
+    deletedCount += count || 0;
+    if (batchIds.length < batchSize) break;
   }
 
   await supa.from("admin_action_audit").insert({
@@ -98,8 +122,8 @@ Deno.serve(async (req) => {
     action_type: "flutterwave_webhook_cleanup",
     target_resource: "flutterwave_webhook_events",
     request_id: crypto.randomUUID(),
-    before_state: { retain_days: retainDays, eligible_count: toDelete.length, cutoff: cutoffIso },
-    after_state: { deleted_count: deletedCount },
+    before_state: { retain_days: retainDays, eligible_count: eligibleCount || 0, cutoff: cutoffIso },
+    after_state: { deleted_count: deletedCount, max_batches: maxBatches, batch_size: batchSize },
   });
 
   return json({
@@ -108,7 +132,9 @@ Deno.serve(async (req) => {
     data: {
       retain_days: retainDays,
       cutoff: cutoffIso,
-      eligible_count: toDelete.length,
+      max_batches: maxBatches,
+      batch_size: batchSize,
+      eligible_count: eligibleCount || 0,
       deleted_count: deletedCount,
     },
   });
