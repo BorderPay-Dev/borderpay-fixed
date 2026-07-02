@@ -219,7 +219,12 @@ Deno.serve(async (req) => {
     txRef,
     rawBody,
   });
-  const accountType = String(data?.meta?.borderpay_account_type || "").toLowerCase();
+  const rawAccountType = String(data?.meta?.borderpay_account_type || "").toLowerCase();
+  const accountType: "individual" | "business" | null = rawAccountType === "business"
+    ? "business"
+    : rawAccountType === "individual"
+    ? "individual"
+    : null;
   const userIdFromMeta = String(data?.meta?.borderpay_user_id || "").trim();
   const flow: "collection" | "transfer" | "unknown" = transferEvent ? "transfer" : "collection";
   const replayKey = String(req.headers.get("x-borderpay-replay-key") || "").trim();
@@ -280,7 +285,7 @@ Deno.serve(async (req) => {
       status: effectiveStatus,
       metadata: {
         event_type: eventType,
-        account_type: accountType || null,
+          account_type: accountType,
         source: "flutterwave",
       },
       last_provider_status_at: new Date().toISOString(),
@@ -437,7 +442,7 @@ Deno.serve(async (req) => {
     status: effectiveStatus,
     metadata: {
       event_type: eventType,
-      account_type: accountType || null,
+      account_type: accountType,
       source: "flutterwave",
     },
     last_provider_status_at: new Date().toISOString(),
