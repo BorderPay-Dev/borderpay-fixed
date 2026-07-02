@@ -2739,6 +2739,21 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  flutterwaveIncidentRunbook: async () =>
+    apiCall<{
+      snapshot: {
+        sampled_events: number;
+        failed_events: number;
+        replayable_failed_events: number;
+        max_replay_attempts: number;
+      };
+      top_failure_codes: Array<[string, number]>;
+      recommended_actions: Array<Record<string, unknown>>;
+      generated_at: string;
+    }>('admin-flutterwave-incident-runbook', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 };
 
 export interface SupportTicket {
