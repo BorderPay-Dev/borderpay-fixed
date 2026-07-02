@@ -153,6 +153,12 @@ Deno.serve(async (req) => {
     results.push({ event_id: row.event_id, status: res.status, ok: res.ok, response: payload });
   }
 
+  const resultCodeCounts = results.reduce((acc: Record<string, number>, row: any) => {
+    const code = String((row?.response || {}).code || (row.ok ? "ok" : `http_${row.status}`));
+    acc[code] = (acc[code] || 0) + 1;
+    return acc;
+  }, {});
+
   await supa.from("admin_action_audit").insert({
     actor_id: admin.userId,
     role: "admin",
@@ -179,6 +185,7 @@ Deno.serve(async (req) => {
       },
       succeeded: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
+      result_code_counts: resultCodeCounts,
       results,
     },
   });
