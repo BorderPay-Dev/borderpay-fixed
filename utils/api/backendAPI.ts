@@ -2597,7 +2597,11 @@ export const externalWalletsAPI = {
 
 export const adminAPI = {
   broadcast: async (
-    action: 'business_verification_delay' | 'business_platform_live' | 'individual_platform_live',
+    action:
+      | 'founder_welcome_all'
+      | 'business_verification_delay'
+      | 'business_platform_live'
+      | 'individual_platform_live',
     opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {},
   ) =>
     apiCall<{
