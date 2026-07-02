@@ -49,6 +49,8 @@ Deno.serve(async (req) => {
   const reason = String(body?.reason || "batch_replay").slice(0, 250);
   const flow = String(body?.flow || "").toLowerCase();
   const status = String(body?.status || "failed").toLowerCase();
+  const allowedFlows = ["transfer", "collection"] as const;
+  const allowedStatuses = ["failed"] as const;
   const force = body?.force === true;
   const forceReason = String(body?.force_reason || "").trim().slice(0, 500);
   const allowErrorCodes = Array.isArray(body?.allow_error_codes)
@@ -87,7 +89,7 @@ Deno.serve(async (req) => {
       error: "Batch replay only supports status=failed.",
     }, 400);
   }
-  if (flow && !["transfer", "collection"].includes(flow)) {
+  if (flow && !allowedFlows.includes(flow as (typeof allowedFlows)[number])) {
     return json({
       success: false,
       code: "invalid_flow_filter",
@@ -171,6 +173,10 @@ Deno.serve(async (req) => {
           force_reason: forceReason || null,
           replay_cooldown_seconds: replayCooldownSeconds,
         },
+        allowed_filters: {
+          flows: allowedFlows,
+          statuses: allowedStatuses,
+        },
         replayable_count: replayable.length,
         selection_summary: selectionSummary,
         candidates: replayable.map((r: any) => ({
@@ -198,6 +204,10 @@ Deno.serve(async (req) => {
           force,
           force_reason: forceReason || null,
           replay_cooldown_seconds: replayCooldownSeconds,
+        },
+        allowed_filters: {
+          flows: allowedFlows,
+          statuses: allowedStatuses,
         },
         selection_summary: selectionSummary,
       },
@@ -254,6 +264,10 @@ Deno.serve(async (req) => {
         force,
         force_reason: forceReason || null,
         replay_cooldown_seconds: replayCooldownSeconds,
+      },
+      allowed_filters: {
+        flows: allowedFlows,
+        statuses: allowedStatuses,
       },
       succeeded: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
