@@ -1,15 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
-  getFlutterwaveCapabilities,
-  getFlutterwaveLocalRailPolicy,
   flutterwaveHealthCheck,
   flutterwaveListBanks,
   flutterwaveListMobileNetworks,
   flutterwaveListPaymentMethods,
 } from "../_shared/providers/flutterwave.ts";
-import { getFlutterwaveStaticIpGuard } from "../_shared/providers/flutterwave-static-ip-guard.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
+import {
+  gateFlutterwaveRuntime,
+  getRuntimeCapsAndPolicy,
+  validateCountryOnPolicy,
+} from "../_shared/services/flutterwave-runtime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -31,10 +33,6 @@ const supa = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
-
-function isIso2(value: string): boolean {
-  return /^[A-Z]{2}$/.test(value);
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -61,10 +59,7 @@ Deno.serve(async (req) => {
       data: { allowed_actions: ALLOWED_ACTIONS },
     }, 400);
   }
-  const caps = getFlutterwaveCapabilities();
-  const staticIpGuard = getFlutterwaveStaticIpGuard();
-  const localRailPolicy = getFlutterwaveLocalRailPolicy();
-  const supportedCountries = localRailPolicy.countries as readonly string[];
+  const { caps, staticIpGuard, localRailPolicy } = getRuntimeCapsAndPolicy();
 
   if (!caps.configured) {
     return json({
@@ -93,14 +88,26 @@ Deno.serve(async (req) => {
     }, res.ok ? 200 : (mapped?.status || 502));
   }
 
+  if (action === "corridor_policy") {
+    return json({
+      success: true,
+      data: {
+        capabilities: caps,
+        static_ip_guard: staticIpGuard,
+        local_rail_policy: localRailPolicy,
+      },
+    });
+  }
+
+  const railsGate = gateFlutterwaveRuntime("either");
+  if (!railsGate.allowed) return json(railsGate.body, railsGate.status);
+  const supportedCountries = localRailPolicy.countries as readonly string[];
+
   if (action === "payment_methods") {
-    if (!(caps.receive_enabled || caps.payout_enabled)) {
-      return json({ success: false, code: "flutterwave_not_enabled", error: "Flutterwave rails are not enabled in this environment.", data: { capabilities: caps } }, 503);
-    }
     const country = String(body?.country || "").trim().toUpperCase();
-    if (country && !isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
-    if (country && !supportedCountries.includes(country)) {
-      return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
+    if (country) {
+      const countryPolicy = validateCountryOnPolicy(country, supportedCountries);
+      if (!countryPolicy.allowed) return json(countryPolicy.body, countryPolicy.status);
     }
     const res = await flutterwaveListPaymentMethods(country || undefined);
     if (!res.ok) {
@@ -111,15 +118,10 @@ Deno.serve(async (req) => {
   }
 
   if (action === "banks") {
-    if (!(caps.receive_enabled || caps.payout_enabled)) {
-      return json({ success: false, code: "flutterwave_not_enabled", error: "Flutterwave rails are not enabled in this environment.", data: { capabilities: caps } }, 503);
-    }
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
-    if (!isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
-    if (!supportedCountries.includes(country)) {
-      return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
-    }
+    const countryPolicy = validateCountryOnPolicy(country, supportedCountries);
+    if (!countryPolicy.allowed) return json(countryPolicy.body, countryPolicy.status);
     const res = await flutterwaveListBanks(country);
     if (!res.ok) {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load banks");
@@ -129,32 +131,16 @@ Deno.serve(async (req) => {
   }
 
   if (action === "mobile_networks") {
-    if (!(caps.receive_enabled || caps.payout_enabled)) {
-      return json({ success: false, code: "flutterwave_not_enabled", error: "Flutterwave rails are not enabled in this environment.", data: { capabilities: caps } }, 503);
-    }
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
-    if (!isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
-    if (!supportedCountries.includes(country)) {
-      return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
-    }
+    const countryPolicy = validateCountryOnPolicy(country, supportedCountries);
+    if (!countryPolicy.allowed) return json(countryPolicy.body, countryPolicy.status);
     const res = await flutterwaveListMobileNetworks(country);
     if (!res.ok) {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load mobile networks");
       return json({ success: false, code: mapped.code, error: mapped.error, data: { capabilities: caps } }, mapped.status);
     }
     return json({ success: true, data: { capabilities: caps, static_ip_guard: staticIpGuard, country, mobile_networks: res.data } });
-  }
-
-  if (action === "corridor_policy") {
-    return json({
-      success: true,
-      data: {
-        capabilities: caps,
-        static_ip_guard: staticIpGuard,
-        local_rail_policy: localRailPolicy,
-      },
-    });
   }
 
   return json({ success: false, error: "Unsupported action" }, 400);
