@@ -129,6 +129,13 @@ Deno.serve(async (req) => {
     events = events.filter((row: any) => row.replay_eligible === true);
   }
 
+  const errorCodeCounts = events.reduce((acc: Record<string, number>, row: any) => {
+    const code = String((row?.last_error || {}).code || "").trim();
+    if (!code) return acc;
+    acc[code] = (acc[code] || 0) + 1;
+    return acc;
+  }, {});
+
   const filteredTotal = events.length;
 
   return json({
@@ -138,6 +145,7 @@ Deno.serve(async (req) => {
       total: count || 0,
       filtered_total: filteredTotal,
       page: { from, limit },
+      error_code_counts: errorCodeCounts,
       filters: {
         status,
         flow: flow || null,
