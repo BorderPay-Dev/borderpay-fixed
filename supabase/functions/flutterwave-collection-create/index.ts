@@ -74,6 +74,16 @@ Deno.serve(async (req) => {
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
   if (!tx_ref) return json({ success: false, error: "tx_ref is required" }, 400);
   if (!isSafeTxRef(tx_ref)) return json({ success: false, error: "tx_ref format is invalid" }, 400);
+  if (accountType === "business") {
+    const { data: businessProfile } = await supa
+      .from("business_profiles")
+      .select("id,user_id")
+      .eq("user_id", authData.user.id)
+      .maybeSingle();
+    if (!businessProfile?.id) {
+      return json({ success: false, code: "business_profile_required", error: "Business profile is required for business collections." }, 403);
+    }
+  }
 
   const res = await flutterwaveCreateCollection({
     amount,

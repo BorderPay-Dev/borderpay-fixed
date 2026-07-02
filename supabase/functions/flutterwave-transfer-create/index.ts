@@ -112,6 +112,16 @@ Deno.serve(async (req) => {
   if (!isSafeReference(reference)) {
     return json({ success: false, error: "reference format is invalid" }, 400);
   }
+  if (accountType === "business") {
+    const { data: businessProfile } = await supa
+      .from("business_profiles")
+      .select("id,user_id")
+      .eq("user_id", authData.user.id)
+      .maybeSingle();
+    if (!businessProfile?.id) {
+      return json({ success: false, code: "business_profile_required", error: "Business profile is required for business transfers." }, 403);
+    }
+  }
   const debitCurrency = body?.debit_currency ? String(body.debit_currency).toUpperCase() : undefined;
   if (debitCurrency && !isCurrencyCode(debitCurrency)) {
     return json({ success: false, error: "debit_currency format is invalid" }, 400);
