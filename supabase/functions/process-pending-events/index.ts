@@ -1112,37 +1112,8 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   }
   const creditRow = Array.isArray(creditResult) ? creditResult[0] : creditResult;
 
-  // For individuals only, mirror to the legacy wallets table so the existing
-  // TransactionsScreen (which reads wallets/transactions) keeps working.
-  // bridge_virtual_account_balances is the canonical Bridge balance source.
-  // Business users are NOT mirrored — they read Bridge balance tables only.
-  //
-  // Uses the Bridge-specific RPC (provider='bridge' on the transactions
-  // row). Layered idempotency: the canonical ledger gate above
-  // (creditRow.applied) prevents double-mirroring on duplicate webhooks;
-  // the RPC itself is also idempotent via the transactions.reference
-  // UNIQUE constraint with reference='bridge:<event_id>'.
-  if (account_type === "individual" && creditRow?.applied) {
-    const amountDecimal = Number(amountMinor) / 10 ** (CURRENCY_SCALE[currency] ?? 2);
-    const { error: mirrorErr } = await supabase.rpc("apply_bridge_wallet_credit_and_complete", {
-      p_event_id:     ev.event_id,
-      p_user_id:      resolved,
-      p_currency:     currency,
-      p_amount:       amountDecimal,
-      p_tx_reference: `bridge:${ev.event_id}`,
-      p_tx_metadata:  { virtual_account_id: vaId, bridge_reference: d?.reference ?? null, payload: d, mirror_of: "bridge_balance_ledger" },
-    });
-    if (mirrorErr) {
-      throw new Error(`apply_bridge_wallet_credit_and_complete failed: ${mirrorErr.message}`);
-    }
-    // Backlink the webhook event to the VA for ops visibility (the RPC does
-    // not touch bridge_webhook_events; we always set the entity backlink
-    // for the activity branch here).
-    await supabase.from("bridge_webhook_events")
-      .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
-      .eq("event_id", ev.event_id);
-    return;
-  }
+  // VA credits remain receive-rail attribution in the Bridge ledger path.
+  // Do NOT mirror VA activity into legacy spendable wallet rows.
 
   await supabase.from("bridge_webhook_events")
     .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
