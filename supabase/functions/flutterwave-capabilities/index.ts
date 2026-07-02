@@ -22,6 +22,7 @@ const json = (body: unknown, status = 200) =>
   });
 
 type Action = "health" | "payment_methods" | "banks" | "mobile_networks" | "corridor_policy";
+const ALLOWED_ACTIONS: Action[] = ["health", "payment_methods", "banks", "mobile_networks", "corridor_policy"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -35,7 +36,17 @@ Deno.serve(async (req) => {
   }
 
   const action = String(body?.action || "health").trim() as Action;
+  if (!ALLOWED_ACTIONS.includes(action)) {
+    return json({
+      success: false,
+      code: "invalid_action",
+      error: "Unsupported action",
+      data: { allowed_actions: ALLOWED_ACTIONS },
+    }, 400);
+  }
   const caps = getFlutterwaveCapabilities();
+  const localRailPolicy = getFlutterwaveLocalRailPolicy();
+  const supportedCountries = localRailPolicy.countries as readonly string[];
 
   if (!caps.configured) {
     return json({
@@ -65,6 +76,9 @@ Deno.serve(async (req) => {
 
   if (action === "payment_methods") {
     const country = String(body?.country || "").trim().toUpperCase();
+    if (country && !supportedCountries.includes(country)) {
+      return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
+    }
     const res = await flutterwaveListPaymentMethods(country || undefined);
     if (!res.ok) {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load payment methods");
@@ -76,6 +90,9 @@ Deno.serve(async (req) => {
   if (action === "banks") {
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
+    if (!supportedCountries.includes(country)) {
+      return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
+    }
     const res = await flutterwaveListBanks(country);
     if (!res.ok) {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load banks");
@@ -87,6 +104,9 @@ Deno.serve(async (req) => {
   if (action === "mobile_networks") {
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
+    if (!supportedCountries.includes(country)) {
+      return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
+    }
     const res = await flutterwaveListMobileNetworks(country);
     if (!res.ok) {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load mobile networks");
@@ -100,7 +120,7 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         capabilities: caps,
-        local_rail_policy: getFlutterwaveLocalRailPolicy(),
+        local_rail_policy: localRailPolicy,
       },
     });
   }
