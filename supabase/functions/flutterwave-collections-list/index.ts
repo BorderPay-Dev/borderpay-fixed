@@ -112,6 +112,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       capabilities: caps,
+      provider_request_id: res.requestId || null,
       collections: res.data,
       projected_collections: withProjectionAlerts((projectedCollections || []) as Record<string, unknown>[]),
     },

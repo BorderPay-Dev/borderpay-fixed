@@ -111,6 +111,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       capabilities: caps,
+      provider_request_id: res.requestId || null,
       transfers: res.data,
       projected_transfers: withProjectionAlerts((projectedTransfers || []) as Record<string, unknown>[]),
     },
