@@ -98,6 +98,16 @@ Deno.serve(async (req) => {
     if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
       return json({ success: false, error: "Transfer does not belong to current user" }, 403);
     }
+    if (ownerProbe.business_user_id === authData.user.id) {
+      const { data: businessProfile } = await supa
+        .from("business_profiles")
+        .select("id,user_id")
+        .eq("user_id", authData.user.id)
+        .maybeSingle();
+      if (!businessProfile?.id) {
+        return json({ success: false, code: "business_profile_required", error: "Business profile is required for business transfer retries." }, 403);
+      }
+    }
 
     const res = await flutterwaveRetryTransfer(transferId, body?.retry_payload || {});
     if (!res.ok) {
