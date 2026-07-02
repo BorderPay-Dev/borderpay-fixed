@@ -225,10 +225,6 @@ Deno.serve(async (req) => {
         .from("bridge_virtual_accounts")
         .update({ status: "closed", updated_at: new Date().toISOString() })
         .eq("bridge_virtual_account_id", vaId);
-      await supa
-        .from("wallets")
-        .update({ status: "closed", updated_at: new Date().toISOString() })
-        .eq("bridge_virtual_account_id", vaId);
       results.push({ bridge_virtual_account_id: vaId, status: "revoked" });
     }
     await auditAdminAction({
@@ -259,10 +255,6 @@ Deno.serve(async (req) => {
   if (walletIds.length > 0 && !dryRun) {
     await supa
       .from("bridge_wallets")
-      .update({ status: "closed", updated_at: new Date().toISOString() })
-      .in("bridge_wallet_id", walletIds);
-    await supa
-      .from("wallets")
       .update({ status: "closed", updated_at: new Date().toISOString() })
       .in("bridge_wallet_id", walletIds);
   }
