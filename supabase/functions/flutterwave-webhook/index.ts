@@ -248,6 +248,7 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq("provider_transfer_id", transfer.providerTransferId)
+          .eq("direction", movementDirection)
           .eq("source", "flutterwave")
           .select("id")
           .limit(1);
