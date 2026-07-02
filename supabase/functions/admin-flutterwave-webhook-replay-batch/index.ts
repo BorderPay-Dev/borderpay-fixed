@@ -107,6 +107,8 @@ Deno.serve(async (req) => {
     skipped_cooldown: 0,
     skipped_allow_error_codes: 0,
     skipped_exclude_error_codes: 0,
+    selected_before_limit: 0,
+    truncated_by_limit: 0,
   };
   const replayableCandidates: any[] = [];
   for (const r of rows || []) {
@@ -134,6 +136,8 @@ Deno.serve(async (req) => {
     replayableCandidates.push(r);
   }
 
+  selectionSummary.selected_before_limit = replayableCandidates.length;
+  selectionSummary.truncated_by_limit = Math.max(0, replayableCandidates.length - batchLimit);
   const replayable = replayableCandidates.slice(0, batchLimit);
 
   if (dryRun) {
