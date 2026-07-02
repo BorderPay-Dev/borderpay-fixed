@@ -100,7 +100,9 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("reference", reference)
       .eq("user_id", authData.user.id)
-      .eq("source", "flutterwave");
+      .eq("source", "flutterwave")
+      .order("updated_at", { ascending: false })
+      .limit(1);
     if (direction) q = q.eq("direction", direction);
     const { data } = await q.maybeSingle();
     localRecord = data || null;
@@ -110,7 +112,9 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("provider_transfer_id", transferId)
       .eq("user_id", authData.user.id)
-      .eq("source", "flutterwave");
+      .eq("source", "flutterwave")
+      .order("updated_at", { ascending: false })
+      .limit(1);
     if (direction) q = q.eq("direction", direction);
     const { data } = await q.maybeSingle();
     localRecord = data || null;

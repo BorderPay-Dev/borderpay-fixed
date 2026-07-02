@@ -91,6 +91,8 @@ Deno.serve(async (req) => {
       .eq("user_id", authData.user.id)
       .eq("direction", "receive")
       .eq("source", "flutterwave")
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
     row = data || null;
   } else {
@@ -101,6 +103,8 @@ Deno.serve(async (req) => {
       .eq("user_id", authData.user.id)
       .eq("direction", "receive")
       .eq("source", "flutterwave")
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
     row = data || null;
   }
