@@ -19,6 +19,12 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -54,8 +60,8 @@ Deno.serve(async (req) => {
   const errorCode = String(body?.error_code || "").trim().toLowerCase();
   const includePayload = body?.include_payload === true;
   const onlyReplayable = body?.only_replayable === true;
-  const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
-  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
+  const maxReplayAttempts = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS"), 5, 1, 20);
+  const replayCooldownSeconds = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS"), 60, 0, 3600);
   const allowedStatuses = new Set(["failed", "processing", "completed", "duplicate_ignored"]);
   const allowedFlows = ["transfer", "collection"] as const;
   if (status && !allowedStatuses.has(status)) {
@@ -79,8 +85,8 @@ Deno.serve(async (req) => {
       error: "Invalid error_code filter format.",
     }, 400);
   }
-  const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
-  const from = Math.max(0, Number(body?.from || 0));
+  const limit = parseBoundedInt(body?.limit, 50, 1, 200);
+  const from = parseBoundedInt(body?.from, 0, 0, 1_000_000);
 
   const selectCols = includePayload
     ? "event_id,event_type,flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,payload,received_at,processed_at"
