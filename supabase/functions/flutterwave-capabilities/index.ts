@@ -24,6 +24,10 @@ const json = (body: unknown, status = 200) =>
 type Action = "health" | "payment_methods" | "banks" | "mobile_networks" | "corridor_policy";
 const ALLOWED_ACTIONS: Action[] = ["health", "payment_methods", "banks", "mobile_networks", "corridor_policy"];
 
+function isIso2(value: string): boolean {
+  return /^[A-Z]{2}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -76,6 +80,7 @@ Deno.serve(async (req) => {
 
   if (action === "payment_methods") {
     const country = String(body?.country || "").trim().toUpperCase();
+    if (country && !isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
     if (country && !supportedCountries.includes(country)) {
       return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
     }
@@ -90,6 +95,7 @@ Deno.serve(async (req) => {
   if (action === "banks") {
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
+    if (!isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
     if (!supportedCountries.includes(country)) {
       return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
     }
@@ -104,6 +110,7 @@ Deno.serve(async (req) => {
   if (action === "mobile_networks") {
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
+    if (!isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
     if (!supportedCountries.includes(country)) {
       return json({ success: false, code: "corridor_not_supported", error: "country is not enabled on local rails", data: { supported_countries: supportedCountries } }, 409);
     }
