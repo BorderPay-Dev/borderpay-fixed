@@ -64,6 +64,13 @@ Deno.serve(async (req) => {
       error: "force_reason is required and must be at least 12 characters when force=true.",
     }, 400);
   }
+  if (!dryRun && reason.trim().length < 8) {
+    return json({
+      success: false,
+      code: "reason_required",
+      error: "reason is required and must be at least 8 characters for non-dry-run batch replay.",
+    }, 400);
+  }
   if (status !== "failed") {
     return json({
       success: false,
