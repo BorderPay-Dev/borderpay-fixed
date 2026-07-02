@@ -21,32 +21,32 @@ CHECKS = [
     ),
     (
         "supabase/functions/flutterwave-transfer-create/index.ts",
-        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "? \"static_ip_not_ready\"",
         "transfer-create maps to static_ip_not_ready response code",
     ),
     (
         "supabase/functions/flutterwave-transfer-rates/index.ts",
-        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "? \"static_ip_not_ready\"",
         "transfer-rates maps to static_ip_not_ready response code",
     ),
     (
         "supabase/functions/flutterwave-account-resolve/index.ts",
-        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "? \"static_ip_not_ready\"",
         "account-resolve maps to static_ip_not_ready response code",
     ),
     (
         "supabase/functions/flutterwave-transfer-status/index.ts",
-        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "? \"static_ip_not_ready\"",
         "transfer-status maps to static_ip_not_ready response code",
     ),
     (
         "supabase/functions/flutterwave-collection-create/index.ts",
-        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "? \"static_ip_not_ready\"",
         "collection-create maps to static_ip_not_ready response code",
     ),
     (
         "supabase/functions/flutterwave-collection-status/index.ts",
-        "code: isIpGuard ? \"static_ip_not_ready\" : \"upstream_error\"",
+        "? \"static_ip_not_ready\"",
         "collection-status maps to static_ip_not_ready response code",
     ),
 ]

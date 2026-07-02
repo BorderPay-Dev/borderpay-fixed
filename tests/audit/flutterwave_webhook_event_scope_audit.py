@@ -20,7 +20,7 @@ def main() -> int:
     checks = [
         "function shouldReconcileMoneyMovementEvent(",
         "t.includes(\"transfer\") || t.includes(\"payout\") || t.includes(\"charge\") || t.includes(\"collection\")",
-        "if (transferEventEligible) {",
+        "if (!duplicateNoop && transferEventEligible) {",
         'endpoint: "flutterwave-webhook"',
         'webhook_mode: "accept_and_reconcile"',
         'processing_scope: "webhook_event"',
