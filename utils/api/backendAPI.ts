@@ -550,11 +550,8 @@ export const transactionAPI = {
   // shape the screen already consumes. Return envelope preserved
   // (`{ success, data: { transactions: TransactionRow[] } }`).
   //
-  // Note: `getCustomerTransactions`, `exportTransactions`, and
-  // `verifyTransaction` below STILL call undeployed edge functions.
-  // Those are not on the partner onboarding critical path (no UI
-  // component lands on them on first load) and are intentionally out
-  // of scope for this PR. Filed as remaining drift in the audit table.
+  // Legacy alias endpoints are hard-quarantined below to prevent any
+  // accidental production 404s from undeployed function names.
   async getTransactions(limit = 10, offset = 0) {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
@@ -620,10 +617,12 @@ export const transactionAPI = {
   },
 
   async exportTransactions(userId: string, format: 'csv' | 'pdf' | 'excel', filters?: any) {
-    return apiCall('export-transactions', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, format, ...filters }),
-    });
+    // Quarantine unresolved legacy endpoint (`export-transactions`).
+    // Keep signature for callers but fail-closed with structured state.
+    void userId;
+    void format;
+    void filters;
+    return RAILS_FUTURE_STATE;
   },
 
   async verifyTransaction(_transactionId: string) {

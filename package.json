@@ -18,6 +18,7 @@
     "ci:financial-schema-contract": "python3 scripts/ci/verify_financial_schema_contract.py",
     "ci:financial-value-propagation": "python3 scripts/ci/verify_financial_value_propagation.py",
     "ci:no-legacy-stablecoins": "python3 scripts/ci/verify_no_legacy_stablecoins.py",
+    "ci:no-legacy-endpoint-aliases": "python3 scripts/ci/verify_no_legacy_endpoint_aliases.py",
     "ci:flutterwave-endpoint-inventory": "python3 scripts/ci/verify_flutterwave_endpoint_inventory.py",
     "ci:provider-adapter-boundary": "python3 scripts/ci/verify_provider_adapter_boundaries.py",
     "test:build": "npm ci && npm run build && npm run preview",
