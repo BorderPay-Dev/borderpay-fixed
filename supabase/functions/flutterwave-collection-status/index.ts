@@ -34,6 +34,10 @@ function keepTerminalStatus(existingStatus: unknown, incomingStatus: "pending" |
   return incomingStatus;
 }
 
+function isSafeProviderId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{2,120}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -62,6 +66,7 @@ Deno.serve(async (req) => {
 
   const collection_id = String(body?.collection_id || body?.charge_id || body?.id || "").trim();
   if (!collection_id) return json({ success: false, error: "collection_id is required" }, 400);
+  if (!isSafeProviderId(collection_id)) return json({ success: false, error: "collection_id format is invalid" }, 400);
   const requestedAccountType = String(body?.account_type || "individual").toLowerCase();
   if (!["individual", "business"].includes(requestedAccountType)) {
     return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);

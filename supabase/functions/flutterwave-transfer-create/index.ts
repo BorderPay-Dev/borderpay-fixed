@@ -47,6 +47,10 @@ function isSafeAccountNumber(value: string): boolean {
   return /^[0-9]{6,34}$/.test(value);
 }
 
+function isSafeProviderId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{2,120}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -85,6 +89,9 @@ Deno.serve(async (req) => {
   if (mode === "retry") {
     const transferId = String(body?.transfer_id || "").trim();
     if (!transferId) return json({ success: false, error: "transfer_id is required for retry mode" }, 400);
+    if (!isSafeProviderId(transferId)) {
+      return json({ success: false, error: "transfer_id format is invalid" }, 400);
+    }
 
     const { data: ownerProbe } = await supa
       .from("flutterwave_transfers")
