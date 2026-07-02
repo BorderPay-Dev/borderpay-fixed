@@ -84,6 +84,7 @@ Deno.serve(async (req) => {
         max_batches: maxBatches,
         batch_size: batchSize,
         eligible_count: eligibleCount || 0,
+        estimated_batches: Math.ceil((eligibleCount || 0) / batchSize),
         sample_event_ids: sampleIds.slice(0, 20),
       },
     });
