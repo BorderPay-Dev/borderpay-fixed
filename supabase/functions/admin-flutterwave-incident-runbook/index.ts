@@ -31,6 +31,10 @@ async function requireAdmin(req: Request) {
   return { ok: true as const };
 }
 
+function envTrue(name: string): boolean {
+  return String(Deno.env.get(name) || "").trim().toLowerCase() === "true";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -39,6 +43,11 @@ Deno.serve(async (req) => {
   if (!admin.ok) return json({ success: false, code: admin.code, error: admin.error }, admin.status);
 
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
+  const staticIpGuard = {
+    required: envTrue("FLW_STATIC_IP_REQUIRED"),
+    ready: envTrue("FLW_STATIC_IP_READY"),
+  };
+  const staticIpBlocked = staticIpGuard.required && !staticIpGuard.ready;
 
   const { data: recent, error } = await supa
     .from("flutterwave_webhook_events")
@@ -61,6 +70,19 @@ Deno.serve(async (req) => {
   const sortedCodes = Object.entries(topFailureCodes).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
   const actions: Array<Record<string, unknown>> = [];
+
+  if (staticIpBlocked) {
+    actions.push({
+      priority: "critical",
+      action: "unblock_static_ip_for_money_movement",
+      endpoint: null,
+      payload: {
+        FLW_STATIC_IP_REQUIRED: true,
+        FLW_STATIC_IP_READY: false,
+      },
+      rationale: "Money-movement endpoints are fail-closed while static IP readiness is false.",
+    });
+  }
 
   if (replayable.length > 0) {
     actions.push({
@@ -108,6 +130,10 @@ Deno.serve(async (req) => {
         failed_events: failed.length,
         replayable_failed_events: replayable.length,
         max_replay_attempts: maxReplayAttempts,
+        static_ip_guard: {
+          ...staticIpGuard,
+          blocked: staticIpBlocked,
+        },
       },
       top_failure_codes: sortedCodes,
       recommended_actions: actions,
