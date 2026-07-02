@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
   const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
-  const from = Number(body?.from || 0);
+  const from = Math.max(0, Number(body?.from || 0));
 
   const selectCols = includePayload
     ? "event_id,event_type,flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,payload,received_at,processed_at"
