@@ -77,6 +77,13 @@ function normalizeFlutterwaveError(status: number, payload: Record<string, unkno
   const normalized = raw.toLowerCase();
   if (status === 429) return "flutterwave_rate_limited";
   if (status >= 500) return "flutterwave_upstream_unavailable";
+  if (
+    status >= 400
+    && status < 500
+    && /invalid|required|missing|malformed|unsupported|must be|should be|not valid|validation/.test(normalized)
+  ) {
+    return "flutterwave_validation_error";
+  }
 
   if (
     /allowlist|allowlisted|whitelist|whitelisted|ip.*not.*allow|ip.*not.*whitelist|unauthori[sz]ed ip|source ip/.test(normalized)

@@ -42,6 +42,14 @@ export function mapFlutterwaveErrorResponse(
     };
   }
 
+  if (code === "flutterwave_validation_error") {
+    return {
+      code,
+      error: "Some payment details are invalid or incomplete. Please review and try again.",
+      status: 400,
+    };
+  }
+
   if (code === "flutterwave_upstream_unavailable" || code === "flutterwave_timeout") {
     return {
       code,
@@ -56,4 +64,3 @@ export function mapFlutterwaveErrorResponse(
     status: 502,
   };
 }
-
