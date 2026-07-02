@@ -100,6 +100,7 @@ Deno.serve(async (req) => {
   }
 
   let effectiveDirection: "payout" | "receive" | null = direction ? (direction as "payout" | "receive") : null;
+  let effectiveChannel: "bank" | "mobile_money" | null = null;
 
   let query = supa
     .from("flutterwave_transfers")
@@ -160,6 +161,7 @@ Deno.serve(async (req) => {
       return json({ success: false, error: "channel must be bank or mobile_money" }, 400);
     }
     query = query.eq("channel", channel);
+    effectiveChannel = channel as "bank" | "mobile_money";
   }
   if (before) query = query.lt("created_at", before);
 
@@ -183,13 +185,15 @@ Deno.serve(async (req) => {
       contract_generated_at: new Date().toISOString(),
       provider: "flutterwave",
       source_filter: "flutterwave",
+      direction_scope: "payout_or_receive",
+      channel_scope: "bank_or_mobile_money",
       capabilities: caps,
       rows,
       filters: {
         direction: effectiveDirection,
         status: status || null,
         source: "flutterwave",
-        channel: channel || null,
+        channel: effectiveChannel,
         limit,
         before: before || null,
       },
