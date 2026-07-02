@@ -121,6 +121,10 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       capabilities: caps,
+      account_context: {
+        requested_account_type: String(body?.account_type || "individual").toLowerCase(),
+        resolved_account_type: accountType,
+      },
       provider_request_id: res.requestId || null,
       transfers: res.data,
       projected_transfers: withProjectionAlerts((projectedTransfers || []) as Record<string, unknown>[]),
