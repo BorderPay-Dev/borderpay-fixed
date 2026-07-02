@@ -5,6 +5,7 @@ import {
   type FlutterwaveDirection,
   type FlutterwaveChannel,
 } from "../_shared/fees/flutterwave-policy.ts";
+import { getFlutterwaveLocalRailPolicy } from "../_shared/providers/flutterwave.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -69,6 +70,16 @@ Deno.serve(async (req) => {
   if (!isChannel(channel)) return json({ success: false, error: "channel must be bank|mobile_money" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
+  const localRailPolicy = getFlutterwaveLocalRailPolicy();
+  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
+  if (!supportedCurrencies.includes(currency)) {
+    return json({
+      success: false,
+      code: "corridor_not_supported",
+      error: "This currency is not enabled on local rails.",
+      data: { supported_currencies: supportedCurrencies },
+    }, 409);
+  }
   if (!Number.isFinite(amount) || amount <= 0) return json({ success: false, error: "amount must be > 0" }, 400);
 
   try {

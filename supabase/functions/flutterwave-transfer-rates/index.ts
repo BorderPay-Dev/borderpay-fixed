@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { getFlutterwaveCapabilities, flutterwaveGetTransferRates } from "../_shared/providers/flutterwave.ts";
+import {
+  getFlutterwaveCapabilities,
+  flutterwaveGetTransferRates,
+  getFlutterwaveLocalRailPolicy,
+} from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -63,6 +67,16 @@ Deno.serve(async (req) => {
   }
   if (!isCurrencyCode(source) || !isCurrencyCode(destination)) {
     return json({ success: false, error: "currency format is invalid" }, 400);
+  }
+  const localRailPolicy = getFlutterwaveLocalRailPolicy();
+  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
+  if (!supportedCurrencies.includes(source) || !supportedCurrencies.includes(destination)) {
+    return json({
+      success: false,
+      code: "corridor_not_supported",
+      error: "Requested currency pair is not enabled on local rails.",
+      data: { supported_currencies: supportedCurrencies },
+    }, 409);
   }
   if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
     return json({ success: false, error: "amount must be > 0" }, 400);
