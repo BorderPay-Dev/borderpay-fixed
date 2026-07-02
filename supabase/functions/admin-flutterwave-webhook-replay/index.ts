@@ -20,6 +20,12 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
 function isSafeEventId(value: string): boolean {
   return /^[A-Za-z0-9._:-]{6,180}$/.test(value);
 }
@@ -60,7 +66,7 @@ Deno.serve(async (req) => {
   const reason = String(body.reason || "").trim().slice(0, 500);
   const forceReason = String(body.force_reason || "").trim().slice(0, 500);
   const correlationId = crypto.randomUUID();
-  const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
+  const maxReplayAttempts = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS"), 5, 1, 20);
   if (!eventId) return json({ success: false, code: "event_id_required", error: "event_id is required" }, 400);
   if (!isSafeEventId(eventId)) return json({ success: false, code: "invalid_event_id", error: "event_id format is invalid" }, 400);
   if (!dryRun && reason.length < 8) {
@@ -95,7 +101,7 @@ Deno.serve(async (req) => {
   }
 
   const attempts = Number(eventRow.processing_attempts || 0);
-  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
+  const replayCooldownSeconds = parseBoundedInt(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS"), 60, 0, 3600);
   const lastReplayAtMs = eventRow.last_replay_attempt_at ? Date.parse(String(eventRow.last_replay_attempt_at)) : NaN;
   const nowMs = Date.now();
   const elapsedSinceReplaySeconds = Number.isFinite(lastReplayAtMs) ? Math.floor((nowMs - lastReplayAtMs) / 1000) : null;
