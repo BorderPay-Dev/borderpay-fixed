@@ -340,7 +340,7 @@ Deno.serve(async (req) => {
         currency,
         status: txStatus,
         reference,
-        provider: "bridge",
+        provider: "flutterwave",
         description: "Transfer payout",
         metadata: {
           source: "flutterwave",
@@ -497,7 +497,7 @@ Deno.serve(async (req) => {
       currency,
       status: txStatus,
       reference,
-      provider: "bridge",
+      provider: "flutterwave",
       description: "Collection received",
       metadata: {
         source: "flutterwave",
