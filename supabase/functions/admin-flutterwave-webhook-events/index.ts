@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
 
   if (status) query = query.eq("processing_status", status);
   if (flow) query = query.eq("flow", flow);
+  if (errorCode) query = query.filter("last_error->>code", "eq", errorCode);
 
   const { data, error, count } = await query;
   if (error) {
@@ -120,10 +121,6 @@ Deno.serve(async (req) => {
       },
     };
   });
-
-  if (errorCode) {
-    events = events.filter((row: any) => String((row.last_error || {}).code || "") === errorCode);
-  }
 
   if (onlyReplayable) {
     events = events.filter((row: any) => row.replay_eligible === true);
