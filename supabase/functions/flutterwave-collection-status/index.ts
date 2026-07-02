@@ -136,6 +136,7 @@ Deno.serve(async (req) => {
     data: {
       capabilities: caps,
       collection_id,
+      resolved_account_type: accountType,
       provider_request_id: res.requestId || null,
       collection: res.data,
     },
