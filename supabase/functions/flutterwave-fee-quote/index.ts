@@ -33,6 +33,9 @@ function isDirection(v: unknown): v is FlutterwaveDirection {
 function isChannel(v: unknown): v is FlutterwaveChannel {
   return v === "bank" || v === "mobile_money";
 }
+function isCurrencyCode(value: string): boolean {
+  return /^[A-Z]{3,5}$/.test(value);
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -65,6 +68,7 @@ Deno.serve(async (req) => {
   if (!isDirection(direction)) return json({ success: false, error: "direction must be receive|payout" }, 400);
   if (!isChannel(channel)) return json({ success: false, error: "channel must be bank|mobile_money" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
+  if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
   if (!Number.isFinite(amount) || amount <= 0) return json({ success: false, error: "amount must be > 0" }, 400);
 
   try {
@@ -83,4 +87,3 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "quote_failed", error: "Could not calculate route fee right now." }, 500);
   }
 });
-

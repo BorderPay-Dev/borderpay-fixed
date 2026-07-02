@@ -21,6 +21,10 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function isCurrencyCode(value: string): boolean {
+  return /^[A-Z]{3,5}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -56,6 +60,9 @@ Deno.serve(async (req) => {
 
   if (!source || !destination) {
     return json({ success: false, error: "source_currency and destination_currency are required" }, 400);
+  }
+  if (!isCurrencyCode(source) || !isCurrencyCode(destination)) {
+    return json({ success: false, error: "currency format is invalid" }, 400);
   }
   if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
     return json({ success: false, error: "amount must be > 0" }, 400);
