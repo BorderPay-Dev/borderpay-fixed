@@ -73,20 +73,19 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
   const country = authAPI.getStoredUser()?.country ?? null;
-  const availableVaCurrencies = useMemo(
+  const fallbackVaCurrencies = useMemo(
     () => bridgeVirtualAccountCurrenciesForCountry(country),
     [country],
   );
+  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
   );
-  const stableWalletsLegacyCacheKey = 'borderpay_wallets_v1';
   const vaCacheKey = useMemo(
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
-  const vaLegacyCacheKey = 'borderpay_va_v1';
   const walletRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_wallet_refresh_ts_v1', { userId }),
     [userId],
@@ -96,17 +95,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
@@ -125,9 +120,36 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
   const refreshInFlightRef = useRef(false);
+  const preselectConsumedRef = useRef(false);
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
+
+  useEffect(() => {
+    if (preselectConsumedRef.current) return;
+    let requested = '';
+    try { requested = String(sessionStorage.getItem('borderpay_open_wallet_currency') || '').toUpperCase(); } catch { requested = ''; }
+    if (!requested) return;
+
+    const va = vas.find((row) => String(row.currency || '').toUpperCase() === requested);
+    if (va) {
+      setSelectedVa(va);
+      preselectConsumedRef.current = true;
+      try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+      return;
+    }
+    const stable = stables.find((row) => String(row.currency || '').toUpperCase() === requested);
+    if (stable) {
+      setSelectedStable(stable);
+      preselectConsumedRef.current = true;
+      try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+      return;
+    }
+    if (!loading && !refreshing) {
+      preselectConsumedRef.current = true;
+      try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+    }
+  }, [vas, stables, loading, refreshing]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -148,17 +170,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -231,6 +249,27 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       refreshInFlightRef.current = false;
     }
   };
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const caps = await backendAPI.bridge.virtualAccount.capabilities();
+        if (!alive || !caps?.success) return;
+        const supported = Array.isArray(caps.data?.supported_currencies)
+          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+          : [];
+        if (supported.length > 0) setAvailableVaCurrencies(supported);
+      } catch {
+        // Keep fallback country policy list.
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+
+  useEffect(() => {
+    setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
+  }, [fallbackVaCurrencies]);
 
   useEffect(() => {
     const prewarmKey = `borderpay_wallet_prewarm_v1:${userId}`;
