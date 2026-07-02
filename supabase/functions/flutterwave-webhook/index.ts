@@ -35,6 +35,10 @@ function toMinorUnits(amount: unknown, currency: string): string | null {
   return String(Math.round(n * factor));
 }
 
+function isLikelyUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function isTransferEvent(eventType: string): boolean {
   const e = eventType.toLowerCase();
   return e.includes("transfer") || e.includes("payout");
@@ -225,7 +229,8 @@ Deno.serve(async (req) => {
     : rawAccountType === "individual"
     ? "individual"
     : null;
-  const userIdFromMeta = String(data?.meta?.borderpay_user_id || "").trim();
+  const userIdFromMetaRaw = String(data?.meta?.borderpay_user_id || "").trim();
+  const userIdFromMeta = isLikelyUuid(userIdFromMetaRaw) ? userIdFromMetaRaw : "";
   const flow: "collection" | "transfer" | "unknown" = transferEvent ? "transfer" : "collection";
   const replayKey = String(req.headers.get("x-borderpay-replay-key") || "").trim();
 
@@ -293,14 +298,12 @@ Deno.serve(async (req) => {
       raw_payload: payload,
     };
 
-    if (userIdFromMeta) {
-      if (accountType === "business") {
-        transferPayload.business_user_id = userIdFromMeta;
-        transferPayload.user_id = null;
-      } else {
-        transferPayload.user_id = userIdFromMeta;
-        transferPayload.business_user_id = null;
-      }
+    if (userIdFromMeta && accountType === "business") {
+      transferPayload.business_user_id = userIdFromMeta;
+      transferPayload.user_id = null;
+    } else if (userIdFromMeta && accountType === "individual") {
+      transferPayload.user_id = userIdFromMeta;
+      transferPayload.business_user_id = null;
     }
 
     const { error: transferErr } = await supa
@@ -450,14 +453,12 @@ Deno.serve(async (req) => {
     raw_payload: payload,
   };
 
-  if (userIdFromMeta) {
-    if (accountType === "business") {
-      collectionPayload.business_user_id = userIdFromMeta;
-      collectionPayload.user_id = null;
-    } else {
-      collectionPayload.user_id = userIdFromMeta;
-      collectionPayload.business_user_id = null;
-    }
+  if (userIdFromMeta && accountType === "business") {
+    collectionPayload.business_user_id = userIdFromMeta;
+    collectionPayload.user_id = null;
+  } else if (userIdFromMeta && accountType === "individual") {
+    collectionPayload.user_id = userIdFromMeta;
+    collectionPayload.business_user_id = null;
   }
 
   const { error: colErr } = await supa
