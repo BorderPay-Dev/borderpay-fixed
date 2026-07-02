@@ -54,12 +54,13 @@ Deno.serve(async (req) => {
   const includePayload = body?.include_payload === true;
   const onlyReplayable = body?.only_replayable === true;
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
+  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));
   const from = Number(body?.from || 0);
 
   const selectCols = includePayload
-    ? "event_id,event_type,flow,processing_status,processing_attempts,last_error,payload,received_at,processed_at"
-    : "event_id,event_type,flow,processing_status,processing_attempts,last_error,received_at,processed_at";
+    ? "event_id,event_type,flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,payload,received_at,processed_at"
+    : "event_id,event_type,flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,received_at,processed_at";
 
   let query = supa
     .from("flutterwave_webhook_events")
@@ -76,21 +77,38 @@ Deno.serve(async (req) => {
   }
 
   let events = (data || []).map((row: Record<string, unknown>) => {
+    const nowMs = Date.now();
     const attempts = Number(row.processing_attempts || 0);
     const statusValue = String(row.processing_status || "").toLowerCase();
-    const replayEligible = statusValue === "failed" && attempts < maxReplayAttempts;
+    const lastReplayMs = row.last_replay_attempt_at ? Date.parse(String(row.last_replay_attempt_at)) : NaN;
+    const elapsed = Number.isFinite(lastReplayMs) ? Math.floor((nowMs - lastReplayMs) / 1000) : null;
+    const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
+    const retryAfterSeconds = cooldownActive ? replayCooldownSeconds - (elapsed || 0) : 0;
+    const replayEligible = statusValue === "failed" && attempts < maxReplayAttempts && !cooldownActive;
     if (includePayload) {
       return {
         ...row,
         replay_eligible: replayEligible,
-        replay_policy: { max_attempts: maxReplayAttempts, attempts },
+        replay_policy: {
+          max_attempts: maxReplayAttempts,
+          attempts,
+          replay_cooldown_seconds: replayCooldownSeconds,
+          cooldown_active: cooldownActive,
+          retry_after_seconds: retryAfterSeconds,
+        },
       };
     }
     const payload = (row.payload as Record<string, unknown>) || {};
     return {
       ...row,
       replay_eligible: replayEligible,
-      replay_policy: { max_attempts: maxReplayAttempts, attempts },
+      replay_policy: {
+        max_attempts: maxReplayAttempts,
+        attempts,
+        replay_cooldown_seconds: replayCooldownSeconds,
+        cooldown_active: cooldownActive,
+        retry_after_seconds: retryAfterSeconds,
+      },
       payload_preview: {
         event: payload?.event || payload?.event_type || null,
         data_id: (payload?.data as Record<string, unknown> | undefined)?.id || null,
@@ -113,7 +131,7 @@ Deno.serve(async (req) => {
       total: count || 0,
       page: { from, limit },
       filters: { status, flow: flow || null, include_payload: includePayload, only_replayable: onlyReplayable },
-      replay_policy: { max_attempts: maxReplayAttempts },
+      replay_policy: { max_attempts: maxReplayAttempts, replay_cooldown_seconds: replayCooldownSeconds },
     },
   });
 });
