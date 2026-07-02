@@ -1,10 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Lock, Plus, Shield } from 'lucide-react';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
-import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
-  isBridgeCustodialWalletSupported,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
 import { AssetBadge } from '../dashboard/bridge/WalletVisuals';
@@ -58,11 +56,8 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const storedUser = authAPI.getStoredUser() || {};
-  const country = (storedUser.country as string | null | undefined) ?? null;
-
   const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
-  const [stableSupported, setStableSupported] = useState<boolean>(isBridgeCustodialWalletSupported(country));
+  const [stableSupported, setStableSupported] = useState<boolean>(false);
 
   const [verified, setVerified] = useState<boolean>(() => {
     try {
@@ -131,19 +126,28 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total)); } catch { /* noop */ }
 
       try {
-        const caps = await backendAPI.bridge.virtualAccount.capabilities();
-        if (caps?.success && Array.isArray(caps?.data?.supported_currencies)) {
-          const next = caps.data.supported_currencies
+        const [vaCaps, walletCaps] = await Promise.all([
+          backendAPI.bridge.virtualAccount.capabilities(),
+          backendAPI.bridge.wallet.capabilities(),
+        ]);
+        if (vaCaps?.success && Array.isArray(vaCaps?.data?.supported_currencies)) {
+          const next = vaCaps.data.supported_currencies
             .filter((c: unknown): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c).toUpperCase()))
             .map((c: string) => c.toUpperCase() as BridgeVirtualAccountCurrency);
           setSupportedVaCurrencies(next);
+        } else {
+          setSupportedVaCurrencies([]);
+        }
+        if (walletCaps?.success) {
+          setStableSupported(Boolean(walletCaps?.data?.supported));
+        } else {
+          setStableSupported(false);
         }
       } catch {
-        // keep empty capabilities on error to avoid displaying unsupported rails.
+        // Fail-closed on capabilities fetch errors.
         setSupportedVaCurrencies([]);
+        setStableSupported(false);
       }
-
-      setStableSupported(isBridgeCustodialWalletSupported(country));
 
       const p = await backendAPI.user.getProfile();
       if (p?.success && p?.data?.user) {
