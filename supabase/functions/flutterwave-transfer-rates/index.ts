@@ -65,6 +65,9 @@ Deno.serve(async (req) => {
   if (!source || !destination) {
     return json({ success: false, error: "source_currency and destination_currency are required" }, 400);
   }
+  if (source === destination) {
+    return json({ success: false, error: "source_currency and destination_currency must be different" }, 400);
+  }
   if (!isCurrencyCode(source) || !isCurrencyCode(destination)) {
     return json({ success: false, error: "currency format is invalid" }, 400);
   }
