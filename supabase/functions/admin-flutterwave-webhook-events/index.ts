@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
 
   if (status) query = query.eq("processing_status", status);
   if (flow) query = query.eq("flow", flow);
-  if (errorCode) query = query.filter("last_error->>code", "eq", errorCode);
+  if (errorCode) query = query.filter("last_error->>code", "ilike", errorCode);
 
   const { data, error, count } = await query;
   if (error) {
@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
     const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
     const retryAfterSeconds = cooldownActive ? replayCooldownSeconds - (elapsed || 0) : 0;
     const replayEligible = statusValue === "failed" && attempts < maxReplayAttempts && !cooldownActive;
-    const errorCode = String(((row.last_error as Record<string, unknown> | null)?.code) || "").trim() || null;
+    const errorCode = String(((row.last_error as Record<string, unknown> | null)?.code) || "").trim().toLowerCase() || null;
     if (includePayload) {
       return {
         ...row,
