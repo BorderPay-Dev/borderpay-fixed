@@ -480,6 +480,31 @@ export class BridgeProvider implements PaymentProvider {
     }));
   }
 
+  /** Find an existing Bridge customer by exact email (case-insensitive). */
+  async findCustomerByEmail(email: string): Promise<{ id: string; email: string; raw: unknown } | null> {
+    const needle = String(email || "").trim().toLowerCase();
+    if (!needle) return null;
+    const rows = await this.fetchBridgeListPaginated<any>({
+      path: "/v0/customers",
+      context: "findCustomerByEmail",
+      pageSize: 100,
+      maxPages: 30,
+    });
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const candidateEmail = String(
+        row?.email ??
+        row?.customer?.email ??
+        row?.contact?.email ??
+        "",
+      ).trim().toLowerCase();
+      if (!candidateEmail || candidateEmail !== needle) continue;
+      const id = String(row?.id ?? row?.customer_id ?? row?.customer?.id ?? "").trim();
+      if (!id) continue;
+      return { id, email: candidateEmail, raw: row };
+    }
+    return null;
+  }
+
   private async fetchBridgeListPaginated<T>(params: { path: string; context: string; pageSize?: number; maxPages?: number }): Promise<T[]> {
     const pageSize = Math.max(1, Math.min(200, Number(params.pageSize ?? 100)));
     const maxPages = Math.max(1, Math.min(50, Number(params.maxPages ?? 20)));

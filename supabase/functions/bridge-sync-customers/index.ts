@@ -300,18 +300,44 @@ Deno.serve(async (req) => {
         }
       }
 
-      const createdCustomer = await bridgeProvider.createCustomer({
-        account_type: c.account_type as "individual" | "business",
-        email: c.email,
-        full_name: c.full_name || undefined,
-        company_name: companyName,
-        registration_number: registrationNumber,
-        country_code: countryCode,
-        phone_e164: c.phone || undefined,
-        borderpay_user_id: c.id,
-      });
+      let bridgeCustomerId: string | null = null;
+      let resultCode = "created";
+      try {
+        const createdCustomer = await bridgeProvider.createCustomer({
+          account_type: c.account_type as "individual" | "business",
+          email: c.email,
+          full_name: c.full_name || undefined,
+          company_name: companyName,
+          registration_number: registrationNumber,
+          country_code: countryCode,
+          phone_e164: c.phone || undefined,
+          borderpay_user_id: c.id,
+        });
+        bridgeCustomerId = createdCustomer.provider_id;
+      } catch (createErr) {
+        const providerCode = createErr instanceof BridgeProviderError
+          ? String(createErr.bridge_code || "").toLowerCase()
+          : "";
+        // Bridge can reject create with invalid/duplicate parameters when the
+        // customer already exists. In that case, adopt the existing record by
+        // email instead of leaving the BorderPay user orphaned.
+        if (
+          providerCode === "invalid_parameters" ||
+          providerCode === "resource_already_exists" ||
+          providerCode === "already_exists"
+        ) {
+          const existing = await bridgeProvider.findCustomerByEmail(String(c.email || ""));
+          if (existing?.id) {
+            bridgeCustomerId = existing.id;
+            resultCode = "adopted_existing";
+          }
+        }
+        if (!bridgeCustomerId) throw createErr;
+      }
 
-      const bridgeCustomerId = createdCustomer.provider_id;
+      if (!bridgeCustomerId) {
+        throw new Error("bridge_customer_id_missing_after_create");
+      }
       const profileStatusUpdate =
         c.account_type === "business"
           ? { bridge_kyb_status: "not_started" as const }
@@ -342,8 +368,8 @@ Deno.serve(async (req) => {
         }
       }
 
-      row.status = "created";
-      row.result_code = "created";
+      row.status = resultCode === "adopted_existing" ? "adopted_existing" : "created";
+      row.result_code = resultCode;
       row.bridge_customer_id = bridgeCustomerId;
       created += 1;
       results.push(row);
