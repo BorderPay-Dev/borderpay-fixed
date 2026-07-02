@@ -24,7 +24,6 @@ type Action =
   | "inspect_customer_assets"
   | "revoke_virtual_accounts"
   | "revoke_stablecoin_wallets"
-  | "revoke_external_accounts"
   | "revoke_cards";
 
 function norm(v: unknown): string {
@@ -103,9 +102,8 @@ Deno.serve(async (req) => {
 
   const action = norm(body?.action) as Action;
   const dryRun = body?.dry_run === true;
-  const requestId = crypto.randomUUID();
   if (!action) return json({ success: false, code: "action_required", error: "action is required" }, 400);
-  if (!["inspect_customer_assets", "revoke_virtual_accounts", "revoke_stablecoin_wallets", "revoke_external_accounts", "revoke_cards"].includes(action)) {
+  if (!["inspect_customer_assets", "revoke_virtual_accounts", "revoke_stablecoin_wallets", "revoke_cards"].includes(action)) {
     return json({ success: false, code: "invalid_action", error: "Unsupported action" }, 400);
   }
 
@@ -113,27 +111,9 @@ Deno.serve(async (req) => {
     target_user_id: body?.target_user_id,
     target_email: body?.target_email,
   });
-  if (!target) {
-    await auditAdminAction({
-      actorId: admin.userId,
-      actionType: "revoke_blocked",
-      targetResource: `lookup:${norm(body?.target_email) || norm(body?.target_user_id) || "unknown"}`,
-      requestId,
-      beforeState: { action, reason: "target_not_found" },
-      afterState: { allowed: false },
-    });
-    return json({ success: false, code: "target_not_found", error: "Customer profile not found" }, 404);
-  }
+  if (!target) return json({ success: false, code: "target_not_found", error: "Customer profile not found" }, 404);
   const targetEmail = String(target.email || "").toLowerCase();
   if (isProtectedInternalEmail(targetEmail) && action !== "inspect_customer_assets") {
-    await auditAdminAction({
-      actorId: admin.userId,
-      actionType: "revoke_blocked",
-      targetResource: `user:${target.id}`,
-      requestId,
-      beforeState: { action, reason: "protected_internal_account", target_email: targetEmail },
-      afterState: { allowed: false },
-    });
     return json({
       success: false,
       code: "protected_internal_account",
@@ -141,14 +121,6 @@ Deno.serve(async (req) => {
     }, 403);
   }
   if (!target.bridge_customer_id && action !== "inspect_customer_assets") {
-    await auditAdminAction({
-      actorId: admin.userId,
-      actionType: "revoke_blocked",
-      targetResource: `user:${target.id}`,
-      requestId,
-      beforeState: { action, reason: "bridge_customer_required", target_email: targetEmail },
-      afterState: { allowed: false },
-    });
     return json({
       success: false,
       code: "bridge_customer_required",
@@ -167,11 +139,8 @@ Deno.serve(async (req) => {
     .select("id,bridge_wallet_id,currency,chain,address,status,updated_at")
     .or(`user_id.eq.${target.id},business_user_id.eq.${target.id}`)
     .order("updated_at", { ascending: false });
-  const { data: externalRows } = await supa
-    .from("bridge_external_accounts")
-    .select("id,bridge_external_account_id,payment_rail,currency,status,updated_at")
-    .or(`user_id.eq.${target.id},business_user_id.eq.${target.id}`)
-    .order("updated_at", { ascending: false });
+
+  const requestId = crypto.randomUUID();
 
   if (action === "inspect_customer_assets") {
     await auditAdminAction({
@@ -182,7 +151,6 @@ Deno.serve(async (req) => {
       beforeState: {
         virtual_accounts: (vaRows || []).length,
         stablecoin_wallets: (walletRows || []).length,
-        external_accounts: (externalRows || []).length,
       },
       afterState: {
         inspected: true,
@@ -196,7 +164,6 @@ Deno.serve(async (req) => {
         target,
         virtual_accounts: vaRows || [],
         stablecoin_wallets: walletRows || [],
-        external_accounts: externalRows || [],
         cards: [],
         dry_run: dryRun,
         notes: [
@@ -258,10 +225,6 @@ Deno.serve(async (req) => {
         .from("bridge_virtual_accounts")
         .update({ status: "closed", updated_at: new Date().toISOString() })
         .eq("bridge_virtual_account_id", vaId);
-      await supa
-        .from("wallets")
-        .update({ status: "closed", updated_at: new Date().toISOString() })
-        .eq("bridge_virtual_account_id", vaId);
       results.push({ bridge_virtual_account_id: vaId, status: "revoked" });
     }
     await auditAdminAction({
@@ -285,58 +248,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (action === "revoke_external_accounts") {
-    const activeExt = (externalRows || []).filter((r: any) => String(r.status || "active").toLowerCase() === "active");
-    const results: Array<Record<string, unknown>> = [];
-    const customerId = String(target.bridge_customer_id || "").trim();
-    for (const ext of activeExt) {
-      const extId = String(ext.bridge_external_account_id || "").trim();
-      if (!extId) continue;
-      if (dryRun) {
-        results.push({ bridge_external_account_id: extId, status: "would_revoke" });
-        continue;
-      }
-      const provider = await bridgeFetch({
-        method: "DELETE",
-        path: `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}`,
-        idempotencyKey: `borderpay:admin:external-account:delete:${customerId}:${extId}`,
-      });
-      if (!provider.ok) {
-        results.push({
-          bridge_external_account_id: extId,
-          status: "provider_failed",
-          bridge_status: provider.status || null,
-          bridge_request_id: provider.request_id || null,
-        });
-        continue;
-      }
-      await supa
-        .from("bridge_external_accounts")
-        .update({ status: "closed", updated_at: new Date().toISOString() })
-        .eq("bridge_external_account_id", extId);
-      results.push({ bridge_external_account_id: extId, status: "revoked" });
-    }
-    await auditAdminAction({
-      actorId: admin.userId,
-      actionType: "revoke_external_accounts",
-      targetResource: `user:${target.id}`,
-      requestId,
-      beforeState: { active_external_accounts: activeExt.length, dry_run: dryRun },
-      afterState: {
-        processed: activeExt.length,
-        revoked: results.filter((r) => r.status === "revoked").length,
-        provider_failed: results.filter((r) => r.status === "provider_failed").length,
-        would_revoke: results.filter((r) => r.status === "would_revoke").length,
-      },
-    });
-    return json({
-      success: true,
-      code: "external_accounts_revoke_completed",
-      request_id: requestId,
-      data: { target_user_id: target.id, dry_run: dryRun, processed: activeExt.length, results },
-    });
-  }
-
   // Stablecoin wallets: no public Bridge delete/deactivate wallet endpoint in the
   // current BorderPay-integrated scope, so we close local access deterministically.
   const activeWallets = (walletRows || []).filter((r: any) => String(r.status || "active").toLowerCase() === "active");
@@ -344,10 +255,6 @@ Deno.serve(async (req) => {
   if (walletIds.length > 0 && !dryRun) {
     await supa
       .from("bridge_wallets")
-      .update({ status: "closed", updated_at: new Date().toISOString() })
-      .in("bridge_wallet_id", walletIds);
-    await supa
-      .from("wallets")
       .update({ status: "closed", updated_at: new Date().toISOString() })
       .in("bridge_wallet_id", walletIds);
   }
