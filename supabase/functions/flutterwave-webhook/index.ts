@@ -27,6 +27,29 @@ function envEnabled(name: string): boolean {
   return String(Deno.env.get(name) || "").trim().toLowerCase() === "true";
 }
 
+function parseEventTimestampMs(payload: any, data: any): number | null {
+  const candidates: unknown[] = [
+    payload?.created_at,
+    payload?.timestamp,
+    payload?.event_timestamp,
+    data?.created_at,
+    data?.timestamp,
+    data?.paid_at,
+  ];
+
+  for (const value of candidates) {
+    if (value === null || value === undefined || value === "") continue;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      const asMs = numeric > 1e12 ? numeric : numeric * 1000;
+      if (Number.isFinite(asMs)) return asMs;
+    }
+    const parsed = Date.parse(String(value));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function normStatus(input: unknown): "pending" | "completed" | "failed" {
   const s = String(input || "").trim().toLowerCase();
   if (["successful", "success", "completed", "paid", "succeeded"].includes(s)) return "completed";
@@ -247,6 +270,26 @@ Deno.serve(async (req) => {
   const userIdFromMeta = isLikelyUuid(userIdFromMetaRaw) ? userIdFromMetaRaw : "";
   const flow: "collection" | "transfer" | "unknown" = transferEvent ? "transfer" : "collection";
   const replayKey = String(req.headers.get("x-borderpay-replay-key") || "").trim();
+  const expectedReplayKey = String(Deno.env.get("FLW_WEBHOOK_REPLAY_KEY") || "").trim();
+  const webhookMaxAgeSeconds = Math.max(60, Number(Deno.env.get("FLW_WEBHOOK_MAX_AGE_SECONDS") || 900));
+  const eventTsMs = parseEventTimestampMs(payload, data);
+  if (eventTsMs !== null) {
+    const ageSeconds = Math.floor((Date.now() - eventTsMs) / 1000);
+    if (ageSeconds > webhookMaxAgeSeconds && (!expectedReplayKey || replayKey !== expectedReplayKey)) {
+      return json({
+        success: false,
+        code: "flutterwave_webhook_event_expired",
+        error: "Webhook event is outside the replay window.",
+        data: {
+          event_type: eventType,
+          event_id: eventId,
+          flow,
+          age_seconds: ageSeconds,
+          max_age_seconds: webhookMaxAgeSeconds,
+        },
+      }, 409);
+    }
+  }
 
   const claim = await claimWebhookEvent(eventId, eventType, flow, payload, replayKey);
   if (!claim.claimed) {
