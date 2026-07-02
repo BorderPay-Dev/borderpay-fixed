@@ -93,6 +93,9 @@ Deno.serve(async (req) => {
   }
   if (ownerProbe) {
     const knownOwners = [ownerProbe.user_id, ownerProbe.business_user_id].filter(Boolean);
+    if (knownOwners.length === 0) {
+      return json({ success: false, code: "owner_not_assigned", error: "Collection owner is not assigned yet." }, 409);
+    }
     if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
       return json({ success: false, error: "Collection does not belong to current user" }, 403);
     }
