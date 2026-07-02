@@ -2,8 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   verifyFlutterwaveWebhookSignature,
-  getFlutterwaveLocalRailPolicy,
 } from "../_shared/providers/flutterwave.ts";
+import { getRuntimeCapsAndPolicy } from "../_shared/services/flutterwave-runtime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -368,7 +368,7 @@ Deno.serve(async (req) => {
       data: { event_id: eventId, event_type: eventType, flow },
     }, 422);
   }
-  const localRailPolicy = getFlutterwaveLocalRailPolicy();
+  const { localRailPolicy } = getRuntimeCapsAndPolicy();
   const supportedCurrencies = localRailPolicy.currencies as readonly string[];
   if (!supportedCurrencies.includes(currency)) {
     await markWebhookEventStatus(eventId, "failed", {
