@@ -36,17 +36,33 @@ File reference:
 
 ## 3) Flutterwave conformance (current)
 Current production-coded Flutterwave surface in this repo:
-- `flutterwave-fee-quote` only (server-side fee policy quote path)
+- `flutterwave-capabilities`
+- `flutterwave-account-resolve`
+- `flutterwave-transfer-create`
+- `flutterwave-transfer-status`
+- `flutterwave-transfers-list`
+- `flutterwave-transfer-rates`
+- `flutterwave-collection-create`
+- `flutterwave-collection-status`
+- `flutterwave-collections-list`
+- `flutterwave-fee-quote`
+- `flutterwave-webhook`
 
-Not yet implemented in this repo:
-- Flutterwave collection execution rails
-- Flutterwave payout execution rails
-- Flutterwave webhook ingestion lifecycle
-- Flutterwave customer/beneficiary sync
-- Flutterwave settlement/reconciliation pipeline
+Admin/runtime support modules present:
+- `admin-flutterwave-webhook-events`
+- `admin-flutterwave-webhook-event-detail`
+- `admin-flutterwave-webhook-metrics`
+- `admin-flutterwave-webhook-replay`
+- `admin-flutterwave-webhook-replay-batch`
+- `admin-flutterwave-webhook-cleanup`
+- `admin-flutterwave-projection-audit`
+- `admin-flutterwave-projection-repair`
+- `admin-flutterwave-incident-runbook`
 
-Implication:
-- Flutterwave is currently pricing-policy aware, but not yet an active execution provider path in the app runtime.
+Current implication:
+- Flutterwave execution and reconciliation paths are implemented in backend.
+- Corridor exposure remains fail-closed by capability flags and policy gating.
+- UI rollout should remain gated until runtime corridor validation is complete.
 
 ## 4) Runtime drift found (P0/P1)
 `backendAPI.ts` references edge endpoints not present under `supabase/functions`:

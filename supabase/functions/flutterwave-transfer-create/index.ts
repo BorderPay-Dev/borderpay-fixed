@@ -6,6 +6,7 @@ import {
   getFlutterwaveCapabilities,
   getFlutterwaveLocalRailPolicy,
 } from "../_shared/providers/flutterwave.ts";
+import { getFlutterwaveStaticIpGuard } from "../_shared/providers/flutterwave-static-ip-guard.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -36,6 +37,10 @@ function isCurrencyCode(value: string): boolean {
   return /^[A-Z]{3,5}$/.test(value);
 }
 
+function isIso2(value: string): boolean {
+  return /^[A-Z]{2}$/.test(value);
+}
+
 function isSafeReference(value: string): boolean {
   return /^[A-Za-z0-9._:-]{6,120}$/.test(value);
 }
@@ -63,6 +68,18 @@ Deno.serve(async (req) => {
       code: "flutterwave_not_enabled",
       error: "Flutterwave payout rails are not enabled in this environment.",
       data: { capabilities: caps },
+    }, 503);
+  }
+  const staticIpGuard = getFlutterwaveStaticIpGuard();
+  if (staticIpGuard.blocked) {
+    return json({
+      success: false,
+      code: "flutterwave_static_ip_not_ready",
+      error: "Local payout rails are temporarily unavailable. Please try again later.",
+      data: {
+        capabilities: caps,
+        static_ip_guard: staticIpGuard,
+      },
     }, 503);
   }
 
@@ -147,6 +164,7 @@ Deno.serve(async (req) => {
 
   const amount = toPositiveNumber(body?.amount);
   const currency = String(body?.currency || "").trim().toUpperCase();
+  const country = String(body?.country || "").trim().toUpperCase();
   const accountBank = String(body?.account_bank || "").trim();
   const accountNumber = String(body?.account_number || "").trim();
   const reference = String(body?.reference || "").trim();
@@ -156,6 +174,7 @@ Deno.serve(async (req) => {
   if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
   const localRailPolicy = getFlutterwaveLocalRailPolicy();
   const supportedCurrencies = localRailPolicy.currencies as readonly string[];
+  const supportedCountries = localRailPolicy.countries as readonly string[];
   if (!supportedCurrencies.includes(currency)) {
     return json({
       success: false,
@@ -163,6 +182,17 @@ Deno.serve(async (req) => {
       error: "This payout currency is not enabled on local rails.",
       data: { supported_currencies: supportedCurrencies },
     }, 409);
+  }
+  if (country) {
+    if (!isIso2(country)) return json({ success: false, error: "country format is invalid" }, 400);
+    if (!supportedCountries.includes(country)) {
+      return json({
+        success: false,
+        code: "corridor_not_supported",
+        error: "This payout country is not enabled on local rails.",
+        data: { supported_countries: supportedCountries },
+      }, 409);
+    }
   }
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
   if (!isSafeBankCode(accountBank)) return json({ success: false, error: "account_bank format is invalid" }, 400);
@@ -218,6 +248,7 @@ Deno.serve(async (req) => {
           borderpay_user_id: authData.user.id,
           borderpay_account_type: accountType,
           borderpay_transfer_reference: reference,
+          ...(country ? { borderpay_country: country } : {}),
         },
       };
     })(),

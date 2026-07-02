@@ -8,6 +8,7 @@ import {
   flutterwaveListMobileNetworks,
   flutterwaveListPaymentMethods,
 } from "../_shared/providers/flutterwave.ts";
+import { getFlutterwaveStaticIpGuard } from "../_shared/providers/flutterwave-static-ip-guard.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -61,6 +62,7 @@ Deno.serve(async (req) => {
     }, 400);
   }
   const caps = getFlutterwaveCapabilities();
+  const staticIpGuard = getFlutterwaveStaticIpGuard();
   const localRailPolicy = getFlutterwaveLocalRailPolicy();
   const supportedCountries = localRailPolicy.countries as readonly string[];
 
@@ -86,6 +88,7 @@ Deno.serve(async (req) => {
           http_status: res.status,
           request_id: res.requestId || null,
         },
+        static_ip_guard: staticIpGuard,
       },
     }, res.ok ? 200 : (mapped?.status || 502));
   }
@@ -104,7 +107,7 @@ Deno.serve(async (req) => {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load payment methods");
       return json({ success: false, code: mapped.code, error: mapped.error, data: { capabilities: caps } }, mapped.status);
     }
-    return json({ success: true, data: { capabilities: caps, payment_methods: res.data } });
+    return json({ success: true, data: { capabilities: caps, static_ip_guard: staticIpGuard, payment_methods: res.data } });
   }
 
   if (action === "banks") {
@@ -122,7 +125,7 @@ Deno.serve(async (req) => {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load banks");
       return json({ success: false, code: mapped.code, error: mapped.error, data: { capabilities: caps } }, mapped.status);
     }
-    return json({ success: true, data: { capabilities: caps, country, banks: res.data } });
+    return json({ success: true, data: { capabilities: caps, static_ip_guard: staticIpGuard, country, banks: res.data } });
   }
 
   if (action === "mobile_networks") {
@@ -140,7 +143,7 @@ Deno.serve(async (req) => {
       const mapped = mapFlutterwaveErrorResponse(res.error, res.error || "Failed to load mobile networks");
       return json({ success: false, code: mapped.code, error: mapped.error, data: { capabilities: caps } }, mapped.status);
     }
-    return json({ success: true, data: { capabilities: caps, country, mobile_networks: res.data } });
+    return json({ success: true, data: { capabilities: caps, static_ip_guard: staticIpGuard, country, mobile_networks: res.data } });
   }
 
   if (action === "corridor_policy") {
@@ -148,6 +151,7 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         capabilities: caps,
+        static_ip_guard: staticIpGuard,
         local_rail_policy: localRailPolicy,
       },
     });

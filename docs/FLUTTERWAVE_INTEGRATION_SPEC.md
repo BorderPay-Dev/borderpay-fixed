@@ -98,6 +98,13 @@ All behind feature flags:
 - `FLW_RECEIVE_ENABLED`
 - `FLW_PAYOUT_ENABLED`
 - `FLW_WEBHOOK_ENABLED`
+- `FLW_STATIC_IP_REQUIRED`
+- `FLW_STATIC_IP_READY`
+
+Policy override flags (optional, fail-closed defaults still apply):
+- `FLW_LOCAL_COUNTRIES` (CSV ISO-2, e.g. `NG,KE,GH`)
+- `FLW_LOCAL_CURRENCIES` (CSV ISO-4217, e.g. `NGN,KES,GHS`)
+- `FLW_LOCAL_METHODS` (CSV, e.g. `bank,mobile_money`)
 
 ## 7) Webhook Contract
 
@@ -185,4 +192,3 @@ For each enabled corridor:
 3. Payout rails (debit/finalization path)
 4. Route resolver wiring
 5. Admin observability panel for Flutterwave events
-

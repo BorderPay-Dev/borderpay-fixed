@@ -18,9 +18,32 @@ export interface FlutterwaveCapabilities {
 
 const FLW_LOCAL_COUNTRIES = ["NG", "KE", "GH", "UG", "TZ", "RW", "ZM", "ZA"] as const;
 const FLW_LOCAL_CURRENCIES = ["NGN", "KES", "GHS", "UGX", "TZS", "RWF", "ZMW", "ZAR"] as const;
+const FLW_LOCAL_METHODS = ["bank", "mobile_money"] as const;
 
 function envEnabled(name: string): boolean {
   return (Deno.env.get(name) || "").toLowerCase() === "true";
+}
+
+function parseCsvEnvUpper(name: string): string[] {
+  return String(Deno.env.get(name) || "")
+    .split(",")
+    .map((v) => v.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function parseCsvEnvLower(name: string): string[] {
+  return String(Deno.env.get(name) || "")
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function dedupeSorted(values: readonly string[]): string[] {
+  return Array.from(new Set(values.map((v) => String(v).trim().toUpperCase()).filter(Boolean))).sort();
+}
+
+function dedupeSortedLower(values: readonly string[]): string[] {
+  return Array.from(new Set(values.map((v) => String(v).trim().toLowerCase()).filter(Boolean))).sort();
 }
 
 export function getFlutterwaveCapabilities(): FlutterwaveCapabilities {
@@ -33,10 +56,18 @@ export function getFlutterwaveCapabilities(): FlutterwaveCapabilities {
 }
 
 export function getFlutterwaveLocalRailPolicy() {
+  const envCountries = parseCsvEnvUpper("FLW_LOCAL_COUNTRIES");
+  const envCurrencies = parseCsvEnvUpper("FLW_LOCAL_CURRENCIES");
+  const envMethods = parseCsvEnvLower("FLW_LOCAL_METHODS");
+
+  const countries = dedupeSorted(envCountries.length > 0 ? envCountries : FLW_LOCAL_COUNTRIES);
+  const currencies = dedupeSorted(envCurrencies.length > 0 ? envCurrencies : FLW_LOCAL_CURRENCIES);
+  const methods = dedupeSortedLower(envMethods.length > 0 ? envMethods : FLW_LOCAL_METHODS);
+
   return {
-    countries: [...FLW_LOCAL_COUNTRIES],
-    currencies: [...FLW_LOCAL_CURRENCIES],
-    methods: ["bank", "mobile_money"] as const,
+    countries,
+    currencies,
+    methods,
   };
 }
 

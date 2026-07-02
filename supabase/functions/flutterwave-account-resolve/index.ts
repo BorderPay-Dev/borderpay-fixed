@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { getFlutterwaveCapabilities, flutterwaveResolveBankAccount } from "../_shared/providers/flutterwave.ts";
+import {
+  getFlutterwaveCapabilities,
+  getFlutterwaveLocalRailPolicy,
+  flutterwaveResolveBankAccount,
+} from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
 
 const CORS = {
@@ -49,8 +53,23 @@ Deno.serve(async (req) => {
 
   const accountNumber = String(body?.account_number || "").trim();
   const bankCode = String(body?.bank_code || "").trim();
+  const country = String(body?.country || "").trim().toUpperCase();
   if (!accountNumber || !bankCode) {
     return json({ success: false, error: "account_number and bank_code are required" }, 400);
+  }
+  if (country) {
+    if (!/^[A-Z]{2}$/.test(country)) {
+      return json({ success: false, error: "country must be ISO-2" }, 400);
+    }
+    const supportedCountries = getFlutterwaveLocalRailPolicy().countries as readonly string[];
+    if (!supportedCountries.includes(country)) {
+      return json({
+        success: false,
+        code: "corridor_not_supported",
+        error: "This account country is not enabled on local rails.",
+        data: { supported_countries: supportedCountries },
+      }, 409);
+    }
   }
 
   const res = await flutterwaveResolveBankAccount({

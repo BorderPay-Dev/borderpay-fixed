@@ -23,6 +23,10 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
+function envEnabled(name: string): boolean {
+  return String(Deno.env.get(name) || "").trim().toLowerCase() === "true";
+}
+
 function normStatus(input: unknown): "pending" | "completed" | "failed" {
   const s = String(input || "").trim().toLowerCase();
   if (["successful", "success", "completed", "paid", "succeeded"].includes(s)) return "completed";
@@ -184,6 +188,13 @@ async function markWebhookEventStatus(eventId: string, status: "completed" | "fa
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
+  if (!envEnabled("FLW_WEBHOOK_ENABLED")) {
+    return json({
+      success: false,
+      code: "flutterwave_webhook_not_enabled",
+      error: "Flutterwave webhook processing is not enabled in this environment.",
+    }, 503);
+  }
 
   const rawBody = await req.text();
   let payload: any = {};
