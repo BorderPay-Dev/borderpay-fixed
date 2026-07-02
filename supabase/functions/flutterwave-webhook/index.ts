@@ -655,7 +655,7 @@ Deno.serve(async (req) => {
         await supa.from("bridge_balance_ledger").upsert({
           event_id: `flw:${eventId}`,
           provider: "flutterwave",
-          entity_type: "transfer",
+          entity_type: "collection",
           entity_id: collectionId || String(collectionPayload.tx_ref),
           user_id: accountType === "business" ? null : resolvedUserId,
           business_user_id: accountType === "business" ? resolvedUserId : null,
