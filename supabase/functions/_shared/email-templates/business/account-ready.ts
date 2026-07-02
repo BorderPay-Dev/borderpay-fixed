@@ -20,12 +20,12 @@ export function render(p: BusinessAccountReadyProps): RenderedEmail {
   const cur     = p.currency ? `${p.currency.toUpperCase()} ` : "";
 
   const subject = ok
-    ? `${company}: ${cur}${productLabel} is ready`
+    ? `${company}: requested ${cur}${productLabel} is ready`
     : `${company}: ${productLabel} setup didn't complete`;
 
   const heading = ok ? "Account ready" : "Setup didn't complete";
   const introText = ok
-    ? `${company}'s ${cur}${productLabel} is provisioned and ready to use.`
+    ? `${company}'s requested ${cur}${productLabel} is now ready to use.`
     : `We hit a problem setting up a ${cur}${productLabel} for ${company}.`;
 
   const reasonBlock = !ok && p.reason

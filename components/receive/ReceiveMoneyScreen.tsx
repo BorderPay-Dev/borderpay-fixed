@@ -35,6 +35,12 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
+const STABLE_ICON_URL: Record<string, string> = {
+  USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
+  USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
+};
 
 function isApproved(value?: string | null): boolean {
   if (typeof value !== 'string') return false;
@@ -65,23 +71,15 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const userId = (storedUser.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
 
-  // Bridge is the source of truth for VA support. UI must not hardcode
-  // country-policy assumptions; expose all supported product currencies and
-  // let server-side Bridge capability checks decide eligibility.
-  const availableVaCurrencies = useMemo<BridgeVirtualAccountCurrency[]>(
-    () => ['USD', 'EUR', 'GBP'],
-    [],
-  );
+  const country = (storedUser.country as string | null | undefined) ?? null;
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
   );
-  const stableWalletsLegacyCacheKey = 'borderpay_wallets_v1';
   const vaCacheKey = useMemo(
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
-  const vaLegacyCacheKey = 'borderpay_va_v1';
   const receiveRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_receive_refresh_ts_v1', { userId }),
     [userId],
@@ -91,17 +89,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-      const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-      return Array.isArray(legacy) ? legacy : [];
+      return Array.isArray(scoped) ? scoped : [];
     } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
@@ -109,8 +103,17 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const hasCachedReceiveRows = stables.length > 0 || vas.length > 0;
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [creating, setCreating] = useState<string | null>(null);
   const refreshInFlightRef = useRef(false);
+  const [flwReceive, setFlwReceive] = useState<{
+    configured: boolean;
+    receive_enabled: boolean;
+    payout_enabled: boolean;
+    methods: string[];
+  } | null>(null);
+  const [collectionAmount, setCollectionAmount] = useState<string>('');
+  const [collectionCurrency, setCollectionCurrency] = useState<string>('NGN');
+  const [collectionBusy, setCollectionBusy] = useState(false);
+  const [recentCollections, setRecentCollections] = useState<Array<{ id: string; status: string; amount: string; currency: string; txRef: string }>>([]);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
@@ -137,17 +140,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(stableWalletsLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-        const legacy = JSON.parse(localStorage.getItem(vaLegacyCacheKey) || '[]');
-        return Array.isArray(legacy) ? legacy : [];
+        return Array.isArray(scoped) ? scoped : [];
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -194,6 +193,53 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const countryIso = String(country || '').toUpperCase();
+        const r: any = await backendAPI.payouts.capabilities('payment_methods', countryIso ? { country: countryIso } : {});
+        if (cancelled || !r?.success) return;
+        const caps = (r?.data?.capabilities || {}) as any;
+        const rawMethods = Array.isArray(r?.data?.payment_methods) ? r.data.payment_methods : [];
+        const methods = rawMethods
+          .map((m: any) => String(m?.name || m?.type || m?.method || m?.code || '').trim())
+          .filter(Boolean);
+        setFlwReceive({
+          configured: Boolean(caps?.configured),
+          receive_enabled: Boolean(caps?.receive_enabled),
+          payout_enabled: Boolean(caps?.payout_enabled),
+          methods,
+        });
+      } catch {
+        if (!cancelled) setFlwReceive(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [country]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!flwReceive?.receive_enabled) return;
+      try {
+        const r: any = await backendAPI.payouts.collectionsList({ limit: 5 });
+        if (cancelled || !r?.success) return;
+        const raw = r?.data?.collections;
+        const rows = Array.isArray(raw?.data) ? raw.data : (Array.isArray(raw) ? raw : []);
+        const mapped = rows.map((row: any) => ({
+          id: String(row?.id || row?.flw_ref || row?.tx_ref || '').trim(),
+          status: String(row?.status || row?.data?.status || 'pending').toLowerCase(),
+          amount: String(row?.amount || row?.charged_amount || row?.data?.amount || ''),
+          currency: String(row?.currency || row?.data?.currency || ''),
+          txRef: String(row?.tx_ref || row?.txRef || row?.reference || ''),
+        })).filter((x: any) => x.id);
+        setRecentCollections(mapped);
+      } catch {
+        if (!cancelled) setRecentCollections([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [flwReceive?.receive_enabled]);
+  useEffect(() => {
     const prewarmKey = `borderpay_receive_prewarm_v1:${userId}`;
     try {
       const last = Number(sessionStorage.getItem(prewarmKey) || '0');
@@ -227,19 +273,59 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
 
   // Missing VA currencies (the inline "Open X account" rows)
-  const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
-  const missingVa = availableVaCurrencies.filter(c => !haveVa.has(c));
+  const collectionCurrencies = useMemo(() => {
+    const fromPolicy = Array.isArray((flwReceive as any)?.currencies) ? (flwReceive as any).currencies : [];
+    if (fromPolicy.length > 0) return fromPolicy.map((c: string) => String(c).toUpperCase());
+    return ['NGN', 'KES', 'GHS', 'UGX', 'TZS', 'RWF', 'ZMW', 'ZAR'];
+  }, [flwReceive]);
 
-  const handleCreate = async (currency: BridgeVirtualAccountCurrency) => {
-    setCreating(currency);
-    const r = await backendAPI.bridge.virtualAccount.create({ currency });
-    setCreating(null);
-    if (!r.success) {
-      showToast.error(friendlyError(r.error, `Could not open ${currency} account.`));
+  const createCollection = async () => {
+    const amount = Number(collectionAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showToast.error('Enter a valid collection amount.');
       return;
     }
-    showToast.success(`${currency} account opened`);
-    refresh();
+    setCollectionBusy(true);
+    try {
+      const txRef = `bp-flw-col-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const customerEmail = String(storedUser?.email || '').trim();
+      const customerName = String(storedUser?.name || storedUser?.full_name || 'BorderPay User').trim();
+      const r: any = await backendAPI.payouts.createCollection({
+        amount,
+        currency: collectionCurrency,
+        tx_ref: txRef,
+        payment_options: 'banktransfer,mobilemoney,card',
+        customer: customerEmail ? { email: customerEmail, name: customerName } : { name: customerName },
+        customizations: {
+          title: 'BorderPay payment',
+          description: 'Complete payment to fund your BorderPay wallet',
+        },
+        meta: {
+          user_id: userId,
+          flow: 'receive',
+        },
+      });
+      if (!r?.success) {
+        showToast.error(friendlyError(r?.error || 'Could not create collection request.'));
+        return;
+      }
+      showToast.success('Collection request created.');
+      setCollectionAmount('');
+      const col = r?.data?.collection || {};
+      const id = String(col?.id || col?.flw_ref || txRef);
+      setRecentCollections((prev) => [
+        {
+          id,
+          status: String(col?.status || 'pending').toLowerCase(),
+          amount: String(col?.amount || amount),
+          currency: String(col?.currency || collectionCurrency),
+          txRef: String(col?.tx_ref || txRef),
+        },
+        ...prev,
+      ].slice(0, 5));
+    } finally {
+      setCollectionBusy(false);
+    }
   };
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
@@ -290,8 +376,73 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
               Tap any account or stablecoin below to see the deposit details. Share them with the sender.
             </p>
+            <p className={`text-[11px] ${tc.textMuted} mt-1 leading-snug`}>
+              Funds received through USD/EUR/GBP receive rails settle to your wallet balance for spending.
+            </p>
           </div>
         </div>
+        {flwReceive && (
+          <div className={`mb-5 rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5`}>
+            <div className="flex items-center justify-between mb-2">
+              <p className={`text-sm font-semibold ${tc.text}`}>Local receive rails</p>
+              <span className={`text-[10px] px-2 py-1 rounded-full ${flwReceive.receive_enabled ? 'bg-[#C7FF00]/15 text-[#C7FF00]' : 'bg-white/10 text-white/65'}`}>
+                {flwReceive.receive_enabled ? 'Available' : 'Coming soon'}
+              </span>
+            </div>
+            <p className={`text-[11px] ${tc.textMuted} leading-snug`}>
+              {flwReceive.methods.length > 0
+                ? flwReceive.methods.slice(0, 6).join(' · ')
+                : 'Local rails will appear here when enabled for your account and corridor.'}
+            </p>
+            {flwReceive.receive_enabled && (
+              <div className={`mt-3 pt-3 border-t ${tc.borderLight}`}>
+                <p className={`text-[10px] uppercase tracking-[0.2em] ${tc.textMuted} mb-2`}>Create local collection</p>
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={collectionAmount}
+                    onChange={(e) => setCollectionAmount(e.target.value)}
+                    placeholder="Amount"
+                    className={`flex-1 rounded-xl px-3 py-2 text-sm ${tc.inputBg} border ${tc.borderLight} ${tc.text}`}
+                  />
+                  <select
+                    value={collectionCurrency}
+                    onChange={(e) => setCollectionCurrency(e.target.value)}
+                    className={`rounded-xl px-3 py-2 text-sm ${tc.inputBg} border ${tc.borderLight} ${tc.text}`}
+                  >
+                    {collectionCurrencies.map((c: string) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={createCollection}
+                  disabled={collectionBusy}
+                  className="w-full h-10 rounded-xl bg-[#C7FF00] text-[#0B0E11] text-sm font-semibold disabled:opacity-50"
+                >
+                  {collectionBusy ? 'Creating…' : 'Create request'}
+                </button>
+                {recentCollections.length > 0 && (
+                  <div className={`mt-3 rounded-xl border ${tc.borderLight} overflow-hidden`}>
+                    {recentCollections.map((row, idx) => (
+                      <div
+                        key={row.id}
+                        className={`px-3 py-2 text-xs flex items-center justify-between ${idx > 0 ? `border-t ${tc.borderLight}` : ''}`}
+                      >
+                        <span className={tc.text}>{row.currency} {row.amount}</span>
+                        <span className={tc.textMuted}>{row.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Unified list — same rows/sheets as the Wallet tab */}
         <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
@@ -336,7 +487,16 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
-                    <AssetBadge symbol={sym} size={44} />
+                    {STABLE_ICON_URL[sym] ? (
+                      <img
+                        src={STABLE_ICON_URL[sym]}
+                        alt={sym}
+                        className="w-11 h-11 rounded-full object-cover border border-white/10 bg-white"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <AssetBadge symbol={sym} size={44} />
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
                         {sym} <span className={`text-xs font-medium ${tc.textMuted}`}>· {assetName(sym)} ({chainLabel(s.chain)})</span>

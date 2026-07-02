@@ -47,6 +47,12 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
+const STABLE_ICON_URL: Record<string, string> = {
+  USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
+  USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
+};
 
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {
   const { t } = useThemeLanguage();
@@ -371,7 +377,16 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
-                    <AssetBadge symbol={sym} size={44} />
+                    {STABLE_ICON_URL[sym] ? (
+                      <img
+                        src={STABLE_ICON_URL[sym]}
+                        alt={sym}
+                        className="w-11 h-11 rounded-full object-cover border border-white/10 bg-white"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <AssetBadge symbol={sym} size={44} />
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
                         {sym} <span className={`text-xs font-medium ${tc.textMuted}`}>· {assetName(sym)} ({chainLabel(s.chain)})</span>
