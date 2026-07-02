@@ -67,6 +67,16 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
   }
   let accountType: "individual" | "business" = requestedAccountType === "business" ? "business" : "individual";
+  if (accountType === "business") {
+    const { data: businessProfile } = await supa
+      .from("business_profiles")
+      .select("id,user_id")
+      .eq("user_id", authData.user.id)
+      .maybeSingle();
+    if (!businessProfile?.id) {
+      return json({ success: false, code: "business_profile_required", error: "Business profile is required for business collection status." }, 403);
+    }
+  }
 
   const { data: ownerProbe } = await supa
     .from("flutterwave_collections")
