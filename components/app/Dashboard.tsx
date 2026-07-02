@@ -7,7 +7,7 @@
  * - /auth/security/status → PIN setup status
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck,
@@ -60,8 +60,6 @@ import { FX_NAV_ENABLED } from '../../utils/featureFlags';
 // reads from this synchronously so the dashboard never flickers.
 function readCachedProfile(): any {
   try {
-    const authCached = authAPI.getStoredUser();
-    if (authCached) return authCached;
     const raw = localStorage.getItem('borderpay_user');
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
@@ -131,6 +129,24 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
   USDC: { symbol: '$',  color: '#2775CA' },
 };
 
+const CURRENCY_LABEL: Record<string, string> = {
+  USD: 'US Dollar',
+  EUR: 'Euro',
+  GBP: 'British Pound',
+  USDT: 'Tether USD',
+  USDC: 'USD Coin',
+  PYUSD: 'PayPal USD',
+  USDB: 'USDB',
+  EURC: 'Euro Coin',
+};
+
+const STABLE_ICON_URL: Record<string, string> = {
+  USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
+  USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
+};
+
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {
   // Synchronous read — no flicker between "unconfirmed/starter" and the real
   // status. If we have a cached profile, derive everything at first render.
@@ -140,6 +156,20 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   }, [userId]);
   const cachedKycStatus = deriveBridgeOnboardingStatus(cachedProfile);
   const isCachedVerified = cachedKycStatus === 'verified';
+  const cachedIdentity = useMemo(() => {
+    const stored = authAPI.getStoredUser() as any;
+    const meta = stored?.user_metadata || {};
+    const fullName =
+      cachedProfile?.full_name ||
+      stored?.full_name ||
+      meta?.full_name ||
+      '';
+    const email =
+      cachedProfile?.email ||
+      stored?.email ||
+      '';
+    return { fullName: String(fullName || ''), email: String(email || '') };
+  }, [cachedProfile]);
   // Canonical 2FA signal (LoginScreen uses TOTPManager) so the dashboard agrees.
   const cached2FA = useMemo(() => {
     try { return !!cachedSecurity.has2FA || TOTPManager.isEnabled(userId); } catch { return !!cachedSecurity.has2FA; }
@@ -151,7 +181,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
   const [profilePicLoaded, setProfilePicLoaded] = useState(false);
-  const [userFullName, setUserFullName]   = useState<string>(cachedProfile?.full_name || '');
+  const [userFullName, setUserFullName]   = useState<string>(cachedIdentity.fullName);
+  const dashboardLoadInFlightRef = useRef<Promise<void> | null>(null);
   // Derive an initial account status from the cached profile so we never
   // first-paint "starter" on a verified user.
   const [accountStatus, setAccountStatus] = useState<AccountStatus>(() => {
@@ -167,12 +198,16 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // (the COO on a fresh browser).
   const [securityLoaded, setSecurityLoaded] = useState<boolean>(false);
   // Legacy provider status state removed — AffiliateBanner now gates on Bridge KYC only.
-  const [userEmail, setUserEmail]         = useState<string>(cachedProfile?.email || '');
+  const [userEmail, setUserEmail]         = useState<string>(cachedIdentity.email);
   const [hasPIN, setHasPIN]               = useState<boolean>(!!cachedSecurity.hasPIN);
   // Seed wallets / balance / recent activity from cache so the dashboard never
   // first-paints $0.00 or an empty activity list, then refreshes silently.
   const dashWalletsKey = useMemo(() => financialCacheKey(DASH_WALLETS_KEY, { userId }), [userId]);
   const dashRecentKey = useMemo(() => financialCacheKey(DASH_RECENT_KEY, { userId }), [userId]);
+  const dashRefreshTsKey = useMemo(
+    () => financialCacheKey('borderpay_dashboard_refresh_ts_v1', { userId }),
+    [userId],
+  );
   const cachedWallets = useMemo(
     () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(dashWalletsKey, []),
     [dashWalletsKey],
@@ -183,6 +218,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [wallets, setWallets]             = useState(cachedWallets);
   const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
   const [walletsLoaded, setWalletsLoaded] = useState<boolean>(cachedWallets.length > 0);
+  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() =>
+    cachedWallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
+  );
   const [recentTransactions, setRecentTransactions] = useState<any[]>(cachedRecent);
   // True once a network refresh of recent activity has completed at least once;
   // gates the skeleton so we only show it on a genuinely cold (uncached) load.
@@ -228,20 +266,37 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     if (onNavigate) onNavigate(screen);
   };
 
+  const openWalletForCurrency = useCallback((currency: string) => {
+    try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
+    handleNavigate('wallet-detail');
+  }, [handleNavigate]);
+
   // ─── data loading ─────────────────────────────────────────────────────────
   const loadDashboardData = useCallback(async () => {
+    if (dashboardLoadInFlightRef.current) {
+      await dashboardLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     // Fast path: show cached user data immediately
     const storedUser = authAPI.getStoredUser();
     if (storedUser?.profile_picture_url) setProfilePicUrl(storedUser.profile_picture_url);
-    if (storedUser?.full_name) setUserFullName(storedUser.full_name);
-    if (storedUser?.email) setUserEmail(storedUser.email);
 
     try {
-      // Fire all five requests in parallel via canonical backendAPI. The
-      // legacy `wallets` table is empty for Bridge-only users like the COO —
-      // their assets live in bridge_wallets + bridge_virtual_accounts. We
-      // read both and merge below so the Dashboard tiles always reflect
-      // ALL of the user's accounts and stablecoins.
+      // Prevent repeated network churn on fast route hops. Keep cache-first UX.
+      try {
+        const hasCached =
+          readJSON<any[]>(dashWalletsKey, []).length > 0 ||
+          readJSON<any[]>(dashRecentKey, []).length > 0;
+        const last = Number(localStorage.getItem(dashRefreshTsKey) || '0');
+        if (hasCached && Number.isFinite(last) && Date.now() - last < 30_000) {
+          setLoading(false);
+          return;
+        }
+      } catch { /* noop */ }
+
+      // Fire all snapshot/security requests in parallel from canonical
+      // read-model sources.
       const [snapshotRes, securityRes] = await Promise.allSettled([
         withTimeout(
           backendAPI.financial.getSnapshot(5),
@@ -275,9 +330,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       }
 
       // ── Wallets ───────────────────────────────────────────────────────────
-      // Canonical read-model source:
-      //   the canonical financial snapshot now merges bridge ledger + VA balance
-      //   projections into one currency-deduped output.
+      // Spendable balances are wallet-settled only. Virtual accounts are
+      // receive rails and tracked separately via snapshotData.virtual_accounts.
       {
         type Row = { currency: string; balance: number; symbol: string; color: string };
         if (Array.isArray(snapshotData?.wallets)) {
@@ -294,6 +348,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           setWallets(rows);
           setTotalBalance(usdLikeTotal(rows));
           writeJSON(dashWalletsKey, rows);
+        }
+        if (Array.isArray(snapshotData?.virtual_accounts)) {
+          const hasVA = (snapshotData.virtual_accounts as any[]).some((va: any) =>
+            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+          );
+          setHasVirtualAccounts(hasVA);
         }
         // Loading must always terminate even when API fails; empty-state is
         // represented by zero rows, not an infinite loading placeholder.
@@ -330,6 +390,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       }
       // On failure keep cached recent activity rather than blanking it.
       setTxLoaded(true);
+      try { localStorage.setItem(dashRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
     } catch (error) {
       // silent — synchronous cache already populated the UI
@@ -340,11 +401,49 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       setTxLoaded(true);
       setLoading(false);
     }
-  }, []);
+    })();
+    dashboardLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (dashboardLoadInFlightRef.current === run) {
+        dashboardLoadInFlightRef.current = null;
+      }
+    }
+  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey]);
 
   useEffect(() => {
     loadDashboardData();
+    const onFocus = () => { void loadDashboardData(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadDashboardData();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [loadDashboardData]);
+
+  useEffect(() => {
+    const prewarmKey = `borderpay_dashboard_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return;
+      const prefetch = (window as any).__borderpay_prefetch;
+      if (typeof prefetch !== 'function') return;
+      const warm = () => {
+        ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'exchange', 'settings', 'profile', 'notifications'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
+  }, [userId]);
 
   // ─── setup steps ─────────────────────────────────────────────────────
   const setupSteps = [
@@ -415,10 +514,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // and bottom-nav chrome; Dashboard renders body-only.
   const setupDone = setupSteps.filter(s => s.completed).length;
   const setupTotal = setupSteps.length;
-  const hasVirtualAccounts = useMemo(
-    () => wallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
-    [wallets],
-  );
   const greeting   = (() => {
     const h = new Date().getHours();
     if (h < 5)  return tt('dashboard.greet.night',   'Good evening');
@@ -562,7 +657,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               {setupSteps.map((step) => (
                 <li key={step.id}>
                   <button
-                    onClick={() => !step.completed && step.screen ? handleNavigate(step.screen) : undefined}
+                    onClick={() => {
+                      if (step.completed || !step.screen) return;
+                      if (step.id === 'kyc') {
+                        try { sessionStorage.setItem('borderpay_auto_start_verification_v1', '1'); } catch { /* noop */ }
+                      }
+                      handleNavigate(step.screen);
+                    }}
                     disabled={step.completed || !step.screen}
                     className={`w-full flex items-center gap-2.5 py-1.5 rounded-lg transition-colors ${!step.completed && step.screen ? `${tc.hoverBg} cursor-pointer` : 'cursor-default'}`}
                   >
@@ -619,7 +720,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </h3>
           {wallets.length > 0 && (
             <button
-              onClick={() => handleNavigate('wallet-detail')}
+              onPointerDown={() => prefetchScreen('wallet-detail')}
+              onMouseEnter={() => prefetchScreen('wallet-detail')}
+              onTouchStart={() => prefetchScreen('wallet-detail')}
+              onClick={() => {
+                try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+                handleNavigate('wallet-detail');
+              }}
               className="text-[11px] font-semibold text-[#C7FF00]"
             >
               {tt('dashboard.seeAll', 'See all')}
@@ -649,20 +756,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                 {wallets.map((w) => (
                   <button
                     key={w.currency}
-                    onClick={() => handleNavigate('wallet-detail')}
+                    onPointerDown={() => prefetchScreen('wallet-detail')}
+                    onMouseEnter={() => prefetchScreen('wallet-detail')}
+                    onTouchStart={() => prefetchScreen('wallet-detail')}
+                    onClick={() => openWalletForCurrency(w.currency)}
                     className={`flex-shrink-0 w-[160px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
                   >
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold mb-3"
-                      style={{ backgroundColor: `${w.color}26`, color: w.color }}
-                    >
-                      {w.currency.slice(0, 3)}
-                    </div>
-                    <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold`}>
+                    <DashboardCurrencyIcon currency={w.currency} color={w.color} />
+                    <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold mt-2`}>
                       {w.currency}
                     </p>
-                    <p className={`text-[15px] font-semibold ${tc.text} tabular-nums font-mono mt-0.5 truncate`}>
-                      {balanceHidden ? '••••' : `${w.symbol}${w.balance.toFixed(2)}`}
+                    <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
+                      {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
                     </p>
                   </button>
                 ))}
@@ -698,6 +803,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <BridgeKycStatusCard userId={userId} onStartVerification={() => handleNavigate('kyc')} />
         )}
         <button
+          onPointerDown={() => prefetchScreen('wallet-detail')}
+          onMouseEnter={() => prefetchScreen('wallet-detail')}
+          onTouchStart={() => prefetchScreen('wallet-detail')}
           onClick={() => handleNavigate('wallet-detail')}
           className={`w-full rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
         >
@@ -722,7 +830,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>
             {tt('dashboard.recentActivity', 'Recent activity')}
           </h3>
-          <button onClick={() => handleNavigate('transactions')} className="text-[11px] font-semibold text-[#C7FF00]">
+          <button
+            onPointerDown={() => prefetchScreen('transactions')}
+            onMouseEnter={() => prefetchScreen('transactions')}
+            onTouchStart={() => prefetchScreen('transactions')}
+            onClick={() => handleNavigate('transactions')}
+            className="text-[11px] font-semibold text-[#C7FF00]"
+          >
             {tt('dashboard.seeAll', 'See all')}
           </button>
         </div>
@@ -825,7 +939,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       {/* KYC reminder — nudges unverified users to verify (free); opens the
           Identity & KYC screen. Once-per-session; disappears when verified. */}
       <KycReminderPopup
-        open={!isVerified && kycStatus !== 'rejected'}
+        open={!isVerified}
         isBusiness={false}
         onVerify={() => handleNavigate('kyc')}
         onClose={() => { /* dismissed for this session inside the popup */ }}
@@ -849,6 +963,50 @@ type RatePair = {
   change: number; // 24h % change — approximated from daily drift
   vol: number;    // sparkline volatility, scaled to the pair's magnitude
 };
+
+function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
+  const code = String(currency || '').toUpperCase();
+  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+  const [imgFailed, setImgFailed] = React.useState(false);
+  const iconUrl = STABLE_ICON_URL[code];
+
+  if (flag[code]) {
+    return (
+      <div
+        className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[18px] leading-none"
+        aria-hidden
+      >
+        {flag[code]}
+      </div>
+    );
+  }
+
+  if (iconUrl && !imgFailed) {
+    return (
+      <div className="w-8 h-8 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
+        <img
+          src={iconUrl}
+          alt=""
+          className="w-7 h-7 object-contain"
+          onError={() => setImgFailed(true)}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+      style={{ backgroundColor: `${color}26`, color }}
+      aria-hidden
+    >
+      {code.slice(0, 3)}
+    </div>
+  );
+}
 
 // Major currency pairs (USD / EUR / GBP) surfaced by default. If the live API
 // returns these pairs they replace the fallback; if not, the fallback keeps the
