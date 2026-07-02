@@ -333,26 +333,50 @@ function pickDeposit(details: any) {
     ...(d.documents && typeof d.documents === 'object' ? d.documents : {}),
     ...(d.document_urls && typeof d.document_urls === 'object' ? d.document_urls : {}),
   };
-  const paymentInstructionsUrl =
-    d.payment_instructions_pdf_url ||
-    d.payment_instructions_url ||
-    d.payment_instruction_pdf_url ||
-    d.payment_instruction_url ||
-    docs.payment_instructions_pdf_url ||
-    docs.payment_instructions_url ||
-    docs.instructions_pdf_url ||
-    docs.instructions_url ||
-    null;
-  const accountLetterUrl =
-    d.account_letter_pdf_url ||
-    d.account_letter_url ||
-    d.bank_letter_pdf_url ||
-    d.bank_letter_url ||
-    docs.account_letter_pdf_url ||
-    docs.account_letter_url ||
-    docs.letter_pdf_url ||
-    docs.letter_url ||
-    null;
+  const pickUrl = (...values: any[]) => {
+    for (const value of values) {
+      if (!value) continue;
+      if (typeof value === 'string') return value;
+      if (typeof value === 'object') {
+        const nested = (value as any).url
+          || (value as any).href
+          || (value as any).file_url
+          || (value as any).pdf_url
+          || (value as any).download_url;
+        if (typeof nested === 'string' && nested.trim()) return nested;
+      }
+    }
+    return null;
+  };
+  const paymentInstructionsUrl = pickUrl(
+    d.payment_instructions_pdf_url,
+    d.payment_instructions_url,
+    d.payment_instruction_pdf_url,
+    d.payment_instruction_url,
+    d.payment_instructions,
+    d.instructions,
+    docs.payment_instructions_pdf_url,
+    docs.payment_instructions_url,
+    docs.instructions_pdf_url,
+    docs.instructions_url,
+    docs.payment_instructions,
+    docs.instructions,
+  );
+  const accountLetterUrl = pickUrl(
+    d.account_letter_pdf_url,
+    d.account_letter_url,
+    d.bank_letter_pdf_url,
+    d.bank_letter_url,
+    d.account_letter,
+    d.bank_letter,
+    docs.account_letter_pdf_url,
+    docs.account_letter_url,
+    docs.letter_pdf_url,
+    docs.letter_url,
+    docs.account_letter,
+    docs.bank_letter,
+    docs.letter,
+  );
   return {
     holder:   d.bank_beneficiary_name || d.account_holder_name || d.beneficiary_name || d.account_holder,
     bank:     d.bank_name,
