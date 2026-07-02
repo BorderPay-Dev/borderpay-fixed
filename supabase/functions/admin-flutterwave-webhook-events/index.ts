@@ -141,7 +141,11 @@ Deno.serve(async (req) => {
       events,
       total: count || 0,
       filtered_total: filteredTotal,
-      page: { from, limit },
+      page: {
+        from,
+        limit,
+        has_more: Number(from) + Number(limit) < Number(count || 0),
+      },
       error_code_counts: errorCodeCounts,
       filters: {
         status,
