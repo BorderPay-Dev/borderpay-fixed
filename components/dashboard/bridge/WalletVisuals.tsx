@@ -378,6 +378,19 @@ export function AccountDetailSheet({ open, onClose, va }: {
   const d = pickDeposit(va.account_details);
   const paymentInstructionsUrl = normalizeHttpsUrl(d.paymentInstructionsUrl);
   const accountLetterUrl = normalizeHttpsUrl(d.accountLetterUrl);
+  const emailBody = [
+    `Hi,`,
+    ``,
+    `Please find the ${cur} receiving account documents below:`,
+    paymentInstructionsUrl ? `• Payment instructions: ${paymentInstructionsUrl}` : null,
+    accountLetterUrl ? `• Account letter: ${accountLetterUrl}` : null,
+    ``,
+    `Sent from BorderPay.`,
+  ].filter(Boolean).join('\n');
+  const emailDocsHref =
+    (paymentInstructionsUrl || accountLetterUrl)
+      ? `mailto:?subject=${encodeURIComponent(`BorderPay ${cur} receiving account documents`)}&body=${encodeURIComponent(emailBody)}`
+      : null;
   const railLabel = cur === 'EUR' ? 'SEPA' : cur === 'GBP' ? 'Faster Payments' : 'ACH / Wire';
   return (
     <Sheet open={open} onClose={onClose}>
@@ -435,6 +448,14 @@ export function AccountDetailSheet({ open, onClose, va }: {
                   className={`block w-full text-center rounded-xl border ${tc.cardBorder} ${tc.hoverBg} px-3 py-2 text-xs font-semibold ${tc.text}`}
                 >
                   Download account letter
+                </a>
+              )}
+              {emailDocsHref && (
+                <a
+                  href={emailDocsHref}
+                  className={`block w-full text-center rounded-xl border ${tc.cardBorder} ${tc.hoverBg} px-3 py-2 text-xs font-semibold ${tc.text}`}
+                >
+                  Email these documents
                 </a>
               )}
             </div>
