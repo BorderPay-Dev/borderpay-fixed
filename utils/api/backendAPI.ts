@@ -2698,7 +2698,7 @@ export const adminAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  auditFlutterwaveProjection: async (input: { limit?: number } = {}) =>
+  auditFlutterwaveProjection: async (input: { limit?: number; user_id?: string } = {}) =>
     apiCall<{
       sampled: { collections: number; transfers: number };
       total_issues: number;

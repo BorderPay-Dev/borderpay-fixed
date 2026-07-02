@@ -41,20 +41,29 @@ Deno.serve(async (req) => {
   let body: any = {};
   try { body = await req.json(); } catch {}
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 100)));
+  const targetUserId = String(body?.user_id || "").trim();
 
   const [collectionsRes, transfersRes] = await Promise.all([
-    supa
+    (() => {
+      let q = supa
       .from("flutterwave_collections")
       .select("tx_ref,status,user_id,business_user_id,flutterwave_event_id,updated_at")
       .in("status", ["completed", "failed"]) 
       .order("updated_at", { ascending: false })
-      .limit(limit),
-    supa
+      .limit(limit);
+      if (targetUserId) q = q.or(`user_id.eq.${targetUserId},business_user_id.eq.${targetUserId}`);
+      return q;
+    })(),
+    (() => {
+      let q = supa
       .from("flutterwave_transfers")
       .select("reference,status,user_id,business_user_id,flutterwave_event_id,updated_at")
       .in("status", ["completed", "failed"]) 
       .order("updated_at", { ascending: false })
-      .limit(limit),
+      .limit(limit);
+      if (targetUserId) q = q.or(`user_id.eq.${targetUserId},business_user_id.eq.${targetUserId}`);
+      return q;
+    })(),
   ]);
 
   if (collectionsRes.error || transfersRes.error) {
@@ -108,6 +117,7 @@ Deno.serve(async (req) => {
         collections: (collectionsRes.data || []).length,
         transfers: (transfersRes.data || []).length,
       },
+      target_user_id: targetUserId || null,
       total_issues: issues.length,
       issues,
     },
