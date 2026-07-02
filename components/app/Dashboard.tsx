@@ -202,6 +202,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // Seed wallets / balance / recent activity from cache so the dashboard never
   // first-paints $0.00 or an empty activity list, then refreshes silently.
   const dashWalletsKey = useMemo(() => financialCacheKey(DASH_WALLETS_KEY, { userId }), [userId]);
+  const vaCacheKey = useMemo(() => financialCacheKey('borderpay_va_v1', { userId }), [userId]);
   const dashRecentKey = useMemo(() => financialCacheKey(DASH_RECENT_KEY, { userId }), [userId]);
   const dashRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_dashboard_refresh_ts_v1', { userId }),
@@ -212,14 +213,26 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     [dashWalletsKey],
   );
   const cachedRecent = useMemo(() => readJSON<any[]>(dashRecentKey, []), [dashRecentKey]);
+  const cachedVirtualAccounts = useMemo(
+    () => readJSON<Array<{ currency?: string; status?: string }>>(vaCacheKey, []),
+    [vaCacheKey],
+  );
+  const hasActiveCachedVa = useMemo(
+    () =>
+      cachedVirtualAccounts.some((va) => {
+        const cur = String(va?.currency || '').toUpperCase();
+        const status = String(va?.status || '').toLowerCase();
+        const active = status === '' || ['active', 'provisioned', 'ready', 'enabled'].includes(status);
+        return ['USD', 'EUR', 'GBP'].includes(cur) && active;
+      }),
+    [cachedVirtualAccounts],
+  );
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
     ws.reduce((s, w) => s + Number(w.balance || 0), 0);
   const [wallets, setWallets]             = useState(cachedWallets);
   const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
   const [walletsLoaded, setWalletsLoaded] = useState<boolean>(cachedWallets.length > 0);
-  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() =>
-    cachedWallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
-  );
+  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(hasActiveCachedVa);
   const [recentTransactions, setRecentTransactions] = useState<any[]>(cachedRecent);
   // True once a network refresh of recent activity has completed at least once;
   // gates the skeleton so we only show it on a genuinely cold (uncached) load.
@@ -349,9 +362,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         }
         if (Array.isArray(snapshotData?.virtual_accounts)) {
           const hasVA = (snapshotData.virtual_accounts as any[]).some((va: any) =>
-            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
+            ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
           );
-          setHasVirtualAccounts(hasVA);
+          setHasVirtualAccounts(prev => prev || hasVA);
         }
         // Loading must always terminate even when API fails; empty-state is
         // represented by zero rows, not an infinite loading placeholder.

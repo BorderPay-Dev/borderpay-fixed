@@ -34,6 +34,7 @@ const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
 const WALLET_LIST_CACHE_KEY = 'borderpay_wallets_v1';
 const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v1';
+const VA_LIST_CACHE_KEY = 'borderpay_va_v1';
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -55,6 +56,22 @@ function readSharedWalletCache(userId: string): WalletRow[] {
       .filter((w: WalletRow) => !!w.currency);
   } catch {
     return [];
+  }
+}
+
+function hasActiveCachedVa(userId: string): boolean {
+  try {
+    const raw = localStorage.getItem(financialCacheKey(VA_LIST_CACHE_KEY, { userId }));
+    const rows = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(rows)) return false;
+    return rows.some((va: any) => {
+      const cur = String(va?.currency || '').toUpperCase();
+      const status = String(va?.status || '').toLowerCase();
+      const active = status === '' || ['active', 'provisioned', 'ready', 'enabled'].includes(status);
+      return ['USD', 'EUR', 'GBP'].includes(cur) && active;
+    });
+  } catch {
+    return false;
   }
 }
 
@@ -140,9 +157,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
-  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() =>
-    cachedBizWallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
-  );
+  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() => hasActiveCachedVa(userId));
   const walletsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [hasPIN, setHasPIN] = useState<boolean>(() => {
     try { return !!SecurityStatus.get(userId).hasPIN; } catch { return false; }
@@ -190,9 +205,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         const formatted = toWalletRows(raw);
         setWallets(formatted);
         const hasVA = Array.isArray(walletData?.virtual_accounts) && walletData.virtual_accounts.some((va: any) =>
-          ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+          ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
+          ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
         );
-        setHasVirtualAccounts(Boolean(hasVA));
+        setHasVirtualAccounts(prev => prev || Boolean(hasVA));
         try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else {
@@ -208,9 +224,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
           }
           const hasVA = Array.isArray(snapshotRes?.data?.virtual_accounts) && snapshotRes.data.virtual_accounts.some((va: any) =>
-            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
+            ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
           );
-          setHasVirtualAccounts(Boolean(hasVA));
+          setHasVirtualAccounts(prev => prev || Boolean(hasVA));
         } else if (seededWallets.length === 0) {
           setWalletsError(friendlyError(walletRouteRes?.error || snapshotRes?.error, 'Could not load wallets'));
         }
