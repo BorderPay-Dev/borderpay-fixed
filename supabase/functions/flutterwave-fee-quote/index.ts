@@ -61,8 +61,8 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON" }, 400);
   }
 
-  const direction = body?.direction;
-  const channel = body?.channel;
+  const direction = String(body?.direction || "").toLowerCase();
+  const channel = String(body?.channel || "").toLowerCase();
   const currency = String(body?.currency || "").toUpperCase();
   const amount = Number(body?.amount);
 
