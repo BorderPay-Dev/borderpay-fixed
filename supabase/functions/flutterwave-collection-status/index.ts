@@ -177,6 +177,10 @@ Deno.serve(async (req) => {
       source_locked_to_flutterwave: true,
       source_filter: "flutterwave",
       channel: row.channel || null,
+      filters: {
+        source: "flutterwave",
+        direction: row.direction || "receive",
+      },
       reference: row.reference,
       provider_transfer_id: chargeId,
       status: mappedStatus,
