@@ -218,14 +218,14 @@ Deno.serve(async (req) => {
     }, 409);
   }
 
-  // Idempotent on (user, symbol, chain)
+  // Idempotent on (owner, symbol, chain) using Bridge-first wallet projection.
   const { data: existing } = await supa
-    .from("wallets")
+    .from("bridge_wallets")
     .select("id, bridge_wallet_id")
-    .eq("user_id", user.id)
+    .or(`user_id.eq.${user.id},business_user_id.eq.${user.id}`)
+    .eq("bridge_customer_id", profile.bridge_customer_id)
     .eq("currency", symbol)
-    .eq("stablecoin_chain", chain)
-    .eq("provider", "bridge")
+    .eq("chain", chain.toLowerCase())
     .maybeSingle();
   if (existing?.bridge_wallet_id) {
     return json({
@@ -247,9 +247,7 @@ Deno.serve(async (req) => {
       symbol, chain,
     });
 
-    // Write the table the dashboard reads (bridge_wallets) — this is what
-    // BridgeWalletsCard lists. Previously we only wrote `wallets`, so created
-    // wallets never appeared in the UI.
+    // Write the Bridge-first table the app reads.
     const { error: bwErr } = await supa.from("bridge_wallets").insert({
       user_id:            user.id,
       ...(isBusiness ? { business_user_id: user.id } : {}),
@@ -260,19 +258,7 @@ Deno.serve(async (req) => {
       address:            result.deposit_address,
       status:             "active",
     });
-    // Legacy mirror for balance/ledger compatibility.
-    const { error: wErr } = await supa.from("wallets").upsert({
-      user_id:           user.id,
-      currency:          symbol,
-      provider:          "bridge",
-      asset_type:        "stablecoin",
-      stablecoin_chain:  chain,
-      bridge_wallet_id:  result.wallet_id,
-      virtual_account_number: result.deposit_address,  // deposit address goes here for stablecoins
-      balance:           0,
-      status:            "active",
-    });
-    if (bwErr || wErr) {
+    if (bwErr) {
       // Bridge created the wallet; surface the persistence problem with the id
       // so the next sync reconciles it rather than silently losing it.
       return json({
