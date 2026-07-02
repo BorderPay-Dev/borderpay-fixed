@@ -90,6 +90,7 @@ Deno.serve(async (req) => {
   }
 
   let deletedCount = 0;
+  let deletedBatches = 0;
   for (let i = 0; i < maxBatches; i += 1) {
     const { data: candidates, error: candidateErr } = await supa
       .from("flutterwave_webhook_events")
@@ -113,6 +114,7 @@ Deno.serve(async (req) => {
       return json({ success: false, code: "cleanup_delete_failed", error: delErr.message }, 500);
     }
     deletedCount += count || 0;
+    deletedBatches += 1;
     if (batchIds.length < batchSize) break;
   }
 
@@ -123,7 +125,7 @@ Deno.serve(async (req) => {
     target_resource: "flutterwave_webhook_events",
     request_id: crypto.randomUUID(),
     before_state: { retain_days: retainDays, eligible_count: eligibleCount || 0, cutoff: cutoffIso },
-    after_state: { deleted_count: deletedCount, max_batches: maxBatches, batch_size: batchSize },
+    after_state: { deleted_count: deletedCount, deleted_batches: deletedBatches, max_batches: maxBatches, batch_size: batchSize },
   });
 
   return json({
@@ -136,6 +138,7 @@ Deno.serve(async (req) => {
       batch_size: batchSize,
       eligible_count: eligibleCount || 0,
       deleted_count: deletedCount,
+      deleted_batches: deletedBatches,
     },
   });
 });
