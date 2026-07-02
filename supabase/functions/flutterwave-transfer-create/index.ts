@@ -57,6 +57,11 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON body" }, 400);
   }
 
+  const accountType = String(body?.account_type || "individual").toLowerCase();
+  if (!["individual", "business"].includes(accountType)) {
+    return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
+  }
+
   const mode = String(body?.mode || "create").trim().toLowerCase();
   if (mode === "retry") {
     const transferId = String(body?.transfer_id || "").trim();
@@ -109,7 +114,7 @@ Deno.serve(async (req) => {
         meta: {
           ...inputMeta,
           borderpay_user_id: authData.user.id,
-          borderpay_account_type: String((body?.account_type || "individual")).toLowerCase(),
+          borderpay_account_type: accountType,
           borderpay_transfer_reference: reference,
         },
       };
@@ -126,7 +131,6 @@ Deno.serve(async (req) => {
     }, mapped.status);
   }
 
-  const accountType = String(body?.account_type || "individual").toLowerCase();
   const businessUserId = accountType === "business" ? authData.user.id : null;
   await supa.from("flutterwave_transfers").upsert({
     reference,

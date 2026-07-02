@@ -63,6 +63,9 @@ Deno.serve(async (req) => {
   const collection_id = String(body?.collection_id || body?.charge_id || body?.id || "").trim();
   if (!collection_id) return json({ success: false, error: "collection_id is required" }, 400);
   const accountType = String(body?.account_type || "individual").toLowerCase();
+  if (!["individual", "business"].includes(accountType)) {
+    return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
+  }
 
   const { data: ownerProbe } = await supa
     .from("flutterwave_collections")
