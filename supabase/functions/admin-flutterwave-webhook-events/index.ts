@@ -125,6 +125,8 @@ Deno.serve(async (req) => {
     };
   });
 
+  const replayableTotal = events.filter((row: any) => row.replay_eligible === true).length;
+
   if (onlyReplayable) {
     events = events.filter((row: any) => row.replay_eligible === true);
   }
@@ -144,6 +146,7 @@ Deno.serve(async (req) => {
       events,
       total: count || 0,
       filtered_total: filteredTotal,
+      replayable_total: replayableTotal,
       page: {
         from,
         limit,
