@@ -76,6 +76,7 @@ Deno.serve(async (req) => {
   const status = String(body?.status || "").trim().toLowerCase();
   const source = String(body?.source || "").trim().toLowerCase();
   const channel = String(body?.channel || "").trim().toLowerCase();
+  let effectiveChannel: "bank" | "mobile_money" | null = null;
   const before = parseIsoTimestamp(body?.before);
   if (body?.before && !before) {
     return json({ success: false, error: "before must be a valid ISO timestamp" }, 400);
@@ -169,4 +170,3 @@ Deno.serve(async (req) => {
     },
   });
 });
-  let effectiveChannel: "bank" | "mobile_money" | null = null;
