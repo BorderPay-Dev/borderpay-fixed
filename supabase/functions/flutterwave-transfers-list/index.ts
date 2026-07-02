@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_configured",
       error: "Flutterwave is not configured in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
   if (!caps.payout_enabled && !caps.receive_enabled) {
@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave transfer list endpoint is not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave payout rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
   if (direction === "receive" && !caps.receive_enabled) {
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave receive rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -141,24 +141,24 @@ Deno.serve(async (req) => {
 
   if (direction) {
     if (!ALLOWED_DIRECTION.has(direction)) {
-      return json({ success: false, error: "direction must be payout or receive" }, 400);
+      return json({ success: false, code: "invalid_filter", error: "direction must be payout or receive", data: { source_filter: "flutterwave" } }, 400);
     }
     query = query.eq("direction", direction);
   }
   if (status) {
     if (!ALLOWED_STATUS.has(status)) {
-      return json({ success: false, error: "invalid status filter" }, 400);
+      return json({ success: false, code: "invalid_filter", error: "invalid status filter", data: { source_filter: "flutterwave" } }, 400);
     }
     query = query.eq("status", status);
   }
   if (source) {
     if (!ALLOWED_SOURCE.has(source)) {
-      return json({ success: false, error: "source must be flutterwave" }, 400);
+      return json({ success: false, code: "invalid_source", error: "source must be flutterwave", data: { source_filter: "flutterwave" } }, 400);
     }
   }
   if (channel) {
     if (!ALLOWED_CHANNEL.has(channel)) {
-      return json({ success: false, error: "channel must be bank or mobile_money" }, 400);
+      return json({ success: false, code: "invalid_filter", error: "channel must be bank or mobile_money", data: { source_filter: "flutterwave" } }, 400);
     }
     query = query.eq("channel", channel);
     effectiveChannel = channel as "bank" | "mobile_money";
@@ -167,7 +167,12 @@ Deno.serve(async (req) => {
 
   const { data, error } = await query;
   if (error) {
-    return json({ success: false, code: "db_error", error: error.message || "Failed to list transfers" }, 500);
+    return json({
+      success: false,
+      code: "db_error",
+      error: error.message || "Failed to list transfers",
+      data: { source_filter: "flutterwave" },
+    }, 500);
   }
   const rows = data || [];
   const tailCreatedAt = rows.length ? String(rows[rows.length - 1]?.created_at || "").trim() : "";
