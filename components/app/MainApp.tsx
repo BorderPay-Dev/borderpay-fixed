@@ -927,10 +927,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <AddWalletScreen
             userId={userId}
             onBack={navigateBack}
-            onOpenWallet={(currency) => {
-              try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
-              navigateTo('wallet-detail');
-            }}
           />
         );
 
