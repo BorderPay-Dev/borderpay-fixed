@@ -263,5 +263,5 @@ Deno.serve(async (req) => {
       webhook_http_status: webhookRes.status,
       webhook_result: webhookJson,
     },
-  }, webhookRes.ok ? 200 : 502);
+  }, webhookRes.ok ? 200 : webhookRes.status);
 });
