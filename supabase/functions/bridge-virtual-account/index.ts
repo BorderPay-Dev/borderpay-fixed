@@ -304,8 +304,7 @@ Deno.serve(async (req) => {
       throw new Error(`Invalid developer fee resolved for ${currency}`);
     }
 
-    // Write the table the dashboard reads (bridge_virtual_accounts), plus keep
-    // the legacy wallets mirror for balance/ledger compatibility.
+    // Write the Bridge-first table the app reads for receive rails.
     await supa.from("bridge_virtual_accounts").insert({
       user_id:                   user.id,
       ...(isBusiness ? { business_user_id: user.id } : {}),
@@ -328,16 +327,6 @@ Deno.serve(async (req) => {
         bridge_response: raw,
       },
     });
-    await supa.from("wallets").upsert({
-      user_id:                   user.id,
-      currency,
-      balance:                   0,
-      provider:                  "bridge",
-      asset_type:                "fiat_virtual_account",
-      bridge_virtual_account_id: result.virtual_account_id,
-      virtual_account_number:    result.account_number || result.iban || null,
-      status:                    "active",
-    }, { onConflict: "user_id,currency", ignoreDuplicates: false });
 
     return json({
       success: true,
