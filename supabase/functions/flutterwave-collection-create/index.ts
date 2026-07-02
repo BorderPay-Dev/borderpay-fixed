@@ -27,6 +27,10 @@ function toPositiveNumber(v: unknown): number | null {
   return n;
 }
 
+function isCurrencyCode(value: string): boolean {
+  return /^[A-Z]{3,5}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -63,6 +67,7 @@ Deno.serve(async (req) => {
   const tx_ref = String(body?.tx_ref || body?.reference || "").trim();
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
+  if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
   if (!tx_ref) return json({ success: false, error: "tx_ref is required" }, 400);
 
   const res = await flutterwaveCreateCollection({

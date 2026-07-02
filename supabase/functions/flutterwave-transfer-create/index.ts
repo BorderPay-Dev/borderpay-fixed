@@ -31,6 +31,10 @@ function toPositiveNumber(v: unknown): number | null {
   return n;
 }
 
+function isCurrencyCode(value: string): boolean {
+  return /^[A-Z]{3,5}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -97,9 +101,14 @@ Deno.serve(async (req) => {
 
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
   if (!currency) return json({ success: false, error: "currency is required" }, 400);
+  if (!isCurrencyCode(currency)) return json({ success: false, error: "currency format is invalid" }, 400);
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);
   if (!reference) return json({ success: false, error: "reference is required" }, 400);
+  const debitCurrency = body?.debit_currency ? String(body.debit_currency).toUpperCase() : undefined;
+  if (debitCurrency && !isCurrencyCode(debitCurrency)) {
+    return json({ success: false, error: "debit_currency format is invalid" }, 400);
+  }
 
   const res = await flutterwaveCreateTransfer({
     amount,
@@ -109,7 +118,7 @@ Deno.serve(async (req) => {
     reference,
     narration: body?.narration ? String(body.narration) : undefined,
     callback_url: body?.callback_url ? String(body.callback_url) : undefined,
-    debit_currency: body?.debit_currency ? String(body.debit_currency).toUpperCase() : undefined,
+    debit_currency: debitCurrency,
     beneficiary_name: body?.beneficiary_name ? String(body.beneficiary_name) : undefined,
     ...(() => {
       const inputMeta = typeof body?.meta === "object" && body?.meta !== null ? body.meta : {};
