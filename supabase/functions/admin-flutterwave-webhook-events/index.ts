@@ -87,9 +87,11 @@ Deno.serve(async (req) => {
     const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
     const retryAfterSeconds = cooldownActive ? replayCooldownSeconds - (elapsed || 0) : 0;
     const replayEligible = statusValue === "failed" && attempts < maxReplayAttempts && !cooldownActive;
+    const errorCode = String(((row.last_error as Record<string, unknown> | null)?.code) || "").trim() || null;
     if (includePayload) {
       return {
         ...row,
+        error_code: errorCode,
         replay_eligible: replayEligible,
         replay_policy: {
           max_attempts: maxReplayAttempts,
@@ -103,6 +105,7 @@ Deno.serve(async (req) => {
     const payload = (row.payload as Record<string, unknown>) || {};
     return {
       ...row,
+      error_code: errorCode,
       replay_eligible: replayEligible,
       replay_policy: {
         max_attempts: maxReplayAttempts,
@@ -127,7 +130,7 @@ Deno.serve(async (req) => {
   }
 
   const errorCodeCounts = events.reduce((acc: Record<string, number>, row: any) => {
-    const code = String((row?.last_error || {}).code || "").trim();
+    const code = String(row?.error_code || "").trim();
     if (!code) return acc;
     acc[code] = (acc[code] || 0) + 1;
     return acc;
