@@ -62,10 +62,11 @@ Deno.serve(async (req) => {
 
   const collection_id = String(body?.collection_id || body?.charge_id || body?.id || "").trim();
   if (!collection_id) return json({ success: false, error: "collection_id is required" }, 400);
-  const accountType = String(body?.account_type || "individual").toLowerCase();
-  if (!["individual", "business"].includes(accountType)) {
+  const requestedAccountType = String(body?.account_type || "individual").toLowerCase();
+  if (!["individual", "business"].includes(requestedAccountType)) {
     return json({ success: false, code: "invalid_account_type", error: "account_type must be individual or business." }, 400);
   }
+  let accountType: "individual" | "business" = requestedAccountType === "business" ? "business" : "individual";
 
   const { data: ownerProbe } = await supa
     .from("flutterwave_collections")
@@ -73,10 +74,12 @@ Deno.serve(async (req) => {
     .eq("flutterwave_collection_id", collection_id)
     .maybeSingle();
   if (ownerProbe) {
-    const ownerId = accountType === "business" ? ownerProbe.business_user_id : ownerProbe.user_id;
-    if (ownerId && ownerId !== authData.user.id) {
+    const knownOwners = [ownerProbe.user_id, ownerProbe.business_user_id].filter(Boolean);
+    if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
       return json({ success: false, error: "Collection does not belong to current user" }, 403);
     }
+    if (ownerProbe.business_user_id === authData.user.id) accountType = "business";
+    if (ownerProbe.user_id === authData.user.id) accountType = "individual";
   }
 
   const res = await flutterwaveGetCollection(collection_id);
