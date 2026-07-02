@@ -651,12 +651,26 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     };
     idle(() => {
       if (cancelled) return;
-      // Keep runtime light: warm only highest-traffic routes. Other screens are
-      // prefetched on intent (tap/hover) via AppShell/route controls.
-      ['wallet-detail', 'add-wallet', 'receive-money', 'send-money', 'transactions', 'notifications', 'profile']
-        .forEach(prefetchScreen);
+      // P0 launch hardening: warm the full high-frequency journey set so
+      // first-open route transitions do not show chunk-loading placeholders.
+      [
+        'wallet-detail',
+        'add-wallet',
+        'receive-money',
+        'send-money',
+        'transactions',
+        'notifications',
+        'profile',
+        'settings',
+        'support',
+        'help-center',
+        'exchange',
+        'cards',
+        'external-accounts',
+        'external-wallets',
+      ].forEach(prefetchScreen);
       if (hasBusinessAccountCached() || accountType === 'business') {
-        ['team', 'external-accounts', 'bulk-payout', 'payroll'].forEach(prefetchScreen);
+        ['team', 'bulk-payout', 'payroll'].forEach(prefetchScreen);
       }
     });
     return () => { cancelled = true; };

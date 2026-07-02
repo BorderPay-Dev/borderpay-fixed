@@ -235,6 +235,12 @@ export function AppShell({
         prefetchRoute('transactions');
         prefetchRoute('settings');
         prefetchRoute('kyc');
+        prefetchRoute('account');
+        prefetchRoute('cards');
+        prefetchScreen('support');
+        prefetchScreen('help-center');
+        prefetchScreen('profile');
+        prefetchScreen('exchange');
         if (isBusinessAccount) prefetchRoute('team');
         if (onOpenPayoutAccounts) prefetchScreen('external-accounts');
         if (onOpenWithdrawalWallets) prefetchScreen('external-wallets');
