@@ -51,6 +51,7 @@ Deno.serve(async (req) => {
 
   const status = String(body?.status || "failed").trim().toLowerCase();
   const flow = String(body?.flow || "").trim().toLowerCase();
+  const errorCode = String(body?.error_code || "").trim();
   const includePayload = body?.include_payload === true;
   const onlyReplayable = body?.only_replayable === true;
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
@@ -120,6 +121,10 @@ Deno.serve(async (req) => {
     };
   });
 
+  if (errorCode) {
+    events = events.filter((row: any) => String((row.last_error || {}).code || "") === errorCode);
+  }
+
   if (onlyReplayable) {
     events = events.filter((row: any) => row.replay_eligible === true);
   }
@@ -130,7 +135,13 @@ Deno.serve(async (req) => {
       events,
       total: count || 0,
       page: { from, limit },
-      filters: { status, flow: flow || null, include_payload: includePayload, only_replayable: onlyReplayable },
+      filters: {
+        status,
+        flow: flow || null,
+        error_code: errorCode || null,
+        include_payload: includePayload,
+        only_replayable: onlyReplayable,
+      },
       replay_policy: { max_attempts: maxReplayAttempts, replay_cooldown_seconds: replayCooldownSeconds },
     },
   });
