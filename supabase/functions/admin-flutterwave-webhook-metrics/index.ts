@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
 
   const failedByCode = rows.reduce<Record<string, number>>((acc, r) => {
     if (String(r.processing_status || "").toLowerCase() !== "failed") return acc;
-    const code = String(((r.last_error as Record<string, unknown> | null)?.code) || "unknown");
+    const code = String(((r.last_error as Record<string, unknown> | null)?.code) || "unknown").toLowerCase();
     acc[code] = (acc[code] || 0) + 1;
     return acc;
   }, {});
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
   const failedByFlowAndCode = rows.reduce<Record<string, Record<string, number>>>((acc, r) => {
     if (String(r.processing_status || "").toLowerCase() !== "failed") return acc;
     const flow = String(r.flow || "unknown");
-    const code = String(((r.last_error as Record<string, unknown> | null)?.code) || "unknown");
+    const code = String(((r.last_error as Record<string, unknown> | null)?.code) || "unknown").toLowerCase();
     if (!acc[flow]) acc[flow] = {};
     acc[flow][code] = (acc[flow][code] || 0) + 1;
     return acc;
