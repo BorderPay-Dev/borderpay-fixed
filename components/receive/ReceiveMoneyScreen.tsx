@@ -413,6 +413,9 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
               Tap any account or stablecoin below to see the deposit details. Share them with the sender.
             </p>
+            <p className={`text-[11px] ${tc.textMuted} mt-1 leading-snug`}>
+              Funds received through USD/EUR/GBP receive rails settle to your wallet balance for spending.
+            </p>
           </div>
         </div>
         {flwReceive && (

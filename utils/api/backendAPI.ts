@@ -435,7 +435,7 @@ export const walletAPI = {
     const [
       { data: bridgeWallets, error: bridgeWalletErr },
       { data: bridgeVas, error: bridgeVaErr },
-      { data: balanceLedger, error: balanceLedgerErr },
+      { data: walletBalanceLedger, error: walletBalanceLedgerErr },
     ] = await Promise.all([
       supabase
         .from('bridge_wallets')
@@ -449,10 +449,10 @@ export const walletAPI = {
         .from('bridge_balance_ledger')
         .select('currency,amount_minor,direction,entity_type,created_at')
         .or(ownerOrFilter(user.id))
-        .in('entity_type', ['wallet', 'virtual_account']),
+        .eq('entity_type', 'wallet'),
     ]);
 
-    const firstErr = bridgeWalletErr || bridgeVaErr || balanceLedgerErr;
+    const firstErr = bridgeWalletErr || bridgeVaErr || walletBalanceLedgerErr;
     if (firstErr) return { success: false, error: firstErr.message };
 
     const byCurrency = new Map<string, any>();
@@ -479,9 +479,11 @@ export const walletAPI = {
       return row;
     };
 
-    // Canonical wallet/VA balances from immutable bridge_balance_ledger.
+    // Canonical spendable balances come only from wallet-settled ledger entries.
+    // Virtual accounts are receive rails and attribution metadata, not a second
+    // spendable wallet source.
     const ledgerByCurrency = new Map<string, number>();
-    for (const r of (balanceLedger || [])) {
+    for (const r of (walletBalanceLedger || [])) {
       const c = String((r as any).currency || '').toUpperCase();
       if (!c) continue;
       const rawMinor = Number((r as any).amount_minor ?? 0);
@@ -499,7 +501,9 @@ export const walletAPI = {
       row.balance = ledgerByCurrency.get(c) || 0;
     }
 
-    // Virtual-account balances use the same canonical ledger source.
+    // Keep virtual-account identifiers visible on the canonical currency rows
+    // so receive screens can attribute rail details without creating duplicate
+    // spendable balances.
     for (const va of (bridgeVas || [])) {
       const c = String((va as any).currency || '').toUpperCase();
       const row = ensure(c);
@@ -507,7 +511,6 @@ export const walletAPI = {
       row.bridge_virtual_account_id = (va as any).bridge_virtual_account_id ?? row.bridge_virtual_account_id;
       row.status = (va as any).status || row.status;
       row.updated_at = (va as any).updated_at || row.updated_at;
-      row.balance = ledgerByCurrency.get(c) || 0;
     }
     // If projections lag but ledger has balance rows, still expose balances.
     for (const [currency, balance] of ledgerByCurrency.entries()) {

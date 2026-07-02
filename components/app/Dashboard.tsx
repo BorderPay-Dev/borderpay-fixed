@@ -200,6 +200,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [wallets, setWallets]             = useState(cachedWallets);
   const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
   const [walletsLoaded, setWalletsLoaded] = useState<boolean>(cachedWallets.length > 0);
+  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() =>
+    cachedWallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
+  );
   const [recentTransactions, setRecentTransactions] = useState<any[]>(cachedRecent);
   // True once a network refresh of recent activity has completed at least once;
   // gates the skeleton so we only show it on a genuinely cold (uncached) load.
@@ -269,11 +272,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         }
       } catch { /* noop */ }
 
-      // Fire all five requests in parallel via canonical backendAPI. The
-      // legacy `wallets` table is empty for Bridge-only users like the COO —
-      // their assets live in bridge_wallets + bridge_virtual_accounts. We
-      // read both and merge below so the Dashboard tiles always reflect
-      // ALL of the user's accounts and stablecoins.
+      // Fire all snapshot/security requests in parallel from canonical
+      // read-model sources.
       const [snapshotRes, securityRes] = await Promise.allSettled([
         withTimeout(
           backendAPI.financial.getSnapshot(5),
@@ -307,9 +307,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       }
 
       // ── Wallets ───────────────────────────────────────────────────────────
-      // Canonical read-model source:
-      //   the canonical financial snapshot now merges bridge ledger + VA balance
-      //   projections into one currency-deduped output.
+      // Spendable balances are wallet-settled only. Virtual accounts are
+      // receive rails and tracked separately via snapshotData.virtual_accounts.
       {
         type Row = { currency: string; balance: number; symbol: string; color: string };
         if (Array.isArray(snapshotData?.wallets)) {
@@ -326,6 +325,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           setWallets(rows);
           setTotalBalance(usdLikeTotal(rows));
           writeJSON(dashWalletsKey, rows);
+        }
+        if (Array.isArray(snapshotData?.virtual_accounts)) {
+          const hasVA = (snapshotData.virtual_accounts as any[]).some((va: any) =>
+            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+          );
+          setHasVirtualAccounts(hasVA);
         }
         // Loading must always terminate even when API fails; empty-state is
         // represented by zero rows, not an infinite loading placeholder.
@@ -486,10 +491,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // and bottom-nav chrome; Dashboard renders body-only.
   const setupDone = setupSteps.filter(s => s.completed).length;
   const setupTotal = setupSteps.length;
-  const hasVirtualAccounts = useMemo(
-    () => wallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
-    [wallets],
-  );
   const greeting   = (() => {
     const h = new Date().getHours();
     if (h < 5)  return tt('dashboard.greet.night',   'Good evening');

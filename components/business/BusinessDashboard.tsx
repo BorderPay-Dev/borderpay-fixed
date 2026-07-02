@@ -140,6 +140,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
+  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() =>
+    cachedBizWallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
+  );
   const walletsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [hasPIN, setHasPIN] = useState<boolean>(() => {
     try { return !!SecurityStatus.get(userId).hasPIN; } catch { return false; }
@@ -155,10 +158,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const usdLikeTotal = useMemo(
     () => wallets.filter(w => ['USD', 'USDT', 'USDC', 'PYUSD', 'USDB'].includes(w.currency))
                  .reduce((s, w) => s + (w.balance || 0), 0),
-    [wallets],
-  );
-  const hasVirtualAccounts = useMemo(
-    () => wallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
     [wallets],
   );
 
@@ -190,6 +189,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         const raw = Array.isArray(walletData?.wallets) ? walletData.wallets : [];
         const formatted = toWalletRows(raw);
         setWallets(formatted);
+        const hasVA = Array.isArray(walletData?.virtual_accounts) && walletData.virtual_accounts.some((va: any) =>
+          ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+        );
+        setHasVirtualAccounts(Boolean(hasVA));
         try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else {
@@ -204,6 +207,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             setWallets(formatted);
             try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
           }
+          const hasVA = Array.isArray(snapshotRes?.data?.virtual_accounts) && snapshotRes.data.virtual_accounts.some((va: any) =>
+            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+          );
+          setHasVirtualAccounts(Boolean(hasVA));
         } else if (seededWallets.length === 0) {
           setWalletsError(friendlyError(walletRouteRes?.error || snapshotRes?.error, 'Could not load wallets'));
         }
