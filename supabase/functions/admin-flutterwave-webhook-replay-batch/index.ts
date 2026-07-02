@@ -59,12 +59,12 @@ Deno.serve(async (req) => {
   const allowedStatuses = ["failed"] as const;
   const force = body?.force === true;
   const forceReason = String(body?.force_reason || "").trim().slice(0, 500);
-  const allowErrorCodes = Array.isArray(body?.allow_error_codes)
+  const allowErrorCodes = Array.from(new Set(Array.isArray(body?.allow_error_codes)
     ? body.allow_error_codes.map((v: unknown) => String(v || "").trim().toLowerCase()).filter(Boolean)
-    : [];
-  const excludeErrorCodes = Array.isArray(body?.exclude_error_codes)
+    : []));
+  const excludeErrorCodes = Array.from(new Set(Array.isArray(body?.exclude_error_codes)
     ? body.exclude_error_codes.map((v: unknown) => String(v || "").trim().toLowerCase()).filter(Boolean)
-    : [];
+    : []));
   const invalidErrorCode = [...allowErrorCodes, ...excludeErrorCodes].find((code) => !/^[a-z0-9._:-]{2,80}$/.test(code));
   if (invalidErrorCode) {
     return json({
