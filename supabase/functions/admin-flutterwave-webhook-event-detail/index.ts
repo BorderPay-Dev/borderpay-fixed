@@ -99,7 +99,10 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     data: {
-      event: eventRow,
+      event: {
+        ...eventRow,
+        error_code: String(((eventRow.last_error as Record<string, unknown> | null)?.code) || "").trim() || null,
+      },
       extracted_refs: {
         tx_ref: txRef || null,
         transfer_reference: transferRef || null,
