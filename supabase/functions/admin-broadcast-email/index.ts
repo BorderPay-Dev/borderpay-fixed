@@ -34,6 +34,7 @@ interface Body {
 }
 
 type BroadcastAction =
+  | "founder_welcome_all"
   | "business_verification_delay"
   | "business_platform_live"
   | "individual_platform_live"
@@ -93,6 +94,7 @@ Deno.serve(async (req) => {
   }
   const action = String(body.action || "business_verification_delay") as BroadcastAction;
   const supportedActions = new Set<BroadcastAction>([
+    "founder_welcome_all",
     "borderpay_live",
     "business_verification_delay",
     "business_platform_live",
@@ -176,6 +178,7 @@ Deno.serve(async (req) => {
     if (isBridgeBlocked(country)) return false;
     const at = String(p.account_type || "").toLowerCase();
     if ((action === "business_verification_delay" || action === "business_platform_live") && at !== "business") return false;
+    if (action === "founder_welcome_all") return true;
     if (action === "individual_platform_live" && at !== "individual") return false;
     if (action === "individual_verification_reminder") {
       return at === "individual" && kycOpen.has(String(p.bridge_kyc_status || "not_started").toLowerCase());
@@ -243,6 +246,8 @@ Deno.serve(async (req) => {
     const email = String(u.email || "").trim().toLowerCase();
     const accountType = String(u.account_type || "individual").toLowerCase();
     const template =
+      action === "founder_welcome_all"
+        ? (accountType === "business" ? "business.founder_welcome" : "individual.founder_welcome") :
       action === "business_verification_delay" ? "business.platform_live" :
       action === "business_platform_live" ? "business.platform_live" :
       action === "verification_business_kyb_completion" ? "business.verification_authorized" :
@@ -256,11 +261,15 @@ Deno.serve(async (req) => {
       (accountType === "business" ? "business.platform_live" : "individual.platform_live");
     const props = template === "business.platform_live"
       ? { company_name: bizNameByUser.get(userId) || "Your business" }
+      : template === "business.founder_welcome"
+        ? {
+            company_name: bizNameByUser.get(userId) || "Your business",
+            full_name: String(u.full_name || ""),
+          }
       : template === "business.kyb_additional_details"
         ? {
             company_name: bizNameByUser.get(userId) || "Your business",
             verification_url: `${Deno.env.get("APP_URL") || "https://app.borderpayafrica.com"}/dashboard`,
-            tasks: ["Continue your business verification from your dashboard."],
           }
         : template === "business.verification_authorized"
           ? {

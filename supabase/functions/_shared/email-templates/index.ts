@@ -20,6 +20,7 @@ import { render as individualVerificationAuthorized }  from "./individual/verifi
 import { render as individualPaymentReceived }         from "./individual/payment-received.ts";
 import { render as individualPlatformLive }            from "./individual/platform-live.ts";
 import { render as individualExternalAccountStatus }   from "./individual/external-account-status.ts";
+import { render as individualFounderWelcome }          from "./individual/founder-welcome.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessKybSubmitted }             from "./business/kyb-submitted.ts";
@@ -32,6 +33,7 @@ import { render as businessVerificationAuthorized }    from "./business/verifica
 import { render as businessPaymentReceived }           from "./business/payment-received.ts";
 import { render as businessPlatformLive }              from "./business/platform-live.ts";
 import { render as businessExternalAccountStatus }     from "./business/external-account-status.ts";
+import { render as businessFounderWelcome }            from "./business/founder-welcome.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -43,6 +45,7 @@ export type TemplateName =
   | "individual.payment_received"
   | "individual.platform_live"
   | "individual.external_account_status"
+  | "individual.founder_welcome"
   | "business.email_verification"
   | "business.kyb_submitted"
   | "business.kyb_decision"
@@ -53,7 +56,8 @@ export type TemplateName =
   | "business.verification_authorized"
   | "business.payment_received"
   | "business.platform_live"
-  | "business.external_account_status";
+  | "business.external_account_status"
+  | "business.founder_welcome";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -67,6 +71,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.payment_received":        individualPaymentReceived,
   "individual.platform_live":           individualPlatformLive,
   "individual.external_account_status": individualExternalAccountStatus,
+  "individual.founder_welcome":         individualFounderWelcome,
   "business.email_verification":        businessEmailVerification,
   "business.kyb_submitted":             businessKybSubmitted,
   "business.kyb_decision":              businessKybDecision,
@@ -78,6 +83,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.payment_received":          businessPaymentReceived,
   "business.platform_live":             businessPlatformLive,
   "business.external_account_status":   businessExternalAccountStatus,
+  "business.founder_welcome":           businessFounderWelcome,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {
