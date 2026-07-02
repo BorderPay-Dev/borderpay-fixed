@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave transfer rates are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -117,6 +117,7 @@ Deno.serve(async (req) => {
           : (res.error || "Failed to fetch transfer rates")),
       data: {
         capabilities: caps,
+        source_filter: "flutterwave",
         source_currency: source,
         destination_currency: destination,
         destination_country: destinationCountry,
@@ -128,6 +129,13 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     data: {
+      endpoint: "flutterwave-transfer-rates",
+      read_scope: "quote",
+      source_scope: "flutterwave_only",
+      response_contract_version: 1,
+      contract_generated_at: new Date().toISOString(),
+      provider: "flutterwave",
+      source_filter: "flutterwave",
       capabilities: caps,
       source_currency: source,
       destination_currency: destination,

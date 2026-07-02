@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave payout rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -102,6 +102,7 @@ Deno.serve(async (req) => {
           : (res.error || "Failed to resolve account")),
       data: {
         capabilities: caps,
+        source_filter: "flutterwave",
         destination_country: destinationCountry,
         destination_currency: destinationCurrency || null,
       },
@@ -111,6 +112,13 @@ Deno.serve(async (req) => {
   return json({
     success: true,
     data: {
+      endpoint: "flutterwave-account-resolve",
+      read_scope: "account_resolve",
+      source_scope: "flutterwave_only",
+      response_contract_version: 1,
+      contract_generated_at: new Date().toISOString(),
+      provider: "flutterwave",
+      source_filter: "flutterwave",
       capabilities: caps,
       destination_country: destinationCountry,
       destination_currency: destinationCurrency || null,
