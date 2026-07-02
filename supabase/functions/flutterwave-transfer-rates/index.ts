@@ -1,11 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
-  getFlutterwaveCapabilities,
   flutterwaveGetTransferRates,
-  getFlutterwaveLocalRailPolicy,
 } from "../_shared/providers/flutterwave.ts";
 import { mapFlutterwaveErrorResponse } from "../_shared/providers/flutterwave-error-response.ts";
+import {
+  gateFlutterwaveRuntime,
+  validateCurrencyOnPolicy,
+} from "../_shared/services/flutterwave-runtime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -25,23 +27,13 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
-function isCurrencyCode(value: string): boolean {
-  return /^[A-Z]{3,5}$/.test(value);
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
-  const caps = getFlutterwaveCapabilities();
-  if (!caps.configured || !(caps.receive_enabled || caps.payout_enabled)) {
-    return json({
-      success: false,
-      code: "flutterwave_not_enabled",
-      error: "Flutterwave transfer rates are not enabled in this environment.",
-      data: { capabilities: caps },
-    }, 503);
-  }
+  const runtimeGate = gateFlutterwaveRuntime("either");
+  if (!runtimeGate.allowed) return json(runtimeGate.body, runtimeGate.status);
+  const caps = runtimeGate.caps;
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
@@ -68,19 +60,11 @@ Deno.serve(async (req) => {
   if (source === destination) {
     return json({ success: false, error: "source_currency and destination_currency must be different" }, 400);
   }
-  if (!isCurrencyCode(source) || !isCurrencyCode(destination)) {
-    return json({ success: false, error: "currency format is invalid" }, 400);
-  }
-  const localRailPolicy = getFlutterwaveLocalRailPolicy();
-  const supportedCurrencies = localRailPolicy.currencies as readonly string[];
-  if (!supportedCurrencies.includes(source) || !supportedCurrencies.includes(destination)) {
-    return json({
-      success: false,
-      code: "corridor_not_supported",
-      error: "Requested currency pair is not enabled on local rails.",
-      data: { supported_currencies: supportedCurrencies },
-    }, 409);
-  }
+  const supportedCurrencies = runtimeGate.staticIpGuard.policy.currencies as readonly string[];
+  const sourcePolicy = validateCurrencyOnPolicy(source, supportedCurrencies);
+  if (!sourcePolicy.allowed) return json(sourcePolicy.body, sourcePolicy.status);
+  const destinationPolicy = validateCurrencyOnPolicy(destination, supportedCurrencies);
+  if (!destinationPolicy.allowed) return json(destinationPolicy.body, destinationPolicy.status);
   if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
     return json({ success: false, error: "amount must be > 0" }, 400);
   }

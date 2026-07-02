@@ -11,6 +11,7 @@ Scope: `borderpay-fixed` backend runtime paths only
 | `payouts.listBanks(country)` | `flutterwave-capabilities` | `GET /v3/banks?country={ISO2}` | Read-only |
 | `payouts.listMobileNetworks(country)` | `flutterwave-capabilities` | `GET /v3/mobile-networks?country={ISO2}` | Read-only |
 | `payouts.resolveAccount(...)` | `flutterwave-account-resolve` | `POST /v3/accounts/resolve` | Read-only validation |
+| `payouts.feeQuote(...)` | `flutterwave-fee-quote` | internal pricing policy (server-side quote) | Read-only quote |
 | `payouts.transferRates(...)` | `flutterwave-transfer-rates` | `GET /v3/transfers/rates` | Read-only quote |
 | `payouts.createTransfer(...)` | `flutterwave-transfer-create` | `POST /v3/transfers` | Money-out execution |
 | `payouts.transferStatus(transfer_id)` | `flutterwave-transfer-status` | `GET /v3/transfers/{id}` | Post-execution status |
@@ -35,4 +36,3 @@ Scope: `borderpay-fixed` backend runtime paths only
 - No UI route calls provider endpoints directly.
 - Flutterwave execution remains backend-gated and corridor-policy controlled.
 - FX remains Bridge-owned and is not routed through Flutterwave execution paths.
-
