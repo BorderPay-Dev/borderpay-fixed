@@ -76,6 +76,10 @@ Deno.serve(async (req) => {
   } catch {
     return json({ success: false, error: "Invalid JSON body" }, 400);
   }
+  const source = String(body?.source || "").trim().toLowerCase();
+  if (source && source !== "flutterwave") {
+    return json({ success: false, error: "source must be flutterwave" }, 400);
+  }
 
   const amount = toPositiveNumber(body?.amount);
   const currency = String(body?.currency || "").trim().toUpperCase();
