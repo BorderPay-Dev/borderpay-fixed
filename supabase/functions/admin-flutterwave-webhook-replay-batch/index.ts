@@ -177,6 +177,26 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (replayable.length === 0) {
+    return json({
+      success: true,
+      code: "no_replayable_events",
+      data: {
+        attempted: 0,
+        filters: {
+          flow: flow || null,
+          status: status || "failed",
+          allow_error_codes: allowErrorCodes,
+          exclude_error_codes: excludeErrorCodes,
+          force,
+          force_reason: forceReason || null,
+          replay_cooldown_seconds: replayCooldownSeconds,
+        },
+        selection_summary: selectionSummary,
+      },
+    });
+  }
+
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   const results: Array<Record<string, unknown>> = [];
   for (const row of replayable) {
