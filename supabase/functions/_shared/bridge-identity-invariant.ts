@@ -25,6 +25,21 @@ export type BridgeIdentityInvariantFailure = {
 };
 
 type SupaLike = { from: (table: string) => any };
+const ISO3_TO_ISO2: Record<string, string> = {
+  KEN: "KE", NGA: "NG", GHA: "GH", UGA: "UG", TZA: "TZ", RWA: "RW", ZAF: "ZA",
+  USA: "US", GBR: "GB", IRL: "IE", FRA: "FR", DEU: "DE", ESP: "ES", ITA: "IT",
+  NLD: "NL", BEL: "BE", PRT: "PT", AUT: "AT", POL: "PL", SWE: "SE", NOR: "NO",
+  DNK: "DK", CHE: "CH", CAN: "CA", AUS: "AU", NZL: "NZ", BRA: "BR", MEX: "MX",
+  COL: "CO", CIV: "CI", COG: "CG", COD: "CD", JPN: "JP", CHN: "CN", ARE: "AE",
+  IND: "IN", SGP: "SG",
+};
+
+function normalizeCountryCode(value: unknown): string | null {
+  const raw = String(value ?? "").trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(raw)) return raw;
+  if (/^[A-Z]{3}$/.test(raw)) return ISO3_TO_ISO2[raw] ?? null;
+  return null;
+}
 
 function fail(
   reason: BridgeIdentityInvariantFailure["reason"],
@@ -65,7 +80,7 @@ export async function loadAndAssertBridgeIdentityInvariant(
   }
 
   const account_type: BridgeAccountType = profile.account_type === "business" ? "business" : "individual";
-  let country: string | null = profile.country ?? null;
+  let country: string | null = normalizeCountryCode(profile.country);
   let bridge_customer_id: string | null = profile.bridge_customer_id ?? null;
   let verification_status: string | null = profile.bridge_kyc_status ?? null;
 
@@ -75,7 +90,7 @@ export async function loadAndAssertBridgeIdentityInvariant(
       .select("user_id, country, bridge_customer_id, bridge_kyb_status")
       .eq("user_id", userId)
       .maybeSingle();
-    country = biz?.country ?? country;
+    country = normalizeCountryCode(biz?.country) ?? country;
     verification_status = biz?.bridge_kyb_status ?? verification_status;
     bridge_customer_id = biz?.bridge_customer_id ?? bridge_customer_id;
   }

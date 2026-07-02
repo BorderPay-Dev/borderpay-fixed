@@ -98,7 +98,18 @@ interface PixAccountInput {
   br_code?: string;
   document_number: string;
 }
-type CreateInput = UsAccountInput | IbanAccountInput | ClabeAccountInput | PixAccountInput;
+interface GbAccountInput {
+  account_type: "gb";
+  account_owner_name: string;
+  account_owner_type?: "individual" | "business";
+  account_name?: string;
+  first_name?: string;
+  last_name?: string;
+  business_name?: string;
+  bank_name?: string;
+  account: { sort_code: string; account_number: string };
+}
+type CreateInput = UsAccountInput | IbanAccountInput | GbAccountInput | ClabeAccountInput | PixAccountInput;
 
 const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 
@@ -404,7 +415,7 @@ Deno.serve(async (req) => {
     // If Bridge has no existing accounts yet, expose documented account types
     // so users can still start with first account creation.
     const supported_account_types =
-      discovered.size > 0 ? Array.from(discovered) : ["us", "iban", "clabe", "pix"];
+      discovered.size > 0 ? Array.from(discovered) : ["us", "iban", "gb", "clabe", "pix"];
     return json({
       success: true,
       code: "external_account_supported_types_ready",
@@ -429,12 +440,12 @@ Deno.serve(async (req) => {
     if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
   const acct = body.account;
-  if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban" && acct.account_type !== "clabe" && acct.account_type !== "pix")) {
+  if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban" && acct.account_type !== "gb" && acct.account_type !== "clabe" && acct.account_type !== "pix")) {
     return json({
       success: false,
       code: "invalid_account_type",
-      error: "account.account_type must be 'us' | 'iban' | 'clabe' | 'pix'",
-      supported_account_types: ["us", "iban", "clabe", "pix"],
+      error: "account.account_type must be 'us' | 'iban' | 'gb' | 'clabe' | 'pix'",
+      supported_account_types: ["us", "iban", "gb", "clabe", "pix"],
       summary: {
         code: "invalid_account_type",
       },
@@ -452,7 +463,7 @@ Deno.serve(async (req) => {
   }
 
   let bridgeBody: Record<string, unknown>;
-  let currency: "USD" | "EUR" | "MXN" | "BRL";
+  let currency: "USD" | "EUR" | "GBP" | "MXN" | "BRL";
   let railLabel: string;
   let derivedLast4: string;
 
@@ -576,6 +587,61 @@ Deno.serve(async (req) => {
             },
           }
         : {}),
+    };
+  } else if (acct.account_type === "gb") {
+    const a = acct as GbAccountInput;
+    if (!a.account?.sort_code || !a.account?.account_number) {
+      return json({
+        success: false,
+        code: "gb_fields_required",
+        error: "sort_code and account_number required for GBP external accounts",
+        summary: {
+          code: "gb_fields_required",
+        },
+      }, 400);
+    }
+    if (a.account_owner_type === "individual" && (!a.first_name || !a.last_name)) {
+      return json({
+        success: false,
+        code: "gb_individual_name_required",
+        error: "first_name and last_name required for individual GBP external accounts",
+        summary: {
+          code: "gb_individual_name_required",
+        },
+      }, 400);
+    }
+    if (a.account_owner_type === "business" && !a.business_name) {
+      return json({
+        success: false,
+        code: "gb_business_name_required",
+        error: "business_name required for business GBP external accounts",
+        summary: {
+          code: "gb_business_name_required",
+        },
+      }, 400);
+    }
+    currency = "GBP";
+    railLabel = "faster_payments";
+    derivedLast4 = last4(a.account.account_number);
+    bridgeBody = {
+      currency: "gbp",
+      account_type: "gb",
+      account_owner_name: a.account_owner_name,
+      ...(a.account_owner_type ? { account_owner_type: a.account_owner_type } : {}),
+      ...(a.account_name ? { account_name: a.account_name } : {}),
+      ...(a.account_owner_type === "individual"
+        ? {
+            ...(a.first_name ? { first_name: a.first_name } : {}),
+            ...(a.last_name ? { last_name: a.last_name } : {}),
+          }
+        : a.account_owner_type === "business"
+        ? { ...(a.business_name ? { business_name: a.business_name } : {}) }
+        : {}),
+      ...(a.bank_name ? { bank_name: a.bank_name } : {}),
+      account: {
+        sort_code: a.account.sort_code,
+        account_number: a.account.account_number,
+      },
     };
   } else if (acct.account_type === "clabe") {
     const a = acct as ClabeAccountInput;

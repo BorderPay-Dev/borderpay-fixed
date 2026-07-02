@@ -240,7 +240,7 @@ export function isBridgeBlocked(countryCode: string | null | undefined): boolean
 }
 
 export type BridgeVirtualAccountCurrency = "USD" | "EUR" | "GBP";
-export type BridgeExternalAccountType = "us" | "iban";
+export type BridgeExternalAccountType = "us" | "iban" | "gb";
 
 /**
  * Bridge product availability for the products BorderPay can actually
@@ -338,6 +338,7 @@ export function bridgeExternalAccountTypesForCountry(
   const types: BridgeExternalAccountType[] = [];
   if (isBridgeVirtualAccountCurrencyAvailable(countryCode, "USD")) types.push("us");
   if (isBridgeVirtualAccountCurrencyAvailable(countryCode, "EUR")) types.push("iban");
+  if (isBridgeVirtualAccountCurrencyAvailable(countryCode, "GBP")) types.push("gb");
   return types;
 }
 

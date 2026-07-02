@@ -58,7 +58,7 @@ interface Wallet {
 interface ExternalAccountOption {
   id: string;
   bridge_external_account_id: string;
-  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  account_type: 'us' | 'iban' | 'gb' | 'clabe' | 'pix';
   currency: string;
   account_owner_name: string | null;
   bank_name: string | null;
@@ -236,8 +236,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, []);
 
   // Bridge-backed capability gate for external bank accounts.
-  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
-    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'>>(
+    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
   );
   const selectedExternalAccount = useMemo(
     () => externalAccounts.find((x) => x.bridge_external_account_id === selectedExternalAccountId) || null,
@@ -392,11 +392,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ? res.data.external_accounts.map((row: any, idx: number) => {
               const rawType = String(row?.account_type || '').toLowerCase();
               const accountType: ExternalAccountOption['account_type'] =
-                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+                rawType === 'iban' || rawType === 'gb' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
               const rawCurrency = String(row?.currency || '');
               const currency = rawCurrency
                 ? rawCurrency.toUpperCase()
-                : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+                : (accountType === 'iban' ? 'EUR' : accountType === 'gb' ? 'GBP' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
               const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
               return {
                 id: String(row?.id || externalId || `ext_${idx}`),
@@ -406,13 +406,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 account_owner_name: row?.account_owner_name ?? null,
                 bank_name: row?.bank_name ?? null,
                 last_4: row?.last_4 ? String(row.last_4) : null,
-                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+                rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'gb' ? 'faster_payments' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
                 status: String(row?.status || 'active'),
               } as ExternalAccountOption;
             }).filter((x: ExternalAccountOption) => !!x.bridge_external_account_id)
           : [];
         setWallets(list);
-        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix'));
         setExternalAccounts(ext);
         try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
         if (!selectedExternalAccountId && ext.length > 0) {
@@ -700,6 +700,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         const destinationRail =
           selectedExternalAccount.account_type === 'iban' ? 'sepa'
+          : selectedExternalAccount.account_type === 'gb' ? 'faster_payments'
           : selectedExternalAccount.account_type === 'clabe' ? 'spei'
           : selectedExternalAccount.account_type === 'pix' ? 'pix'
           : 'ach';
@@ -935,11 +936,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <div className="flex-1 text-left">
                       <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
                       <p className={`text-xs ${tc.textMuted} mt-0.5`}>
-                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
-                          ? 'ACH (US) · SEPA (EEA) — pay to a linked account'
-                          : externalAccountTypes.includes('us')
-                            ? 'ACH (US) — pay to a linked account'
-                            : 'SEPA (EEA) — pay to a linked account'}
+                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban') && externalAccountTypes.includes('gb')
+                          ? 'ACH/Wire (US) · SEPA (EEA) · Faster Payments (UK)'
+                          : externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
+                            ? 'ACH/Wire (US) · SEPA (EEA)'
+                            : externalAccountTypes.includes('us') && externalAccountTypes.includes('gb')
+                              ? 'ACH/Wire (US) · Faster Payments (UK)'
+                              : externalAccountTypes.includes('iban') && externalAccountTypes.includes('gb')
+                                ? 'SEPA (EEA) · Faster Payments (UK)'
+                                : externalAccountTypes.includes('us')
+                                  ? 'ACH/Wire (US)'
+                                  : externalAccountTypes.includes('iban')
+                                    ? 'SEPA (EEA)'
+                                    : 'Faster Payments (UK)'}
                       </p>
                     </div>
                     <ArrowRight size={18} className={tc.textMuted} />
@@ -955,11 +964,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <div className="flex-1 text-left">
                       <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
                       <p className={`text-xs ${tc.textMuted} mt-0.5`}>
-                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
-                          ? 'ACH (US) · SEPA (EEA) — coming soon'
-                          : externalAccountTypes.includes('us')
-                            ? 'ACH (US) — coming soon'
-                            : 'SEPA (EEA) — coming soon'}
+                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban') && externalAccountTypes.includes('gb')
+                          ? 'ACH/Wire (US) · SEPA (EEA) · Faster Payments (UK) — coming soon'
+                          : externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
+                            ? 'ACH/Wire (US) · SEPA (EEA) — coming soon'
+                            : externalAccountTypes.includes('us') && externalAccountTypes.includes('gb')
+                              ? 'ACH/Wire (US) · Faster Payments (UK) — coming soon'
+                              : externalAccountTypes.includes('iban') && externalAccountTypes.includes('gb')
+                                ? 'SEPA (EEA) · Faster Payments (UK) — coming soon'
+                                : externalAccountTypes.includes('us')
+                                  ? 'ACH/Wire (US) — coming soon'
+                                  : externalAccountTypes.includes('iban')
+                                    ? 'SEPA (EEA) — coming soon'
+                                    : 'Faster Payments (UK) — coming soon'}
                       </p>
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
