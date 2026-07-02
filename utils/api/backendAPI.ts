@@ -2376,6 +2376,11 @@ export const payoutsAPI = {
   ) =>
     apiCall<{
       capabilities?: Record<string, unknown>;
+      static_ip_guard?: {
+        required?: boolean;
+        ready?: boolean;
+        blocked?: boolean;
+      };
       local_rail_policy?: {
         countries?: string[];
         currencies?: string[];
@@ -2391,13 +2396,13 @@ export const payoutsAPI = {
     }),
 
   /** Verify a bank account number → account holder name before payout. */
-  resolveAccount: async (account_number: string, bank_code: string) =>
+  resolveAccount: async (account_number: string, bank_code: string, country?: string) =>
     apiCall<{
       capabilities?: Record<string, unknown>;
       resolution?: Record<string, unknown>;
     }>('flutterwave-account-resolve', {
       method: 'POST',
-      body: JSON.stringify({ account_number, bank_code }),
+      body: JSON.stringify({ account_number, bank_code, ...(country ? { country } : {}) }),
     }),
 
   /** Create a Flutterwave local payout transfer (bank/mobile rails). */
@@ -2406,6 +2411,7 @@ export const payoutsAPI = {
     currency: string;
     account_bank: string;
     account_number: string;
+    country?: string;
     reference: string;
     narration?: string;
     callback_url?: string;
@@ -2483,6 +2489,7 @@ export const payoutsAPI = {
   createCollection: async (payload: {
     amount: number | string;
     currency: string;
+    country?: string;
     tx_ref: string;
     customer?: Record<string, unknown>;
     payment_options?: string;
