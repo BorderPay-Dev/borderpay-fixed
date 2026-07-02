@@ -2031,6 +2031,11 @@ export const bridgeAPI = {
 
   /** Custodial stablecoin wallet (e.g. usdc on base). */
   wallet: {
+    capabilities: async () =>
+      apiCall<{ supported: boolean; supported_symbols: string[] }>(
+        'bridge-wallet',
+        { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
+      ),
     create: async (input: { symbol: string; chain: string }) =>
       apiCall<{ wallet_id: string; deposit_address: string; symbol: string; chain: string }>(
         'bridge-wallet',

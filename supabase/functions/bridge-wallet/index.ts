@@ -3,6 +3,8 @@
 //
 // POST body: { symbol: 'USDC'|'USDT'|'PYUSD'|'USDB'|'EURC',
 //              chain:  'ETH'|'SOL'|'BSC'|'POLYGON'|'TRON'|'BASE'|'OPTIMISM'|'ARBITRUM' }
+// or
+//            { action: 'capabilities' } // returns whether custodial wallets are available for caller country
 //
 // Response: { success, data: { wallet_id, deposit_address, symbol, chain } }
 
@@ -74,7 +76,7 @@ Deno.serve(async (req) => {
     }, 401);
   }
 
-  let body: { symbol?: string; chain?: string };
+  let body: { action?: string; symbol?: string; chain?: string };
   try { body = await req.json(); } catch {
     return json({
       success: false,
@@ -85,6 +87,39 @@ Deno.serve(async (req) => {
       },
     }, 400);
   }
+  const action = String(body.action || "create").toLowerCase();
+
+  if (action === "capabilities") {
+    const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
+    if (!identity.ok) {
+      return json({
+        success: false,
+        ...identity.failure,
+        summary: {
+          code: identity.failure.code ?? "identity_invariant_violation",
+        },
+      }, 409);
+    }
+    const profile = identity.context;
+    const productCountry = profile.country;
+    if (isBridgeBlocked(productCountry)) {
+      return json(bridgeCountryBlockResponse(productCountry!), 403);
+    }
+    const supported = isBridgeCustodialWalletSupported(productCountry);
+    return json({
+      success: true,
+      code: "wallet_capabilities_ready",
+      summary: {
+        code: "wallet_capabilities_ready",
+        supported,
+      },
+      data: {
+        supported,
+        supported_symbols: [...SYMS],
+      },
+    });
+  }
+
   const symbol = String(body.symbol || "USDC").toUpperCase() as StablecoinSymbol;
   const chain  = String(body.chain  || "ETH").toUpperCase()  as StablecoinChain;
   if (!SYMS.includes(symbol)) {
