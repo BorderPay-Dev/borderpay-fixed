@@ -147,6 +147,7 @@ Deno.serve(async (req) => {
       response_contract_version: 1,
       contract_generated_at: new Date().toISOString(),
       provider: "flutterwave",
+      source_filter: "flutterwave",
       capabilities: caps,
       rows,
       filters: {
