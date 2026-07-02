@@ -1,5 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
+import {
+  bridgeCountryTier,
+  bridgeVirtualAccountCurrenciesForCountry,
+} from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -131,11 +135,22 @@ Deno.serve(async (req) => {
         getCode3(row?.country_code_alpha3) ??
         (code2 ? null : getCode3(row?.code));
       if (!name && !code2 && !code3) return null;
+      const countryCode = code2 ?? null;
+      const vaCurrencies = bridgeVirtualAccountCurrenciesForCountry(countryCode);
       return {
         code: code2 ?? code3 ?? null,
         alpha2: code2,
         alpha3: code3,
         name,
+        bridge_tier: bridgeCountryTier(countryCode),
+        virtual_account: {
+          supported_currencies: vaCurrencies,
+          rails: {
+            usd_ach_wire: vaCurrencies.includes("USD"),
+            eur_sepa: vaCurrencies.includes("EUR"),
+            gbp_faster_payments: vaCurrencies.includes("GBP"),
+          },
+        },
       };
     })
     .filter(Boolean);

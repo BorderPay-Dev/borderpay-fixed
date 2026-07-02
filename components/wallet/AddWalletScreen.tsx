@@ -34,24 +34,16 @@ const CARDS: WalletCard[] = [
   { code: 'GBP', type: 'virtual_account', title: 'British Pound', subtitle: 'Global receive account' },
   { code: 'USDC', type: 'stablecoin', title: 'USD Coin', subtitle: 'Stablecoin wallet' },
   { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Stablecoin wallet' },
-  { code: 'PYUSD', type: 'stablecoin', title: 'PayPal USD', subtitle: 'Stablecoin wallet' },
-  { code: 'USDB', type: 'stablecoin', title: 'USDB', subtitle: 'Stablecoin wallet' },
-  { code: 'EURC', type: 'stablecoin', title: 'Euro Coin', subtitle: 'Stablecoin wallet' },
 ];
 
 const STABLE_CHAIN: Record<string, string> = {
   USDC: 'BASE',
   USDT: 'TRON',
-  PYUSD: 'BASE',
-  USDB: 'BASE',
-  EURC: 'BASE',
 };
 
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
-  PYUSD: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/pyusd.png',
-  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
 function isApproved(value?: string | null): boolean {
@@ -66,7 +58,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
 
   const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
   const [stableSupported, setStableSupported] = useState<boolean>(false);
-  const [supportedStableSymbols, setSupportedStableSymbols] = useState<string[]>(['USDC', 'USDT', 'PYUSD', 'USDB', 'EURC']);
+  const [supportedStableSymbols, setSupportedStableSymbols] = useState<string[]>(['USDC', 'USDT']);
 
   const [verified, setVerified] = useState<boolean>(() => {
     try {
@@ -150,9 +142,12 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         if (walletCaps?.success) {
           setStableSupported(Boolean(walletCaps?.data?.supported));
           if (Array.isArray(walletCaps?.data?.supported_symbols) && walletCaps.data.supported_symbols.length > 0) {
-            setSupportedStableSymbols(walletCaps.data.supported_symbols.map((s: any) => String(s || '').toUpperCase()).filter(Boolean));
+            const supported = walletCaps.data.supported_symbols
+              .map((s: any) => String(s || '').toUpperCase())
+              .filter((s: string) => s === 'USDC' || s === 'USDT');
+            setSupportedStableSymbols(supported);
           } else {
-            setSupportedStableSymbols(['USDC', 'USDT', 'PYUSD', 'USDB', 'EURC']);
+            setSupportedStableSymbols(['USDC', 'USDT']);
           }
         } else {
           setStableSupported(false);
@@ -316,7 +311,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                 : existingStable.has(card.code);
               const supported = card.type === 'virtual_account'
                 ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
-                : stableSupported;
+                : (stableSupported && supportedStableSymbols.includes(card.code));
               return (
                 <div
                   key={card.code}
@@ -337,10 +332,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {!supported
-                        ? `${card.subtitle} · not available in your region`
-                        : exists
-                          ? `${card.subtitle} · active`
+                      {exists
+                        ? `${card.subtitle} · active`
+                        : !supported
+                          ? `${card.subtitle} · not available in your region`
                           : card.subtitle}
                     </div>
                   </div>

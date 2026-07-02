@@ -1,7 +1,7 @@
-// bridge-wallet — create a custodial stablecoin wallet (USDC, USDT, PYUSD,
-//                  USDB, EURC, …) on a supported chain.
+// bridge-wallet — create a custodial stablecoin wallet (USDC, USDT)
+//                  on a supported chain.
 //
-// POST body: { symbol: 'USDC'|'USDT'|'PYUSD'|'USDB'|'EURC',
+// POST body: { symbol: 'USDC'|'USDT',
 //              chain:  'ETH'|'SOL'|'BSC'|'POLYGON'|'TRON'|'BASE'|'OPTIMISM'|'ARBITRUM' }
 // or
 //            { action: 'capabilities' } // returns whether custodial wallets are available for caller country
@@ -33,7 +33,7 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const SYMS:   readonly StablecoinSymbol[] = ["USDC", "USDT", "PYUSD", "USDB", "EURC"];
+const SYMS:   readonly StablecoinSymbol[] = ["USDC", "USDT"];
 const CHAINS: readonly StablecoinChain[]  = ["ETH", "SOL", "BSC", "POLYGON", "TRON", "BASE", "OPTIMISM", "ARBITRUM"];
 
 Deno.serve(async (req) => {

@@ -14,6 +14,7 @@ import {
   isBridgeBlocked,
   bridgeCountryBlockResponse,
   logControlledBridgeTraffic,
+  bridgeVirtualAccountCurrenciesForCountry,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -134,18 +135,26 @@ Deno.serve(async (req) => {
     if (isBridgeBlocked(productCountry)) {
       return json(bridgeCountryBlockResponse(productCountry!), 403);
     }
-    // Bridge is the source of truth for rail/currency entitlement at runtime.
-    // We expose the full BorderPay-supported VA set here, then rely on the
-    // provider response during create to enforce per-customer/corridor grants.
-    const supported_currencies = ["USD", "EUR", "GBP"] as const;
+    // Country-level VA entitlement is policy-driven from the Bridge-aligned
+    // country map, not UI defaults.
+    const supported_currencies = bridgeVirtualAccountCurrenciesForCountry(productCountry);
     return json({
       success: true,
       code: "virtual_account_supported_currencies_ready",
       summary: {
         code: "virtual_account_supported_currencies_ready",
+        country: productCountry ?? null,
         supported_currency_count: supported_currencies.length,
       },
-      data: { supported_currencies },
+      data: {
+        country: productCountry ?? null,
+        supported_currencies,
+        rails: {
+          usd_ach_wire: supported_currencies.includes("USD"),
+          eur_sepa: supported_currencies.includes("EUR"),
+          gbp_faster_payments: supported_currencies.includes("GBP"),
+        },
+      },
     });
   }
 
