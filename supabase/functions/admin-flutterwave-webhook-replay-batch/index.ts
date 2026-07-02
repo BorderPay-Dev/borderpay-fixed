@@ -48,9 +48,18 @@ Deno.serve(async (req) => {
   const reason = String(body?.reason || "batch_replay").slice(0, 250);
   const flow = String(body?.flow || "").toLowerCase();
   const status = String(body?.status || "failed").toLowerCase();
+  const force = body?.force === true;
+  const forceReason = String(body?.force_reason || "").trim().slice(0, 500);
   const excludeErrorCodes = Array.isArray(body?.exclude_error_codes)
     ? body.exclude_error_codes.map((v: unknown) => String(v || "").trim()).filter(Boolean)
     : [];
+  if (force && forceReason.length < 12) {
+    return json({
+      success: false,
+      code: "force_reason_required",
+      error: "force_reason is required and must be at least 12 characters when force=true.",
+    }, 400);
+  }
 
   let q = supa
     .from("flutterwave_webhook_events")
@@ -81,7 +90,13 @@ Deno.serve(async (req) => {
       code: "dry_run_ready",
       data: {
         requested_limit: batchLimit,
-        filters: { flow: flow || null, status: status || "failed", exclude_error_codes: excludeErrorCodes },
+        filters: {
+          flow: flow || null,
+          status: status || "failed",
+          exclude_error_codes: excludeErrorCodes,
+          force,
+          force_reason: forceReason || null,
+        },
         replayable_count: replayable.length,
         candidates: replayable.map((r: any) => ({
           event_id: r.event_id,
@@ -101,7 +116,13 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`,
       },
-      body: JSON.stringify({ event_id: row.event_id, dry_run: false, force: false, reason }),
+      body: JSON.stringify({
+        event_id: row.event_id,
+        dry_run: false,
+        force,
+        reason,
+        ...(force ? { force_reason: forceReason } : {}),
+      }),
     });
     const payload = await res.json().catch(() => ({}));
     results.push({ event_id: row.event_id, status: res.status, ok: res.ok, response: payload });
@@ -122,7 +143,13 @@ Deno.serve(async (req) => {
     code: "batch_replay_executed",
     data: {
       attempted: results.length,
-      filters: { flow: flow || null, status: status || "failed", exclude_error_codes: excludeErrorCodes },
+      filters: {
+        flow: flow || null,
+        status: status || "failed",
+        exclude_error_codes: excludeErrorCodes,
+        force,
+        force_reason: forceReason || null,
+      },
       succeeded: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
       results,

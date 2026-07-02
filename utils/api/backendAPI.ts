@@ -2730,6 +2730,8 @@ export const adminAPI = {
     flow?: 'collection' | 'transfer' | 'unknown';
     status?: 'failed' | 'processing' | 'completed' | 'duplicate_ignored';
     exclude_error_codes?: string[];
+    force?: boolean;
+    force_reason?: string;
   } = {}) =>
     apiCall<{
       requested_limit?: number;
