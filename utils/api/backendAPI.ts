@@ -2717,6 +2717,7 @@ export const adminAPI = {
       dry_run: boolean;
       flow: 'all' | 'collection' | 'transfer';
       actions_count: number;
+      action_summary?: Record<string, number>;
       actions: Array<Record<string, unknown>>;
     }>('admin-flutterwave-projection-repair', {
       method: 'POST',

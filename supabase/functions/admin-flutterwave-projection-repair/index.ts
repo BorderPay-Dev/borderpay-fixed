@@ -142,6 +142,12 @@ Deno.serve(async (req) => {
     after_state: { actions_count: actions.length },
   });
 
+  const actionSummary = actions.reduce<Record<string, number>>((acc, item) => {
+    const key = String(item.action || "unknown");
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
   return json({
     success: true,
     data: {
@@ -149,6 +155,7 @@ Deno.serve(async (req) => {
       flow: flow || "all",
       target_user_id: targetUserId || null,
       actions_count: actions.length,
+      action_summary: actionSummary,
       actions,
     },
   });
