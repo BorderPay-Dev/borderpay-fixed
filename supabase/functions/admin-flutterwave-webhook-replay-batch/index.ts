@@ -133,7 +133,16 @@ Deno.serve(async (req) => {
       selectionSummary.skipped_exclude_error_codes += 1;
       continue;
     }
-    replayableCandidates.push(r);
+    replayableCandidates.push({
+      ...r,
+      _diagnostics: {
+        error_code: code || null,
+        cooldown_active: cooldownActive,
+        retry_after_seconds: cooldownActive
+          ? Math.max(0, replayCooldownSeconds - (elapsed || 0))
+          : 0,
+      },
+    });
   }
 
   selectionSummary.selected_before_limit = replayableCandidates.length;
@@ -160,7 +169,9 @@ Deno.serve(async (req) => {
         candidates: replayable.map((r: any) => ({
           event_id: r.event_id,
           processing_attempts: r.processing_attempts,
-          error_code: (r.last_error || {}).code || null,
+          error_code: r?._diagnostics?.error_code || null,
+          cooldown_active: r?._diagnostics?.cooldown_active || false,
+          retry_after_seconds: r?._diagnostics?.retry_after_seconds || 0,
         })),
       },
     });
