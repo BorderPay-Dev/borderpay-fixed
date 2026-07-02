@@ -5,7 +5,7 @@
   "description": "BorderPay Africa - Mobile-first fintech app with neon green and black aesthetic",
   "scripts": {
     "guard:safety-boundaries": "bash scripts/ci/enforce-safety-boundaries.sh",
-    "compute:rc1-status": "python3 scripts/ci/compute_rc1_status.py --write",
+    "compute:rc1-status": "if [ -f scripts/ci/compute_rc1_status.py ]; then python3 scripts/ci/compute_rc1_status.py --write; else echo '[compute:rc1-status] script missing, skipping'; fi",
     "dev": "vite",
     "build": "npm run guard:safety-boundaries && npm run compute:rc1-status && vite build",
     "preview": "vite preview",

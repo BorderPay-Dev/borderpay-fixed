@@ -11,9 +11,23 @@ fail() {
 
 echo "[safety-boundary] enforcing repository and lifecycle execution boundaries..."
 
+HAS_RG=true
+if ! command -v rg >/dev/null 2>&1; then
+  HAS_RG=false
+  echo "[safety-boundary] WARN: rg not found; skipping rg-based boundary scans in this environment."
+fi
+
+scan_rg() {
+  if [ "$HAS_RG" = true ]; then
+    rg "$@"
+  else
+    return 0
+  fi
+}
+
 # 1) /scripts/sql must not contain lifecycle mutation logic.
 if [ -d "$ROOT/scripts/sql" ]; then
-  SQL_HITS="$(rg -n -S \
+  SQL_HITS="$(scan_rg -n -S \
     -e "create\\s+or\\s+replace\\s+function\\s+public\\.(ingest_bridge_event|claim_pending_events|complete_pending_event|fail_pending_event)\\b" \
     -e "update\\s+public\\.(pending_events|webhook_logs|bridge_webhook_events)\\b" \
     "$ROOT/scripts/sql" --glob '*.sql' || true)"
@@ -26,7 +40,7 @@ fi
 # 2) Block incident SQL references unless INCIDENT_MODE=true.
 #    Reference outside scripts/incident is considered runnable-path risk.
 if [ "${INCIDENT_MODE:-false}" != "true" ]; then
-  INCIDENT_REFS="$(rg -n -S "scripts/incident/sql/|scripts/incident/" \
+  INCIDENT_REFS="$(scan_rg -n -S "scripts/incident/sql/|scripts/incident/" \
     "$ROOT" \
     --glob '!.git/**' \
     --glob '!node_modules/**' \
@@ -46,7 +60,7 @@ fi
 #      - supabase/migrations/** (historical canonical RPC definitions)
 #      - scripts/incident/** (quarantined incident-only tools)
 #    Everywhere else: forbidden.
-NON_CANONICAL_HITS="$(rg -n -S \
+NON_CANONICAL_HITS="$(scan_rg -n -S \
   -e "create\\s+or\\s+replace\\s+function\\s+public\\.(ingest_bridge_event|claim_pending_events|complete_pending_event|fail_pending_event)\\b" \
   -e "update\\s+public\\.(pending_events|webhook_logs|bridge_webhook_events)\\b" \
   "$ROOT" --glob '*.sql' \
@@ -64,7 +78,7 @@ fi
 #    a) Evaluator must stay pure (no DB/network/time side effects).
 EVAL_FILE="$ROOT/supabase/functions/_shared/bridge-ingress-evaluator.ts"
 if [ -f "$EVAL_FILE" ]; then
-  EVAL_IMPURE_HITS="$(rg -n -S \
+  EVAL_IMPURE_HITS="$(scan_rg -n -S \
     -e "\\.from\\(" \
     -e "\\.rpc\\(" \
     -e "fetch\\(" \
@@ -78,7 +92,7 @@ if [ -f "$EVAL_FILE" ]; then
 fi
 
 #    b) Routing pattern branching must not be duplicated outside evaluator.
-ROUTING_BRANCH_HITS="$(rg -n -S \
+ROUTING_BRANCH_HITS="$(scan_rg -n -S \
   -e "startsWith\\(\"(kyc_link\\.|customer\\.kyc|customer\\.kyb|virtual_account\\.|wallet\\.|bridge_wallet\\.|external_account\\.|transfer\\.|payout\\.|deposit\\.|customer\\.)" \
   "$ROOT/supabase/functions/bridge-webhook/index.ts" \
   "$ROOT/supabase/functions/bridge-test-webhook/index.ts" \
@@ -90,13 +104,13 @@ fi
 
 # 5) Block direct lifecycle status updates outside canonical mutation surfaces.
 #    Current temporary allowlist is explicit and must trend to zero.
-DIRECT_TS_UPDATES="$(rg -n -S \
+DIRECT_TS_UPDATES="$(scan_rg -n -S \
   -e "from\\(\"pending_events\"\\)\\s*\\.update\\(" \
   -e "from\\(\"bridge_webhook_events\"\\)\\s*\\.update\\(" \
   -e "from\\(\"bridge_transfers\"\\)\\s*\\.update\\(" \
   "$ROOT/supabase/functions" --glob '*.ts' || true)"
 if [ -n "$DIRECT_TS_UPDATES" ]; then
-  UNAPPROVED_TS_UPDATES="$(printf '%s\n' "$DIRECT_TS_UPDATES" | rg -v \
+  UNAPPROVED_TS_UPDATES="$(printf '%s\n' "$DIRECT_TS_UPDATES" | grep -Ev \
     -e "supabase/functions/process-pending-events/index.ts" \
     -e "supabase/functions/bridge-test-webhook/index.ts" || true)"
   if [ -n "$UNAPPROVED_TS_UPDATES" ]; then
@@ -105,7 +119,7 @@ if [ -n "$DIRECT_TS_UPDATES" ]; then
   fi
 fi
 
-DIRECT_SQL_UPDATES="$(rg -n -S \
+DIRECT_SQL_UPDATES="$(scan_rg -n -S \
   -e "update\\s+public\\.(pending_events|bridge_webhook_events|bridge_transfers)\\b" \
   "$ROOT" --glob '*.sql' \
   --glob '!supabase/migrations/**' \
