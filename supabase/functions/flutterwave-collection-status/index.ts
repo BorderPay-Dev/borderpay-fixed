@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave collection rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
       success: false,
       code: networkGuard.code,
       error: networkGuard.message,
-      data: { capabilities: caps, network_guard: networkGuard },
+      data: { capabilities: caps, network_guard: networkGuard, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       error: "Collection exists locally but provider id is not available yet. Try again shortly.",
-      data: { reference: row.reference },
+      data: { reference: row.reference, source_filter: "flutterwave" },
     }, 409);
   }
 
@@ -152,7 +152,7 @@ Deno.serve(async (req) => {
         : (isInactive
           ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
           : (res.error || "Failed to fetch collection status")),
-      data: { reference: row.reference, provider_transfer_id: chargeId },
+      data: { reference: row.reference, provider_transfer_id: chargeId, source_filter: "flutterwave" },
     }, (isIpGuard || isInactive) ? 503 : 502);
   }
 

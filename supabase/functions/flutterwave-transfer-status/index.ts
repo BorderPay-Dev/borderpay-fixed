@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave transfer status endpoint is not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave payout rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
   if (direction === "receive" && !caps.receive_enabled) {
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave receive rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
   if (!transferId && !reference && !localTransferId) {
@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave payout rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
   if (localDirection === "receive" && !caps.receive_enabled) {
@@ -137,7 +137,7 @@ Deno.serve(async (req) => {
       success: false,
       code: "flutterwave_not_enabled",
       error: "Flutterwave receive rails are not enabled in this environment.",
-      data: { capabilities: caps },
+      data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
 
@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       error: "Transfer has no provider id yet. Retry after create webhook sync.",
-      data: { local_transfer_id: localRecord.id, reference: localRecord.reference },
+      data: { local_transfer_id: localRecord.id, reference: localRecord.reference, source_filter: "flutterwave" },
     }, 409);
   }
 
@@ -176,7 +176,7 @@ Deno.serve(async (req) => {
         : (isInactive
           ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
           : (res.error || "Failed to retrieve transfer status")),
-      data: { capabilities: caps, transfer_id: providerTransferId, local_transfer_id: localRecord.id },
+      data: { capabilities: caps, transfer_id: providerTransferId, local_transfer_id: localRecord.id, source_filter: "flutterwave" },
     }, (isIpGuard || isInactive) ? 503 : 502);
   }
 
