@@ -318,7 +318,29 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
 
 // ── Virtual-account "letter" sheet ──────────────────────────────────────────
 function pickDeposit(details: any) {
-  const d = details?.source_deposit_instructions ?? details?.account_details ?? details ?? {};
+  const root = details?.account_details ?? details ?? {};
+  const srcDep = root?.source_deposit_instructions ?? root?.deposit_instructions ?? {};
+  const bridgeRaw = root?.bridge_response ?? {};
+  const bridgeData = bridgeRaw?.data ?? bridgeRaw ?? {};
+  const bridgeDep = bridgeData?.source_deposit_instructions ?? {};
+  const d = {
+    ...(bridgeData && typeof bridgeData === 'object' ? bridgeData : {}),
+    ...(root && typeof root === 'object' ? root : {}),
+    ...(bridgeDep && typeof bridgeDep === 'object' ? bridgeDep : {}),
+    ...(srcDep && typeof srcDep === 'object' ? srcDep : {}),
+  };
+  const paymentInstructionsUrl =
+    d.payment_instructions_pdf_url ||
+    d.payment_instructions_url ||
+    d.payment_instruction_pdf_url ||
+    d.payment_instruction_url ||
+    null;
+  const accountLetterUrl =
+    d.account_letter_pdf_url ||
+    d.account_letter_url ||
+    d.bank_letter_pdf_url ||
+    d.bank_letter_url ||
+    null;
   return {
     holder:   d.bank_beneficiary_name || d.account_holder_name || d.beneficiary_name || d.account_holder,
     bank:     d.bank_name,
@@ -329,7 +351,21 @@ function pickDeposit(details: any) {
     bic:      d.bic || d.swift,
     reference:d.payment_reference || d.reference || d.deposit_message,
     rail:     d.payment_rail,
+    paymentInstructionsUrl,
+    accountLetterUrl,
   };
+}
+
+function normalizeHttpsUrl(value: unknown): string | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function AccountDetailSheet({ open, onClose, va }: {
@@ -340,6 +376,8 @@ export function AccountDetailSheet({ open, onClose, va }: {
   if (!va) return <Sheet open={open} onClose={onClose}><div /></Sheet>;
   const cur = String(va.currency).toUpperCase();
   const d = pickDeposit(va.account_details);
+  const paymentInstructionsUrl = normalizeHttpsUrl(d.paymentInstructionsUrl);
+  const accountLetterUrl = normalizeHttpsUrl(d.accountLetterUrl);
   const railLabel = cur === 'EUR' ? 'SEPA' : cur === 'GBP' ? 'Faster Payments' : 'ACH / Wire';
   return (
     <Sheet open={open} onClose={onClose}>
@@ -370,6 +408,36 @@ export function AccountDetailSheet({ open, onClose, va }: {
               Your {cur} account is being set up. Bank details arrive by email and appear here
               within a few minutes — pull to refresh.
             </p>
+          </div>
+        )}
+
+        {(paymentInstructionsUrl || accountLetterUrl) && (
+          <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-3 mt-3`}>
+            <p className={`text-[10px] uppercase tracking-[0.16em] font-semibold ${tc.textMuted} mb-2`}>
+              Documents
+            </p>
+            <div className="space-y-2">
+              {paymentInstructionsUrl && (
+                <a
+                  href={paymentInstructionsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block w-full text-center rounded-xl border ${tc.cardBorder} ${tc.hoverBg} px-3 py-2 text-xs font-semibold ${tc.text}`}
+                >
+                  Download payment instructions
+                </a>
+              )}
+              {accountLetterUrl && (
+                <a
+                  href={accountLetterUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block w-full text-center rounded-xl border ${tc.cardBorder} ${tc.hoverBg} px-3 py-2 text-xs font-semibold ${tc.text}`}
+                >
+                  Download account letter
+                </a>
+              )}
+            </div>
           </div>
         )}
       </div>

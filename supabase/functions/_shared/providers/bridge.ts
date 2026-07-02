@@ -468,7 +468,15 @@ export class BridgeProvider implements PaymentProvider {
         v?.developer_fee_percent != null && Number.isFinite(Number(v.developer_fee_percent))
           ? Number(v.developer_fee_percent)
           : undefined,
-      account_details: v?.source_deposit_instructions ?? v,
+      // Keep full provider payload + normalized deposit instructions so
+      // downstream UI can render payment-instruction and account-letter URLs.
+      account_details: {
+        ...(v && typeof v === "object" ? v : {}),
+        source_deposit_instructions:
+          (v?.source_deposit_instructions && typeof v.source_deposit_instructions === "object")
+            ? v.source_deposit_instructions
+            : null,
+      },
     }));
   }
 
