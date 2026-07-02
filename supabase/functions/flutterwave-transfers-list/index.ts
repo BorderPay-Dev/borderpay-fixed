@@ -74,12 +74,15 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON body" }, 400);
   }
 
+  const page = Number.isFinite(Number(body?.page)) ? Math.max(1, Number(body.page)) : undefined;
+  const limit = Number.isFinite(Number(body?.limit)) ? Math.max(1, Math.min(100, Number(body.limit))) : 50;
+
   const res = await flutterwaveListTransfers({
     ...(body?.status ? { status: String(body.status) } : {}),
     ...(body?.from ? { from: String(body.from) } : {}),
     ...(body?.to ? { to: String(body.to) } : {}),
-    ...(Number.isFinite(Number(body?.page)) ? { page: Number(body.page) } : {}),
-    ...(Number.isFinite(Number(body?.limit)) ? { limit: Number(body.limit) } : {}),
+    ...(Number.isFinite(Number(page)) ? { page } : {}),
+    ...(Number.isFinite(Number(limit)) ? { limit } : {}),
   });
 
   if (!res.ok) {
@@ -102,7 +105,7 @@ Deno.serve(async (req) => {
     .select("reference,flutterwave_transfer_id,amount,currency,status,metadata,last_provider_status_at,last_webhook_event_at,created_at,updated_at")
     .eq(ownerColumn, authData.user.id)
     .order("updated_at", { ascending: false })
-    .limit(Number.isFinite(Number(body?.limit)) ? Math.max(1, Math.min(100, Number(body.limit))) : 50);
+    .limit(limit);
 
   return json({
     success: true,
