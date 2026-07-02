@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
 
   const status = String(body?.status || "failed").trim().toLowerCase();
   const flow = String(body?.flow || "").trim().toLowerCase();
-  const errorCode = String(body?.error_code || "").trim();
+  const errorCode = String(body?.error_code || "").trim().toLowerCase();
   const includePayload = body?.include_payload === true;
   const onlyReplayable = body?.only_replayable === true;
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
@@ -70,6 +70,13 @@ Deno.serve(async (req) => {
       success: false,
       code: "invalid_flow_filter",
       error: "Invalid flow filter. Allowed values: transfer, collection.",
+    }, 400);
+  }
+  if (errorCode && !/^[a-z0-9._:-]{2,80}$/.test(errorCode)) {
+    return json({
+      success: false,
+      code: "invalid_error_code_filter",
+      error: "Invalid error_code filter format.",
     }, 400);
   }
   const limit = Math.max(1, Math.min(200, Number(body?.limit || 50)));

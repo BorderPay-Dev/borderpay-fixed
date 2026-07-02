@@ -54,11 +54,20 @@ Deno.serve(async (req) => {
   const force = body?.force === true;
   const forceReason = String(body?.force_reason || "").trim().slice(0, 500);
   const allowErrorCodes = Array.isArray(body?.allow_error_codes)
-    ? body.allow_error_codes.map((v: unknown) => String(v || "").trim()).filter(Boolean)
+    ? body.allow_error_codes.map((v: unknown) => String(v || "").trim().toLowerCase()).filter(Boolean)
     : [];
   const excludeErrorCodes = Array.isArray(body?.exclude_error_codes)
-    ? body.exclude_error_codes.map((v: unknown) => String(v || "").trim()).filter(Boolean)
+    ? body.exclude_error_codes.map((v: unknown) => String(v || "").trim().toLowerCase()).filter(Boolean)
     : [];
+  const invalidErrorCode = [...allowErrorCodes, ...excludeErrorCodes].find((code) => !/^[a-z0-9._:-]{2,80}$/.test(code));
+  if (invalidErrorCode) {
+    return json({
+      success: false,
+      code: "invalid_error_code_filter",
+      error: "allow_error_codes/exclude_error_codes contain an invalid value.",
+      data: { invalid_error_code: invalidErrorCode },
+    }, 400);
+  }
   const overlappingCodes = allowErrorCodes.filter((code) => excludeErrorCodes.includes(code));
   if (overlappingCodes.length > 0) {
     return json({
