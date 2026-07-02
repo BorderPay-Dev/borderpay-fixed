@@ -48,10 +48,13 @@ Deno.serve(async (req) => {
   const reason = String(body?.reason || "batch_replay").slice(0, 250);
   const flow = String(body?.flow || "").toLowerCase();
   const status = String(body?.status || "failed").toLowerCase();
+  const excludeErrorCodes = Array.isArray(body?.exclude_error_codes)
+    ? body.exclude_error_codes.map((v: unknown) => String(v || "").trim()).filter(Boolean)
+    : [];
 
   let q = supa
     .from("flutterwave_webhook_events")
-    .select("event_id,processing_attempts,flow,processing_status")
+    .select("event_id,processing_attempts,flow,processing_status,last_error")
     .eq("processing_status", status || "failed")
     .order("received_at", { ascending: true })
     .limit(200);
@@ -62,7 +65,15 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "candidate_query_failed", error: error.message }, 500);
   }
 
-  const replayable = (rows || []).filter((r: any) => Number(r.processing_attempts || 0) < maxReplayAttempts).slice(0, batchLimit);
+  const replayable = (rows || [])
+    .filter((r: any) => {
+      const attemptsOk = Number(r.processing_attempts || 0) < maxReplayAttempts;
+      if (!attemptsOk) return false;
+      if (excludeErrorCodes.length === 0) return true;
+      const code = String((r.last_error || {}).code || "").trim();
+      return !excludeErrorCodes.includes(code);
+    })
+    .slice(0, batchLimit);
 
   if (dryRun) {
     return json({
@@ -70,9 +81,13 @@ Deno.serve(async (req) => {
       code: "dry_run_ready",
       data: {
         requested_limit: batchLimit,
-        filters: { flow: flow || null, status: status || "failed" },
+        filters: { flow: flow || null, status: status || "failed", exclude_error_codes: excludeErrorCodes },
         replayable_count: replayable.length,
-        candidates: replayable.map((r: any) => ({ event_id: r.event_id, processing_attempts: r.processing_attempts })),
+        candidates: replayable.map((r: any) => ({
+          event_id: r.event_id,
+          processing_attempts: r.processing_attempts,
+          error_code: (r.last_error || {}).code || null,
+        })),
       },
     });
   }
@@ -107,7 +122,7 @@ Deno.serve(async (req) => {
     code: "batch_replay_executed",
     data: {
       attempted: results.length,
-      filters: { flow: flow || null, status: status || "failed" },
+      filters: { flow: flow || null, status: status || "failed", exclude_error_codes: excludeErrorCodes },
       succeeded: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
       results,
