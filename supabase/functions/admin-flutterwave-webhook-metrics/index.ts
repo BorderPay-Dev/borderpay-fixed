@@ -43,11 +43,12 @@ Deno.serve(async (req) => {
   if (!admin.ok) return json({ success: false, code: admin.code, error: admin.error }, admin.status);
 
   const maxReplayAttempts = Math.max(1, Math.min(20, Number(Deno.env.get("FLW_WEBHOOK_MAX_REPLAY_ATTEMPTS") || 5)));
+  const replayCooldownSeconds = Math.max(0, Math.min(3600, Number(Deno.env.get("FLW_WEBHOOK_REPLAY_COOLDOWN_SECONDS") || 60)));
 
   const [{ data: allRows, error: allErr }, { count: failed24hCount, error: failed24Err }] = await Promise.all([
     supa
       .from("flutterwave_webhook_events")
-      .select("flow,processing_status,processing_attempts,last_error,received_at", { count: "exact" })
+      .select("flow,processing_status,processing_attempts,last_error,last_replay_attempt_at,received_at", { count: "exact" })
       .order("received_at", { ascending: false })
       .limit(1000),
     supa
@@ -76,7 +77,18 @@ Deno.serve(async (req) => {
   const replayableFailed = rows.filter((r) => {
     const status = String(r.processing_status || "").toLowerCase();
     const attempts = Number(r.processing_attempts || 0);
-    return status === "failed" && attempts < maxReplayAttempts;
+    const lastReplayMs = (r as any).last_replay_attempt_at ? Date.parse(String((r as any).last_replay_attempt_at)) : NaN;
+    const elapsed = Number.isFinite(lastReplayMs) ? Math.floor((Date.now() - lastReplayMs) / 1000) : null;
+    const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
+    return status === "failed" && attempts < maxReplayAttempts && !cooldownActive;
+  }).length;
+
+  const cooldownBlockedFailed = rows.filter((r) => {
+    const status = String(r.processing_status || "").toLowerCase();
+    if (status !== "failed") return false;
+    const lastReplayMs = (r as any).last_replay_attempt_at ? Date.parse(String((r as any).last_replay_attempt_at)) : NaN;
+    const elapsed = Number.isFinite(lastReplayMs) ? Math.floor((Date.now() - lastReplayMs) / 1000) : null;
+    return replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
   }).length;
 
   const failedByCode = rows.reduce<Record<string, number>>((acc, r) => {
@@ -100,6 +112,7 @@ Deno.serve(async (req) => {
         tracked_events: rows.length,
         failed_24h: failed24hCount || 0,
         replayable_failed: replayableFailed,
+        cooldown_blocked_failed: cooldownBlockedFailed,
       },
       counts: {
         by_status: statusCounts,
@@ -109,6 +122,7 @@ Deno.serve(async (req) => {
       },
       replay_policy: {
         max_attempts: maxReplayAttempts,
+        replay_cooldown_seconds: replayCooldownSeconds,
       },
       sampled_window: {
         latest_events_sampled: rows.length,
