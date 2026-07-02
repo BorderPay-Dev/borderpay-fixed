@@ -329,17 +329,29 @@ function pickDeposit(details: any) {
     ...(bridgeDep && typeof bridgeDep === 'object' ? bridgeDep : {}),
     ...(srcDep && typeof srcDep === 'object' ? srcDep : {}),
   };
+  const docs = {
+    ...(d.documents && typeof d.documents === 'object' ? d.documents : {}),
+    ...(d.document_urls && typeof d.document_urls === 'object' ? d.document_urls : {}),
+  };
   const paymentInstructionsUrl =
     d.payment_instructions_pdf_url ||
     d.payment_instructions_url ||
     d.payment_instruction_pdf_url ||
     d.payment_instruction_url ||
+    docs.payment_instructions_pdf_url ||
+    docs.payment_instructions_url ||
+    docs.instructions_pdf_url ||
+    docs.instructions_url ||
     null;
   const accountLetterUrl =
     d.account_letter_pdf_url ||
     d.account_letter_url ||
     d.bank_letter_pdf_url ||
     d.bank_letter_url ||
+    docs.account_letter_pdf_url ||
+    docs.account_letter_url ||
+    docs.letter_pdf_url ||
+    docs.letter_url ||
     null;
   return {
     holder:   d.bank_beneficiary_name || d.account_holder_name || d.beneficiary_name || d.account_holder,
@@ -424,7 +436,7 @@ export function AccountDetailSheet({ open, onClose, va }: {
                   rel="noopener noreferrer"
                   className={`block w-full text-center rounded-xl border ${tc.cardBorder} ${tc.hoverBg} px-3 py-2 text-xs font-semibold ${tc.text}`}
                 >
-                  Download payment instructions
+                  Instructions
                 </a>
               )}
               {accountLetterUrl && (
@@ -434,7 +446,7 @@ export function AccountDetailSheet({ open, onClose, va }: {
                   rel="noopener noreferrer"
                   className={`block w-full text-center rounded-xl border ${tc.cardBorder} ${tc.hoverBg} px-3 py-2 text-xs font-semibold ${tc.text}`}
                 >
-                  Download account letter
+                  Account letter
                 </a>
               )}
             </div>
