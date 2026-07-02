@@ -213,7 +213,7 @@ Deno.serve(async (req) => {
   const collectionId = String(data?.id || data?.flw_ref || txRef || "").trim();
   const transferId = String(data?.id || data?.transfer_id || data?.flw_ref || "").trim();
   const status = normStatus(data?.status || data?.payment_status);
-  const currency = String(data?.currency || "").trim().toUpperCase() || "USD";
+  const currency = String(data?.currency || "").trim().toUpperCase();
   const amount = Number(data?.amount || data?.charged_amount || 0);
   const eventId = await deriveEventId({
     payloadEventId: payload?.id,
@@ -272,6 +272,20 @@ Deno.serve(async (req) => {
   }
 
   try {
+  if (!currency) {
+    await markWebhookEventStatus(eventId, "failed", {
+      code: "webhook_currency_missing",
+      reason: "currency_missing_in_payload",
+      at: new Date().toISOString(),
+    });
+    return json({
+      success: false,
+      code: "webhook_currency_missing",
+      error: "Webhook payload missing currency",
+      data: { event_id: eventId, event_type: eventType, flow },
+    }, 422);
+  }
+
   if (transferEvent) {
     const transferProjectionKey = transferReference || transferId || eventId;
     const { data: existingTransfer } = await supa
