@@ -91,6 +91,9 @@ Deno.serve(async (req) => {
   }
 
   if (action === "payment_methods") {
+    if (!(caps.receive_enabled || caps.payout_enabled)) {
+      return json({ success: false, code: "flutterwave_not_enabled", error: "Flutterwave rails are not enabled in this environment.", data: { capabilities: caps } }, 503);
+    }
     const country = String(body?.country || "").trim().toUpperCase();
     if (country && !isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
     if (country && !supportedCountries.includes(country)) {
@@ -105,6 +108,9 @@ Deno.serve(async (req) => {
   }
 
   if (action === "banks") {
+    if (!(caps.receive_enabled || caps.payout_enabled)) {
+      return json({ success: false, code: "flutterwave_not_enabled", error: "Flutterwave rails are not enabled in this environment.", data: { capabilities: caps } }, 503);
+    }
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
     if (!isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
@@ -120,6 +126,9 @@ Deno.serve(async (req) => {
   }
 
   if (action === "mobile_networks") {
+    if (!(caps.receive_enabled || caps.payout_enabled)) {
+      return json({ success: false, code: "flutterwave_not_enabled", error: "Flutterwave rails are not enabled in this environment.", data: { capabilities: caps } }, 503);
+    }
     const country = String(body?.country || "").trim().toUpperCase();
     if (!country) return json({ success: false, error: "country is required" }, 400);
     if (!isIso2(country)) return json({ success: false, error: "country must be ISO-2" }, 400);
