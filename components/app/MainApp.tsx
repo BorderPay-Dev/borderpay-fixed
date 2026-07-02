@@ -647,7 +647,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const idle = (cb: () => void) => {
       const ric = (window as any).requestIdleCallback;
       if (typeof ric === 'function') ric(cb, { timeout: 1500 });
-      else setTimeout(cb, 800);
+      else setTimeout(cb, 120);
     };
     idle(() => {
       if (cancelled) return;
@@ -775,8 +775,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     };
 
     const ric = (window as any).requestIdleCallback;
-    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1800 });
-    else setTimeout(() => { void warm(); }, 900);
+    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 900 });
+    else setTimeout(() => { void warm(); }, 120);
     return () => { cancelled = true; };
   }, [userId]);
 

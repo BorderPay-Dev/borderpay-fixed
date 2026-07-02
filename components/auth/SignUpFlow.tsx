@@ -52,7 +52,7 @@ import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 // TYPES
 // ============================================================================
 
-type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'address' | 'review' | 'pending';
+type SignUpStep = 'personal' | 'confirm-email';
 
 interface SignUpData {
   // Step 1: Personal
@@ -111,10 +111,8 @@ const getIdTypesForCountry = (countryCode: string): Array<{ value: string; label
 export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowProps) {
   const [currentStep, setCurrentStep] = useState<SignUpStep>('personal');
   const [isLoading, setIsLoading] = useState(false);
-  const [createdUserId, setCreatedUserId] = useState<string | null>(null);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
-  const [enrollmentComplete, setEnrollmentComplete] = useState(false);
   const [formError, setFormError] = useState('');
   const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>(() => getSignupBootstrapCountries());
   const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(false);
@@ -172,9 +170,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     return () => { cancelled = true; };
   }, []);
 
-  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'review', 'pending'];
+  const steps: SignUpStep[] = ['personal', 'confirm-email'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 5; // Don't count 'pending'
+  const totalSteps = 2;
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)
@@ -304,51 +302,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   };
 
   // ============================================================================
-  // STEP 3: Identity → Address (KYC done from dashboard)
-  // ============================================================================
-
-
-  // ============================================================================
-  // STEP 6: Submit to backend
-  // ============================================================================
-
-  const handleEnrollCustomer = async () => {
-    // No legacy enrollment endpoint here — signup is provider-neutral.
-    // Bridge customer creation happens later, only when the user clicks
-    // Start KYC/KYB in KYCVerification (via bridge-customer / bridge-kyc-link
-    // / bridge-kyb-link). This handler just transitions the UI into the
-    // pending-review state.
-    setIsLoading(true);
-    try {
-      toast.success('Registration complete! Your account is under review.');
-      setEnrollmentComplete(true);
-      setCurrentStep('pending');
-    } catch (_error: any) {
-      toast.error('Submission error. You can proceed — our team will complete your setup.');
-      setCurrentStep('pending');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================================
-  // PROCEED TO DASHBOARD (from pending)
-  // ============================================================================
-
-  const handleProceedToDashboard = async () => {
-    const storedUser = authAPI.getStoredUser();
-    if (storedUser) {
-      onSignUpSuccess(storedUser);
-    } else {
-      // Fallback
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        onSignUpSuccess(data.user);
-      }
-    }
-  };
-
-  // ============================================================================
   // PROGRESS BAR
   // ============================================================================
 
@@ -379,7 +332,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       <div className="glass-noise-overlay" />
       
       {/* Header */}
-      {currentStep !== 'pending' && (
+      {currentStep !== 'personal' && currentStep !== 'confirm-email' ? null : (
         <div className="flex-shrink-0 pt-safe relative z-[2]">
           {/* Back button + step indicator */}
           <div className="flex items-center justify-between px-4 py-3">
@@ -453,7 +406,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                     });
                     if (error) throw error;
                     if (data.user) {
-                      setCreatedUserId(data.user.id);
                       localStorage.setItem('borderpay_user', JSON.stringify({
                         id: data.user.id,
                         email: data.user.email,
@@ -515,7 +467,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                             } catch (e: any) {
                               rpcError = e?.message || 'Network error finalising business signup';
                             }
-                            if (attempt === 0) await new Promise(r => setTimeout(r, 800));
+                            if (attempt === 0) await new Promise(r => setTimeout(r, 120));
                           }
 
                           if (rpcResult?.success) {
@@ -548,9 +500,13 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         return;
                       }
 
-                      // ─── Individual signup (unchanged) ──────────────────
-                      toast.success('Email verified! Continue with verification.');
-                      setCurrentStep('identity');
+                      // ─── Individual signup (Bridge-aligned) ──────────────
+                      // No legacy in-app KYC forms after email verification.
+                      // User continues verification from the dashboard via
+                      // hosted Bridge flow.
+                      toast.success('Email verified! Continue verification from your dashboard.');
+                      onSignUpSuccess(data.user);
+                      return;
                     }
                   } catch (err: any) {
                     toast.error(friendlyErrorFor(err, 'signin', 'Sign in failed. Please try logging in.'));
@@ -587,36 +543,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               />
             )}
 
-            {currentStep === 'identity' && (
-              <StepIdentityInfo
-                formData={formData}
-                updateForm={updateForm}
-                onNext={() => setCurrentStep('address')}
-              />
-            )}
-
-            {currentStep === 'address' && (
-              <StepAddress
-                formData={formData}
-                updateForm={updateForm}
-                onNext={() => setCurrentStep('review')}
-              />
-            )}
-
-            {currentStep === 'review' && (
-              <StepReview
-                formData={formData}
-                onSubmit={handleEnrollCustomer}
-                isLoading={isLoading}
-              />
-            )}
-
-            {currentStep === 'pending' && (
-              <StepPending
-                onProceed={handleProceedToDashboard}
-                enrollmentComplete={enrollmentComplete}
-              />
-            )}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -1243,8 +1169,8 @@ function StepConfirmEmail({ email, fullName, onEmailConfirmed, onResend, isLoadi
 
   const handleCheckConfirmation = async () => {
     setChecking(true);
-    // Give a moment for the UI, then try signing in
-    await new Promise(r => setTimeout(r, 500));
+    // Run confirmation check immediately for native-feel response.
+    await Promise.resolve();
     onEmailConfirmed();
     setChecking(false);
   };

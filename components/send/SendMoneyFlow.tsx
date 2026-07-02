@@ -573,7 +573,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   };
 
   // ---------------------------------------------------------------------------
-  // Account resolution (debounced)
+  // Account resolution (light debounce for native-feel typing)
   // ---------------------------------------------------------------------------
   useEffect(() => {
     setResolvedName('');
@@ -582,7 +582,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (method !== 'bank') return;
     if (!selectedBank || accountNumber.length < 6) return;
 
-    const timer = setTimeout(() => resolveAccount(), 800);
+    const timer = setTimeout(() => resolveAccount(), 250);
     return () => clearTimeout(timer);
   }, [method, selectedBank, accountNumber]);
 
