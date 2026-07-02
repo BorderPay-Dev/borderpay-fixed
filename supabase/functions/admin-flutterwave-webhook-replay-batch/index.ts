@@ -92,20 +92,40 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "candidate_query_failed", error: error.message }, 500);
   }
 
-  const replayable = (rows || [])
-    .filter((r: any) => {
-      const attemptsOk = Number(r.processing_attempts || 0) < maxReplayAttempts;
-      if (!attemptsOk) return false;
-      const lastReplayMs = r.last_replay_attempt_at ? Date.parse(String(r.last_replay_attempt_at)) : NaN;
-      const elapsed = Number.isFinite(lastReplayMs) ? Math.floor((Date.now() - lastReplayMs) / 1000) : null;
-      const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
-      if (cooldownActive && !force) return false;
-      const code = String((r.last_error || {}).code || "").trim();
-      if (allowErrorCodes.length > 0 && !allowErrorCodes.includes(code)) return false;
-      if (excludeErrorCodes.length === 0) return true;
-      return !excludeErrorCodes.includes(code);
-    })
-    .slice(0, batchLimit);
+  const selectionSummary = {
+    scanned: (rows || []).length,
+    skipped_max_attempts: 0,
+    skipped_cooldown: 0,
+    skipped_allow_error_codes: 0,
+    skipped_exclude_error_codes: 0,
+  };
+  const replayableCandidates: any[] = [];
+  for (const r of rows || []) {
+    const attemptsOk = Number(r.processing_attempts || 0) < maxReplayAttempts;
+    if (!attemptsOk) {
+      selectionSummary.skipped_max_attempts += 1;
+      continue;
+    }
+    const lastReplayMs = r.last_replay_attempt_at ? Date.parse(String(r.last_replay_attempt_at)) : NaN;
+    const elapsed = Number.isFinite(lastReplayMs) ? Math.floor((Date.now() - lastReplayMs) / 1000) : null;
+    const cooldownActive = replayCooldownSeconds > 0 && elapsed !== null && elapsed < replayCooldownSeconds;
+    if (cooldownActive && !force) {
+      selectionSummary.skipped_cooldown += 1;
+      continue;
+    }
+    const code = String((r.last_error || {}).code || "").trim();
+    if (allowErrorCodes.length > 0 && !allowErrorCodes.includes(code)) {
+      selectionSummary.skipped_allow_error_codes += 1;
+      continue;
+    }
+    if (excludeErrorCodes.length > 0 && excludeErrorCodes.includes(code)) {
+      selectionSummary.skipped_exclude_error_codes += 1;
+      continue;
+    }
+    replayableCandidates.push(r);
+  }
+
+  const replayable = replayableCandidates.slice(0, batchLimit);
 
   if (dryRun) {
     return json({
@@ -123,6 +143,7 @@ Deno.serve(async (req) => {
           replay_cooldown_seconds: replayCooldownSeconds,
         },
         replayable_count: replayable.length,
+        selection_summary: selectionSummary,
         candidates: replayable.map((r: any) => ({
           event_id: r.event_id,
           processing_attempts: r.processing_attempts,
@@ -186,6 +207,7 @@ Deno.serve(async (req) => {
       succeeded: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
       result_code_counts: resultCodeCounts,
+      selection_summary: selectionSummary,
       results,
     },
   });
