@@ -63,6 +63,9 @@ Deno.serve(async (req) => {
   }
 
   const mode = String(body?.mode || "create").trim().toLowerCase();
+  if (!["create", "retry"].includes(mode)) {
+    return json({ success: false, code: "invalid_mode", error: "mode must be create or retry" }, 400);
+  }
   if (mode === "retry") {
     const transferId = String(body?.transfer_id || "").trim();
     if (!transferId) return json({ success: false, error: "transfer_id is required for retry mode" }, 400);
