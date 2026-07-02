@@ -1463,32 +1463,11 @@ export const kycAPI = {
   },
 };
 
-/**
- * DEPRECATED — proof-of-address was a pre-Bridge step; Bridge now collects it
- * inside the hosted KYC flow. The `poa-submit` / `upload-poa` edge functions
- * and the `address_verifications` table have been removed. These stubs exist
- * only so `components/auth/SignUpFlow.tsx`'s legacy POA branch still compiles
- * — at runtime they short-circuit with a clear error if reached.
- */
-const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = {
-  success: false,
-  error: 'Please continue identity verification in the hosted verification flow.',
-  data: {
-    redirect_screen: 'kyc',
-    code: 'verification_redirect_required',
-  },
-};
-
 const BRIDGE_ONLY_DISABLED = {
   success: false,
   code: 'bridge_path_required',
   error: 'This flow is disabled. Use the Bridge-backed send/receive/external-account path.',
 } as const;
-
-export const proofOfAddressAPI = {
-  getUploadUrl: async (_fileType: string, _fileName: string) => deprecatedPoaResponse,
-  submit:       async (_filePath: string, _documentType: string) => deprecatedPoaResponse,
-};
 
 // ============================================================================
 // LOCAL PAYMENTS (Bank transfers)
@@ -2919,7 +2898,6 @@ export const backendAPI = {
   cards: cardAPI,
   fx: fxAPI,
   kyc: kycAPI,
-  proofOfAddress: proofOfAddressAPI,
   localPayments: localPaymentsAPI,
   usPayments: usPaymentsAPI,
   address: addressAPI,
