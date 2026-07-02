@@ -10,7 +10,14 @@
 
 const FLW_BASE_URL = (Deno.env.get("FLW_BASE_URL") || "https://api.flutterwave.com").replace(/\/+$/, "");
 const FLW_SECRET_KEY = Deno.env.get("FLW_SECRET_KEY") || "";
-const DEFAULT_TIMEOUT_MS = Number(Deno.env.get("FLW_HTTP_TIMEOUT_MS") || "15000");
+
+function parseTimeoutMs(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1000, Math.min(60000, Math.trunc(n)));
+}
+
+const DEFAULT_TIMEOUT_MS = parseTimeoutMs(Deno.env.get("FLW_HTTP_TIMEOUT_MS"), 15000);
 
 export interface FlutterwaveFetchOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -124,9 +131,9 @@ export async function flutterwaveFetch<T = unknown>(
   }
 
   const method = opts.method || "GET";
-  const timeoutMs = Number.isFinite(opts.timeoutMs) ? Number(opts.timeoutMs) : DEFAULT_TIMEOUT_MS;
+  const timeoutMs = parseTimeoutMs(opts.timeoutMs, DEFAULT_TIMEOUT_MS);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Math.max(1_000, timeoutMs));
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const url = buildUrl(opts.path, opts.query);
