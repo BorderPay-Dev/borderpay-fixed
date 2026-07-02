@@ -538,20 +538,8 @@ export const walletAPI = {
 // ============================================================================
 
 export const transactionAPI = {
-  // Pre-Phase-2 this called the `get-transactions` edge function, which
-  // was never deployed (same drift class as `get-wallets`, `send-email`,
-  // etc.). Production logs showed repeated `POST 404 /functions/v1/
-  // get-transactions` with `deployment_id: null` — TransactionsScreen
-  // would render an error toast on first mount.
-  //
-  // `public.transactions` has RLS enabled with policy `transactions_own =
-  // (auth.uid() = user_id)` covering ALL ops. Direct supabase-js SELECT
-  // returns the user's own rows, ordered newest-first, with the same
-  // shape the screen already consumes. Return envelope preserved
-  // (`{ success, data: { transactions: TransactionRow[] } }`).
-  //
-  // Legacy alias endpoints are hard-quarantined below to prevent any
-  // accidental production 404s from undeployed function names.
+  // Read path is direct from canonical ledger tables through RLS.
+  // Compatibility aliases stay fail-closed below.
   async getTransactions(limit = 10, offset = 0) {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
