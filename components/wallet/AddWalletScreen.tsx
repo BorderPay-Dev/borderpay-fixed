@@ -17,7 +17,6 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 interface AddWalletScreenProps {
   userId: string;
   onBack: () => void;
-  onOpenWallet: (currency: string) => void;
 }
 
 interface StableRow { id: string; currency: string }
@@ -50,7 +49,7 @@ function isApproved(value?: string | null): boolean {
   return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
 }
 
-export function AddWalletScreen({ userId, onBack, onOpenWallet }: AddWalletScreenProps) {
+export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
@@ -195,10 +194,10 @@ export function AddWalletScreen({ userId, onBack, onOpenWallet }: AddWalletScree
     if (alreadyExists) {
       return (
         <button
-          onClick={() => onOpenWallet(card.code)}
+          disabled
           className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold"
         >
-          Open
+          Active
         </button>
       );
     }
