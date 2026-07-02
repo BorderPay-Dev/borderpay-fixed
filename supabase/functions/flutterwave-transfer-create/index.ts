@@ -103,6 +103,9 @@ Deno.serve(async (req) => {
       return json({ success: false, code: "transfer_not_found", error: "Transfer not found for current account." }, 404);
     }
     const knownOwners = [ownerProbe.user_id, ownerProbe.business_user_id].filter(Boolean);
+    if (knownOwners.length === 0) {
+      return json({ success: false, code: "owner_not_assigned", error: "Transfer owner is not assigned yet." }, 409);
+    }
     if (knownOwners.length > 0 && !knownOwners.includes(authData.user.id)) {
       return json({ success: false, error: "Transfer does not belong to current user" }, 403);
     }
