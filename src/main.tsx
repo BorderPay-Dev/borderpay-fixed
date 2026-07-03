@@ -53,32 +53,16 @@ removeBrevoWidgetArtifacts();
 const brevoWidgetObserver = new MutationObserver(() => removeBrevoWidgetArtifacts());
 brevoWidgetObserver.observe(document.documentElement, { childList: true, subtree: true });
 
-// Register Service Worker for PWA (iOS + Android)
+// Sev-1 production safety: disable SW registration and purge stale workers/caches.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).then((registration) => {
-      // Force update check on launch so live users receive hotfixes quickly.
-      registration.update().catch(() => {});
-
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (!newWorker) return;
-        newWorker.addEventListener('statechange', () => {
-          // Do not force-activate/reload in active sessions; let SW activate
-          // naturally on next app open to avoid auth/session disruption.
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // no-op by design
-          }
-        });
-      });
-
-      // Keep checking in active sessions (low frequency) without forced reload.
-      const runUpdateCheck = () => registration.update().catch(() => {});
-      const intervalId = window.setInterval(runUpdateCheck, 15 * 60_000);
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') runUpdateCheck();
-      });
-      window.addEventListener('beforeunload', () => window.clearInterval(intervalId));
-    }).catch(() => {});
+    navigator.serviceWorker.getRegistrations()
+      .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+      .catch(() => {});
+    if ('caches' in window) {
+      caches.keys()
+        .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+        .catch(() => {});
+    }
   });
 }
