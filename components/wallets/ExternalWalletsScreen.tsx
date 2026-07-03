@@ -25,6 +25,7 @@ interface Props {
 }
 
 const CACHE_KEY = 'borderpay_external_wallets_v1';
+const EXTERNAL_WALLETS_FETCH_TIMEOUT_MS = 1400;
 const PREFILL_KEY = 'borderpay_prefill_withdraw';   // read by SendMoneyFlow
 
 const CHAINS = [
@@ -49,6 +50,13 @@ function readCache(): ExternalWallet[] {
   catch { return []; }
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return Promise.race<T>([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
+  ]);
+}
+
 export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const tc = useThemeClasses();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
@@ -69,7 +77,11 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
 
   const load = async () => {
     try {
-      const r: any = await backendAPI.externalWallets.list();
+      const r: any = await withTimeout(
+        backendAPI.externalWallets.list(),
+        EXTERNAL_WALLETS_FETCH_TIMEOUT_MS,
+        { success: false, error: 'request_timeout' } as any
+      );
       if (r?.success) {
         const next: ExternalWallet[] = r.data?.wallets || [];
         setWallets(next);

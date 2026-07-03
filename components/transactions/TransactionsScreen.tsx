@@ -41,6 +41,15 @@ const TX_CACHE_KEY = 'borderpay_tx_history_v1';
 const TX_REFRESH_TS_KEY = 'borderpay_tx_refresh_ts_v1';
 const DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1';
 const BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1';
+const TX_FETCH_TIMEOUT_MS = 1400;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return Promise.race<T>([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
+  ]);
+}
+
 function normalizeTxRows(rows: any[]): Transaction[] {
   return rows
     .map((r: any) => ({
@@ -151,7 +160,11 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
       // round-trip before falling back. Filtering by `filterType`
       // happens client-side alongside the existing search filter
       // (same idiom as `filteredTransactions` below).
-      const result = await backendAPI.transactions.getTransactions(100, 0);
+      const result = await withTimeout(
+        backendAPI.transactions.getTransactions(100, 0),
+        TX_FETCH_TIMEOUT_MS,
+        { success: false, error: 'request_timeout' } as any
+      );
       if (result.success && result.data) {
         const txns = (result.data as any).transactions || [];
         const list = Array.isArray(txns) ? txns : [];

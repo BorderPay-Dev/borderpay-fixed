@@ -88,6 +88,15 @@ interface ExternalAccountsScreenProps {
 // Native-app pattern: cache the last-loaded list so the screen mounts INSTANTLY
 // with known data on the next visit, then refreshes in the background.
 const CACHE_KEY = 'borderpay_payout_accounts_v1';
+const EXTERNAL_ACCOUNTS_FETCH_TIMEOUT_MS = 1400;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return Promise.race<T>([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
+  ]);
+}
+
 function readCache(cacheKey: string): ExternalAccountRow[] {
   try {
     const scoped = JSON.parse(localStorage.getItem(cacheKey) || '[]');
@@ -132,7 +141,11 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
-      const r: any = await backendAPI.bridge.externalAccount.list();
+      const r: any = await withTimeout(
+        backendAPI.bridge.externalAccount.list(),
+        EXTERNAL_ACCOUNTS_FETCH_TIMEOUT_MS,
+        { success: false, error: 'request_timeout' } as any
+      );
       if (r?.success) {
         const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
         setRows(next);
