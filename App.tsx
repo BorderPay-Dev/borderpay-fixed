@@ -606,7 +606,9 @@ function AppContent() {
 
   // Show splash screen on first load (covers auth initialization too)
   // Keep splash visible until both auth check AND splash animation are complete
-  const showSplashScreen = !skipSplashOnce && (showSplash || effectiveAuthLoading);
+  // Sev-1 hotfix: splash is temporarily disabled in production because boot
+  // must never be blocked by branded splash/session animation paths.
+  const showSplashScreen = false;
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
