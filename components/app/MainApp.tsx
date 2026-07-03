@@ -18,6 +18,7 @@ import { BusinessDashboard } from '../business/BusinessDashboard';
 import { KYCVerification } from '../kyc/KYCVerification';
 import { TransactionsScreen } from '../transactions/TransactionsScreen';
 import { WalletScreen } from '../wallet/WalletScreen';
+import { AddWalletScreen } from '../wallet/AddWalletScreen';
 import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
 import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
 import { ExchangeScreen } from '../exchange/ExchangeScreen';
@@ -120,6 +121,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   kyc: eagerPreload,
   transactions: eagerPreload,
   'wallet-detail': eagerPreload,
+  'add-wallet': eagerPreload,
   settings: eagerPreload,
   profile: eagerPreload,
   'change-pin': eagerPreload,
@@ -294,6 +296,7 @@ export type AppScreen =
   | 'exchange'
   | 'transactions'
   | 'wallet-detail'
+  | 'add-wallet'
   | 'two-factor-setup'
   | 'pin-setup'
   | 'change-pin'
@@ -916,6 +919,14 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onBack={navigateBack}
             isVerified={false}
             onNavigate={navigateTo}
+          />
+        );
+
+      case 'add-wallet':
+        return (
+          <AddWalletScreen
+            userId={userId}
+            onBack={navigateBack}
           />
         );
 
