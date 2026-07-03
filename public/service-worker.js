@@ -1,9 +1,8 @@
 // P0 emergency cache-bust: force stale PWA clients off old crashy bundles.
-const CACHE_NAME = 'borderpay-app-v2.12.4-p0-android-kyc-20260626';
-const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.4-p0-android-kyc-20260626';
+const CACHE_NAME = 'borderpay-app-v2.12.5-sev1-no-stale-index-20260703';
+const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.5-sev1-no-stale-index-20260703';
 
 const PRECACHE_URLS = [
-  '/',
   '/manifest.json',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png'
@@ -87,22 +86,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for HTML documents
+  // Network-first for HTML documents. Never fall back to cached index.html:
+  // stale HTML can hard-gate users on retired boot blockers.
   if (event.request.destination === 'document') {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          if (response.status === 200) {
-            const clone = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(event.request, clone));
-          }
+          // Do not cache HTML documents.
           return response;
         })
-        .catch(() =>
-          caches.match(event.request).then((cached) =>
-            cached || caches.match('/index.html')
-          )
-        )
+        .catch(() => new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }))
     );
     return;
   }
