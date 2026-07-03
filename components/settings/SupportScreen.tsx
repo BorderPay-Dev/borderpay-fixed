@@ -85,7 +85,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   );
 
   const loadTickets = useCallback(async () => {
-    setLoadingTickets(true);
+    if (tickets.length === 0) setLoadingTickets(true);
     try {
       const res = await backendAPI.support.listTickets(20);
       if (res.success) {
@@ -99,10 +99,10 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     } finally {
       setLoadingTickets(false);
     }
-  }, []);
+  }, [tickets.length]);
 
   const loadAdminTickets = useCallback(async () => {
-    setLoadingAdminTickets(true);
+    if (adminTickets.length === 0) setLoadingAdminTickets(true);
     try {
       const res = await backendAPI.support.adminListTickets({ limit: 50 });
       if (res.success) {
@@ -119,7 +119,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     } finally {
       setLoadingAdminTickets(false);
     }
-  }, []);
+  }, [adminTickets.length]);
 
   const loadSupportHealth = useCallback(async () => {
     setLoadingSupportHealth(true);
