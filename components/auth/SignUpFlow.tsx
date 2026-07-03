@@ -37,6 +37,7 @@ import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/clie
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
+  getSignupEligibleCountries,
   getSignupCountriesFromBridge,
   getCountryByCode,
   POPULAR_COUNTRY_CODES,
@@ -168,7 +169,10 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         return;
       }
       const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; name?: string | null }>;
-      setBridgeSignupCountries(getSignupCountriesFromBridge(providerCountries));
+      const bridgeCountries = getSignupCountriesFromBridge(providerCountries);
+      const eligible = getSignupEligibleCountries();
+      const eligibleCodes = new Set(eligible.map((c) => c.code));
+      setBridgeSignupCountries(bridgeCountries.filter((c) => eligibleCodes.has(c.code)));
       setBridgeCountriesLoading(false);
     })();
     return () => { cancelled = true; };
