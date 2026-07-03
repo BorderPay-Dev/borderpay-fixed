@@ -92,12 +92,11 @@ def main() -> int:
     checks.append(("E3 approve/reject + provisioned/failed branches w/ danger tone", e3,
                    "kyc-decision must branch approved/rejected; account-ready must branch provisioned/failed; failures use danger tone"))
 
-    # E4 — regression: 15 total registered templates
-    # (8 original + 3 from #66 + 2 verification_authorized from the stepped gate
-    #  + 2 payment_received for the post-payment verification-link email)
+    # E4 — regression floor: templates may grow, but must not shrink below
+    # the baseline set required by the webhook/email policy.
     total = len(re.findall(r'"\w+\.\w+":\s*\w', idx))
-    checks.append(("E4 15 templates registered", total == 15,
-                   f"expected 15 registered templates, found {total}"))
+    checks.append(("E4 minimum template registry size", total >= 15,
+                   f"expected at least 15 registered templates, found {total}"))
 
     # E5 — new slugs match the policy gaps exactly
     e5 = set(NEW.keys()) == {"individual.kyc_decision", "individual.account_ready", "business.account_ready"}

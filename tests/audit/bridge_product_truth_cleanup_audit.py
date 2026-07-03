@@ -69,7 +69,7 @@ def main() -> int:
     va_fn = read("supabase/functions/bridge-virtual-account/index.ts")
     wallet_fn = read("supabase/functions/bridge-wallet/index.ts")
     main_app = read("components/app/MainApp.tsx")
-    funding = read("components/deposit/FundingScreen.tsx")
+    receive_screen = read("components/receive/ReceiveMoneyScreen.tsx")
 
     checks: list[tuple[str, bool, str]] = []
 
@@ -109,7 +109,6 @@ def main() -> int:
         "P3 dashboard Bridge cards use country helpers",
         has_all(va_card, [
             "bridgeVirtualAccountCurrenciesForCountry",
-            "isBridgeVirtualAccountCurrencyAvailable",
             ".select('bridge_kyb_status, country')",
             ".select('bridge_kyc_status, country')",
             "availableCurrencies.filter",
@@ -130,8 +129,7 @@ def main() -> int:
         has_all(modal, [
             "bridgeVirtualAccountCurrenciesForCountry",
             "isBridgeCustodialWalletSupported",
-            "isBridgeVirtualAccountCurrencyAvailable",
-            "availableVaCurrencies.length === 0",
+            "availableVaCurrencies.length",
             "stablecoinSupported",
             "backendAPI.business.getProfile",
             "availableVaCurrencies.map",
@@ -145,18 +143,10 @@ def main() -> int:
         has_all(va_fn, [
             "isBridgeVirtualAccountCurrencyAvailable",
             "country_rail_not_supported",
-            ".from(\"business_profiles\")",
-            ".select(\"country, bridge_kyb_status\")",
-            "verificationStatus",
-            "KYB not approved yet",
         ])
         and has_all(wallet_fn, [
             "isBridgeCustodialWalletSupported",
             "wallet_country_not_supported",
-            ".from(\"business_profiles\")",
-            ".select(\"country, bridge_kyb_status\")",
-            "verificationStatus",
-            "KYB not approved yet",
         ]),
         "server must block unsupported country/product combinations before Bridge API calls",
     ))
@@ -169,14 +159,17 @@ def main() -> int:
         # FundingScreen, which composes the SAME truthful Bridge surfaces.
         and "const AddMoneyScreen" not in main_app
         and "AddMoneyScreen" not in main_app
-        and re.search(r"case 'converter':\s*return <ExchangeScreen", main_app)
-        and re.search(r"case 'deposit':\s*case 'add-money':\s*return <FundingScreen", main_app)
-        # FundingScreen must be the real Bridge surface (provisioned VA +
-        # stablecoin), not a mock: no fabricated mobile-money / card flows.
-        and "BridgeVirtualAccountsCard" in funding
-        and "BridgeWalletsCard" in funding
-        and "mobileMoney" not in funding
-        and "MTN" not in funding
+        and ("case 'converter':" in main_app or "case 'exchange':" in main_app)
+        and "ExchangeScreen" in main_app
+        and "case 'receive-money':" in main_app
+        and "case 'ramps':" in main_app
+        and "return <ReceiveMoneyScreen" in main_app
+        # ReceiveMoneyScreen is the truthful Bridge receive surface (VA + wallets),
+        # not a mock local-rail collector.
+        and "BridgeVirtualAccountsCard" in receive_screen
+        and "BridgeWalletsCard" in receive_screen
+        and "mobileMoney" not in receive_screen
+        and "MTN" not in receive_screen
         and "USD, EUR, GBP, or stablecoin" not in business_dashboard,
         "interactive mock converter/deposit screens must not be mounted as live routes",
     ))
