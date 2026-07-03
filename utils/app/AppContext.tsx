@@ -219,6 +219,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const arr = await pRes.json();
             if (Array.isArray(arr) && arr[0]) {
               profile = arr[0];
+              // Business parity: hydrate bridge_kyb_status from business_profiles so
+              // cached profile always carries both Bridge status fields.
+              if (profile?.account_type === 'business') {
+                try {
+                  const bRes = await fetch(`${SUPABASE_URL}/rest/v1/business_profiles?user_id=eq.${user.id}&select=bridge_kyb_status&limit=1`, {
+                    headers: { Authorization: `Bearer ${session.access_token}`, apikey: ANON_KEY },
+                  });
+                  if (bRes.ok) {
+                    const bArr = await bRes.json();
+                    const kyb = Array.isArray(bArr) && bArr[0] ? bArr[0].bridge_kyb_status : null;
+                    if (kyb != null) profile = { ...profile, bridge_kyb_status: kyb };
+                  }
+                } catch {
+                  // Non-blocking; keep user_profiles payload on transient error.
+                }
+              }
               storeUserProfile(profile);
             }
           }

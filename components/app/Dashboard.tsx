@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { isKycVerified } from '../../utils/config/environment';
+import { deriveKycStatus, isKycVerified } from '../../utils/config/environment';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { AccountStatusBadge, AccountStatus } from '../activation/AccountStatusBadge';
@@ -97,18 +97,6 @@ function initialsFromName(name?: string, email?: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function deriveBridgeOnboardingStatus(profile: any): 'verified' | 'rejected' | 'under_review' | 'pending' | 'not_started' {
-  const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
-  const isBusiness = norm(profile?.account_type) === 'business';
-  const verification = isBusiness ? norm(profile?.bridge_kyb_status) : norm(profile?.bridge_kyc_status);
-  const account = norm(profile?.bridge_account_status);
-  if (['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(verification) || ['active', 'approved', 'authorized'].includes(account)) return 'verified';
-  if (verification === 'rejected' || account === 'rejected') return 'rejected';
-  if (verification === 'under_review' || verification === 'review_pending') return 'under_review';
-  if (verification === 'pending' || verification === 'incomplete' || verification === 'not_started' || account === 'incomplete') return 'pending';
-  return 'not_started';
-}
-
 interface DashboardProps {
   userId: string;
   onLogout: () => void;
@@ -153,7 +141,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const cachedSecurity = useMemo(() => {
     try { return SecurityStatus.get(userId); } catch { return { hasPIN: false, has2FA: false }; }
   }, [userId]);
-  const cachedKycStatus = deriveBridgeOnboardingStatus(cachedProfile);
+  const cachedKycStatus = deriveKycStatus(cachedProfile);
   const isCachedVerified = cachedKycStatus === 'verified';
   const cachedIdentity = useMemo(() => {
     const stored = authAPI.getStoredUser() as any;
@@ -322,7 +310,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       if (snapshotData?.profile) {
         const p = snapshotData.profile;
         if (p) {
-          const nextKycStatus = deriveBridgeOnboardingStatus(p);
+          const nextKycStatus = deriveKycStatus(p);
           const verified   = nextKycStatus === 'verified';
           // Only update if value changed — prevents an avoidable re-render
           // (and visible flicker) when nothing's actually different.
