@@ -40,6 +40,17 @@ interface NotificationsScreenProps {
   onBack: () => void;
   onUnreadCountChange?: (count: number) => void;
 }
+const NOTIFICATION_FETCH_TIMEOUT_MS = 1400;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
 const NOTIFICATIONS_REFRESH_TS_PREFIX = 'borderpay_notifications_refresh_ts_v1:';
@@ -151,7 +162,11 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
           }
         } catch { /* noop */ }
       }
-      const r: any = await backendAPI.notifications.getNotifications(50);
+      const r: any = await withTimeout(
+        backendAPI.notifications.getNotifications(50),
+        NOTIFICATION_FETCH_TIMEOUT_MS,
+        { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rowsRef.current : [] } } as any,
+      );
       const data = Array.isArray((r as any)?.data?.notifications)
         ? (r as any).data.notifications
         : (Array.isArray((r as any)?.data) ? (r as any).data : []);

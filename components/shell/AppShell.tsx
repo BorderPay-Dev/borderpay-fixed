@@ -241,7 +241,11 @@ export function AppShell({
         prefetchScreen('help-center');
         prefetchScreen('profile');
         prefetchScreen('exchange');
-        if (isBusinessAccount) prefetchRoute('team');
+        if (isBusinessAccount) {
+          prefetchRoute('team');
+          prefetchScreen('bulk-payout');
+          prefetchScreen('payroll');
+        }
         if (onOpenPayoutAccounts) prefetchScreen('external-accounts');
         if (onOpenWithdrawalWallets) prefetchScreen('external-wallets');
       } catch { /* noop */ }
