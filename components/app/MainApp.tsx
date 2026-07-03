@@ -54,6 +54,7 @@ import {
   PAYROLL_RUNTIME_ENABLED,
 } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
+import { PayrollComingSoonScreen } from '../business/PayrollComingSoonScreen';
 import {
   navPerfGetReport,
   navPerfMarkFirstPaint,
@@ -935,7 +936,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'payroll':
         if (!PAYROLL_NAV_ENABLED) { navigateTo('dashboard'); return null; }
-        if (!PAYROLL_RUNTIME_ENABLED) { navigateTo('dashboard'); return null; }
+        if (!PAYROLL_RUNTIME_ENABLED) { return <PayrollComingSoonScreen onBack={navigateBack} />; }
         if (!TRANSFERS_LIVE) { navigateTo('dashboard'); return null; }
         return (
           <PayrollScreen

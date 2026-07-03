@@ -15,6 +15,7 @@ import { motion } from 'motion/react';
 import { RefreshCw, ChevronDown, ArrowUpDown, ArrowRight } from 'lucide-react';
 import { backendAPI } from '../../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
+import { FX_RUNTIME_ENABLED } from '../../../utils/featureFlags';
 
 interface ExchangeRateWidgetProps {
   onNavigate: (screen: string) => void;
@@ -59,6 +60,12 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
   };
 
   const load = async () => {
+    if (!FX_RUNTIME_ENABLED) {
+      setIsLive(false);
+      setUpdatedAt(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const r: any = await backendAPI.fx.getLiveRates();
@@ -169,7 +176,9 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
 
         {/* Rate provenance */}
         <p className={`px-4 pb-3 -mt-1 text-[10px] ${tc.textMuted}`}>
-          {isLive ? tt('fx.live', 'Live mid-market rate · no FX markup') : tt('fx.indicative', 'Indicative rate · live feed unavailable')}
+          {!FX_RUNTIME_ENABLED
+            ? 'Foreign Exchange coming soon'
+            : (isLive ? tt('fx.live', 'Live mid-market rate · no FX markup') : tt('fx.indicative', 'Indicative rate · live feed unavailable'))}
           {updatedAt && ' · ' + new Date(updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
         </p>
 
@@ -178,6 +187,7 @@ export function ExchangeRateWidget({ onNavigate }: ExchangeRateWidgetProps) {
           onPointerDown={prefetchExchange}
           onMouseEnter={prefetchExchange}
           onClick={() => onNavigate('exchange')}
+          disabled={!FX_RUNTIME_ENABLED}
           className="w-full px-4 py-3 border-t border-transparent flex items-center justify-center gap-2 bg-[#C7FF00] text-black text-[13px] font-bold hover:brightness-95 transition"
         >
           {tt('dashboard.convertCurrencies', 'Convert')}

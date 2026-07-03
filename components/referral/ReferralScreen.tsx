@@ -1,6 +1,6 @@
 /**
  * BorderPay Africa - Referral Screen
- * Share BorderPay with friends and earn $90
+ * Affiliate Program Beta
  */
 
 import React from 'react';
@@ -44,9 +44,9 @@ export function ReferralScreen({ onBack }: ReferralScreenProps) {
     <div className="min-h-screen bg-[#0B0E11] pb-safe">
       {/* Header — back is the floating chip. */}
       <FloatingBackButton onBack={onBack} />
-      <div className="sticky top-0 bg-[#0B0E11]/90 backdrop-blur-md border-b border-white/5 z-40 pt-safe-header">
+        <div className="sticky top-0 bg-[#0B0E11]/90 backdrop-blur-md border-b border-white/5 z-40 pt-safe-header">
         <div className="flex items-center justify-center px-5 py-4">
-          <h1 className="text-lg font-bold text-white">Refer & Earn</h1>
+          <h1 className="text-lg font-bold text-white">Affiliate Program Beta</h1>
         </div>
       </div>
 
@@ -58,6 +58,7 @@ export function ReferralScreen({ onBack }: ReferralScreenProps) {
           transition={{ duration: 0.5 }}
           className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#C7FF00] via-[#B8F000] to-[#9AD600] p-6 pb-8 mb-6"
         >
+          <p className="text-[11px] text-gray-500 mb-3">Affiliate Program Beta — earnings and payouts are not yet enabled.</p>
           {/* Background decorative circles */}
           <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-black/5" />
           <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-black/5" />

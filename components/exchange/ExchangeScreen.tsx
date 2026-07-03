@@ -7,6 +7,7 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { resolveFinancialCacheScope } from '../../utils/financial/cacheScope';
 import { authAPI } from '../../utils/supabase/client';
+import { FX_RUNTIME_ENABLED } from '../../utils/featureFlags';
 
 interface ExchangeScreenProps {
   onBack: () => void;
@@ -256,6 +257,12 @@ export function ExchangeScreen({ onBack }: ExchangeScreenProps) {
   }, [selectedWallet?.currency, selectedDestinationWallet?.currency]);
 
   const loadRates = async (foreground: boolean = false) => {
+    if (!FX_RUNTIME_ENABLED) {
+      setRateSource('fallback');
+      setRates(DEFAULT_RATE_ROWS);
+      setGenerated(null);
+      return;
+    }
     if (foreground) setLoadingRates(true);
     try {
       const r: any = await backendAPI.fx.getLiveRates();
