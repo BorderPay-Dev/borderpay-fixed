@@ -344,7 +344,25 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       const prefetch = (window as any).__borderpay_prefetch;
       if (typeof prefetch !== 'function') return;
       const warm = () => {
-        ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'team', 'settings', 'profile', 'bulk-payout', 'payroll', 'exchange'].forEach((s) => {
+        [
+          'wallet-detail',
+          'add-wallet',
+          'send-money',
+          'receive-money',
+          'transactions',
+          'team',
+          'settings',
+          'profile',
+          'bulk-payout',
+          'payroll',
+          'exchange',
+          'cards',
+          'external-accounts',
+          'external-wallets',
+          'notifications',
+          'support',
+          'help-center',
+        ].forEach((s) => {
           try { prefetch(s); } catch { /* noop */ }
         });
       };
