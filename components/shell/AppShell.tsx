@@ -199,22 +199,65 @@ export function AppShell({
     setDrawerOpen(false);
     onRoute(next);
   }, [onRoute]);
+  const goFromDrawer = useCallback((next: AppRoute) => {
+    setDrawerOpen(false);
+    onRoute(next);
+  }, [onRoute]);
+  const closeDrawerThen = useCallback((fn: () => void) => {
+    setDrawerOpen(false);
+    fn();
+  }, []);
 
   const prefetchRoute = useCallback((next: AppRoute) => {
     if (typeof window === 'undefined') return;
     (window as any).__borderpay_prefetch?.(PREFETCH_BY_ROUTE[next]);
   }, []);
+  const prefetchScreen = useCallback((screen: string) => {
+    if (typeof window === 'undefined') return;
+    (window as any).__borderpay_prefetch?.(screen);
+  }, []);
 
   useEffect(() => {
     if (!drawerOpen) return;
-    const commonWarmRoutes: AppRoute[] = ['wallet', 'transactions', 'kyc', 'settings', 'notifications', 'account', 'send', 'receive'];
-    const businessWarmRoutes: AppRoute[] = ['team'];
-    commonWarmRoutes.forEach(prefetchRoute);
-    if (isBusinessAccount) businessWarmRoutes.forEach(prefetchRoute);
-    // Warm the payout-accounts chunk too (not a shell route) so it opens instantly.
-    if (onOpenPayoutAccounts) (window as any).__borderpay_prefetch?.('external-accounts');
-    if (onOpenWithdrawalWallets) (window as any).__borderpay_prefetch?.('external-wallets');
-  }, [drawerOpen, isBusinessAccount, prefetchRoute, onOpenPayoutAccounts, onOpenWithdrawalWallets]);
+    const prewarmKey = `borderpay_drawer_prewarm_v1:${isBusinessAccount ? 'business' : 'individual'}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 120_000) return;
+    } catch { /* noop */ }
+    // P0 runtime parity: burger navigation must feel instant. Warm common
+    // drawer targets at open-time (idle) so first tap is chunk-hot.
+    const warm = () => {
+      try {
+        prefetchRoute('dashboard');
+        prefetchRoute('wallet');
+        prefetchRoute('send');
+        prefetchRoute('receive');
+        prefetchRoute('transactions');
+        prefetchRoute('settings');
+        prefetchRoute('kyc');
+        prefetchRoute('account');
+        prefetchRoute('cards');
+        prefetchScreen('support');
+        prefetchScreen('help-center');
+        prefetchScreen('profile');
+        prefetchScreen('exchange');
+        if (isBusinessAccount) prefetchRoute('team');
+        if (onOpenPayoutAccounts) prefetchScreen('external-accounts');
+        if (onOpenWithdrawalWallets) prefetchScreen('external-wallets');
+      } catch { /* noop */ }
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') {
+      try { sessionStorage.setItem(prewarmKey, String(Date.now())); } catch { /* noop */ }
+      const id = ric(warm, { timeout: 900 });
+      return () => {
+        try { (window as any).cancelIdleCallback?.(id); } catch { /* noop */ }
+      };
+    }
+    const t = window.setTimeout(warm, 180);
+    try { sessionStorage.setItem(prewarmKey, String(Date.now())); } catch { /* noop */ }
+    return () => { window.clearTimeout(t); };
+  }, [drawerOpen, isBusinessAccount, onOpenPayoutAccounts, onOpenWithdrawalWallets, prefetchRoute, prefetchScreen]);
 
   const primaryTabs = useMemo(() => {
     const shared = [
@@ -239,6 +282,28 @@ export function AppShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBusinessAccount, t]);
 
+  const desktopTabs = useMemo(() => {
+    if (isBusinessAccount) {
+      return [
+        { route: 'dashboard' as AppRoute, icon: Home, label: tt('nav.home', 'Home') },
+        { route: 'send' as AppRoute, icon: ArrowUpRight, label: tt('nav.send', 'Send') },
+        { route: 'receive' as AppRoute, icon: ArrowDownLeft, label: tt('nav.receive', 'Receive') },
+        { route: 'team' as AppRoute, icon: Users, label: tt('nav.teamShort', 'Team') },
+        { route: 'transactions' as AppRoute, icon: FileText, label: tt('nav.transactions', 'Transactions') },
+        { route: 'settings' as AppRoute, icon: Settings, label: tt('nav.settings', 'Settings') },
+      ];
+    }
+    return [
+      { route: 'dashboard' as AppRoute, icon: Home, label: tt('nav.home', 'Home') },
+      { route: 'send' as AppRoute, icon: ArrowUpRight, label: tt('nav.send', 'Send') },
+      { route: 'receive' as AppRoute, icon: ArrowDownLeft, label: tt('nav.receive', 'Receive') },
+      { route: 'wallet' as AppRoute, icon: Wallet, label: tt('nav.wallet', 'Wallet') },
+      { route: 'transactions' as AppRoute, icon: FileText, label: tt('nav.transactions', 'Transactions') },
+      { route: 'settings' as AppRoute, icon: Settings, label: tt('nav.settings', 'Settings') },
+    ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBusinessAccount, t]);
+
   return (
     <div className={`min-h-screen ${tc.bg} relative`}>
       {/* ── Scrollable content layer ─────────────────────────────────────
@@ -251,6 +316,37 @@ export function AppShell({
           paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${FOOTER_HEIGHT_PX + 16}px)`,
         }}
       >
+        {/* Desktop-only horizontal app nav (mobile remains unchanged). */}
+        <section className="hidden md:block px-6 pb-4">
+          <div className="max-w-screen-xl mx-auto">
+            <div className={`rounded-2xl border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_12px_30px_rgba(0,0,0,0.22)] p-2`}>
+              <div className="grid grid-cols-6 gap-1">
+                {desktopTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const active = route === tab.route;
+                  return (
+                    <button
+                      key={`desktop-tab-${tab.route}`}
+                      type="button"
+                      onPointerDown={() => prefetchRoute(tab.route)}
+                      onMouseEnter={() => prefetchRoute(tab.route)}
+                      onTouchStart={() => prefetchRoute(tab.route)}
+                      onClick={() => go(tab.route)}
+                      className={`h-10 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors ${
+                        active
+                          ? 'bg-[#C7FF00] text-black'
+                          : `${tc.text} ${tc.hoverBg}`
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
         {children}
       </main>
 
@@ -276,7 +372,7 @@ export function AppShell({
         {/* Instagram-style: each control is its OWN floating circular chip
             (separate glass background + shadow), not joined into one bar. */}
         <div
-          className="max-w-screen-md mx-auto flex items-center gap-2"
+          className="max-w-screen-xl mx-auto flex items-center gap-2"
           style={{ height: HEADER_BAR_PX }}
         >
           {/* Burger — own floating chip (left) */}
@@ -305,7 +401,8 @@ export function AppShell({
             aria-label={tt('shell.notifications', 'Notifications')}
             onPointerDown={() => prefetchRoute('notifications')}
             onMouseEnter={() => prefetchRoute('notifications')}
-            onClick={() => go('notifications')}
+            onTouchStart={() => prefetchRoute('notifications')}
+            onClick={() => { prefetchRoute('notifications'); go('notifications'); }}
             className={`pointer-events-auto relative shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
           >
             <Bell className={`w-5 h-5 ${tc.text}`} />
@@ -322,7 +419,8 @@ export function AppShell({
             aria-label={tt('shell.account', 'Account')}
             onPointerDown={() => prefetchRoute('account')}
             onMouseEnter={() => prefetchRoute('account')}
-            onClick={() => go('account')}
+            onTouchStart={() => prefetchRoute('account')}
+            onClick={() => { prefetchRoute('account'); go('account'); }}
             className={`pointer-events-auto shrink-0 w-11 h-11 rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] overflow-hidden flex items-center justify-center`}
           >
             {avatarUrl ? (
@@ -344,7 +442,7 @@ export function AppShell({
       {(() => {
         const tabBar = (
           <nav
-            className="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3"
+            className="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3 md:hidden"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 10px)' }}
             aria-label={tt('shell.bottomNav', 'Primary navigation')}
           >
@@ -415,29 +513,29 @@ export function AppShell({
               </div>
 
               <ul className="py-2">
-                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           description={tt('nav.home.desc',         'Your dashboard & balances')}      active={route === 'dashboard'}    onPrefetch={() => prefetchRoute('dashboard')}    onClick={() => go('dashboard')}    tc={tc} />
-                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         description={tt('nav.wallet.desc',       'Balances across your currencies')} active={route === 'wallet'}       onPrefetch={() => prefetchRoute('wallet')}       onClick={() => go('wallet')}       tc={tc} />
-                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     description={tt('nav.send.desc',         'Pay anyone by bank or crypto')}    active={route === 'send'}         onPrefetch={() => prefetchRoute('send')}         onClick={() => go('send')}         tc={tc} />
-                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  description={tt('nav.receive.desc',      'Get paid into your accounts')}     active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => go('receive')}      tc={tc} />
-                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => go('transactions')} tc={tc} />
+                <DrawerItem icon={Home}        label={tt('nav.home',         'Home')}           description={tt('nav.home.desc',         'Your dashboard & balances')}      active={route === 'dashboard'}    onPrefetch={() => prefetchRoute('dashboard')}    onClick={() => goFromDrawer('dashboard')}    tc={tc} />
+                <DrawerItem icon={Wallet}      label={tt('nav.wallet',       'Wallet')}         description={tt('nav.wallet.desc',       'Balances across your currencies')} active={route === 'wallet'}       onPrefetch={() => prefetchRoute('wallet')}       onClick={() => goFromDrawer('wallet')}       tc={tc} />
+                <DrawerItem icon={ArrowUpRight}label={tt('nav.send',         'Send money')}     description={tt('nav.send.desc',         'Pay anyone by bank or crypto')}    active={route === 'send'}         onPrefetch={() => prefetchRoute('send')}         onClick={() => goFromDrawer('send')}         tc={tc} />
+                <DrawerItem icon={ArrowDownLeft}label={tt('nav.receive',     'Receive money')}  description={tt('nav.receive.desc',      'Get paid into your accounts')}     active={route === 'receive'}      onPrefetch={() => prefetchRoute('receive')}      onClick={() => goFromDrawer('receive')}      tc={tc} />
+                <DrawerItem icon={FileText}    label={tt('nav.transactions', 'Transactions')}   description={tt('nav.transactions.desc', 'Your full activity history')}      active={route === 'transactions'} onPrefetch={() => prefetchRoute('transactions')} onClick={() => goFromDrawer('transactions')} tc={tc} />
                 {onOpenPayoutAccounts && (
-                  <DrawerItem icon={Banknote}  label={tt('nav.external_accounts', 'External Accounts')} description={tt('nav.external_accounts.desc', 'Manage withdrawal destinations')} active={false} onClick={() => { setDrawerOpen(false); onOpenPayoutAccounts(); }} tc={tc} />
+                  <DrawerItem icon={Banknote}  label={tt('nav.external_accounts', 'External Accounts')} description={tt('nav.external_accounts.desc', 'Manage withdrawal destinations')} active={false} onPrefetch={() => prefetchScreen('external-accounts')} onClick={() => closeDrawerThen(onOpenPayoutAccounts)} tc={tc} />
                 )}
                 {onOpenWithdrawalWallets && (
-                  <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onClick={() => { setDrawerOpen(false); onOpenWithdrawalWallets(); }} tc={tc} />
+                  <DrawerItem icon={Wallet}    label={tt('nav.withdrawal_wallets', 'Withdrawal wallets')} description={tt('nav.withdrawal_wallets.desc', 'Save addresses & withdraw stablecoin')} active={false} onPrefetch={() => prefetchScreen('external-wallets')} onClick={() => closeDrawerThen(onOpenWithdrawalWallets)} tc={tc} />
                 )}
-                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Card issuing — not yet available')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => go('cards')}        tc={tc} badge="Locked" />
+                <DrawerItem icon={CreditCard}  label={tt('nav.cards',        'Cards')}          description={tt('nav.cards.desc',        'Explore cards')} active={route === 'cards'}        onPrefetch={() => prefetchRoute('cards')}        onClick={() => goFromDrawer('cards')}        tc={tc} />
                 {isBusinessAccount && (
-                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => go('team')}         tc={tc} />
+                  <DrawerItem icon={UserIcon}  label={tt('nav.team',         'Team members')}   description={tt('nav.team.desc',         'Manage who can access this account')} active={route === 'team'}      onPrefetch={() => prefetchRoute('team')}         onClick={() => goFromDrawer('team')}         tc={tc} />
                 )}
                 <div className={`my-2 border-t ${tc.borderLight}`} />
-                <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} description={isBusinessAccount ? tt('nav.kyb.desc', 'Verify your business') : tt('nav.kyc.desc', 'Verify your identity')} active={route === 'kyc'} onPrefetch={() => prefetchRoute('kyc')} onClick={() => go('kyc')} tc={tc} />
-                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       description={tt('nav.settings.desc',     'App, security & preferences')}     active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => go('settings')}     tc={tc} />
+                <DrawerItem icon={ShieldCheck} label={isBusinessAccount ? tt('nav.kyb', 'Business KYB') : tt('nav.kyc', 'Identity & KYC')} description={isBusinessAccount ? tt('nav.kyb.desc', 'Verify your business') : tt('nav.kyc.desc', 'Verify your identity')} active={route === 'kyc'} onPrefetch={() => prefetchRoute('kyc')} onClick={() => goFromDrawer('kyc')} tc={tc} />
+                <DrawerItem icon={Settings}    label={tt('nav.settings',     'Settings')}       description={tt('nav.settings.desc',     'App, security & preferences')}     active={route === 'settings'}     onPrefetch={() => prefetchRoute('settings')}     onClick={() => goFromDrawer('settings')}     tc={tc} />
                 {onLock && (
-                  <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       description={tt('nav.lockApp.desc',      'Lock now, return with biometrics')} onClick={onLock}                   tc={tc} />
+                  <DrawerItem icon={Lock}      label={tt('nav.lockApp',      'Lock app')}       description={tt('nav.lockApp.desc',      'Lock now, return with biometrics')} onClick={() => closeDrawerThen(onLock)}                   tc={tc} />
                 )}
                 {onSignOut && (
-                  <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       description={tt('nav.signOut.desc',      'Log out of BorderPay')}            onClick={onSignOut}                tc={tc} danger />
+                  <DrawerItem icon={LogOut}    label={tt('nav.signOut',      'Sign out')}       description={tt('nav.signOut.desc',      'Log out of BorderPay')}            onClick={() => closeDrawerThen(onSignOut)}                tc={tc} danger />
                 )}
               </ul>
             </motion.aside>
@@ -463,7 +561,11 @@ function BottomButton({
       type="button"
       onPointerDown={onPrefetch}
       onMouseEnter={onPrefetch}
-      onClick={onClick}
+      onTouchStart={onPrefetch}
+      onClick={() => {
+        onPrefetch?.();
+        onClick();
+      }}
       aria-current={active ? 'page' : undefined}
       className="relative h-full min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-[22px] transition-colors"
     >
@@ -508,7 +610,11 @@ function DrawerItem({
         type="button"
         onPointerDown={onPrefetch}
         onMouseEnter={onPrefetch}
-        onClick={onClick}
+        onTouchStart={onPrefetch}
+        onClick={() => {
+          onPrefetch?.();
+          onClick();
+        }}
         className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors ${tc.hoverBg} ${active ? (tc.isLight ? 'bg-black/[0.04]' : 'bg-white/[0.04]') : ''}`}
       >
         <Icon className={`w-5 h-5 flex-shrink-0 ${danger ? 'text-red-500' : active || highlight ? 'text-[#C7FF00]' : tc.textSecondary}`} />
