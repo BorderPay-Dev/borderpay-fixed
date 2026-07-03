@@ -49,7 +49,7 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 6_000;
+const TEAM_LOAD_TIMEOUT_MS = 2_000;
 const TEAM_REFRESH_TS_KEY_PREFIX = 'borderpay_team_refresh_ts_v1';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {

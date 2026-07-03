@@ -109,6 +109,16 @@ const STABLE_ICON_URL: Record<string, string> = {
   USDT: 'https://cryptologos.cc/logos/tether-usdt-logo.png?v=040',
 };
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
 function prefetchScreen(screen: string): void {
   try { (window as any).__borderpay_prefetch?.(screen); } catch { /* noop */ }
 }
@@ -206,7 +216,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       if (!force && seededWallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
-      const walletRouteRes: any = await backendAPI.financial.getWalletRouteData();
+      const walletRouteRes: any = await withTimeout(
+        backendAPI.financial.getWalletRouteData(),
+        1_400,
+        { success: false, error: 'wallet_route_timeout' } as any,
+      );
       const walletOk = walletRouteRes?.success;
       if (walletOk) {
         const walletData = walletRouteRes?.data || {};
@@ -223,7 +237,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       } else {
         // Fallback path: if wallet route data fails, try canonical snapshot so
         // Accounts can still render without a hard error on dashboard.
-        const snapshotRes: any = await backendAPI.financial.getSnapshot(12);
+        const snapshotRes: any = await withTimeout(
+          backendAPI.financial.getSnapshot(12),
+          1_400,
+          { success: false, error: 'snapshot_timeout' } as any,
+        );
         const snapshotOk = snapshotRes?.success;
         if (snapshotOk) {
           const raw = Array.isArray(snapshotRes?.data?.wallets) ? snapshotRes.data.wallets : [];
@@ -244,9 +262,21 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 
       // Never block first paint on profile/transaction enrichment.
       void Promise.allSettled([
-        backendAPI.transactions.getTransactions(12, 0),
-        backendAPI.user.getProfile(),
-        backendAPI.auth.getSecurityStatus(userId),
+        withTimeout(
+          backendAPI.transactions.getTransactions(12, 0),
+          1_400,
+          { success: false, error: 'tx_timeout' } as any,
+        ),
+        withTimeout(
+          backendAPI.user.getProfile(),
+          1_400,
+          { success: false, error: 'profile_timeout' } as any,
+        ),
+        withTimeout(
+          backendAPI.auth.getSecurityStatus(userId),
+          1_400,
+          { success: false, error: 'security_timeout' } as any,
+        ),
       ]).then(([txRes, profileRes, secRes]) => {
         const txOk = txRes.status === 'fulfilled' && (txRes.value as any)?.success;
         if (txOk) {
@@ -266,6 +296,24 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           if (nextCompany) setCompanyName(nextCompany);
           if (nextCountry) setCountry(nextCountry);
           if (nextReg) setRegistrationNumber(nextReg);
+          if (!nextCompany) {
+            // One-time fallback for business profile rows where /user/profile can
+            // lag behind company_name replication.
+            void withTimeout(
+              backendAPI.business.getProfile(),
+              1_400,
+              { success: false } as any,
+            ).then((biz: any) => {
+              const company_name = String(biz?.data?.company_name || '').trim();
+              if (!company_name) return;
+              setCompanyName(company_name);
+              try {
+                const latest = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+                localStorage.setItem('borderpay_user', JSON.stringify({ ...latest, account_type: 'business', company_name }));
+                localStorage.setItem(businessNameCacheKey, company_name);
+              } catch { /* noop */ }
+            });
+          }
           const kybState = String(
             profile?.bridge_kyb_status ||
             profile?.bridge_verification_status ||
