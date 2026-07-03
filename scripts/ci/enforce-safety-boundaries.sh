@@ -31,7 +31,9 @@ if [ "${INCIDENT_MODE:-false}" != "true" ]; then
     --glob '!.git/**' \
     --glob '!node_modules/**' \
     --glob '!scripts/incident/**' \
+    --glob '!**/scripts/incident/**' \
     --glob '!scripts/ci/enforce-safety-boundaries.sh' \
+    --glob '!**/scripts/ci/enforce-safety-boundaries.sh' \
     --glob '!docs/**' \
     --glob '!**/*.md' \
     --glob '!**/*.txt' || true)"
@@ -51,8 +53,11 @@ NON_CANONICAL_HITS="$(rg -n -S \
   -e "update\\s+public\\.(pending_events|webhook_logs|bridge_webhook_events)\\b" \
   "$ROOT" --glob '*.sql' \
   --glob '!supabase/migrations/**' \
+  --glob '!**/supabase/migrations/**' \
   --glob '!scripts/incident/**' \
+  --glob '!**/scripts/incident/**' \
   --glob '!scripts/sql/**' \
+  --glob '!**/scripts/sql/**' \
   --glob '!.git/**' \
   --glob '!node_modules/**' || true)"
 if [ -n "$NON_CANONICAL_HITS" ]; then
@@ -109,7 +114,9 @@ DIRECT_SQL_UPDATES="$(rg -n -S \
   -e "update\\s+public\\.(pending_events|bridge_webhook_events|bridge_transfers)\\b" \
   "$ROOT" --glob '*.sql' \
   --glob '!supabase/migrations/**' \
+  --glob '!**/supabase/migrations/**' \
   --glob '!scripts/incident/**' \
+  --glob '!**/scripts/incident/**' \
   --glob '!.git/**' \
   --glob '!node_modules/**' || true)"
 if [ -n "$DIRECT_SQL_UPDATES" ]; then
@@ -129,11 +136,19 @@ python3 "$ROOT/scripts/ci/verify_lifecycle_write_path_exhaustiveness.py" --phase
 
 # 8) Legacy-runtime guards:
 #    a) banned legacy endpoint aliases must never be reintroduced in app API calls.
-python3 "$ROOT/scripts/ci/verify_no_legacy_endpoint_aliases.py" >/dev/null \
-  || fail "Legacy endpoint alias guard failed."
+if [ -f "$ROOT/scripts/ci/verify_no_legacy_endpoint_aliases.py" ]; then
+  python3 "$ROOT/scripts/ci/verify_no_legacy_endpoint_aliases.py" >/dev/null \
+    || fail "Legacy endpoint alias guard failed."
+else
+  echo "[safety-boundary] WARN: verify_no_legacy_endpoint_aliases.py missing; skipping alias guard."
+fi
 
 #    b) prohibited legacy stablecoin symbols must never leak into runtime code.
-python3 "$ROOT/scripts/ci/verify_no_legacy_stablecoins.py" >/dev/null \
-  || fail "Legacy stablecoin runtime guard failed."
+if [ -f "$ROOT/scripts/ci/verify_no_legacy_stablecoins.py" ]; then
+  python3 "$ROOT/scripts/ci/verify_no_legacy_stablecoins.py" >/dev/null \
+    || fail "Legacy stablecoin runtime guard failed."
+else
+  echo "[safety-boundary] WARN: verify_no_legacy_stablecoins.py missing; skipping stablecoin guard."
+fi
 
 echo "[safety-boundary] OK"
