@@ -178,9 +178,31 @@
           }
         });
 
-        // Do not render a hard "update required" blocker splash. In a live
-        // financial app, users must never be gated behind a false-positive
-        // maintenance/update screen. Recovery stays silent + error-driven only.
+        setTimeout(function () {
+          if (window.__BORDERPAY_BOOT_OK__) return;
+          var alreadyTried = false;
+          try { alreadyTried = sessionStorage.getItem(BOOT_KEY) === '1'; } catch (_) {}
+
+          // First timeout: self-heal automatically (clear SW/cache + hard refresh).
+          if (!alreadyTried) {
+            safeClearCachesAndReload(false);
+            return;
+          }
+
+          // Second timeout in same session: show a non-blocking recovery UI.
+          var splash = document.getElementById('initial-splash');
+          if (!splash) return;
+          splash.innerHTML = ''
+            + '<div style="max-width:320px;text-align:center;color:#fff;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;">'
+            + '<div style="font-size:16px;font-weight:700;margin-bottom:8px;">Couldn\\'t open BorderPay</div>'
+            + '<div style="font-size:13px;opacity:.75;line-height:1.4;margin-bottom:16px;">Tap reload to recover app files.</div>'
+            + '<button id="boot-reload-btn" style="background:#C7FF00;color:#000;border:none;border-radius:12px;padding:12px 18px;font-weight:700;cursor:pointer;">Reload app</button>'
+            + '</div>';
+          var btn = document.getElementById('boot-reload-btn');
+          if (btn) btn.addEventListener('click', function () { safeClearCachesAndReload(true); });
+          // Re-arm recovery key so retry can always execute in this session.
+          try { sessionStorage.removeItem(BOOT_KEY); } catch (_) {}
+        }, 20000);
       })();
     </script>
   </head>
