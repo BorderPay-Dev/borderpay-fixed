@@ -9,9 +9,9 @@
  * Existing individual `Dashboard` is untouched.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard,
+  Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
   AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -27,12 +27,14 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
+const WALLET_LIST_CACHE_KEY = 'borderpay_wallets_v1';
+const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v1';
+const VA_LIST_CACHE_KEY = 'borderpay_va_v1';
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -40,6 +42,37 @@ function readBizWallets(cacheKey: string): WalletRow[] {
 function readBizTx(cacheKey: string): any[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
+}
+function readSharedWalletCache(userId: string): WalletRow[] {
+  try {
+    const raw = localStorage.getItem(financialCacheKey(WALLET_LIST_CACHE_KEY, { userId }));
+    const rows = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .map((w: any) => ({
+        currency: String(w?.currency || '').toUpperCase(),
+        balance: parseFloat(w?.balance) || 0,
+      }))
+      .filter((w: WalletRow) => !!w.currency);
+  } catch {
+    return [];
+  }
+}
+
+function hasActiveCachedVa(userId: string): boolean {
+  try {
+    const raw = localStorage.getItem(financialCacheKey(VA_LIST_CACHE_KEY, { userId }));
+    const rows = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(rows)) return false;
+    return rows.some((va: any) => {
+      const cur = String(va?.currency || '').toUpperCase();
+      const status = String(va?.status || '').toLowerCase();
+      const active = status === '' || ['active', 'provisioned', 'ready', 'enabled'].includes(status);
+      return ['USD', 'EUR', 'GBP'].includes(cur) && active;
+    });
+  } catch {
+    return false;
+  }
 }
 
 interface BusinessDashboardProps {
@@ -57,13 +90,27 @@ interface WalletRow {
   balance:  number;
 }
 
-const CURRENCY_SYMBOL: Record<string, string> = {
-  USD: '$', EUR: '€', GBP: '£', USDT: '$', USDC: '$',
+const CURRENCY_LABEL: Record<string, string> = {
+  USD: 'US Dollar',
+  EUR: 'Euro',
+  GBP: 'British Pound',
+  USDT: 'Tether USD',
+  USDC: 'USD Coin',
+};
+const CURRENCY_COLOR: Record<string, string> = {
+  USD: '#60A5FA',
+  EUR: '#A78BFA',
+  GBP: '#34D399',
+  USDT: '#26A17B',
+  USDC: '#2775CA',
+};
+const STABLE_ICON_URL: Record<string, string> = {
+  USDC: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png?v=040',
+  USDT: 'https://cryptologos.cc/logos/tether-usdt-logo.png?v=040',
 };
 
-function fmt(amount: number, currency: string): string {
-  const sym = CURRENCY_SYMBOL[currency] || '';
-  return `${sym}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function prefetchScreen(screen: string): void {
+  try { (window as any).__borderpay_prefetch?.(screen); } catch { /* noop */ }
 }
 
 export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpgrade }: BusinessDashboardProps) {
@@ -106,16 +153,22 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     () => financialCacheKey(BIZ_WALLETS_KEY, { userId, accountType: 'business' }),
     [userId],
   );
-  const cachedBizWallets = useMemo(() => readBizWallets(bizWalletsCacheKey), [bizWalletsCacheKey]);
+  const cachedBizWallets = useMemo(() => {
+    const scoped = readBizWallets(bizWalletsCacheKey);
+    return scoped.length > 0 ? scoped : readSharedWalletCache(userId);
+  }, [bizWalletsCacheKey, userId]);
   const bizTxCacheKey = useMemo(
     () => financialCacheKey(BIZ_TX_KEY, { userId, accountType: 'business' }),
     [userId],
   );
   const cachedBizTransactions = useMemo(() => readBizTx(bizTxCacheKey), [bizTxCacheKey]);
   const [wallets, setWallets]             = useState<WalletRow[]>(cachedBizWallets);
+  const walletsRef = useRef<WalletRow[]>(cachedBizWallets);
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
-  const [walletsLoading, setWalletsLoading] = useState(cachedBizWallets.length === 0);
+  const [walletsLoading, setWalletsLoading] = useState(false);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
+  const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() => hasActiveCachedVa(userId));
+  const walletsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [hasPIN, setHasPIN] = useState<boolean>(() => {
     try { return !!SecurityStatus.get(userId).hasPIN; } catch { return false; }
   });
@@ -124,16 +177,12 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   });
 
   useEffect(() => {
-    navPerfTrackCache('dashboard', cachedBizWallets.length > 0);
-  }, [cachedBizWallets.length]);
+    walletsRef.current = wallets;
+  }, [wallets]);
 
   const usdLikeTotal = useMemo(
-    () => wallets.filter(w => ['USD', 'USDT', 'USDC', 'PYUSD', 'USDB'].includes(w.currency))
+    () => wallets.filter(w => ['USD', 'USDT', 'USDC'].includes(w.currency))
                  .reduce((s, w) => s + (w.balance || 0), 0),
-    [wallets],
-  );
-  const hasVirtualAccounts = useMemo(
-    () => wallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
     [wallets],
   );
 
@@ -142,11 +191,21 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     balance: parseFloat(w?.balance) || 0,
   })).filter((w: WalletRow) => !!w.currency);
 
-  const loadWallets = async () => {
-    // Do not blank a cached dashboard on refresh; only skeleton on cold start.
-    if (wallets.length === 0) setWalletsLoading(true);
+  const loadWallets = async (force = false) => {
+    if (walletsLoadInFlightRef.current) {
+      await walletsLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
+    const seededWallets = walletsRef.current.length > 0 ? walletsRef.current : readBizWallets(bizWalletsCacheKey);
+    // Never hard-block first paint with wallet skeletons on business dashboard.
     setWalletsError(null);
     try {
+      const refreshTsKey = financialCacheKey(BIZ_DASH_REFRESH_TS_KEY, { userId, accountType: 'business' });
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (!force && seededWallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const walletRouteRes: any = await backendAPI.financial.getWalletRouteData();
       const walletOk = walletRouteRes?.success;
       if (walletOk) {
@@ -154,7 +213,13 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         const raw = Array.isArray(walletData?.wallets) ? walletData.wallets : [];
         const formatted = toWalletRows(raw);
         setWallets(formatted);
+        const hasVA = Array.isArray(walletData?.virtual_accounts) && walletData.virtual_accounts.some((va: any) =>
+          ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
+          ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
+        );
+        setHasVirtualAccounts(prev => prev || Boolean(hasVA));
         try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
+        try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else {
         // Fallback path: if wallet route data fails, try canonical snapshot so
         // Accounts can still render without a hard error on dashboard.
@@ -167,7 +232,12 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             setWallets(formatted);
             try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
           }
-        } else if (wallets.length === 0) {
+          const hasVA = Array.isArray(snapshotRes?.data?.virtual_accounts) && snapshotRes.data.virtual_accounts.some((va: any) =>
+            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
+            ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
+          );
+          setHasVirtualAccounts(prev => prev || Boolean(hasVA));
+        } else if (seededWallets.length === 0) {
           setWalletsError(friendlyError(walletRouteRes?.error || snapshotRes?.error, 'Could not load wallets'));
         }
       }
@@ -232,13 +302,22 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         }
       });
     } catch (e: any) {
-      if (wallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
+      if (seededWallets.length === 0) setWalletsError(friendlyError(e, 'Could not load wallets'));
       // Never block or scare users with profile-setup errors on transient
       // dashboard/network failures. Keep the identity header populated from
       // cached auth data and refresh profile in the background.
       setProfileError(null);
     } finally {
       setWalletsLoading(false);
+    }
+    })();
+    walletsLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (walletsLoadInFlightRef.current === run) {
+        walletsLoadInFlightRef.current = null;
+      }
     }
   };
 
@@ -257,7 +336,30 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const refreshAll = () => { loadWallets(); };
+  useEffect(() => {
+    const prewarmKey = `borderpay_business_dashboard_prewarm_v1:${userId}`;
+    try {
+      const last = Number(sessionStorage.getItem(prewarmKey) || '0');
+      if (Number.isFinite(last) && Date.now() - last < 180_000) return;
+      const prefetch = (window as any).__borderpay_prefetch;
+      if (typeof prefetch !== 'function') return;
+      const warm = () => {
+        ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'team', 'settings', 'profile', 'bulk-payout', 'payroll', 'exchange'].forEach((s) => {
+          try { prefetch(s); } catch { /* noop */ }
+        });
+      };
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(warm, { timeout: 1000 });
+      else setTimeout(warm, 220);
+      sessionStorage.setItem(prewarmKey, String(Date.now()));
+    } catch { /* noop */ }
+  }, [userId]);
+
+  const refreshAll = () => { loadWallets(true); };
+  const openWalletForCurrency = (currency: string) => {
+    try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
+    onNavigate('wallet-detail');
+  };
   const kybVerified = affiliateKycStatus === 'verified';
   const setupSteps = [
     { id: '2fa', label: 'Enable 2FA', completed: has2FA, screen: 'two-factor-setup' },
@@ -330,7 +432,13 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                 {setupSteps.map((step) => (
                   <button
                     key={step.id}
-                    onClick={() => { if (!step.completed) onNavigate(step.screen); }}
+                    onClick={() => {
+                      if (step.completed) return;
+                      if (step.id === 'kyb') {
+                        try { sessionStorage.setItem('borderpay_auto_start_verification_v1', '1'); } catch { /* noop */ }
+                      }
+                      onNavigate(step.screen);
+                    }}
                     className={`w-full flex items-center justify-between rounded-lg px-2 py-1.5 ${!step.completed ? tc.hoverBg : ''}`}
                   >
                     <span className={`text-xs ${step.completed ? tc.textMuted : tc.text}`}>{step.label}</span>
@@ -344,17 +452,104 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           </section>
         )}
 
-        {/* ── 3. Quick actions ─────────────────────────────────────── */}
+        {/* ── 3. Accounts strip (parity with individual dashboard) ─── */}
+        <section>
+          <div className="px-4 sm:px-5 flex items-center justify-between mb-3">
+            <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>Accounts</h3>
+            {wallets.length > 0 && (
+              <button
+                onPointerDown={() => prefetchScreen('wallet-detail')}
+                onMouseEnter={() => prefetchScreen('wallet-detail')}
+                onTouchStart={() => prefetchScreen('wallet-detail')}
+                onClick={() => {
+                  try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
+                  onNavigate('wallet-detail');
+                }}
+                className="text-[11px] font-semibold text-[#C7FF00]"
+              >
+                See all
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
+              {wallets.length === 0 ? (
+                <button
+                  onPointerDown={() => prefetchScreen('add-wallet')}
+                  onMouseEnter={() => prefetchScreen('add-wallet')}
+                  onTouchStart={() => prefetchScreen('add-wallet')}
+                  onClick={() => onNavigate('add-wallet')}
+                  className={`flex-shrink-0 w-[220px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
+                >
+                  <div className={`w-8 h-8 rounded-full ${tc.bgAlt} flex items-center justify-center mb-3`}>
+                    <Plus className={`w-4 h-4 ${tc.text}`} />
+                  </div>
+                  <p className={`text-[13px] font-semibold ${tc.text}`}>Open your first account</p>
+                  <p className={`text-[10px] ${tc.textMuted} mt-0.5`}>Activate available accounts for your business.</p>
+                </button>
+              ) : (
+                <>
+                  {wallets.map((w) => (
+                    <button
+                      key={w.currency}
+                      onPointerDown={() => prefetchScreen('wallet-detail')}
+                      onMouseEnter={() => prefetchScreen('wallet-detail')}
+                      onTouchStart={() => prefetchScreen('wallet-detail')}
+                      onClick={() => openWalletForCurrency(w.currency)}
+                      className={`flex-shrink-0 w-[160px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
+                    >
+                      <BizCurrencyIcon currency={w.currency} />
+                      <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold mt-2`}>
+                        {w.currency}
+                      </p>
+                      <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
+                        {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
+                      </p>
+                    </button>
+                  ))}
+                  <button
+                    onPointerDown={() => prefetchScreen('add-wallet')}
+                    onMouseEnter={() => prefetchScreen('add-wallet')}
+                    onTouchStart={() => prefetchScreen('add-wallet')}
+                    onClick={() => onNavigate('add-wallet')}
+                    className={`flex-shrink-0 w-[145px] rounded-2xl border border-dashed ${tc.cardBorder} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
+                    aria-label="Add account"
+                  >
+                    <div className={`w-8 h-8 rounded-full ${tc.bgAlt} flex items-center justify-center mb-3`}>
+                      <Plus className={`w-4 h-4 ${tc.text}`} />
+                    </div>
+                    <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold`}>New</p>
+                    <p className={`text-[13px] font-semibold ${tc.text} mt-0.5`}>Add account</p>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          {walletsError && (
+            <div className="px-4 sm:px-5 mt-2">
+              <button
+                onClick={() => loadWallets(true)}
+                className="text-[11px] text-[#C7FF00] font-semibold inline-flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" /> Retry loading accounts
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ── 4. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
           <div className="grid grid-cols-4 gap-2">
-            <BizChip label="Send"    Icon={Send}     onClick={() => onNavigate('send-money')}    tc={tc} />
-            <BizChip label="Receive" Icon={Download} onClick={() => onNavigate('receive-money')} tc={tc} />
-            <BizChip label="Activity" Icon={FileText} onClick={() => onNavigate('transactions')} tc={tc} />
-            <BizChip label="Payouts" Icon={Banknote} onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
-            <BizChip label="Team"    Icon={Users}    onClick={() => onNavigate('team')}          tc={tc} />
+            <BizChip label="Send"    Icon={Send}     onPrefetch={() => prefetchScreen('send-money')}       onClick={() => onNavigate('send-money')}    tc={tc} />
+            <BizChip label="Receive" Icon={Download} onPrefetch={() => prefetchScreen('receive-money')}    onClick={() => onNavigate('receive-money')} tc={tc} />
+            <BizChip label="Activity" Icon={FileText} onPrefetch={() => prefetchScreen('transactions')}    onClick={() => onNavigate('transactions')} tc={tc} />
+            <BizChip label="Payouts" Icon={Banknote} onPrefetch={() => prefetchScreen('bulk-payout')}      onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
+            <BizChip label="Team"    Icon={Users}    onPrefetch={() => prefetchScreen('team')}             onClick={() => onNavigate('team')}          tc={tc} />
             <BizChip
               label={PAYROLL_RUNTIME_ENABLED ? 'Payroll' : 'Payroll Soon'}
               Icon={BriefcaseBusiness}
+              onPrefetch={() => prefetchScreen('payroll')}
               onClick={() => onNavigate('payroll')}
               tc={tc}
               disabled={!PAYROLL_RUNTIME_ENABLED}
@@ -362,10 +557,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             <BizChip
               label="FX"
               Icon={ArrowRightLeft}
+              onPrefetch={() => prefetchScreen('exchange')}
               onClick={() => onNavigate('exchange')}
               tc={tc}
             />
-            <BizChip label="Cards" Icon={CreditCard} onClick={() => onNavigate('cards')} tc={tc} />
+            <BizChip label="Cards" Icon={CreditCard} onPrefetch={() => prefetchScreen('cards')} onClick={() => onNavigate('cards')} tc={tc} />
           </div>
         </section>
 
@@ -382,7 +578,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           </section>
         )}
 
-        {/* ── 4. Plan + seats ──────────────────────────────────────── */}
+        {/* ── 5. Plan + seats ──────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
           <PlanStatusCard
             planKey={planKey ?? null}
@@ -392,73 +588,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             onManagePlans={() => onNavigate('pricing')}
             onUpgrade={onUpgrade}
           />
-        </section>
-
-        {/* ── 5. Accounts (Mercury rows) ───────────────────────────── */}
-        <section className="px-5 sm:px-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>Accounts</h2>
-            {walletsError && (
-              <button
-                onClick={loadWallets}
-                className="text-[11px] text-[#C7FF00] font-semibold inline-flex items-center gap-1"
-              >
-                <RefreshCw className="w-3 h-3" /> Retry
-              </button>
-            )}
-          </div>
-
-          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-            {walletsLoading ? (
-              [1, 2].map((i) => (
-                <div key={i} className={`px-4 py-3.5 flex items-center gap-3 ${i > 1 ? `border-t ${tc.borderLight}` : ''}`}>
-                  <div className={`w-9 h-9 rounded-full ${tc.bgAlt} animate-pulse flex-shrink-0`} />
-                  <div className="flex-1">
-                    <div className={`h-3 w-24 rounded ${tc.bgAlt} animate-pulse mb-1.5`} />
-                    <div className={`h-2.5 w-16 rounded ${tc.bgAlt} animate-pulse`} />
-                  </div>
-                </div>
-              ))
-            ) : walletsError ? (
-              <div className="px-4 py-4 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                <p className={`text-xs ${tc.text}`}>{walletsError}</p>
-              </div>
-            ) : wallets.length === 0 ? (
-              <button
-                onClick={() => onNavigate('receive-money')}
-                className={`w-full px-4 py-5 flex items-center gap-3 ${tc.hoverBg} text-left transition-colors`}
-              >
-                <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
-                  <Wallet className={`w-4 h-4 ${tc.text}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${tc.text}`}>Open your first account</p>
-                  <p className={`text-[11px] ${tc.textMuted}`}>BorderPay accounts available for your country.</p>
-                </div>
-                <ArrowRight className={`w-4 h-4 ${tc.textMuted}`} />
-              </button>
-            ) : (
-              wallets.map((w, i) => (
-                <button
-                  key={w.currency}
-                  onClick={() => onNavigate('wallet-detail')}
-                  className={`w-full px-4 py-3.5 flex items-center gap-3 ${tc.hoverBg} transition-colors text-left ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
-                >
-                  <div className="w-9 h-9 rounded-full bg-[#C7FF00]/15 text-[#C7FF00] flex items-center justify-center font-mono text-[10px] font-bold flex-shrink-0">
-                    {w.currency.slice(0,3)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-semibold ${tc.text}`}>{w.currency} account</p>
-                    <p className={`text-[11px] ${tc.textMuted}`}>Available</p>
-                  </div>
-                  <p className={`text-sm font-semibold ${tc.text} tabular-nums font-mono flex-shrink-0`}>
-                    {fmt(w.balance, w.currency)}
-                  </p>
-                </button>
-              ))
-            )}
-          </div>
         </section>
 
         {/* ── 6. BorderPay infrastructure ──────────────────────────── */}
@@ -493,11 +622,12 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 // `primary` swaps the background to lime (used for "Team" so the team-mgmt
 // surface gets visual priority for business owners).
 function BizChip({
-  label, Icon, onClick, primary, tc, disabled,
+  label, Icon, onClick, onPrefetch, primary, tc, disabled,
 }: {
   label:    string;
   Icon:     React.ComponentType<{ className?: string }>;
   onClick:  () => void;
+  onPrefetch?: () => void;
   primary?: boolean;
   tc:       ReturnType<typeof useThemeClasses>;
   disabled?: boolean;
@@ -505,6 +635,9 @@ function BizChip({
   return (
     <button
       disabled={disabled}
+      onPointerDown={onPrefetch}
+      onMouseEnter={onPrefetch}
+      onTouchStart={onPrefetch}
       onClick={onClick}
       className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl py-3.5 transition-colors active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed ${
         primary
@@ -515,6 +648,50 @@ function BizChip({
       <Icon className={`w-[18px] h-[18px] ${primary ? 'text-black' : ''}`} />
       <span className={`text-[11px] font-semibold ${primary ? 'text-black' : tc.text}`}>{label}</span>
     </button>
+  );
+}
+
+function BizCurrencyIcon({ currency }: { currency: string }) {
+  const code = String(currency || '').toUpperCase();
+  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+  const [imgFailed, setImgFailed] = React.useState(false);
+  const iconUrl = STABLE_ICON_URL[code];
+
+  if (flag[code]) {
+    return (
+      <div
+        className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[18px] leading-none"
+        aria-hidden
+      >
+        {flag[code]}
+      </div>
+    );
+  }
+
+  if (iconUrl && !imgFailed) {
+    return (
+      <div className="w-8 h-8 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
+        <img
+          src={iconUrl}
+          alt=""
+          className="w-7 h-7 object-contain"
+          onError={() => setImgFailed(true)}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+      style={{ backgroundColor: `${CURRENCY_COLOR[code] || '#666666'}26`, color: CURRENCY_COLOR[code] || '#666666' }}
+      aria-hidden
+    >
+      {code.slice(0, 3)}
+    </div>
   );
 }
 
