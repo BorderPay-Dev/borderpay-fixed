@@ -1,6 +1,8 @@
 // Sev-1 kill switch: retire service worker control to recover stuck clients.
 // This worker immediately activates, clears all caches, unregisters itself,
 // and asks open tabs to reload to fetch fresh network HTML/assets.
+// Recovery audit marker: keep cache version token bumped for stale-client checks.
+const CACHE_NAME = 'borderpay-app-v2.12.0';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
