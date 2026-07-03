@@ -38,6 +38,17 @@ interface SettingsScreenProps {
   onLock?: () => void;
   onNavigate: (screen: string) => void;
 }
+const SETTINGS_SECURITY_TIMEOUT_MS = 1400;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }: SettingsScreenProps) {
   const SHOW_ADMIN_EMAIL_OPS = false;
@@ -104,7 +115,11 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
         // user_profiles). Read both in parallel and OR with TOTPManager so the
         // toggle never flickers ON-then-OFF for a user who actually has 2FA.
         const totpOn = TOTPManager.isEnabled(userId);
-        const secRes = await backendAPI.auth.getSecurityStatus(userId);
+        const secRes = await withTimeout(
+          backendAPI.auth.getSecurityStatus(userId),
+          SETTINGS_SECURITY_TIMEOUT_MS,
+          { success: false, error: 'security_timeout' } as any,
+        );
         let hasPin = totpOn ? false : false;
         let has2fa = totpOn;
         if (secRes.success) {

@@ -35,6 +35,17 @@ interface ProfileScreenProps {
   userId: string;
   onBack: () => void;
 }
+const PROFILE_FETCH_TIMEOUT_MS = 1400;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 function readLocalEmailConfirmed(): boolean {
   try {
@@ -175,7 +186,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           return '';
         }
       })();
-      const result = await backendAPI.user.getProfile();
+      const result = await withTimeout(
+        backendAPI.user.getProfile(),
+        PROFILE_FETCH_TIMEOUT_MS,
+        { success: false, error: 'profile_timeout' } as any,
+      );
 
       if (result.success && result.data?.user) {
         const u = result.data.user as any;
@@ -228,7 +243,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         if ((u.account_type || profileData.account_type) === 'business') {
           void (async () => {
             try {
-              const businessProfile = await backendAPI.business.getProfile();
+              const businessProfile = await withTimeout(
+                backendAPI.business.getProfile(),
+                PROFILE_FETCH_TIMEOUT_MS,
+                { success: false, data: null } as any,
+              );
               const company_name = businessProfile?.success
                 ? String(businessProfile?.data?.company_name || '').trim()
                 : '';
