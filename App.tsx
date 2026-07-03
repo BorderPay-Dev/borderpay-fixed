@@ -153,6 +153,27 @@ function AppContent() {
     return () => window.clearTimeout(t);
   }, [authLoading]);
 
+  // Sev-1 fail-safe: splash must never trap the app.
+  useEffect(() => {
+    if (!showSplash) return;
+    const t = window.setTimeout(() => {
+      setShowSplash(false);
+      try { console.warn('[boot] splash watchdog forced continue'); } catch { /* noop */ }
+    }, 5500);
+    return () => window.clearTimeout(t);
+  }, [showSplash]);
+
+  // Sev-1 fail-safe: if route resolution remains "loading" after splash/auth are
+  // done, fail-open to login/onboarding instead of pinning boot forever.
+  useEffect(() => {
+    if (showSplash || effectiveAuthLoading || appState !== 'loading') return;
+    const t = window.setTimeout(() => {
+      setAppState(hasSeenOnboarding ? 'login' : 'onboarding');
+      try { console.warn('[boot] route loading watchdog forced route'); } catch { /* noop */ }
+    }, 1800);
+    return () => window.clearTimeout(t);
+  }, [showSplash, effectiveAuthLoading, appState, hasSeenOnboarding]);
+
   // Check for password reset token in URL hash
   // Detect password reset tokens in URL hash — but don't change state until splash is done
   const [pendingResetPassword, setPendingResetPassword] = useState(false);
@@ -585,7 +606,7 @@ function AppContent() {
 
   // Show splash screen on first load (covers auth initialization too)
   // Keep splash visible until both auth check AND splash animation are complete
-  const showSplashScreen = !skipSplashOnce && (showSplash || effectiveAuthLoading || appState === 'loading');
+  const showSplashScreen = !skipSplashOnce && (showSplash || effectiveAuthLoading);
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
