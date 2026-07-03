@@ -127,4 +127,13 @@ python3 "$ROOT/scripts/ci/verify_lifecycle_write_path_exhaustiveness.py" --phase
 python3 "$ROOT/scripts/ci/verify_lifecycle_write_path_exhaustiveness.py" --phase C --runtime-only >/dev/null \
   || fail "Lifecycle runtime lock objective failed (phase C)."
 
+# 8) Legacy-runtime guards:
+#    a) banned legacy endpoint aliases must never be reintroduced in app API calls.
+python3 "$ROOT/scripts/ci/verify_no_legacy_endpoint_aliases.py" >/dev/null \
+  || fail "Legacy endpoint alias guard failed."
+
+#    b) prohibited legacy stablecoin symbols must never leak into runtime code.
+python3 "$ROOT/scripts/ci/verify_no_legacy_stablecoins.py" >/dev/null \
+  || fail "Legacy stablecoin runtime guard failed."
+
 echo "[safety-boundary] OK"
