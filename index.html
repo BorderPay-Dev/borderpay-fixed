@@ -144,7 +144,7 @@
           try {
             var tried = sessionStorage.getItem(BOOT_KEY) === '1';
             if (tried && !force) return;
-            sessionStorage.setItem(BOOT_KEY, '1');
+            if (!tried) sessionStorage.setItem(BOOT_KEY, '1');
           } catch (_) {}
 
           Promise.resolve()
