@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { backendAPI, type TeamMemberRow, type TeamRosterResponse, type TeamRole } from '../../utils/api/backendAPI';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 export interface TeamScreenProps {
   onBack: () => void;
@@ -153,6 +154,10 @@ function BusinessTeamPanel({
   const cachedRoster = readRosterCache();
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
+
+  useEffect(() => {
+    navPerfTrackCache('team', !!cachedRoster);
+  }, [!!cachedRoster]);
   const [roster, setRoster]     = useState<TeamRosterResponse | null>(cachedRoster);
   const rosterRef = useRef<TeamRosterResponse | null>(cachedRoster);
   const loadInFlightRef = useRef<Promise<void> | null>(null);

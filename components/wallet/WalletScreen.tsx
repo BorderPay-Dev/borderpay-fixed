@@ -35,6 +35,7 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { showToast } from '../common/StatusToast';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface WalletScreenProps {
   userId:     string;
@@ -79,6 +80,21 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => financialCacheKey('borderpay_va_v1', { userId }),
     [userId],
   );
+  useEffect(() => {
+    const hasStable = (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
+        return Array.isArray(scoped) && scoped.length > 0;
+      } catch { return false; }
+    })();
+    const hasVa = (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+        return Array.isArray(scoped) && scoped.length > 0;
+      } catch { return false; }
+    })();
+    navPerfTrackCache('wallet-detail', hasStable || hasVa);
+  }, [stableWalletsCacheKey, vaCacheKey]);
   const walletRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_wallet_refresh_ts_v1', { userId }),
     [userId],

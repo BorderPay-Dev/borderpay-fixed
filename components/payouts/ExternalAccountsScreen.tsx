@@ -17,6 +17,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExternalAccountRow {
   id: string;
@@ -113,6 +114,9 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey('borderpay_external_accounts_refresh_ts_v1', { userId });
   const cached = readCache(cacheKey);
+  useEffect(() => {
+    navPerfTrackCache('external-accounts', cached.length > 0);
+  }, [cached.length]);
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   const rowsRef = useRef<ExternalAccountRow[]>(cached);
   const loadInFlightRef = useRef<Promise<void> | null>(null);

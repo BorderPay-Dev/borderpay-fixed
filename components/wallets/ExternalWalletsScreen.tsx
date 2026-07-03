@@ -18,6 +18,7 @@ import { useVerification } from '../../utils/verification/useVerification';
 import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface Props {
   onBack: () => void;
@@ -63,6 +64,9 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const verification = useVerification(userId);
 
   const cached = readCache();
+  useEffect(() => {
+    navPerfTrackCache('external-wallets', cached.length > 0);
+  }, [cached.length]);
   const [wallets, setWallets] = useState<ExternalWallet[]>(cached);
   const [loading, setLoading] = useState(cached.length === 0);
   const [adding, setAdding]   = useState(false);

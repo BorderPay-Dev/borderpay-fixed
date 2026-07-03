@@ -19,6 +19,7 @@ import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -75,6 +76,21 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     () => financialCacheKey('borderpay_receive_refresh_ts_v1', { userId }),
     [userId],
   );
+  useEffect(() => {
+    const stableHit = (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
+        return Array.isArray(scoped) && scoped.length > 0;
+      } catch { return false; }
+    })();
+    const vaHit = (() => {
+      try {
+        const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+        return Array.isArray(scoped) && scoped.length > 0;
+      } catch { return false; }
+    })();
+    navPerfTrackCache('receive-money', stableHit || vaHit);
+  }, [stableWalletsCacheKey, vaCacheKey]);
 
   // ── Data (seeded from cache so the screen mounts instantly) ──────────────
   const [stables, setStables] = useState<StableRow[]>(() => {

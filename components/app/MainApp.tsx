@@ -54,6 +54,13 @@ import {
   PAYROLL_RUNTIME_ENABLED,
 } from '../../utils/featureFlags';
 import { TransfersComingSoonScreen } from '../send/TransfersComingSoonScreen';
+import {
+  navPerfGetReport,
+  navPerfMarkFirstPaint,
+  navPerfMarkRouteMounted,
+  navPerfReset,
+  navPerfStartRoute,
+} from '../../utils/performance/navigationPerf';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -332,6 +339,7 @@ interface MainAppProps {
 export type AppScreen =
   | 'dashboard'
   | 'home'
+  | 'ramps'
   | 'cards'
   | 'send-money'
   | 'receive-money'
@@ -573,7 +581,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ─── Shell hydration (unread count) ──────────────────────────────────────
+  // ─── Shell snapshot ───────────────────────────────────────────────────────
   // Route-level screens own their own data caches; shell only hydrates the
   // tiny values it actually needs for first-navigation responsiveness.
   useEffect(() => {
@@ -606,7 +614,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [userId, updateUnreadCount]);
+  }, [userId, accountType, refreshKey, updateUnreadCount]);
 
   // ─── Load subscription row once per session ────────────────────────────
   // Reads user_subscriptions via the subscription-current edge function. If
@@ -680,6 +688,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     // Pre-warm the chunk in case the user reached this state without a
     // hover preload (e.g. programmatic nav)
     prefetchScreen(target);
+    navPerfStartRoute(target, accountType);
     setCurrentScreen(target);
     setNavigationStack(prev => [...prev, target]);
     scrollToTop();
@@ -687,10 +696,20 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   React.useEffect(() => {
     (window as any).__borderpay_navigate = navigateTo;
+    (window as any).__borderpay_nav_perf_report = navPerfGetReport;
+    (window as any).__borderpay_nav_perf_reset = navPerfReset;
     return () => {
       delete (window as any).__borderpay_navigate;
+      delete (window as any).__borderpay_nav_perf_report;
+      delete (window as any).__borderpay_nav_perf_reset;
     };
   });
+
+  useEffect(() => {
+    navPerfMarkRouteMounted(currentScreen);
+    const raf = window.requestAnimationFrame(() => navPerfMarkFirstPaint(currentScreen));
+    return () => window.cancelAnimationFrame(raf);
+  }, [currentScreen]);
 
   // Prefetch most-likely-next screens once the dashboard is mounted, so the
   // user's first navigation is instant. Runs once per session, in background.
@@ -883,6 +902,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
 
       case 'receive-money':
+      case 'ramps':
         return <ReceiveMoneyScreen onBack={navigateBack} />;
 
       case 'external-accounts':

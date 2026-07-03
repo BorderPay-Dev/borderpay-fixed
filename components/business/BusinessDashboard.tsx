@@ -28,6 +28,7 @@ import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
@@ -183,6 +184,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [setupBannerDismissed, setSetupBannerDismissed] = useState<boolean>(() => {
     try { return sessionStorage.getItem(setupBannerDismissKey) === '1'; } catch { return false; }
   });
+
+  useEffect(() => {
+    navPerfTrackCache('dashboard', cachedBizWallets.length > 0 || cachedBizTransactions.length > 0);
+  }, [cachedBizWallets.length, cachedBizTransactions.length]);
 
   useEffect(() => {
     walletsRef.current = wallets;

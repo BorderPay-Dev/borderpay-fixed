@@ -30,6 +30,7 @@ import { deriveKycStatus } from '../../utils/config/environment';
 import { deriveWalletStatus, type WalletStatus } from '../../utils/financial/walletStatus';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { Skeleton, SkeletonRows } from '../common/Skeleton';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ProfileScreenProps {
   userId: string;
@@ -152,6 +153,11 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
   const profileRefreshTsKey = `borderpay_profile_refreshed_at:${userId}`;
+
+  useEffect(() => {
+    const hasCachedProfile = Boolean(profile?.email || profile?.full_name || profile?.company_name);
+    navPerfTrackCache('profile', hasCachedProfile);
+  }, [profile?.email, profile?.full_name, profile?.company_name]);
 
   const mergeProfileCache = (next: Record<string, unknown>) => {
     try {

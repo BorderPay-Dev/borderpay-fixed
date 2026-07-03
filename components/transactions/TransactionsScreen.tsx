@@ -15,6 +15,7 @@ import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -86,6 +87,9 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey(TX_REFRESH_TS_KEY, { userId });
   const seededRows = readTxCache(cacheKey, userId);
+  useEffect(() => {
+    navPerfTrackCache('transactions', seededRows.length > 0);
+  }, [seededRows.length]);
   // Seed from cache so the history paints instantly on open, then refreshes.
   const [transactions, setTransactions] = useState<Transaction[]>(() => seededRows);
   const transactionsRef = useRef<Transaction[]>(seededRows);

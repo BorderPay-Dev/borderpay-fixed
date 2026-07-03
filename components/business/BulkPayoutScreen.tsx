@@ -8,7 +8,7 @@
  * wallet address) — same primitive the single Send uses.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Users, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -16,6 +16,7 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { toast } from 'sonner';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface Row { label: string; chain: string; address: string; amount: string }
 
@@ -35,6 +36,9 @@ export interface BulkPayoutScreenProps {
 
 export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const tc = useThemeClasses();
+  useEffect(() => {
+    navPerfTrackCache('bulk-payout', isAccountActivated());
+  }, []);
   const [asset, setAsset] = useState<Asset>('USDC');
   const [rows, setRows] = useState<Row[]>([blankRow(defaultChain('USDC')), blankRow(defaultChain('USDC'))]);
   const [submitting, setSubmitting] = useState(false);

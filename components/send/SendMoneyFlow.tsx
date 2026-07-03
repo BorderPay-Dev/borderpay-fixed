@@ -33,6 +33,7 @@ import { classifyCorridor } from '../../utils/payouts/corridor';
 import { ExternalCryptoWithdrawalFields, isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -164,6 +165,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       return [];
     }
   }, [externalAccountsCacheKey]);
+  useEffect(() => {
+    navPerfTrackCache('send-money', cachedSendWallets.length > 0 || cachedSendCaps.length > 0 || cachedExternalAccounts.length > 0);
+  }, [cachedSendWallets.length, cachedSendCaps.length, cachedExternalAccounts.length]);
 
   // Step & method
   const [step, setStep] = useState<Step>('method');
