@@ -36,6 +36,7 @@ type BroadcastAction =
   | "business_platform_live"
   | "individual_platform_live"
   | "borderpay_live"
+  | "first_transaction_unlock_reminder"
   | "individual_verification_reminder"
   | "business_verification_reminder"
   | "verification_reminder_all"
@@ -61,7 +62,20 @@ Deno.serve(async (req) => {
   if (!authorized && token) {
     const { data: authData, error: authErr } = await supabase.auth.getUser(token);
     const callerUserId = authData?.user?.id || "";
+    const callerEmail = String(authData?.user?.email || "").trim().toLowerCase();
+    const metaRole = String(
+      authData?.user?.app_metadata?.role
+      || authData?.user?.user_metadata?.role
+      || "",
+    ).trim().toLowerCase();
     if (!authErr && callerUserId) {
+      if (
+        ["admin", "super_admin", "support_admin"].includes(metaRole)
+        || callerEmail === "founder@borderpayafrica.com"
+      ) {
+        authorized = true;
+      }
+
       const { data: callerProfile } = await supabase
         .from("user_profiles")
         .select("is_admin")
@@ -69,6 +83,19 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (callerProfile?.is_admin === true) {
         authorized = true;
+      }
+
+      // Fallback to admin_users RBAC table used by admin panel.
+      if (!authorized) {
+        const { data: adminUser } = await supabase
+          .from("admin_users")
+          .select("is_active, role")
+          .eq("user_id", callerUserId)
+          .maybeSingle();
+        const role = String(adminUser?.role || "").toLowerCase();
+        if (adminUser?.is_active === true && ["admin", "super_admin", "support_admin"].includes(role)) {
+          authorized = true;
+        }
       }
     }
   }
@@ -95,6 +122,7 @@ Deno.serve(async (req) => {
     "business_verification_delay",
     "business_platform_live",
     "individual_platform_live",
+    "first_transaction_unlock_reminder",
     "individual_verification_reminder",
     "business_verification_reminder",
     "verification_reminder_all",
@@ -114,7 +142,7 @@ Deno.serve(async (req) => {
   const [{ data: profiles, error: profilesErr }, { data: bizProfiles, error: bizErr }] = await Promise.all([
     supabase
       .from("user_profiles")
-      .select("id, email, full_name, account_type, is_admin, bridge_kyc_status")
+      .select("id, email, full_name, country, account_type, is_admin, bridge_kyc_status, is_unlocked")
       .not("email", "is", null)
       .limit(limit),
     supabase
@@ -196,6 +224,10 @@ Deno.serve(async (req) => {
       return at === "business"
         && kybOpen.has(String(bizStatusByUser.get(String(p.id || "")) || "not_started").toLowerCase());
     }
+    if (action === "first_transaction_unlock_reminder") {
+      const isUnlocked = Boolean(p.is_unlocked === true);
+      return !isUnlocked;
+    }
     return true;
   });
 
@@ -239,6 +271,8 @@ Deno.serve(async (req) => {
     const template =
       action === "business_verification_delay" ? "business.platform_live" :
       action === "business_platform_live" ? "business.platform_live" :
+      action === "first_transaction_unlock_reminder"
+        ? (accountType === "business" ? "business.first_transaction_reminder" : "individual.first_transaction_reminder") :
       action === "verification_business_kyb_completion" ? "business.verification_authorized" :
       action === "business_verification_reminder" ? "business.verification_reminder" :
       action === "verification_tos_stuck_recovery" ? "individual.verification_authorized" :
