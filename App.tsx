@@ -103,6 +103,8 @@ function AppContent() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const { user, session, loading: authLoading, isAuthenticated, signOut } = useAuth();
+  const [authBootTimedOut, setAuthBootTimedOut] = useState(false);
+  const effectiveAuthLoading = authLoading && !authBootTimedOut;
 
   // App lock state — show lock screen when user has PIN and enters dashboard
   const [appLocked, setAppLocked] = useState(false);
@@ -137,6 +139,19 @@ function AppContent() {
     setShowInstallBanner(false);
     localStorage.setItem('borderpay_pwa_dismissed', 'true');
   };
+
+  // Sev-1 fail-open guard: auth bootstrap must never pin splash forever.
+  useEffect(() => {
+    if (!authLoading) {
+      setAuthBootTimedOut(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setAuthBootTimedOut(true);
+      try { console.warn('[auth] bootstrap timeout fail-open'); } catch { /* noop */ }
+    }, 6500);
+    return () => window.clearTimeout(t);
+  }, [authLoading]);
 
   // Check for password reset token in URL hash
   // Detect password reset tokens in URL hash — but don't change state until splash is done
@@ -193,23 +208,23 @@ function AppContent() {
 
   // Apply verify-email state once splash + auth load have settled.
   useEffect(() => {
-    if (pendingVerify && !showSplash && !authLoading) {
+    if (pendingVerify && !showSplash && !effectiveAuthLoading) {
       setAppState('verify-email');
     }
-  }, [pendingVerify, showSplash, authLoading]);
+  }, [pendingVerify, showSplash, effectiveAuthLoading]);
 
   // Apply pending reset-password state only after splash + auth have finished
   useEffect(() => {
-    if (pendingResetPassword && !showSplash && !authLoading) {
+    if (pendingResetPassword && !showSplash && !effectiveAuthLoading) {
       setAppState('reset-password');
       setPendingResetPassword(false);
     }
-  }, [pendingResetPassword, showSplash, authLoading]);
+  }, [pendingResetPassword, showSplash, effectiveAuthLoading]);
 
   // Check authentication state and route appropriately
   useEffect(() => {
     // Wait for auth to finish loading
-    if (authLoading) {
+    if (effectiveAuthLoading) {
       return;
     }
 
@@ -369,7 +384,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [authLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword, appState]);
+  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword, appState]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -570,7 +585,7 @@ function AppContent() {
 
   // Show splash screen on first load (covers auth initialization too)
   // Keep splash visible until both auth check AND splash animation are complete
-  const showSplashScreen = !skipSplashOnce && (showSplash || authLoading || appState === 'loading');
+  const showSplashScreen = !skipSplashOnce && (showSplash || effectiveAuthLoading || appState === 'loading');
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
