@@ -1,5 +1,5 @@
 /**
- * BorderPay Africa - Send Money Flow (Bridge-backed payout rails)
+ * BorderPay Africa - Send Money Flow (provider-backed payout rails)
  * Active transfer methods:
  *   1. External Bank Account (linked payout destination)
  *   2. Stablecoin Withdrawal (external wallet address)
@@ -240,7 +240,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return 'individual';
   }, []);
 
-  // Bridge-backed capability gate for external bank accounts.
+  // Provider-backed capability gate for external bank accounts.
   const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
     cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
   );

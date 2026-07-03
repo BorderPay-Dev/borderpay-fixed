@@ -381,7 +381,7 @@ Deno.serve(async (req: Request) => {
 
   // Legacy safety: if a stale/invalid bridge_customer_id is stored locally,
   // Bridge can reject the request. Retry once without customer_id using the
-  // embedded-customer hosted KYC flow (Bridge-supported) to unblock users.
+  // embedded-customer hosted KYC flow (provider-supported) to unblock users.
   if (!r.ok && !links && profile.bridge_customer_id) {
     const fallbackBody = { ...reqBody };
     delete fallbackBody.customer_id;

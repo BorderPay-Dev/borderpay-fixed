@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "upstream_error",
-      error: res.error || "Failed to load mobile money providers",
+      error: res.error || "Failed to load available providers",
       data: { capabilities: caps, country },
     }, 502);
   }

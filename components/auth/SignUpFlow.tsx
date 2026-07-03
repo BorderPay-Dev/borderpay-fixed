@@ -992,7 +992,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
             <p className="text-[10px] text-red-400 mt-1.5 ml-1">Required - determines your available services & wallets</p>
           )}
           {!countriesLoading && signupCountries.length === 0 && (
-            <p className="text-[10px] text-red-400 mt-1.5 ml-1">Could not load Bridge-supported countries. Please try again.</p>
+            <p className="text-[10px] text-red-400 mt-1.5 ml-1">Could not load supported countries. Please try again.</p>
           )}
           {formData.selectedCountry && isBridgeControlled(formData.selectedCountry.code) && (
             <p className="text-[11px] text-amber-300/80 mt-1.5 ml-1">

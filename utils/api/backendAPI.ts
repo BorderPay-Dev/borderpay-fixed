@@ -1510,7 +1510,7 @@ const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = 
 const BRIDGE_ONLY_DISABLED = {
   success: false,
   code: 'bridge_path_required',
-  error: 'This flow is disabled. Use the Bridge-backed send/receive/external-account path.',
+  error: 'This flow is disabled. Use the provider-backed send/receive/external-account path.',
 } as const;
 
 export const proofOfAddressAPI = {
@@ -1557,7 +1557,7 @@ export const localPaymentsAPI = {
 // ============================================================================
 
 // QUARANTINED — legacy US counterparty endpoints are hard-disabled.
-// BorderPay send/payout flows must use Bridge-backed transfer orchestration
+// BorderPay send/payout flows must use provider-backed transfer orchestration
 // only. Do not route any runtime path through `get-counterparty` here.
 export const usPaymentsAPI = {
   async transfer(_data: any) {
@@ -1732,7 +1732,7 @@ export const notificationsAPI = {
 // `createUSDAccount` routes to Bridge VA(USD).
 // `createDynamicAccount` is future-state (African local rails).
 // Legacy account-rail/counterparty endpoints are hard-disabled.
-// Runtime send/payout execution must remain Bridge-backed only.
+// Runtime send/payout execution must remain provider-backed only.
 export const accountsAPI = {
   async getAccounts() {
     const route = await financialReadModelAPI.getWalletRouteData();
@@ -1759,16 +1759,16 @@ export const accountsAPI = {
     return BRIDGE_ONLY_DISABLED;
   },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
   async getSupportedRails(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
   async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
   async getCounterparty(_counterPartyId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
   async getAccountCounterparties(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
   async createDynamicAccount(_accountName: string, _preferredBank: string, _amount?: string) {
@@ -1824,7 +1824,7 @@ export interface ProvisioningRequestBody {
 export const provisioningAPI = {
   async request(_body: ProvisioningRequestBody) {
     // Legacy "Add a new funding option" flow is intentionally retired.
-    // Account/wallet creation is now done from canonical Bridge-backed routes
+    // Account/wallet creation is now done from canonical provider-backed routes
     // inside the Wallet/Receive experience.
     return {
       success: false,
@@ -2163,7 +2163,7 @@ export const bridgeAPI = {
       );
     },
 
-    /** Query Bridge-backed capabilities for external-account rails. */
+    /** Query provider-backed capabilities for external-account rails. */
     capabilities: async () =>
       apiCall<{ supported_account_types: Array<'us' | 'iban' | 'clabe' | 'pix'> }>(
         'bridge-external-account',
