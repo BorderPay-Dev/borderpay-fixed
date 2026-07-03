@@ -77,7 +77,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     account_type:       'individual',
     display_name:       'Activated',
     tagline:            'Minimum balance met. Multi-currency accounts unlocked.',
-    activation_fee_usd: 2000,
+    activation_fee_usd: 999,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: null, cards_enabled: false },
     features: [
       { title: 'USD virtual account (ACH)',             highlight: true },
@@ -113,7 +113,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     account_type:       'business',
     display_name:       'Activated',
     tagline:            'Minimum balance met. Corporate wallets unlocked.',
-    activation_fee_usd: 5000,
+    activation_fee_usd: 2999,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: BUSINESS_TEAM_SEATS, cards_enabled: false },
     features: [
       { title: 'USD / EUR / GBP business virtual accounts', highlight: true },
