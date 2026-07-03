@@ -19,7 +19,6 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
-import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface NotificationRow {
@@ -58,7 +57,7 @@ const NOTIFICATIONS_REFRESH_THROTTLE_MS = 45_000;
 function currentNotificationCacheKey(): string | null {
   try {
     const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    return user?.id ? financialCacheKey(NOTIFICATIONS_CACHE_PREFIX, { userId: String(user.id) }) : null;
+    return user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null;
   } catch {
     return null;
   }
