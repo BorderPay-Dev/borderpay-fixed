@@ -87,7 +87,7 @@
     },
     {
       "id": "DBFN_INGEST_BRIDGE_EVENT",
-      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "path_regex": "^supabase/migrations/(20260529_bridge_ingest_event_webhook_logs_parent|20260529010000_bridge_ingest_event_webhook_logs_parent)\\.sql$",
       "table": "bridge_webhook_events",
       "ops": ["insert", "update"],
       "classification": "canonical_rpc",
@@ -95,7 +95,7 @@
     },
     {
       "id": "DBFN_INGEST_BRIDGE_EVENT_QUEUE",
-      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "path_regex": "^supabase/migrations/(20260529_bridge_ingest_event_webhook_logs_parent|20260529010000_bridge_ingest_event_webhook_logs_parent)\\.sql$",
       "table": "pending_events",
       "ops": ["insert"],
       "classification": "canonical_rpc",
@@ -103,7 +103,7 @@
     },
     {
       "id": "DBFN_INGEST_BRIDGE_EVENT_LOGS",
-      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "path_regex": "^supabase/migrations/(20260529_bridge_ingest_event_webhook_logs_parent|20260529010000_bridge_ingest_event_webhook_logs_parent)\\.sql$",
       "table": "webhook_logs",
       "ops": ["insert", "update"],
       "classification": "canonical_rpc",
@@ -127,7 +127,7 @@
     },
     {
       "id": "DBFN_BRIDGE_WALLET_CREDIT_COMPLETE",
-      "path_regex": "^supabase/migrations/20260510_bridge_wallet_credit_rpc\\.sql$",
+      "path_regex": "^supabase/migrations/(20260510_bridge_wallet_credit_rpc|20260510030000_bridge_wallet_credit_rpc)\\.sql$",
       "table": "pending_events",
       "ops": ["update"],
       "classification": "domain_rpc",
@@ -135,7 +135,7 @@
     },
     {
       "id": "HISTORICAL_DBFN_INGEST_V0_BWE",
-      "path_regex": "^supabase/migrations/20260510_bridge_webhook_atomic_ingest\\.sql$",
+      "path_regex": "^supabase/migrations/(20260510_bridge_webhook_atomic_ingest|20260510040000_bridge_webhook_atomic_ingest)\\.sql$",
       "table": "bridge_webhook_events",
       "ops": ["insert", "update"],
       "classification": "historical_migration_superseded",
@@ -143,7 +143,7 @@
     },
     {
       "id": "HISTORICAL_DBFN_INGEST_V0_PE",
-      "path_regex": "^supabase/migrations/20260510_bridge_webhook_atomic_ingest\\.sql$",
+      "path_regex": "^supabase/migrations/(20260510_bridge_webhook_atomic_ingest|20260510040000_bridge_webhook_atomic_ingest)\\.sql$",
       "table": "pending_events",
       "ops": ["insert"],
       "classification": "historical_migration_superseded",
@@ -151,8 +151,16 @@
     },
     {
       "id": "HISTORICAL_BRIDGE_TRANSFER_BACKFILL",
-      "path_regex": "^supabase/migrations/20260619103000_security_abuse_and_reconciliation_hardening\\.sql$",
+      "path_regex": "^supabase/migrations/(20260619103000_security_abuse_and_reconciliation_hardening|20260623143000_manual_lineage_resolution_framework|20260630001000_add_upsert_bridge_transfer_projection_rpc)\\.sql$",
       "table": "bridge_transfers",
+      "ops": ["insert", "update"],
+      "classification": "historical_migration_backfill",
+      "future_rpc": "n/a (one-time migration update)"
+    },
+    {
+      "id": "HISTORICAL_BWE_PROJECTION_REPAIR",
+      "path_regex": "^supabase/migrations/20260623124000_bridge_projection_repair_engine\\.sql$",
+      "table": "bridge_webhook_events",
       "ops": ["update"],
       "classification": "historical_migration_backfill",
       "future_rpc": "n/a (one-time migration update)"
