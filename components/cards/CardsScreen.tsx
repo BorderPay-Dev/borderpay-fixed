@@ -3,7 +3,7 @@
  *
  * Product rule:
  * - Let users explore the card UI.
- * - Block only card-creation actions with a "Coming soon" message.
+ * - Block only card-creation actions with an "Available soon" message.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -84,7 +84,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
   const user = authAPI.getStoredUser();
 
   const title       = (t as any)?.('cards.title')    ?? 'Cards';
-  const subtitle    = (t as any)?.('cards.subtitle') ?? 'Coming soon';
+  const subtitle    = (t as any)?.('cards.subtitle') ?? 'Available soon';
   const sectionTitle = 'Cards';
   const accountType = String(user?.account_type || 'individual').toLowerCase();
   const isBusiness = accountType === 'business';
@@ -112,7 +112,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
             <div className="min-w-0">
               <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${tc.borderLight} ${tc.bgAlt} mb-3`}>
                 <Lock className={`w-3 h-3 ${tc.textMuted}`} />
-                <span className={`text-[10px] font-bold tracking-wider uppercase ${tc.textMuted}`}>Coming soon</span>
+                <span className={`text-[10px] font-bold tracking-wider uppercase ${tc.textMuted}`}>Available soon</span>
               </div>
               <h1 className={`text-2xl sm:text-3xl font-semibold ${tc.text} tracking-tight mb-2`}>{title}</h1>
               <p className={`text-sm ${tc.textMuted} leading-relaxed`}>Cards are locked</p>
@@ -146,7 +146,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
           <h1 className={`text-2xl sm:text-3xl font-semibold ${tc.text} tracking-tight mb-2`}>
             No card can be issued yet
           </h1>
-          <p className={`text-sm ${tc.textMuted} leading-relaxed`}>Coming soon</p>
+          <p className={`text-sm ${tc.textMuted} leading-relaxed`}>Available soon</p>
           {message && (
             <p className={`mt-2 text-xs ${tc.textMuted}`}>{message}</p>
           )}
@@ -157,7 +157,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
               disabled={false}
               aria-disabled={false}
               onClick={() => {
-                setMessage('Card creation is locked. Coming soon.');
+                setMessage('Card creation is locked. Available soon.');
               }}
               className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`}
             >
@@ -169,7 +169,7 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
               disabled={false}
               aria-disabled={false}
               onClick={() => {
-                setMessage('Coming soon.');
+                setMessage('Available soon.');
               }}
               className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border ${tc.cardBorder} ${tc.text} ${tc.hoverBg}`}
             >
