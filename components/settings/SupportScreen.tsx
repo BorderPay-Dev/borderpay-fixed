@@ -23,24 +23,45 @@ const ISSUE_TYPES = [
   { key: 'general', label: 'General' },
 ] as const;
 
+const SUPPORT_TICKETS_CACHE_KEY = 'borderpay_support_tickets_v1';
+const SUPPORT_ADMIN_TICKETS_CACHE_KEY = 'borderpay_support_admin_tickets_v1';
+
 export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const tc = useThemeClasses();
   const [issueType, setIssueType] = useState<(typeof ISSUE_TYPES)[number]['key']>('general');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [tickets, setTickets] = useState<SupportTicket[]>(() => {
+    try {
+      const raw = localStorage.getItem(SUPPORT_TICKETS_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [creating, setCreating] = useState(false);
-  const [loadingTickets, setLoadingTickets] = useState(true);
+  const [loadingTickets, setLoadingTickets] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [selectedTicketMessages, setSelectedTicketMessages] = useState<SupportTicketMessage[]>([]);
+  const [ticketThreadCache, setTicketThreadCache] = useState<Record<string, SupportTicketMessage[]>>({});
   const [loadingTicketThread, setLoadingTicketThread] = useState(false);
   const [replyMessage, setReplyMessage] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminTickets, setAdminTickets] = useState<SupportTicket[]>([]);
+  const [adminTickets, setAdminTickets] = useState<SupportTicket[]>(() => {
+    try {
+      const raw = localStorage.getItem(SUPPORT_ADMIN_TICKETS_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [loadingAdminTickets, setLoadingAdminTickets] = useState(false);
   const [selectedAdminTicketId, setSelectedAdminTicketId] = useState<string | null>(null);
   const [selectedAdminTicketMessages, setSelectedAdminTicketMessages] = useState<SupportTicketMessage[]>([]);
+  const [adminThreadCache, setAdminThreadCache] = useState<Record<string, SupportTicketMessage[]>>({});
   const [loadingAdminThread, setLoadingAdminThread] = useState(false);
   const [adminReplyMessage, setAdminReplyMessage] = useState('');
   const [sendingAdminReply, setSendingAdminReply] = useState(false);
@@ -67,7 +88,11 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     setLoadingTickets(true);
     try {
       const res = await backendAPI.support.listTickets(20);
-      if (res.success) setTickets(res.data?.tickets || []);
+      if (res.success) {
+        const next = res.data?.tickets || [];
+        setTickets(next);
+        try { localStorage.setItem(SUPPORT_TICKETS_CACHE_KEY, JSON.stringify(next)); } catch { /* noop */ }
+      }
       else toast.error(res.error || 'Could not load support tickets');
     } catch {
       toast.error('Could not load support tickets');
@@ -82,7 +107,9 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       const res = await backendAPI.support.adminListTickets({ limit: 50 });
       if (res.success) {
         setIsAdmin(true);
-        setAdminTickets(res.data?.tickets || []);
+        const next = res.data?.tickets || [];
+        setAdminTickets(next);
+        try { localStorage.setItem(SUPPORT_ADMIN_TICKETS_CACHE_KEY, JSON.stringify(next)); } catch { /* noop */ }
       } else {
         // Non-admin users get Forbidden from the gateway; keep user mode only.
         setIsAdmin(false);
@@ -121,6 +148,9 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
 
 
   const loadTicketThread = useCallback(async (ticketId: string) => {
+    setSelectedTicketId(ticketId);
+    const cached = ticketThreadCache[ticketId];
+    if (cached) setSelectedTicketMessages(cached);
     setLoadingTicketThread(true);
     try {
       const res = await backendAPI.support.getTicket(ticketId);
@@ -128,16 +158,20 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
         toast.error(res.error || 'Could not load ticket');
         return;
       }
-      setSelectedTicketId(ticketId);
-      setSelectedTicketMessages(res.data?.messages || []);
+      const messages = res.data?.messages || [];
+      setSelectedTicketMessages(messages);
+      setTicketThreadCache((prev) => ({ ...prev, [ticketId]: messages }));
     } catch {
       toast.error('Could not load ticket');
     } finally {
       setLoadingTicketThread(false);
     }
-  }, []);
+  }, [ticketThreadCache]);
 
   const loadAdminTicketThread = useCallback(async (ticketId: string) => {
+    setSelectedAdminTicketId(ticketId);
+    const cached = adminThreadCache[ticketId];
+    if (cached) setSelectedAdminTicketMessages(cached);
     setLoadingAdminThread(true);
     try {
       const res = await backendAPI.support.getTicket(ticketId);
@@ -145,14 +179,15 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
         toast.error(res.error || 'Could not load ticket');
         return;
       }
-      setSelectedAdminTicketId(ticketId);
-      setSelectedAdminTicketMessages(res.data?.messages || []);
+      const messages = res.data?.messages || [];
+      setSelectedAdminTicketMessages(messages);
+      setAdminThreadCache((prev) => ({ ...prev, [ticketId]: messages }));
     } catch {
       toast.error('Could not load ticket');
     } finally {
       setLoadingAdminThread(false);
     }
-  }, []);
+  }, [adminThreadCache]);
 
   useEffect(() => {
     if (selectedTicketId || tickets.length === 0) return;
