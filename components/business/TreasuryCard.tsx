@@ -65,8 +65,8 @@ export function TreasuryCard({ totalUsd, wallets }: { totalUsd: number; wallets:
     let alive = true;
     (async () => {
       try {
-        const r: any = await backendAPI.transactions.getTransactions(250);
-        const list = r?.data?.transactions || [];
+        const r: any = await backendAPI.financial.getSnapshot(250);
+        const list = Array.isArray(r?.data?.recent_transactions) ? r.data.recent_transactions : [];
         if (alive) {
           setTxs(list);
           try { localStorage.setItem(TREASURY_TX_KEY, JSON.stringify(list)); } catch { /* noop */ }

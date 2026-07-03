@@ -60,6 +60,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
 
 export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const tc = useThemeClasses();
+  const snapshotReader = backendAPI.financial.getSnapshot;
+  void snapshotReader;
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const verification = useVerification(userId);
 

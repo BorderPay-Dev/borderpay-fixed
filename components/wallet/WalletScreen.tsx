@@ -56,6 +56,8 @@ const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const snapshotReader = backendAPI.financial.getSnapshot;
+  void snapshotReader;
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const { prefs, updatePrefs } = usePreferences();

@@ -267,9 +267,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       // Never block first paint on profile/transaction enrichment.
       void Promise.allSettled([
         withTimeout(
-          backendAPI.transactions.getTransactions(12, 0),
+          backendAPI.financial.getSnapshot(12),
           1_400,
-          { success: false, error: 'tx_timeout' } as any,
+          { success: false, error: 'snapshot_timeout' } as any,
         ),
         withTimeout(
           backendAPI.user.getProfile(),
@@ -284,8 +284,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       ]).then(([txRes, profileRes, secRes]) => {
         const txOk = txRes.status === 'fulfilled' && (txRes.value as any)?.success;
         if (txOk) {
-          const tx = Array.isArray((txRes as PromiseFulfilledResult<any>).value?.data?.transactions)
-            ? (txRes as PromiseFulfilledResult<any>).value.data.transactions
+          const tx = Array.isArray((txRes as PromiseFulfilledResult<any>).value?.data?.recent_transactions)
+            ? (txRes as PromiseFulfilledResult<any>).value.data.recent_transactions
             : [];
           setTransactions(tx);
           try { localStorage.setItem(bizTxCacheKey, JSON.stringify(tx)); } catch { /* noop */ }

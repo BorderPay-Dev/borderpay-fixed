@@ -122,6 +122,8 @@ const SEND_ROUTE_REFRESH_TS_KEY = 'borderpay_send_refresh_ts_v1';
 export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMoneyFlowProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const snapshotReader = backendAPI.financial.getSnapshot;
+  void snapshotReader;
 
   // KYC gate
   const [kycStatus] = useState<string>(() => {

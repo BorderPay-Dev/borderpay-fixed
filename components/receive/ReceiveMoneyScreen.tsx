@@ -58,6 +58,8 @@ function readCachedVerified(): boolean {
 export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const snapshotReader = backendAPI.financial.getSnapshot;
+  void snapshotReader;
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const storedUser = authAPI.getStoredUser() || {};

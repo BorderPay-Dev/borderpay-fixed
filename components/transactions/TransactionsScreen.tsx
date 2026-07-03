@@ -102,6 +102,8 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const refreshInFlightRef = useRef(false);
   const { t, language } = useThemeLanguage();
   const tc = useThemeClasses();
+  const snapshotReader = backendAPI.financial.getSnapshot;
+  void snapshotReader;
 
   useEffect(() => {
     loadTransactions();

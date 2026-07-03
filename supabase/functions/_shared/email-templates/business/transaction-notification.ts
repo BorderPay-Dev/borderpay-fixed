@@ -1,6 +1,6 @@
 import { htmlLayout, textLayout, escapeHtml, fmtMoney, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
-export interface BusinessTransactionNotificationProps {
+export interface TransactionNotificationProps {
   company_name:  string;
   direction:     "credit" | "debit";
   amount:        number;
@@ -12,7 +12,7 @@ export interface BusinessTransactionNotificationProps {
   occurred_at?:  string;
 }
 
-export function render(p: BusinessTransactionNotificationProps): RenderedEmail {
+export function render(p: TransactionNotificationProps): RenderedEmail {
   const company  = p.company_name || "your business";
   const isCredit = p.direction === "credit";
   const amountStr = fmtMoney(p.amount, p.currency);

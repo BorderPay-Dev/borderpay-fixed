@@ -124,6 +124,8 @@ function relativeTime(iso: string): string {
 export function NotificationsScreen({ onBack, onUnreadCountChange }: NotificationsScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const snapshotReader = backendAPI.financial.getSnapshot;
+  void snapshotReader;
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const initialRows = useMemo(() => readCachedNotifications(), []);
