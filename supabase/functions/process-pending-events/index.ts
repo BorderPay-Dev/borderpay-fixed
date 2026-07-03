@@ -155,91 +155,8 @@ async function emailKycDecisionBestEffort(
   }
 }
 
-/**
- * Best-effort transaction email for wallet activity credits/debits. NEVER
- * throws and is idempotent per Bridge event id.
- */
-async function emailTransactionBestEffort(input: {
-  userId: string;
-  accountType: "individual" | "business";
-  eventId: string;
-  direction: "credit" | "debit";
-  amount: number;
-  currency: string;
-  occurredAt?: string | null;
-  description?: string | null;
-}): Promise<void> {
-  try {
-    if (!SEND_EMAIL_TOKEN) return;
-    const rcpt = await resolveEmailRecipient(input.userId);
-    if (!rcpt) return;
-
-    if (input.accountType === "business") {
-      const { data: biz } = await supabase
-        .from("business_profiles")
-        .select("company_name")
-        .eq("user_id", input.userId)
-        .maybeSingle();
-      const companyName = String(biz?.company_name || "Your business");
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
-        },
-        body: JSON.stringify({
-          template: "business.transaction_notification",
-          to: rcpt.email,
-          user_id: input.userId,
-          idempotency_key: `wh:tx:${input.eventId}:business`,
-          props: {
-            company_name: companyName,
-            direction: input.direction,
-            amount: input.amount,
-            currency: input.currency,
-            reference: `bridge:${input.eventId}`,
-            description: input.description || "Wallet activity",
-            occurred_at: input.occurredAt ?? new Date().toISOString(),
-          },
-        }),
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        console.log(`webhook-email transaction business send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
-      }
-      return;
-    }
-
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
-      },
-      body: JSON.stringify({
-        template: "individual.transaction_notification",
-        to: rcpt.email,
-        user_id: input.userId,
-        idempotency_key: `wh:tx:${input.eventId}:individual`,
-        props: {
-          full_name: rcpt.full_name,
-          direction: input.direction,
-          amount: input.amount,
-          currency: input.currency,
-          reference: `bridge:${input.eventId}`,
-          description: input.description || "Wallet activity",
-          occurred_at: input.occurredAt ?? new Date().toISOString(),
-        },
-      }),
-    });
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      console.log(`webhook-email transaction individual send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
-    }
-  } catch (e) {
-    console.log(`webhook-email transaction best-effort error: ${(e as Error).message}`);
-  }
-}
+// NOTE: v1 webhook email policy intentionally sends only KYC/KYB terminal
+// decision emails. Wallet activity emails are out of scope here.
 
 interface PendingEvent {
   id:           string;
@@ -1111,17 +1028,7 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
       }, { onConflict: "event_id", ignoreDuplicates: true });
     }
 
-    const direction = amountValue >= 0 ? "credit" : "debit";
-    await emailTransactionBestEffort({
-      userId: resolved,
-      accountType: account_type === "business" ? "business" : "individual",
-      eventId: ev.event_id,
-      direction,
-      amount: Math.abs(amountValue),
-      currency,
-      occurredAt: String(d?.created_at ?? d?.occurred_at ?? d?.timestamp ?? ""),
-      description: "Wallet deposit credit",
-    });
+    // v1 webhook policy: do not send wallet activity emails here.
   }
 
   await supabase.from("bridge_webhook_events")
