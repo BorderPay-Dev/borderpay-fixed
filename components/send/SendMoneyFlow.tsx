@@ -784,9 +784,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
               )}
 
-              {/* External bank accounts — only where Bridge supports them.
-                  Otherwise, stablecoin is the only visible payout rail. */}
-              {externalAccountTypes.length > 0 && (
+              {/* External bank accounts — always visible for parity across
+                  individual/business. Availability still depends on caps/live flag. */}
+              {(
                 EXTERNAL_ACCOUNTS_LIVE ? (
                   <button
                     type="button"
@@ -799,11 +799,23 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <div className="flex-1 text-left">
                       <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
                       <p className={`text-xs ${tc.textMuted} mt-0.5`}>
-                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
-                          ? 'ACH (US) · SEPA (EEA) — pay to a linked account'
-                          : externalAccountTypes.includes('us')
-                            ? 'ACH (US) — pay to a linked account'
-                            : 'SEPA (EEA) — pay to a linked account'}
+                        {externalAccountTypes.length === 0
+                          ? 'Add an external account to send bank payouts'
+                          : externalAccountTypes.includes('us') && externalAccountTypes.includes('iban') && externalAccountTypes.includes('gb')
+                            ? 'ACH/Wire (US) · SEPA (EEA) · Faster Payments (UK)'
+                            : externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
+                              ? 'ACH/Wire (US) · SEPA (EEA)'
+                              : externalAccountTypes.includes('us') && externalAccountTypes.includes('gb')
+                                ? 'ACH/Wire (US) · Faster Payments (UK)'
+                                : externalAccountTypes.includes('iban') && externalAccountTypes.includes('gb')
+                                  ? 'SEPA (EEA) · Faster Payments (UK)'
+                                  : externalAccountTypes.includes('us')
+                                    ? 'ACH/Wire (US)'
+                                    : externalAccountTypes.includes('iban')
+                                      ? 'SEPA (EEA)'
+                                      : externalAccountTypes.includes('gb')
+                                        ? 'Faster Payments (UK)'
+                                        : 'Bank payout route'}
                       </p>
                     </div>
                     <ArrowRight size={18} className={tc.textMuted} />
@@ -818,13 +830,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </div>
                     <div className="flex-1 text-left">
                       <p className={`text-sm font-semibold ${tc.text}`}>External bank account</p>
-                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>
-                        {externalAccountTypes.includes('us') && externalAccountTypes.includes('iban')
-                          ? 'ACH (US) · SEPA (EEA) — coming soon'
-                          : externalAccountTypes.includes('us')
-                            ? 'ACH (US) — coming soon'
-                            : 'SEPA (EEA) — coming soon'}
-                      </p>
+                      <p className={`text-xs ${tc.textMuted} mt-0.5`}>Bank payouts are coming soon</p>
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">Soon</span>
                   </div>

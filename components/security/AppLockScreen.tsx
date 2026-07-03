@@ -22,9 +22,10 @@ interface AppLockScreenProps {
   userId: string;
   onUnlock: () => void;
   onLogout: () => void;
+  onForgotPIN?: () => void;
 }
 
-export function AppLockScreen({ userId, onUnlock, onLogout }: AppLockScreenProps) {
+export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLockScreenProps) {
   const [pin, setPin] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');
@@ -228,6 +229,12 @@ export function AppLockScreen({ userId, onUnlock, onLogout }: AppLockScreenProps
 
       {/* Bottom: Sign out option */}
       <div className="pb-safe px-6 py-6 relative z-[2]">
+        <button
+          onClick={() => onForgotPIN?.()}
+          className="w-full text-center text-sm text-[#C7FF00] hover:text-[#d4ff4d] transition-colors py-2 mb-2"
+        >
+          Forgot PIN?
+        </button>
         <button
           onClick={() => {
             if (confirm('Sign out of BorderPay?')) {

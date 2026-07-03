@@ -32,7 +32,6 @@ import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManage
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
-const WALLET_LIST_CACHE_KEY = 'borderpay_wallets_v1';
 const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v1';
 const VA_LIST_CACHE_KEY = 'borderpay_va_v1';
 function readBizWallets(cacheKey: string): WalletRow[] {
@@ -43,22 +42,6 @@ function readBizTx(cacheKey: string): any[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
 }
-function readSharedWalletCache(userId: string): WalletRow[] {
-  try {
-    const raw = localStorage.getItem(financialCacheKey(WALLET_LIST_CACHE_KEY, { userId }));
-    const rows = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(rows)) return [];
-    return rows
-      .map((w: any) => ({
-        currency: String(w?.currency || '').toUpperCase(),
-        balance: parseFloat(w?.balance) || 0,
-      }))
-      .filter((w: WalletRow) => !!w.currency);
-  } catch {
-    return [];
-  }
-}
-
 function hasActiveCachedVa(userId: string): boolean {
   try {
     const raw = localStorage.getItem(financialCacheKey(VA_LIST_CACHE_KEY, { userId }));
@@ -125,6 +108,17 @@ function prefetchScreen(screen: string): void {
 
 export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpgrade }: BusinessDashboardProps) {
   const tc = useThemeClasses();
+  const navigate = React.useCallback((screen: string) => {
+    try {
+      if (onNavigate) {
+        onNavigate(screen);
+        return;
+      }
+      (window as any).__borderpay_navigate?.(screen);
+    } catch {
+      /* noop */
+    }
+  }, [onNavigate]);
   const stored = useMemo(() => authAPI.getStoredUser() || {}, []);
   const businessNameCacheKey = useMemo(() => `${BIZ_NAME_KEY_PREFIX}${userId}`, [userId]);
   const cachedBusinessName = useMemo(() => {
@@ -163,10 +157,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     () => financialCacheKey(BIZ_WALLETS_KEY, { userId, accountType: 'business' }),
     [userId],
   );
-  const cachedBizWallets = useMemo(() => {
-    const scoped = readBizWallets(bizWalletsCacheKey);
-    return scoped.length > 0 ? scoped : readSharedWalletCache(userId);
-  }, [bizWalletsCacheKey, userId]);
+  const cachedBizWallets = useMemo(() => readBizWallets(bizWalletsCacheKey), [bizWalletsCacheKey]);
   const bizTxCacheKey = useMemo(
     () => financialCacheKey(BIZ_TX_KEY, { userId, accountType: 'business' }),
     [userId],
@@ -184,6 +175,13 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   });
   const [has2FA, setHas2FA] = useState<boolean>(() => {
     try { return !!SecurityStatus.get(userId).has2FA || TOTPManager.isEnabled(userId); } catch { return false; }
+  });
+  const setupBannerDismissKey = useMemo(
+    () => `borderpay_business_setup_banner_dismissed:${userId}`,
+    [userId],
+  );
+  const [setupBannerDismissed, setSetupBannerDismissed] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(setupBannerDismissKey) === '1'; } catch { return false; }
   });
 
   useEffect(() => {
@@ -433,6 +431,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     { id: 'kyb', label: 'Complete business verification', completed: kybVerified, screen: 'kyc' },
   ];
   const showSetupBanner = !setupSteps.every((s) => s.completed);
+  const effectiveShowSetupBanner = showSetupBanner && !setupBannerDismissed;
 
   const initials = (companyName || 'B').slice(0, 2).toUpperCase();
 
@@ -487,12 +486,24 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           )}
         </section>
 
-        {showSetupBanner && (
+        {effectiveShowSetupBanner && (
           <section className="px-5 sm:px-6">
             <div className={`rounded-2xl border border-amber-500/20 bg-amber-500/[0.05] px-4 py-3.5`}>
-              <div className="flex items-center gap-2 mb-2.5">
-                <ShieldAlert className="w-4 h-4 text-amber-300" />
-                <p className={`text-sm font-semibold ${tc.text}`}>Complete your setup</p>
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-amber-300" />
+                  <p className={`text-sm font-semibold ${tc.text}`}>Complete your setup</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSetupBannerDismissed(true);
+                    try { sessionStorage.setItem(setupBannerDismissKey, '1'); } catch { /* noop */ }
+                  }}
+                  className="text-amber-200/80 hover:text-amber-100 text-sm font-semibold"
+                  aria-label="Dismiss setup banner"
+                >
+                  ×
+                </button>
               </div>
               <div className="space-y-2">
                 {setupSteps.map((step) => (
@@ -762,14 +773,3 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
 }
 
 export default BusinessDashboard;
-  const navigate = React.useCallback((screen: string) => {
-    try {
-      if (onNavigate) {
-        onNavigate(screen);
-        return;
-      }
-      (window as any).__borderpay_navigate?.(screen);
-    } catch {
-      /* noop */
-    }
-  }, [onNavigate]);

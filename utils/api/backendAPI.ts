@@ -344,6 +344,20 @@ export const authSecurityAPI = {
       body: JSON.stringify({ access_token: token, new_password: newPassword }),
     });
   },
+
+  async requestPinReset(email: string) {
+    return apiCallPublic('auth-request-pin-reset', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async confirmPinReset(token: string, newPin: string) {
+    return apiCallPublic('auth-confirm-pin-reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_pin: newPin }),
+    });
+  },
 };
 
 // ============================================================================

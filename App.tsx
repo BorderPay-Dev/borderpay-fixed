@@ -5,7 +5,9 @@ import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { SignUpFlow } from './components/auth/SignUpFlow';
 import { ForgotPassword } from './components/auth/ForgotPassword';
+import { ForgotPin } from './components/auth/ForgotPin';
 import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
+import { ResetPinScreen } from './components/auth/ResetPinScreen';
 import { isPasswordRecovery, isBiometricLoginPending, isAppLocked, authAPI } from './utils/supabase/client';
 import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
 import { MainApp } from './components/app/MainApp';
@@ -21,7 +23,18 @@ import { useInactivityTimer } from './utils/auth/useInactivityTimer';
 import { PINManager } from './utils/security/SecurityManager';
 import { AppLockScreen } from './components/security/AppLockScreen';
 
-type AppState = 'splash' | 'onboarding' | 'login' | 'signup' | 'forgot-password' | 'reset-password' | 'dashboard' | 'loading' | 'verify-email';
+type AppState =
+  | 'splash'
+  | 'onboarding'
+  | 'login'
+  | 'signup'
+  | 'forgot-password'
+  | 'forgot-pin'
+  | 'reset-password'
+  | 'reset-pin'
+  | 'dashboard'
+  | 'loading'
+  | 'verify-email';
 
 // ── Device fingerprinting ──
 // Uses a persistent random device ID (survives IP/UA changes) combined with
@@ -177,6 +190,7 @@ function AppContent() {
   // Check for password reset token in URL hash
   // Detect password reset tokens in URL hash — but don't change state until splash is done
   const [pendingResetPassword, setPendingResetPassword] = useState(false);
+  const [pendingResetPin, setPendingResetPin] = useState(false);
 
   // Detect /auth/verify?token=…&purpose=… — extracted once on mount and
   // forwarded to <EmailVerificationLanding>. Stored in state so we don't
@@ -214,6 +228,9 @@ function AppContent() {
     if (!isVerifyRoute && (rawHash.includes('access_token=') || rawHash.includes('type=recovery') || isPasswordRecovery())) {
       setPendingResetPassword(true);
     }
+    if (window.location.pathname === '/auth/pin-reset' && (queryParams.get('token') || hashParams.get('token'))) {
+      setPendingResetPin(true);
+    }
   }, []);
 
   // Supabase fires PASSWORD_RECOVERY asynchronously after it parses the recovery
@@ -241,6 +258,13 @@ function AppContent() {
       setPendingResetPassword(false);
     }
   }, [pendingResetPassword, showSplash, effectiveAuthLoading]);
+
+  useEffect(() => {
+    if (pendingResetPin && !showSplash && !effectiveAuthLoading) {
+      setAppState('reset-pin');
+      setPendingResetPin(false);
+    }
+  }, [pendingResetPin, showSplash, effectiveAuthLoading]);
 
   // Check authentication state and route appropriately
   useEffect(() => {
@@ -308,8 +332,10 @@ function AppContent() {
     if (
       appState === 'verify-email'   ||
       appState === 'reset-password' ||
+      appState === 'reset-pin'      ||
       appState === 'signup'         ||
-      appState === 'forgot-password'
+      appState === 'forgot-password' ||
+      appState === 'forgot-pin'
     ) {
       return;
     }
@@ -330,6 +356,7 @@ function AppContent() {
     // 'reset-password' the sibling effect just scheduled.
     if (pendingVerify)        return;
     if (pendingResetPassword) return;
+    if (pendingResetPin)      return;
 
     // Now determine where to route based on auth state
     const determineRoute = async () => {
@@ -405,7 +432,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword, appState]);
+  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword, pendingResetPin, appState]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -555,6 +582,10 @@ function AppContent() {
     setAppState('forgot-password');
   };
 
+  const handleNavigateToForgotPin = () => {
+    setAppState('forgot-pin');
+  };
+
   const handleNavigateToResetPassword = () => {
     setAppState('reset-password');
   };
@@ -660,6 +691,22 @@ function AppContent() {
     );
   }
 
+  if (appState === 'forgot-pin') {
+    return (
+      <ForgotPin
+        onNavigateToLogin={handleNavigateToLogin}
+      />
+    );
+  }
+
+  if (appState === 'reset-pin') {
+    return (
+      <ResetPinScreen
+        onNavigateToLogin={handleNavigateToLogin}
+      />
+    );
+  }
+
   if (appState === 'verify-email' && pendingVerify) {
     return (
       <EmailVerificationLanding
@@ -683,6 +730,7 @@ function AppContent() {
           userId={user.id}
           onUnlock={() => setAppLocked(false)}
           onLogout={handleLogout}
+          onForgotPIN={handleNavigateToForgotPin}
         />
       );
     }
