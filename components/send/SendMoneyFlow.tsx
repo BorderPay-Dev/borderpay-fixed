@@ -331,6 +331,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // PIN & result
   const [pin, setPin] = useState('');
+  const [snapshotReady, setSnapshotReady] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
   const institutionsLoadInFlightRef = useRef<Promise<void> | null>(null);

@@ -149,7 +149,7 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     } catch {}
     return defaults;
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => !localStorage.getItem('borderpay_user'));
 
   const [editedProfile, setEditedProfile] = useState({ ...profile });
   const profileRefreshTsKey = `borderpay_profile_refreshed_at:${userId}`;

@@ -211,6 +211,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     }
     const run = (async () => {
     const seededWallets = walletsRef.current.length > 0 ? walletsRef.current : readBizWallets(bizWalletsCacheKey);
+    if (wallets.length === 0) setWalletsLoading(true);
     // Never hard-block first paint with wallet skeletons on business dashboard.
     setWalletsError(null);
     try {

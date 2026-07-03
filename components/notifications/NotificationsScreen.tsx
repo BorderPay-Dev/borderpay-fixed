@@ -145,6 +145,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 
   const load = useCallback(async (force = false) => {
     // Keep first paint instant; refresh in background.
+    if (rows.length === 0) setLoading(true);
     setError(null);
     try {
       const uid = currentUserId();

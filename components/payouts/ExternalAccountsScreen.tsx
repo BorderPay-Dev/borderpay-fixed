@@ -121,7 +121,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const rowsRef = useRef<ExternalAccountRow[]>(cached);
   const loadInFlightRef = useRef<Promise<void> | null>(null);
   // Only show skeletons when we have nothing cached to render instantly.
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
