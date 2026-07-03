@@ -309,6 +309,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               { success: false } as any,
             ).then((biz: any) => {
               const company_name = String(biz?.data?.company_name || '').trim();
+              const r = { data: { company_name } } as any;
+              const company_name_fallback = r.data.company_name || initialCompanyName;
+              if (!company_name && company_name_fallback) setCompanyName(company_name_fallback);
               if (!company_name) return;
               setCompanyName(company_name);
               try {

@@ -208,6 +208,8 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
 }
 
 function getBusinessDisplayName(profile: any): string {
+  const businessName = profile?.account_type === 'business' ? (profile?.company_name || 'Business account') : '';
+  if (businessName) return businessName;
   if (profile?.account_type === 'business') {
     if (profile?.company_name) return profile.company_name;
     try {
@@ -535,14 +537,17 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           if (t === 'business' && !u.company_name && cachedBusinessName) {
             u.company_name = cachedBusinessName;
           }
+          const displayName = getBusinessDisplayName({ ...u, account_type: t });
+          if (displayName && displayName !== shellUserName) setShellUserName(displayName);
           // Business fast-paint hardening: if profile payload omits company_name,
           // pull it from business profile once and cache it for subsequent shells.
           if (t === 'business' && !u.company_name) {
             try {
               const biz = await backendAPI.business.getProfile();
-              const company_name = String(biz?.data?.company_name || '').trim();
-              if (company_name) {
+              if (biz?.data?.company_name) {
+                const company_name = biz.data.company_name;
                 u.company_name = company_name;
+                setShellUserName(company_name);
                 try {
                   const latest = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
                   localStorage.setItem('borderpay_user', JSON.stringify({ ...latest, account_type: 'business', company_name }));
@@ -553,8 +558,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           }
           if (t !== accountType) setAccountType(t);
           // Shell display props — kept in MainApp so AppShell stays presentational.
-          const displayName = getBusinessDisplayName({ ...u, account_type: t });
-          if (displayName && displayName !== shellUserName) setShellUserName(displayName);
+          const nextDisplayName = getBusinessDisplayName({ ...u, account_type: t });
+          if (nextDisplayName && nextDisplayName !== shellUserName) setShellUserName(nextDisplayName);
           if (u.profile_picture_url !== undefined && u.profile_picture_url !== shellAvatarUrl) {
             setShellAvatarUrl(u.profile_picture_url || null);
           }

@@ -50,7 +50,7 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 2_000;
+const TEAM_LOAD_TIMEOUT_MS = 10_000;
 const TEAM_REFRESH_TS_KEY_PREFIX = 'borderpay_team_refresh_ts_v1';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -339,7 +339,7 @@ function BusinessTeamPanel({
               <p className={`text-xs ${tc.text}`}>{error}</p>
               <button
                 type="button"
-                onClick={() => load(true)}
+                onClick={load}
                 className="mt-2 text-xs font-semibold text-red-200 hover:text-white"
               >
                 Retry

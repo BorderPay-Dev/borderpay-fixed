@@ -66,7 +66,7 @@ function CardFace({ cardType = 'PERSONAL CARD' }: { cardType?: string }) {
   );
 }
 
-function CardMockup({ cardType }: { cardType: string }) {
+function CardPreview({ cardType }: { cardType: string }) {
   return (
     <div className="mt-4 rounded-3xl border border-[#C7FF00]/25 bg-black/60 p-4 sm:p-5 overflow-hidden">
       <div className="mx-auto w-full max-w-[760px]">
@@ -114,17 +114,14 @@ export function CardsScreen({ onBack: _onBack }: CardsScreenProps) {
                 <Lock className={`w-3 h-3 ${tc.textMuted}`} />
                 <span className={`text-[10px] font-bold tracking-wider uppercase ${tc.textMuted}`}>Coming soon</span>
               </div>
-              <h1 className={`text-2xl sm:text-3xl font-semibold ${tc.text} tracking-tight mb-2`}>
-                {title}
-              </h1>
-              <p className={`text-sm ${tc.textMuted} leading-relaxed`}>
-                {subtitle}
-              </p>
+              <h1 className={`text-2xl sm:text-3xl font-semibold ${tc.text} tracking-tight mb-2`}>{title}</h1>
+              <p className={`text-sm ${tc.textMuted} leading-relaxed`}>Cards are locked</p>
+              <p className={`text-sm ${tc.textMuted} leading-relaxed`}>{subtitle}</p>
             </div>
           </div>
         </div>
 
-        <CardMockup cardType={cardTypeLabel} />
+        <CardPreview cardType={cardTypeLabel} />
 
         <div className={`mt-5 rounded-2xl border ${tc.cardBorder} ${tc.card} p-2 flex items-center gap-2`}>
           {cardTabs.map((tab) => {
