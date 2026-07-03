@@ -152,9 +152,51 @@ if (typeof window !== 'undefined') {
 }
 
 function canonicalizeScreen(screen: AppScreen | string): AppScreen {
-  switch (screen as string) {
-    default:
+  switch (String(screen || '').trim()) {
+    case 'ramps':
+      // Legacy hidden route alias → live receive surface.
+      return 'receive-money';
+    case 'wallet':
+      return 'wallet-detail';
+    case 'send':
+      return 'send-money';
+    case 'receive':
+      return 'receive-money';
+    case 'home':
+      return 'dashboard';
+    case 'dashboard':
+    case 'cards':
+    case 'send-money':
+    case 'receive-money':
+    case 'exchange':
+    case 'transactions':
+    case 'wallet-detail':
+    case 'two-factor-setup':
+    case 'pin-setup':
+    case 'change-pin':
+    case 'change-password':
+    case 'country-eligibility':
+    case 'kyc':
+    case 'settings':
+    case 'profile':
+    case 'terms-of-service':
+    case 'privacy-policy':
+    case 'preferences':
+    case 'biometric-setup':
+    case 'help-center':
+    case 'support':
+    case 'pricing':
+    case 'team':
+    case 'notifications':
+    case 'external-accounts':
+    case 'external-wallets':
+    case 'bulk-payout':
+    case 'payroll':
+    case 'add-external-account':
+    case 'add-wallet':
       return screen as AppScreen;
+    default:
+      return 'dashboard';
   }
 }
 
