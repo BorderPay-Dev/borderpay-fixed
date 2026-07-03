@@ -3,7 +3,7 @@
  * Handles Supabase v2 auth with automatic state sync and retries
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, isPasswordRecovery, isBiometricLoginPending, isAppLocked } from '../supabase/client';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -12,6 +12,15 @@ interface AuthState {
   session: Session | null;
   loading: boolean;
   isAuthenticated: boolean;
+}
+
+const AUTH_BOOT_TIMEOUT_MS = 4500;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race<T>([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('auth_boot_timeout')), timeoutMs)),
+  ]);
 }
 
 /**
@@ -60,8 +69,14 @@ export function useAuth() {
     // mid-biometric-login is NOT yet authenticated until WebAuthn passes.
     isAuthenticated: !!initial.user && !!initial.session && !isPasswordRecovery() && !isBiometricLoginPending() && !isAppLocked(),
   });
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
 
   const loadAuth = useCallback(async () => {
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     try {
       // Skip Supabase calls if client is not configured
       if (!supabase?.auth) {
@@ -69,7 +84,10 @@ export function useAuth() {
         return;
       }
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } = await withTimeout(
+        supabase.auth.getSession(),
+        AUTH_BOOT_TIMEOUT_MS
+      );
 
       if (sessionError) {
         setAuthState({ user: null, session: null, loading: false, isAuthenticated: false });
@@ -80,7 +98,10 @@ export function useAuth() {
       let user = null;
 
       if (session) {
-        const { data: userData } = await supabase.auth.getUser();
+        const { data: userData } = await withTimeout(
+          supabase.auth.getUser(),
+          AUTH_BOOT_TIMEOUT_MS
+        );
         user = userData?.user ?? null;
       }
 
@@ -94,6 +115,13 @@ export function useAuth() {
       });
     } catch {
       setAuthState({ user: null, session: null, loading: false, isAuthenticated: false });
+    }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) loadInFlightRef.current = null;
     }
   }, []);
 
