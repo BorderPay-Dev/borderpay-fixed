@@ -260,9 +260,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const tc = useThemeClasses();
 
   // ─── navigation ───────────────────────────────────────────────────────────
-  const handleNavigate = (screen: string) => {
-    if (onNavigate) onNavigate(screen);
-  };
+  const handleNavigate = useCallback((screen: string) => {
+    if (onNavigate) {
+      onNavigate(screen);
+      return;
+    }
+    try {
+      (window as any).__borderpay_navigate?.(screen);
+    } catch {
+      /* noop */
+    }
+  }, [onNavigate]);
 
   const openWalletForCurrency = useCallback((currency: string) => {
     try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }

@@ -358,7 +358,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const refreshAll = () => { loadWallets(true); };
   const openWalletForCurrency = (currency: string) => {
     try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
-    onNavigate('wallet-detail');
+    navigate('wallet-detail');
   };
   const kybVerified = affiliateKycStatus === 'verified';
   const setupSteps = [
@@ -437,7 +437,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                       if (step.id === 'kyb') {
                         try { sessionStorage.setItem('borderpay_auto_start_verification_v1', '1'); } catch { /* noop */ }
                       }
-                      onNavigate(step.screen);
+                      navigate(step.screen);
                     }}
                     className={`w-full flex items-center justify-between rounded-lg px-2 py-1.5 ${!step.completed ? tc.hoverBg : ''}`}
                   >
@@ -463,7 +463,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                 onTouchStart={() => prefetchScreen('wallet-detail')}
                 onClick={() => {
                   try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
-                  onNavigate('wallet-detail');
+                  navigate('wallet-detail');
                 }}
                 className="text-[11px] font-semibold text-[#C7FF00]"
               >
@@ -479,7 +479,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                   onPointerDown={() => prefetchScreen('add-wallet')}
                   onMouseEnter={() => prefetchScreen('add-wallet')}
                   onTouchStart={() => prefetchScreen('add-wallet')}
-                  onClick={() => onNavigate('add-wallet')}
+                  onClick={() => navigate('add-wallet')}
                   className={`flex-shrink-0 w-[220px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
                 >
                   <div className={`w-8 h-8 rounded-full ${tc.bgAlt} flex items-center justify-center mb-3`}>
@@ -512,7 +512,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                     onPointerDown={() => prefetchScreen('add-wallet')}
                     onMouseEnter={() => prefetchScreen('add-wallet')}
                     onTouchStart={() => prefetchScreen('add-wallet')}
-                    onClick={() => onNavigate('add-wallet')}
+                    onClick={() => navigate('add-wallet')}
                     className={`flex-shrink-0 w-[145px] rounded-2xl border border-dashed ${tc.cardBorder} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
                     aria-label="Add account"
                   >
@@ -541,16 +541,16 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         {/* ── 4. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
           <div className="grid grid-cols-4 gap-2">
-            <BizChip label="Send"    Icon={Send}     onPrefetch={() => prefetchScreen('send-money')}       onClick={() => onNavigate('send-money')}    tc={tc} />
-            <BizChip label="Receive" Icon={Download} onPrefetch={() => prefetchScreen('receive-money')}    onClick={() => onNavigate('receive-money')} tc={tc} />
-            <BizChip label="Activity" Icon={FileText} onPrefetch={() => prefetchScreen('transactions')}    onClick={() => onNavigate('transactions')} tc={tc} />
-            <BizChip label="Payouts" Icon={Banknote} onPrefetch={() => prefetchScreen('bulk-payout')}      onClick={() => onNavigate('bulk-payout')}   tc={tc} primary />
-            <BizChip label="Team"    Icon={Users}    onPrefetch={() => prefetchScreen('team')}             onClick={() => onNavigate('team')}          tc={tc} />
+            <BizChip label="Send"    Icon={Send}     onPrefetch={() => prefetchScreen('send-money')}       onClick={() => navigate('send-money')}    tc={tc} />
+            <BizChip label="Receive" Icon={Download} onPrefetch={() => prefetchScreen('receive-money')}    onClick={() => navigate('receive-money')} tc={tc} />
+            <BizChip label="Activity" Icon={FileText} onPrefetch={() => prefetchScreen('transactions')}    onClick={() => navigate('transactions')} tc={tc} />
+            <BizChip label="Payouts" Icon={Banknote} onPrefetch={() => prefetchScreen('bulk-payout')}      onClick={() => navigate('bulk-payout')}   tc={tc} primary />
+            <BizChip label="Team"    Icon={Users}    onPrefetch={() => prefetchScreen('team')}             onClick={() => navigate('team')}          tc={tc} />
             <BizChip
               label={PAYROLL_RUNTIME_ENABLED ? 'Payroll' : 'Payroll Soon'}
               Icon={BriefcaseBusiness}
               onPrefetch={() => prefetchScreen('payroll')}
-              onClick={() => onNavigate('payroll')}
+              onClick={() => navigate('payroll')}
               tc={tc}
               disabled={!PAYROLL_RUNTIME_ENABLED}
             />
@@ -558,7 +558,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               label="FX"
               Icon={ArrowRightLeft}
               onPrefetch={() => prefetchScreen('exchange')}
-              onClick={() => onNavigate('exchange')}
+              onClick={() => navigate('exchange')}
               tc={tc}
             />
             <BizChip label="Cards" Icon={CreditCard} onPrefetch={() => prefetchScreen('cards')} onClick={() => onNavigate('cards')} tc={tc} />
@@ -696,3 +696,14 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
 }
 
 export default BusinessDashboard;
+  const navigate = React.useCallback((screen: string) => {
+    try {
+      if (onNavigate) {
+        onNavigate(screen);
+        return;
+      }
+      (window as any).__borderpay_navigate?.(screen);
+    } catch {
+      /* noop */
+    }
+  }, [onNavigate]);
