@@ -1,6 +1,5 @@
-@import "tailwindcss";
-/* Claude design system fonts: Syne (display), Epilogue (body), DM Mono (numerals) */
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Epilogue:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
 
