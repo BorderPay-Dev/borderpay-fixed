@@ -1,14 +1,14 @@
 /**
  * BorderPay Africa - Support Screen
- * Ticket-based in-app support (shared backend for app + website + admin).
+ * User-only in-app support for borderpay-fixed.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { HelpCircle, MessageSquare, ChevronRight, Loader2 } from 'lucide-react';
+import { HelpCircle, MessageSquare, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { backendAPI, type SupportHealthStatus, type SupportTicket, type SupportTicketMessage } from '../../utils/api/backendAPI';
+import { backendAPI, type SupportTicket, type SupportTicketMessage } from '../../utils/api/backendAPI';
 
 interface SupportScreenProps {
   onBack: () => void;
@@ -24,78 +24,8 @@ const ISSUE_TYPES = [
 ] as const;
 
 const SUPPORT_TICKETS_CACHE_KEY = 'borderpay_support_tickets_v1';
-const SUPPORT_ADMIN_TICKETS_CACHE_KEY = 'borderpay_support_admin_tickets_v1';
 const SUPPORT_TICKETS_REFRESH_TS_KEY = 'borderpay_support_tickets_refresh_ts_v1';
-const SUPPORT_ADMIN_TICKETS_REFRESH_TS_KEY = 'borderpay_support_admin_tickets_refresh_ts_v1';
 const SUPPORT_LOAD_TIMEOUT_MS = 1400;
-type BroadcastCampaign = 'founder_welcome' | 'first_transaction_unlock_reminder' | 'account_suspended' | 'verification_reminder';
-type BroadcastMode = 'campaign' | 'template';
-type BroadcastTemplate =
-  | 'individual.email_verification'
-  | 'individual.password_reset'
-  | 'individual.transaction_notification'
-  | 'individual.kyc_decision'
-  | 'individual.account_ready'
-  | 'individual.verification_authorized'
-  | 'individual.verification_reminder'
-  | 'individual.payment_received'
-  | 'individual.platform_live'
-  | 'individual.external_account_status'
-  | 'individual.founder_welcome'
-  | 'individual.first_transaction_reminder'
-  | 'individual.account_suspended'
-  | 'business.email_verification'
-  | 'business.kyb_submitted'
-  | 'business.kyb_decision'
-  | 'business.kyb_additional_details'
-  | 'business.transaction_notification'
-  | 'business.account_activated'
-  | 'business.account_ready'
-  | 'business.verification_authorized'
-  | 'business.verification_reminder'
-  | 'business.payment_received'
-  | 'business.platform_live'
-  | 'business.external_account_status'
-  | 'business.founder_welcome'
-  | 'business.first_transaction_reminder'
-  | 'business.account_suspended';
-
-const BROADCAST_CAMPAIGNS: Array<{ key: BroadcastCampaign; label: string; hint: string }> = [
-  { key: 'first_transaction_unlock_reminder', label: 'First transaction reminder', hint: 'Unlock global accounts with first wallet transaction.' },
-  { key: 'founder_welcome', label: 'Founder welcome', hint: 'Send founder welcome message to selected users.' },
-  { key: 'verification_reminder', label: 'Verification reminder', hint: 'Prompt selected users to continue verification.' },
-  { key: 'account_suspended', label: 'Account suspended', hint: 'Notify selected users of temporary account restriction.' },
-];
-const BROADCAST_TEMPLATES: Array<{ key: BroadcastTemplate; label: string }> = [
-  { key: 'individual.founder_welcome', label: 'Individual • Founder welcome' },
-  { key: 'individual.first_transaction_reminder', label: 'Individual • First transaction reminder' },
-  { key: 'individual.verification_authorized', label: 'Individual • Verification reminder' },
-  { key: 'individual.account_suspended', label: 'Individual • Account suspended' },
-  { key: 'individual.email_verification', label: 'Individual • Email verification' },
-  { key: 'individual.platform_live', label: 'Individual • Platform live' },
-  { key: 'individual.payment_received', label: 'Individual • Payment received' },
-  { key: 'individual.external_account_status', label: 'Individual • External account status' },
-  { key: 'individual.transaction_notification', label: 'Individual • Transaction notification' },
-  { key: 'individual.account_ready', label: 'Individual • Account ready' },
-  { key: 'individual.kyc_decision', label: 'Individual • KYC decision' },
-  { key: 'individual.password_reset', label: 'Individual • Password reset' },
-  { key: 'individual.verification_reminder', label: 'Individual • Verification reminder (alias)' },
-  { key: 'business.founder_welcome', label: 'Business • Founder welcome' },
-  { key: 'business.first_transaction_reminder', label: 'Business • First transaction reminder' },
-  { key: 'business.verification_authorized', label: 'Business • Verification reminder' },
-  { key: 'business.account_suspended', label: 'Business • Account suspended' },
-  { key: 'business.email_verification', label: 'Business • Email verification' },
-  { key: 'business.platform_live', label: 'Business • Platform live' },
-  { key: 'business.payment_received', label: 'Business • Payment received' },
-  { key: 'business.external_account_status', label: 'Business • External account status' },
-  { key: 'business.transaction_notification', label: 'Business • Transaction notification' },
-  { key: 'business.account_activated', label: 'Business • Account activated' },
-  { key: 'business.account_ready', label: 'Business • Account ready' },
-  { key: 'business.kyb_submitted', label: 'Business • KYB submitted' },
-  { key: 'business.kyb_decision', label: 'Business • KYB decision' },
-  { key: 'business.kyb_additional_details', label: 'Business • KYB additional details' },
-  { key: 'business.verification_reminder', label: 'Business • Verification reminder (alias)' },
-];
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -112,6 +42,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const [issueType, setIssueType] = useState<(typeof ISSUE_TYPES)[number]['key']>('general');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [creating, setCreating] = useState(false);
   const [tickets, setTickets] = useState<SupportTicket[]>(() => {
     try {
       const raw = localStorage.getItem(SUPPORT_TICKETS_CACHE_KEY);
@@ -121,7 +52,6 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       return [];
     }
   });
-  const [creating, setCreating] = useState(false);
   const [loadingTickets, setLoadingTickets] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [selectedTicketMessages, setSelectedTicketMessages] = useState<SupportTicketMessage[]>([]);
@@ -129,49 +59,6 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   const [loadingTicketThread, setLoadingTicketThread] = useState(false);
   const [replyMessage, setReplyMessage] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminTickets, setAdminTickets] = useState<SupportTicket[]>(() => {
-    try {
-      const raw = localStorage.getItem(SUPPORT_ADMIN_TICKETS_CACHE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-  const [loadingAdminTickets, setLoadingAdminTickets] = useState(false);
-  const [selectedAdminTicketId, setSelectedAdminTicketId] = useState<string | null>(null);
-  const [selectedAdminTicketMessages, setSelectedAdminTicketMessages] = useState<SupportTicketMessage[]>([]);
-  const [adminThreadCache, setAdminThreadCache] = useState<Record<string, SupportTicketMessage[]>>({});
-  const [loadingAdminThread, setLoadingAdminThread] = useState(false);
-  const [adminReplyMessage, setAdminReplyMessage] = useState('');
-  const [sendingAdminReply, setSendingAdminReply] = useState(false);
-  const [adminStatusUpdating, setAdminStatusUpdating] = useState(false);
-  const [draftingAI, setDraftingAI] = useState(false);
-  const [supportHealth, setSupportHealth] = useState<SupportHealthStatus | null>(null);
-  const [loadingSupportHealth, setLoadingSupportHealth] = useState(false);
-  const [adminTargetEmail, setAdminTargetEmail] = useState('');
-  const [adminControlBusy, setAdminControlBusy] = useState(false);
-  const [adminControlResult, setAdminControlResult] = useState<string>('');
-  const [broadcastMode, setBroadcastMode] = useState<BroadcastMode>('campaign');
-  const [broadcastCampaign, setBroadcastCampaign] = useState<BroadcastCampaign>('first_transaction_unlock_reminder');
-  const [broadcastTemplate, setBroadcastTemplate] = useState<BroadcastTemplate>('individual.first_transaction_reminder');
-  const [broadcastSearch, setBroadcastSearch] = useState('');
-  const [broadcastAccountType, setBroadcastAccountType] = useState<'all' | 'individual' | 'business'>('all');
-  const [broadcastRecipients, setBroadcastRecipients] = useState<Array<{
-    id: string;
-    email: string;
-    full_name: string;
-    account_type: 'individual' | 'business';
-    bridge_kyc_status: string;
-    is_unlocked: boolean;
-    country: string;
-    created_at: string;
-  }>>([]);
-  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>([]);
-  const [loadingBroadcastRecipients, setLoadingBroadcastRecipients] = useState(false);
-  const [broadcastBusy, setBroadcastBusy] = useState(false);
-  const [broadcastResult, setBroadcastResult] = useState<string>('');
 
   const statusLabel = useMemo<Record<SupportTicket['status'], string>>(
     () => ({
@@ -188,7 +75,10 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     try {
       const last = Number(localStorage.getItem(SUPPORT_TICKETS_REFRESH_TS_KEY) || '0');
       if (tickets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) return;
-    } catch { /* noop */ }
+    } catch {
+      // noop
+    }
+
     if (tickets.length === 0) setLoadingTickets(true);
     try {
       const res: any = await withTimeout(
@@ -199,119 +89,17 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       if (res.success) {
         const next = res.data?.tickets || [];
         setTickets(next);
-        try { localStorage.setItem(SUPPORT_TICKETS_CACHE_KEY, JSON.stringify(next)); } catch { /* noop */ }
-        try { localStorage.setItem(SUPPORT_TICKETS_REFRESH_TS_KEY, String(Date.now())); } catch { /* noop */ }
+        try { localStorage.setItem(SUPPORT_TICKETS_CACHE_KEY, JSON.stringify(next)); } catch {}
+        try { localStorage.setItem(SUPPORT_TICKETS_REFRESH_TS_KEY, String(Date.now())); } catch {}
+      } else if (tickets.length === 0) {
+        toast.error(res.error || 'Could not load support tickets');
       }
-      else if (tickets.length === 0) toast.error(res.error || 'Could not load support tickets');
     } catch {
       if (tickets.length === 0) toast.error('Could not load support tickets');
     } finally {
       setLoadingTickets(false);
     }
   }, [tickets.length]);
-
-  const loadAdminTickets = useCallback(async () => {
-    try {
-      const last = Number(localStorage.getItem(SUPPORT_ADMIN_TICKETS_REFRESH_TS_KEY) || '0');
-      if (adminTickets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) return;
-    } catch { /* noop */ }
-    if (adminTickets.length === 0) setLoadingAdminTickets(true);
-    try {
-      const res: any = await withTimeout(
-        backendAPI.support.adminListTickets({ limit: 50 }),
-        SUPPORT_LOAD_TIMEOUT_MS,
-        { success: false, error: 'request_timeout', data: { tickets: [] } } as any,
-      );
-      if (res.success) {
-        setIsAdmin(true);
-        const next = res.data?.tickets || [];
-        setAdminTickets(next);
-        try { localStorage.setItem(SUPPORT_ADMIN_TICKETS_CACHE_KEY, JSON.stringify(next)); } catch { /* noop */ }
-        try { localStorage.setItem(SUPPORT_ADMIN_TICKETS_REFRESH_TS_KEY, String(Date.now())); } catch { /* noop */ }
-      } else {
-        // Non-admin users get Forbidden from the gateway; keep user mode only.
-        if (res.error !== 'request_timeout') setIsAdmin(false);
-      }
-    } catch {
-      if (adminTickets.length === 0) setIsAdmin(false);
-    } finally {
-      setLoadingAdminTickets(false);
-    }
-  }, [adminTickets.length]);
-
-  const loadSupportHealth = useCallback(async () => {
-    setLoadingSupportHealth(true);
-    try {
-      const res: any = await withTimeout(
-        backendAPI.support.health(),
-        SUPPORT_LOAD_TIMEOUT_MS,
-        { success: false, error: 'request_timeout' } as any,
-      );
-      if (res.success && res.data) {
-        setSupportHealth(res.data);
-      } else if (res.error !== 'request_timeout') {
-        setSupportHealth(null);
-      }
-    } catch {
-      setSupportHealth(null);
-    } finally {
-      setLoadingSupportHealth(false);
-    }
-  }, []);
-
-  const loadBroadcastRecipients = useCallback(async () => {
-    setLoadingBroadcastRecipients(true);
-    try {
-      const res: any = await withTimeout(
-        backendAPI.admin.emailOpsListRecipients({
-          search: broadcastSearch,
-          account_type: broadcastAccountType,
-          limit: 200,
-        }),
-        SUPPORT_LOAD_TIMEOUT_MS,
-        { success: false, error: 'request_timeout', data: { recipients: [] } } as any,
-      );
-      if (!res.success) {
-        if (res.error !== 'request_timeout') {
-          toast.error(res.error || 'Could not load recipients');
-          setBroadcastRecipients([]);
-        }
-        return;
-      }
-      const rows = res.data?.recipients || [];
-      setBroadcastRecipients(rows);
-      setSelectedRecipientIds((prev) => prev.filter((id) => rows.some((r) => r.id === id)));
-    } catch {
-      toast.error('Could not load recipients');
-      setBroadcastRecipients([]);
-    } finally {
-      setLoadingBroadcastRecipients(false);
-    }
-  }, [broadcastAccountType, broadcastSearch]);
-
-  useEffect(() => {
-    void loadTickets();
-    void loadAdminTickets();
-  }, [loadTickets, loadAdminTickets]);
-
-  useEffect(() => {
-    if (isAdmin) void loadSupportHealth();
-  }, [isAdmin, loadSupportHealth]);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    void loadBroadcastRecipients();
-  }, [isAdmin, loadBroadcastRecipients]);
-
-  useEffect(() => {
-    if (broadcastMode !== 'template') return;
-    const nextType = broadcastTemplate.startsWith('business.') ? 'business' : 'individual';
-    if (broadcastAccountType !== nextType) {
-      setBroadcastAccountType(nextType);
-      setSelectedRecipientIds([]);
-    }
-  }, [broadcastMode, broadcastTemplate, broadcastAccountType]);
-
 
   const loadTicketThread = useCallback(async (ticketId: string) => {
     setSelectedTicketId(ticketId);
@@ -328,9 +116,9 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
         if (!cached && res.error !== 'request_timeout') toast.error(res.error || 'Could not load ticket');
         return;
       }
-      const messages = res.data?.messages || [];
-      setSelectedTicketMessages(messages);
-      setTicketThreadCache((prev) => ({ ...prev, [ticketId]: messages }));
+      const rows = res.data?.messages || [];
+      setSelectedTicketMessages(rows);
+      setTicketThreadCache((prev) => ({ ...prev, [ticketId]: rows }));
     } catch {
       toast.error('Could not load ticket');
     } finally {
@@ -338,35 +126,48 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     }
   }, [ticketThreadCache]);
 
-  const loadAdminTicketThread = useCallback(async (ticketId: string) => {
-    setSelectedAdminTicketId(ticketId);
-    const cached = adminThreadCache[ticketId];
-    if (cached) setSelectedAdminTicketMessages(cached);
-    setLoadingAdminThread(true);
-    try {
-      const res: any = await withTimeout(
-        backendAPI.support.getTicket(ticketId),
-        SUPPORT_LOAD_TIMEOUT_MS,
-        { success: false, error: 'request_timeout', data: { messages: cached || [] } } as any,
-      );
-      if (!res.success) {
-        if (!cached && res.error !== 'request_timeout') toast.error(res.error || 'Could not load ticket');
-        return;
-      }
-      const messages = res.data?.messages || [];
-      setSelectedAdminTicketMessages(messages);
-      setAdminThreadCache((prev) => ({ ...prev, [ticketId]: messages }));
-    } catch {
-      toast.error('Could not load ticket');
-    } finally {
-      setLoadingAdminThread(false);
-    }
-  }, [adminThreadCache]);
+  useEffect(() => {
+    void loadTickets();
+  }, [loadTickets]);
 
   useEffect(() => {
     if (selectedTicketId || tickets.length === 0) return;
     void loadTicketThread(tickets[0].id);
   }, [tickets, selectedTicketId, loadTicketThread]);
+
+  const createTicket = useCallback(async () => {
+    if (!subject.trim()) {
+      toast.error('Please add a subject');
+      return;
+    }
+    if (!message.trim()) {
+      toast.error('Please describe the issue');
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const res = await backendAPI.support.createTicket({
+        issue_type: issueType,
+        subject: subject.trim(),
+        message: message.trim(),
+        source: 'app',
+      });
+      if (!res.success || !res.data?.ticket_id) {
+        toast.error(res.error || 'Could not submit ticket');
+        return;
+      }
+      setSubject('');
+      setMessage('');
+      await loadTickets();
+      await loadTicketThread(res.data.ticket_id);
+      toast.success('Support ticket created');
+    } catch {
+      toast.error('Could not submit ticket');
+    } finally {
+      setCreating(false);
+    }
+  }, [issueType, loadTicketThread, loadTickets, message, subject]);
 
   const sendReply = useCallback(async () => {
     if (!selectedTicketId) return;
@@ -393,605 +194,75 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     }
   }, [loadTicketThread, loadTickets, replyMessage, selectedTicketId]);
 
-  const sendAdminReply = useCallback(async () => {
-    if (!selectedAdminTicketId) return;
-    if (!adminReplyMessage.trim()) {
-      toast.error('Please enter a message');
-      return;
-    }
-    setSendingAdminReply(true);
-    try {
-      const res = await backendAPI.support.adminReply(selectedAdminTicketId, adminReplyMessage.trim());
-      if (!res.success) {
-        toast.error(res.error || 'Could not send admin reply');
-        return;
-      }
-      setAdminReplyMessage('');
-      await loadAdminTicketThread(selectedAdminTicketId);
-      await loadAdminTickets();
-      toast.success('Reply sent');
-    } catch {
-      toast.error('Could not send admin reply');
-    } finally {
-      setSendingAdminReply(false);
-    }
-  }, [adminReplyMessage, loadAdminTicketThread, loadAdminTickets, selectedAdminTicketId]);
-
-  const updateAdminStatus = useCallback(async (status: SupportTicket['status']) => {
-    if (!selectedAdminTicketId) return;
-    setAdminStatusUpdating(true);
-    try {
-      const res = await backendAPI.support.adminUpdateStatus(selectedAdminTicketId, status);
-      if (!res.success) {
-        toast.error(res.error || 'Could not update status');
-        return;
-      }
-      await loadAdminTickets();
-      toast.success('Ticket updated');
-    } catch {
-      toast.error('Could not update status');
-    } finally {
-      setAdminStatusUpdating(false);
-    }
-  }, [loadAdminTickets, selectedAdminTicketId]);
-
-  const generateAIDraft = useCallback(async () => {
-    if (!selectedAdminTicketId) return;
-    setDraftingAI(true);
-    try {
-      const res = await backendAPI.support.adminAIDraft(selectedAdminTicketId);
-      if (res.success && res.data?.draft) {
-        setAdminReplyMessage(res.data.draft);
-        toast.success(`AI draft ready (${res.data.provider})`);
-        return;
-      }
-      if ((res as any).code === 'human_handoff_required') {
-        toast.error('This ticket requires human handling. AI draft blocked.');
-        return;
-      }
-      toast.error(res.error || 'Could not generate AI draft');
-    } catch {
-      toast.error('Could not generate AI draft');
-    } finally {
-      setDraftingAI(false);
-    }
-  }, [selectedAdminTicketId]);
-
-  const runAdminCustomerControl = useCallback(async (
-    action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_cards',
-  ) => {
-    const targetEmail = adminTargetEmail.trim().toLowerCase();
-    if (!targetEmail) {
-      toast.error('Enter a customer email first');
-      return;
-    }
-    setAdminControlBusy(true);
-    try {
-      const res = await backendAPI.admin.customerControls({ action, target_email: targetEmail });
-      if (!res.success) {
-        toast.error(res.error || 'Admin action failed');
-        setAdminControlResult('');
-        return;
-      }
-      const summary = (res as any)?.code
-        ? `${(res as any).code}${typeof (res as any)?.data?.processed === 'number' ? ` • processed ${(res as any).data.processed}` : ''}`
-        : 'Completed';
-      setAdminControlResult(summary);
-      toast.success('Admin action completed');
-    } catch {
-      toast.error('Admin action failed');
-      setAdminControlResult('');
-    } finally {
-      setAdminControlBusy(false);
-    }
-  }, [adminTargetEmail]);
-
-  const toggleRecipient = useCallback((userId: string) => {
-    setSelectedRecipientIds((prev) =>
-      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
-    );
-  }, []);
-
-  const selectAllVisibleRecipients = useCallback(() => {
-    setSelectedRecipientIds(broadcastRecipients.map((r) => r.id));
-  }, [broadcastRecipients]);
-
-  const clearSelectedRecipients = useCallback(() => {
-    setSelectedRecipientIds([]);
-  }, []);
-
-  const runBroadcastCampaign = useCallback(async (dryRun: boolean) => {
-    if (selectedRecipientIds.length === 0) {
-      toast.error('Select at least one user');
-      return;
-    }
-    setBroadcastBusy(true);
-    try {
-      const result = await backendAPI.admin.emailOpsSendCampaign({
-        campaign: broadcastCampaign,
-        user_ids: selectedRecipientIds,
-        dry_run: dryRun,
-      });
-      if (!result.success && !result.data) {
-        toast.error(result.error || 'Broadcast failed');
-        setBroadcastResult('');
-        return;
-      }
-      if (dryRun) {
-        const n = result.data?.selected_recipients ?? selectedRecipientIds.length;
-        setBroadcastResult(`Dry run ready • ${n} selected`);
-        toast.success(`Dry run complete (${n} recipients)`);
-      } else {
-        const sent = result.data?.sent_count ?? 0;
-        const failed = result.data?.failed_count ?? 0;
-        setBroadcastResult(`Sent ${sent} • Failed ${failed}`);
-        if (failed > 0) toast.error(`Sent ${sent}, failed ${failed}`);
-        else toast.success(`Broadcast sent (${sent})`);
-      }
-    } catch {
-      toast.error('Broadcast failed');
-      setBroadcastResult('');
-    } finally {
-      setBroadcastBusy(false);
-    }
-  }, [broadcastCampaign, selectedRecipientIds]);
-
-  const runBroadcastTemplate = useCallback(async (dryRun: boolean) => {
-    if (selectedRecipientIds.length === 0) {
-      toast.error('Select at least one user');
-      return;
-    }
-    setBroadcastBusy(true);
-    try {
-      const result = await backendAPI.admin.emailOpsSendTemplate({
-        template: broadcastTemplate,
-        user_ids: selectedRecipientIds,
-        dry_run: dryRun,
-      });
-      if (!result.success && !result.data) {
-        toast.error(result.error || 'Template broadcast failed');
-        setBroadcastResult('');
-        return;
-      }
-      if (dryRun) {
-        const n = result.data?.selected_recipients ?? selectedRecipientIds.length;
-        setBroadcastResult(`Dry run ready • ${n} selected`);
-        toast.success(`Dry run complete (${n} recipients)`);
-      } else {
-        const sent = result.data?.sent_count ?? 0;
-        const failed = result.data?.failed_count ?? 0;
-        setBroadcastResult(`Sent ${sent} • Failed ${failed}`);
-        if (failed > 0) toast.error(`Sent ${sent}, failed ${failed}`);
-        else toast.success(`Template sent (${sent})`);
-      }
-    } catch {
-      toast.error('Template broadcast failed');
-      setBroadcastResult('');
-    } finally {
-      setBroadcastBusy(false);
-    }
-  }, [broadcastTemplate, selectedRecipientIds]);
-
-  const submitTicket = async () => {
-    const body = message.trim();
-    if (!body) {
-      toast.error('Please type your message');
-      return;
-    }
-    const issueLabel = ISSUE_TYPES.find((x) => x.key === issueType)?.label || 'General';
-    const autoSubject = `${issueLabel}: ${body.slice(0, 56)}`;
-    setCreating(true);
-    try {
-      const res = await backendAPI.support.createTicket({
-        issue_type: issueType,
-        subject: subject.trim() || autoSubject,
-        message: body,
-        source: 'app',
-      });
-      if (!res.success) {
-        toast.error(res.error || 'Could not create support ticket');
-        return;
-      }
-      toast.success('Chat started');
-      setSubject('');
-      setMessage('');
-      await loadTickets();
-    } catch {
-      toast.error('Could not create support ticket');
-    } finally {
-      setCreating(false);
-    }
-  };
-
   return (
-    <div className={`min-h-screen ${tc.bg} pb-safe`}>
-      <FloatingBackButton onBack={onBack} />
-
-      <div className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
-        <div className="flex items-center justify-between px-6 py-4 pt-safe">
-          <div className="w-10" />
-          <h1 className={`text-lg font-bold ${tc.text}`}>Support chat</h1>
-          <div className="w-10" />
-        </div>
-      </div>
-
-      <div className="px-6 py-6 space-y-4">
-        <button
-          onClick={() => onNavigate?.('help-center')}
-          className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-4 flex items-center gap-3 active:opacity-80 transition-opacity`}
-        >
-          <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
-            <HelpCircle size={18} className="text-blue-400" />
-          </div>
-          <div className="flex-1 text-left">
-            <p className={`text-sm font-semibold ${tc.text}`}>Help Center</p>
-            <p className={`text-xs ${tc.textSecondary}`}>Find quick answers and product guidance</p>
-          </div>
-          <ChevronRight size={16} className={tc.textSecondary} />
-        </button>
-
-        <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 space-y-3`}>
-          <div className="flex items-center gap-2">
-            <MessageSquare size={16} className="text-[#C7FF00]" />
-            <p className={`text-sm font-semibold ${tc.text}`}>Live chat with support</p>
-          </div>
-
+    <div className={`min-h-screen ${tc.bg} pb-24`}>
+      <div className="max-w-5xl mx-auto px-4 pt-6">
+        <div className="flex items-center gap-3 mb-4">
+          <FloatingBackButton onBack={onBack} position="relative" />
           <div>
-            <label className={`block text-xs ${tc.textSecondary} mb-1`}>Issue type</label>
-            <select
-              value={issueType}
-              onChange={(e) => setIssueType(e.target.value as (typeof ISSUE_TYPES)[number]['key'])}
-              className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
-            >
-              {ISSUE_TYPES.map((type) => (
-                <option key={type.key} value={type.key}>{type.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="hidden">
-            <input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="hidden"
-              aria-hidden="true"
-            />
-          </div>
-
-          <div>
-            <label className={`block text-xs ${tc.textSecondary} mb-1`}>Message</label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={4}
-              placeholder="Type your message…"
-              className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={submitTicket}
-              disabled={creating}
-              className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
-            >
-              {creating ? <Loader2 size={15} className="animate-spin" /> : null}
-              Start chat
-            </button>
-            <button
-              onClick={() => void loadTickets()}
-              disabled={loadingTickets}
-              className={`rounded-xl border ${tc.cardBorder} ${tc.text} text-sm px-4 py-2.5 disabled:opacity-60`}
-            >
-              Refresh
-            </button>
+            <h1 className={`text-2xl font-bold ${tc.text}`}>Support</h1>
+            <p className={`text-sm ${tc.textSecondary}`}>Open a ticket and chat with BorderPay support.</p>
           </div>
         </div>
 
-        <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
-          <div className="flex items-center justify-between mb-3">
-            <p className={`text-sm font-semibold ${tc.text}`}>Recent chats</p>
-            {loadingTickets ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
-          </div>
-          {tickets.length === 0 ? (
-            <p className={`text-sm ${tc.textSecondary}`}>No chats yet. Start one below.</p>
-          ) : (
-            <div className="space-y-2">
-              {tickets.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => void loadTicketThread(t.id)}
-                  className={`w-full text-left rounded-xl border ${tc.cardBorder} ${tc.bgAlt} px-3 py-2.5`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className={`text-sm font-medium ${tc.text} truncate`}>{t.subject}</p>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#C7FF00]/15 text-[#C7FF00]">
-                      {statusLabel[t.status]}
-                    </span>
-                  </div>
-                  <p className={`text-xs ${tc.textSecondary} mt-1`}>
-                    {new Date(t.last_message_at).toLocaleString()}
-                  </p>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {selectedTicketId ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
-            <div className="flex items-center justify-between mb-3">
-              <p className={`text-sm font-semibold ${tc.text}`}>Live conversation</p>
-              {loadingTicketThread ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
+            <div className="flex items-center gap-2 mb-3">
+              <HelpCircle size={16} className="text-[#C7FF00]" />
+              <p className={`text-sm font-semibold ${tc.text}`}>Create ticket</p>
             </div>
 
-            {selectedTicketMessages.length === 0 ? (
-              <p className={`text-sm ${tc.textSecondary}`}>No messages yet.</p>
-            ) : (
-              <div className="space-y-2 mb-3 max-h-72 overflow-y-auto">
-                {selectedTicketMessages.map((m) => {
-                  const mine = m.sender_type === 'user';
-                  return (
-                    <div
-                      key={m.id}
-                      className={`rounded-xl px-3 py-2 text-sm ${
-                        mine
-                          ? 'bg-[#C7FF00]/12 border border-[#C7FF00]/25'
-                          : `${tc.bgAlt} border ${tc.cardBorder}`
-                      }`}
-                    >
-                      <p className={tc.text}>{m.body}</p>
-                      <p className={`text-[11px] mt-1 ${tc.textSecondary}`}>
-                        {m.sender_type === 'agent' ? 'Support' : (m.sender_type === 'assistant' ? 'Assistant' : 'You')} • {new Date(m.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
             <div className="space-y-2">
+              <select
+                value={issueType}
+                onChange={(e) => setIssueType(e.target.value as (typeof ISSUE_TYPES)[number]['key'])}
+                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
+              >
+                {ISSUE_TYPES.map((it) => (
+                  <option key={it.key} value={it.key}>{it.label}</option>
+                ))}
+              </select>
+              <input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Subject"
+                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
+              />
               <textarea
-                value={replyMessage}
-                onChange={(e) => setReplyMessage(e.target.value)}
-                rows={3}
-                placeholder="Type your reply…"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={5}
+                placeholder="Describe your issue"
                 className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
               />
               <button
-                onClick={() => void sendReply()}
-                disabled={sendingReply}
+                onClick={() => void createTicket()}
+                disabled={creating}
                 className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
               >
-                {sendingReply ? <Loader2 size={15} className="animate-spin" /> : null}
-                Send
+                {creating ? <Loader2 size={15} className="animate-spin" /> : null}
+                Submit ticket
               </button>
             </div>
           </div>
-        ) : null}
 
-        {isAdmin ? (
           <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
             <div className="flex items-center justify-between mb-3">
-              <p className={`text-sm font-semibold ${tc.text}`}>Customer Support Queue</p>
-              {loadingAdminTickets ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
-            </div>
-            <div className={`mb-3 rounded-xl border ${tc.cardBorder} ${tc.bgAlt} px-3 py-2`}>
-              <div className="flex items-center justify-between gap-3">
-                <p className={`text-xs font-medium ${tc.text}`}>AI drafting status</p>
-                {loadingSupportHealth ? (
-                  <Loader2 size={13} className="animate-spin text-[#C7FF00]" />
-                ) : (
-                  <span
-                    className={`text-[11px] px-2 py-0.5 rounded-full ${
-                      supportHealth?.ready ? 'bg-[#C7FF00]/20 text-[#C7FF00]' : 'bg-orange-500/20 text-orange-300'
-                    }`}
-                  >
-                    {supportHealth?.ready ? 'Ready' : 'Unavailable'}
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
+                <MessageSquare size={16} className="text-[#C7FF00]" />
+                <p className={`text-sm font-semibold ${tc.text}`}>Your tickets</p>
               </div>
-              <p className={`text-[11px] mt-1 ${tc.textSecondary}`}>
-                {supportHealth
-                  ? `${supportHealth.provider === 'none' ? 'No provider configured' : `${supportHealth.provider} • ${supportHealth.model || 'model unset'}`}`
-                  : 'Health check unavailable'}
-              </p>
+              {loadingTickets ? <Loader2 size={14} className="animate-spin text-[#C7FF00]" /> : null}
             </div>
 
-            <div className={`mb-3 rounded-xl border ${tc.cardBorder} ${tc.bgAlt} p-3`}>
-              <p className={`text-xs font-medium ${tc.text} mb-2`}>Customer controls</p>
-              <input
-                value={adminTargetEmail}
-                onChange={(e) => setAdminTargetEmail(e.target.value)}
-                placeholder="customer@email.com"
-                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
-              />
-              <div className="grid grid-cols-1 gap-2 mt-2">
-                <button
-                  onClick={() => void runAdminCustomerControl('inspect_customer_assets')}
-                  disabled={adminControlBusy}
-                  className={`w-full inline-flex items-center justify-center gap-2 rounded-xl border ${tc.cardBorder} ${tc.text} text-sm px-3 py-2 disabled:opacity-60`}
-                >
-                  {adminControlBusy ? <Loader2 size={14} className="animate-spin" /> : null}
-                  Inspect assets
-                </button>
-                <button
-                  onClick={() => void runAdminCustomerControl('revoke_virtual_accounts')}
-                  disabled={adminControlBusy}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-3 py-2 disabled:opacity-60"
-                >
-                  Revoke virtual accounts
-                </button>
-                <button
-                  onClick={() => void runAdminCustomerControl('revoke_stablecoin_wallets')}
-                  disabled={adminControlBusy}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-3 py-2 disabled:opacity-60"
-                >
-                  Revoke stablecoin wallets
-                </button>
-                <button
-                  onClick={() => void runAdminCustomerControl('revoke_cards')}
-                  disabled={adminControlBusy}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 text-white font-semibold text-sm px-3 py-2 disabled:opacity-60"
-                >
-                  Revoke cards
-                </button>
-              </div>
-              {adminControlResult ? (
-                <p className={`text-[11px] mt-2 ${tc.textSecondary}`}>{adminControlResult}</p>
-              ) : null}
-            </div>
-
-            <div className={`mb-3 rounded-xl border ${tc.cardBorder} ${tc.bgAlt} p-3`}>
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <p className={`text-xs font-medium ${tc.text}`}>Email Broadcast</p>
-                {loadingBroadcastRecipients ? (
-                  <Loader2 size={13} className="animate-spin text-[#C7FF00]" />
-                ) : null}
-              </div>
-              <p className={`text-[11px] ${tc.textSecondary} mb-2`}>
-                Select recipients and send founder welcome or reminder campaigns.
-              </p>
-              <div className="grid grid-cols-1 gap-2">
-                <select
-                  value={broadcastMode}
-                  onChange={(e) => setBroadcastMode(e.target.value as BroadcastMode)}
-                  className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
-                >
-                  <option value="campaign">Campaign mode</option>
-                  <option value="template">Full template mode</option>
-                </select>
-                {broadcastMode === 'campaign' ? (
-                  <>
-                    <select
-                      value={broadcastCampaign}
-                      onChange={(e) => setBroadcastCampaign(e.target.value as BroadcastCampaign)}
-                      className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
-                    >
-                      {BROADCAST_CAMPAIGNS.map((c) => (
-                        <option key={c.key} value={c.key}>{c.label}</option>
-                      ))}
-                    </select>
-                    <p className={`text-[11px] ${tc.textSecondary}`}>
-                      {BROADCAST_CAMPAIGNS.find((c) => c.key === broadcastCampaign)?.hint || ''}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <select
-                      value={broadcastTemplate}
-                      onChange={(e) => setBroadcastTemplate(e.target.value as BroadcastTemplate)}
-                      className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
-                    >
-                      {BROADCAST_TEMPLATES.map((tpl) => (
-                        <option key={tpl.key} value={tpl.key}>{tpl.label}</option>
-                      ))}
-                    </select>
-                    <p className={`text-[11px] ${tc.textSecondary}`}>
-                      Selected template: {broadcastTemplate}
-                    </p>
-                  </>
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  <select
-                    value={broadcastAccountType}
-                    onChange={(e) => setBroadcastAccountType(e.target.value as 'all' | 'individual' | 'business')}
-                    disabled={broadcastMode === 'template'}
-                    className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
-                  >
-                    <option value="all">All account types</option>
-                    <option value="individual">Individual only</option>
-                    <option value="business">Business only</option>
-                  </select>
-                  <input
-                    value={broadcastSearch}
-                    onChange={(e) => setBroadcastSearch(e.target.value)}
-                    placeholder="Search name/email"
-                    className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none`}
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => void loadBroadcastRecipients()}
-                    disabled={loadingBroadcastRecipients}
-                    className={`rounded-xl border ${tc.cardBorder} ${tc.text} text-xs px-2 py-2 disabled:opacity-60`}
-                  >
-                    Refresh
-                  </button>
-                  <button
-                    onClick={selectAllVisibleRecipients}
-                    disabled={broadcastRecipients.length === 0}
-                    className={`rounded-xl border ${tc.cardBorder} ${tc.text} text-xs px-2 py-2 disabled:opacity-60`}
-                  >
-                    Select all
-                  </button>
-                  <button
-                    onClick={clearSelectedRecipients}
-                    disabled={selectedRecipientIds.length === 0}
-                    className={`rounded-xl border ${tc.cardBorder} ${tc.text} text-xs px-2 py-2 disabled:opacity-60`}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-
-              <div className={`mt-2 rounded-xl border ${tc.cardBorder} ${tc.bg} max-h-44 overflow-y-auto`}>
-                {broadcastRecipients.length === 0 ? (
-                  <p className={`text-[11px] ${tc.textSecondary} px-3 py-2`}>No recipients found.</p>
-                ) : (
-                  <div className="divide-y divide-white/10">
-                    {broadcastRecipients.map((r) => {
-                      const checked = selectedRecipientIds.includes(r.id);
-                      return (
-                        <label key={`broadcast-${r.id}`} className="flex items-start gap-2 px-3 py-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleRecipient(r.id)}
-                            className="mt-0.5"
-                          />
-                          <div className="min-w-0">
-                            <p className={`text-xs font-medium ${tc.text} truncate`}>{r.full_name || r.email}</p>
-                            <p className={`text-[11px] ${tc.textSecondary} truncate`}>
-                              {r.email} • {r.account_type} • {r.is_unlocked ? 'unlocked' : 'locked'}
-                            </p>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <button
-                  onClick={() => void (broadcastMode === 'campaign' ? runBroadcastCampaign(true) : runBroadcastTemplate(true))}
-                  disabled={broadcastBusy || selectedRecipientIds.length === 0}
-                  className={`rounded-xl border ${tc.cardBorder} ${tc.text} text-xs px-2 py-2 disabled:opacity-60`}
-                >
-                  {broadcastBusy ? 'Working…' : 'Dry run'}
-                </button>
-                <button
-                  onClick={() => void (broadcastMode === 'campaign' ? runBroadcastCampaign(false) : runBroadcastTemplate(false))}
-                  disabled={broadcastBusy || selectedRecipientIds.length === 0}
-                  className="rounded-xl bg-[#C7FF00] text-black font-semibold text-xs px-2 py-2 disabled:opacity-60"
-                >
-                  {broadcastBusy ? 'Sending…' : `Send (${selectedRecipientIds.length})`}
-                </button>
-              </div>
-              {broadcastResult ? (
-                <p className={`text-[11px] mt-2 ${tc.textSecondary}`}>{broadcastResult}</p>
-              ) : null}
-            </div>
-
-            {adminTickets.length === 0 ? (
-              <p className={`text-sm ${tc.textSecondary}`}>No open tickets in queue.</p>
+            {tickets.length === 0 ? (
+              <p className={`text-sm ${tc.textSecondary}`}>No chats yet. Start one on the left.</p>
             ) : (
-              <div className="space-y-2">
-                {adminTickets.map((t) => (
+              <div className="space-y-2 mb-3 max-h-56 overflow-y-auto">
+                {tickets.map((t) => (
                   <button
-                    key={`admin-${t.id}`}
-                    onClick={() => void loadAdminTicketThread(t.id)}
+                    key={t.id}
+                    onClick={() => void loadTicketThread(t.id)}
                     className={`w-full text-left rounded-xl border ${tc.cardBorder} ${tc.bgAlt} px-3 py-2.5`}
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -1000,80 +271,64 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                         {statusLabel[t.status]}
                       </span>
                     </div>
-                    <p className={`text-xs ${tc.textSecondary} mt-1`}>
-                      {(t.requester_email || 'unknown')} • {new Date(t.last_message_at).toLocaleString()}
-                    </p>
+                    <p className={`text-xs ${tc.textSecondary} mt-1`}>{new Date(t.last_message_at).toLocaleString()}</p>
                   </button>
                 ))}
               </div>
             )}
 
-            {selectedAdminTicketId ? (
-              <div className={`mt-4 rounded-xl border ${tc.cardBorder} ${tc.bgAlt} p-3`}>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className={`text-xs ${tc.textSecondary}`}>Queue ticket thread</p>
-                  <select
-                    disabled={adminStatusUpdating}
-                    onChange={(e) => void updateAdminStatus(e.target.value as SupportTicket['status'])}
-                    defaultValue=""
-                    className={`rounded-lg border ${tc.cardBorder} ${tc.bg} ${tc.text} text-xs px-2 py-1`}
-                  >
-                    <option value="" disabled>Set status</option>
-                    <option value="pending_support">Pending support</option>
-                    <option value="pending_user">Pending user</option>
-                    <option value="resolved">Resolved</option>
-                    <option value="closed">Closed</option>
-                  </select>
+            {selectedTicketId ? (
+              <div className={`rounded-xl border ${tc.cardBorder} ${tc.bgAlt} p-3`}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className={`text-xs ${tc.textSecondary}`}>Conversation</p>
+                  {loadingTicketThread ? <Loader2 size={13} className="animate-spin text-[#C7FF00]" /> : null}
                 </div>
-                {loadingAdminThread ? (
-                  <div className="py-3 flex items-center gap-2">
-                    <Loader2 size={14} className="animate-spin text-[#C7FF00]" />
-                    <p className={`text-xs ${tc.textSecondary}`}>Loading thread…</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 mb-3 max-h-72 overflow-y-auto">
-                    {selectedAdminTicketMessages.map((m) => (
-                      <div
-                        key={`admin-msg-${m.id}`}
-                        className={`rounded-xl px-3 py-2 text-sm ${tc.bg} border ${tc.cardBorder}`}
-                      >
+
+                <div className="space-y-2 mb-3 max-h-56 overflow-y-auto">
+                  {selectedTicketMessages.length === 0 ? (
+                    <p className={`text-sm ${tc.textSecondary}`}>No messages yet.</p>
+                  ) : selectedTicketMessages.map((m) => {
+                    const mine = m.sender_type === 'user';
+                    return (
+                      <div key={m.id} className={`rounded-xl px-3 py-2 text-sm ${mine ? 'bg-[#C7FF00]/12 border border-[#C7FF00]/25' : `${tc.bg} border ${tc.cardBorder}`}`}>
                         <p className={tc.text}>{m.body}</p>
                         <p className={`text-[11px] mt-1 ${tc.textSecondary}`}>
-                          {m.sender_type === 'agent' ? 'Agent' : (m.sender_type === 'assistant' ? 'Assistant' : m.sender_type === 'user' ? 'User' : 'System')} • {new Date(m.created_at).toLocaleString()}
+                          {m.sender_type === 'agent' ? 'Support' : m.sender_type === 'assistant' ? 'Assistant' : 'You'} • {new Date(m.created_at).toLocaleString()}
                         </p>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
+
                 <div className="space-y-2">
                   <textarea
-                    value={adminReplyMessage}
-                    onChange={(e) => setAdminReplyMessage(e.target.value)}
+                    value={replyMessage}
+                    onChange={(e) => setReplyMessage(e.target.value)}
                     rows={3}
-                    placeholder="Reply as support agent..."
+                    placeholder="Type your reply…"
                     className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bg} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
                   />
                   <button
-                    onClick={() => void generateAIDraft()}
-                    disabled={draftingAI || !supportHealth?.ready}
-                    className={`w-full inline-flex items-center justify-center gap-2 rounded-xl border ${tc.cardBorder} ${tc.text} text-sm px-4 py-2.5 disabled:opacity-60`}
-                  >
-                    {draftingAI ? <Loader2 size={15} className="animate-spin" /> : null}
-                    Draft with AI
-                  </button>
-                  <button
-                    onClick={() => void sendAdminReply()}
-                    disabled={sendingAdminReply}
+                    onClick={() => void sendReply()}
+                    disabled={sendingReply}
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
                   >
-                    {sendingAdminReply ? <Loader2 size={15} className="animate-spin" /> : null}
-                    Send agent reply
+                    {sendingReply ? <Loader2 size={15} className="animate-spin" /> : null}
+                    Send
                   </button>
                 </div>
               </div>
             ) : null}
           </div>
-        ) : null}
+        </div>
+
+        <button
+          onClick={() => onNavigate?.('help-center')}
+          className={`mt-4 w-full rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3 text-left`}
+        >
+          <p className={`text-sm font-medium ${tc.text}`}>Help center</p>
+          <p className={`text-xs ${tc.textSecondary}`}>See onboarding, verification, and transfer guidance.</p>
+        </button>
       </div>
     </div>
   );

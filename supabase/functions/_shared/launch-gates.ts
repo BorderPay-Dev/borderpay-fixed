@@ -83,8 +83,8 @@ export type VerificationGateResult =
  * any Bridge call. Order: env pause → (optional) payment.
  *
  * NOTE: KYC/KYB is now AUTOMATIC — Bridge runs verification and we react to its
- * webhook. There is NO admin manual-review step; that gate (and the
- * authorize-verification admin path) has been removed. The only gates left are
+ * webhook. There is NO admin manual-review step; that gate has been removed.
+ * The only gates left are
  * the env launch-pause and the payment flag (off in the Wise funnel, where the
  * paid gate lives on money-movement instead).
  */

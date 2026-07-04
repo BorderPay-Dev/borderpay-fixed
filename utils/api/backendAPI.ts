@@ -411,12 +411,8 @@ export const userAPI = {
 // `getWallets` is read-only and provider-neutral — it returns rows from
 // public.wallets which the dashboard / send flows already display.
 //
-// Pre-Phase-2 this called the `get-wallets` edge function. That function
-// was never deployed (drift class also responsible for `send-email`,
-// `get-transactions`, `poa-upload-url`, etc.). Production logs showed
-// repeated `POST 404 /functions/v1/get-wallets` with `deployment_id: null`,
-// causing the BusinessDashboard hero to show $0.00 + a "Could not load
-// wallets" toast on every mount.
+// Historical edge indirection was removed. This reads canonical rows
+// directly through RLS to avoid endpoint drift and unnecessary hops.
 //
 // `public.wallets` has RLS enabled with policy `wallets_own =
 // (auth.uid() = user_id)` covering ALL ops, so a direct supabase-js
@@ -437,7 +433,7 @@ export const walletAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6,
+      USDC: 6, USDT: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -449,7 +445,7 @@ export const walletAPI = {
     const [
       { data: bridgeWallets, error: bridgeWalletErr },
       { data: bridgeVas, error: bridgeVaErr },
-      { data: balanceLedger, error: balanceLedgerErr },
+      { data: walletBalanceLedger, error: walletBalanceLedgerErr },
     ] = await Promise.all([
       supabase
         .from('bridge_wallets')
@@ -463,10 +459,10 @@ export const walletAPI = {
         .from('bridge_balance_ledger')
         .select('currency,amount_minor,direction,entity_type,created_at')
         .or(ownerOrFilter(user.id))
-        .in('entity_type', ['wallet', 'virtual_account']),
+        .eq('entity_type', 'wallet'),
     ]);
 
-    const firstErr = bridgeWalletErr || bridgeVaErr || balanceLedgerErr;
+    const firstErr = bridgeWalletErr || bridgeVaErr || walletBalanceLedgerErr;
     if (firstErr) return { success: false, error: firstErr.message };
 
     const byCurrency = new Map<string, any>();
@@ -493,9 +489,11 @@ export const walletAPI = {
       return row;
     };
 
-    // Canonical wallet/VA balances from immutable bridge_balance_ledger.
+    // Canonical spendable balances come only from wallet-settled ledger entries.
+    // Virtual accounts are receive rails and attribution metadata, not a second
+    // spendable wallet source.
     const ledgerByCurrency = new Map<string, number>();
-    for (const r of (balanceLedger || [])) {
+    for (const r of (walletBalanceLedger || [])) {
       const c = String((r as any).currency || '').toUpperCase();
       if (!c) continue;
       const rawMinor = Number((r as any).amount_minor ?? 0);
@@ -513,7 +511,9 @@ export const walletAPI = {
       row.balance = ledgerByCurrency.get(c) || 0;
     }
 
-    // Virtual-account balances use the same canonical ledger source.
+    // Keep virtual-account identifiers visible on the canonical currency rows
+    // so receive screens can attribute rail details without creating duplicate
+    // spendable balances.
     for (const va of (bridgeVas || [])) {
       const c = String((va as any).currency || '').toUpperCase();
       const row = ensure(c);
@@ -521,7 +521,6 @@ export const walletAPI = {
       row.bridge_virtual_account_id = (va as any).bridge_virtual_account_id ?? row.bridge_virtual_account_id;
       row.status = (va as any).status || row.status;
       row.updated_at = (va as any).updated_at || row.updated_at;
-      row.balance = ledgerByCurrency.get(c) || 0;
     }
     // If projections lag but ledger has balance rows, still expose balances.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
@@ -549,23 +548,8 @@ export const walletAPI = {
 // ============================================================================
 
 export const transactionAPI = {
-  // Pre-Phase-2 this called the `get-transactions` edge function, which
-  // was never deployed (same drift class as `get-wallets`, `send-email`,
-  // etc.). Production logs showed repeated `POST 404 /functions/v1/
-  // get-transactions` with `deployment_id: null` — TransactionsScreen
-  // would render an error toast on first mount.
-  //
-  // `public.transactions` has RLS enabled with policy `transactions_own =
-  // (auth.uid() = user_id)` covering ALL ops. Direct supabase-js SELECT
-  // returns the user's own rows, ordered newest-first, with the same
-  // shape the screen already consumes. Return envelope preserved
-  // (`{ success, data: { transactions: TransactionRow[] } }`).
-  //
-  // Note: `getCustomerTransactions`, `exportTransactions`, and
-  // `verifyTransaction` below STILL call undeployed edge functions.
-  // Those are not on the partner onboarding critical path (no UI
-  // component lands on them on first load) and are intentionally out
-  // of scope for this PR. Filed as remaining drift in the audit table.
+  // Read path is direct from canonical ledger tables through RLS.
+  // Compatibility aliases stay fail-closed below.
   async getTransactions(limit = 10, offset = 0) {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
@@ -573,7 +557,7 @@ export const transactionAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, USDT: 6, PYUSD: 6, USDB: 6, EURC: 6,
+      USDC: 6, USDT: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -631,10 +615,12 @@ export const transactionAPI = {
   },
 
   async exportTransactions(userId: string, format: 'csv' | 'pdf' | 'excel', filters?: any) {
-    return apiCall('export-transactions', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, format, ...filters }),
-    });
+    // Quarantine unresolved legacy endpoint (`export-transactions`).
+    // Keep signature for callers but fail-closed with structured state.
+    void userId;
+    void format;
+    void filters;
+    return RAILS_FUTURE_STATE;
   },
 
   async verifyTransaction(_transactionId: string) {
@@ -766,7 +752,7 @@ export const financialReadModelAPI = (() => {
       ? (externalListRes as any).data.external_accounts
       : [];
     const externalAccountCapabilities = ((externalCapsRes as any)?.success && Array.isArray((externalCapsRes as any)?.data?.supported_account_types))
-      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
       : [];
     const externalWallets = ((externalWalletsRes as any)?.success && Array.isArray((externalWalletsRes as any)?.data?.wallets))
       ? (externalWalletsRes as any).data.wallets
@@ -986,7 +972,7 @@ export const financialReadModelAPI = (() => {
         ),
       ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
-        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
         : [];
       const externalAccounts = (externalListRes?.success && Array.isArray(externalListRes?.data?.external_accounts))
         ? externalListRes.data.external_accounts
@@ -1491,83 +1477,11 @@ export const kycAPI = {
   },
 };
 
-/**
- * DEPRECATED — proof-of-address was a pre-Bridge step; Bridge now collects it
- * inside the hosted KYC flow. The `poa-submit` / `upload-poa` edge functions
- * and the `address_verifications` table have been removed. These stubs exist
- * only so `components/auth/SignUpFlow.tsx`'s legacy POA branch still compiles
- * — at runtime they short-circuit with a clear error if reached.
- */
-const deprecatedPoaResponse: { success: boolean; data?: any; error?: string } = {
-  success: false,
-  error: 'Please continue identity verification in the hosted verification flow.',
-  data: {
-    redirect_screen: 'kyc',
-    code: 'verification_redirect_required',
-  },
-};
-
 const BRIDGE_ONLY_DISABLED = {
   success: false,
   code: 'bridge_path_required',
-  error: 'This flow is disabled. Use the provider-backed send/receive/external-account path.',
+  error: 'This flow is disabled. Use the Bridge-backed send/receive/external-account path.',
 } as const;
-
-export const proofOfAddressAPI = {
-  getUploadUrl: async (_fileType: string, _fileName: string) => deprecatedPoaResponse,
-  submit:       async (_filePath: string, _documentType: string) => deprecatedPoaResponse,
-};
-
-// ============================================================================
-// LOCAL PAYMENTS (Bank transfers)
-// ============================================================================
-
-export const localPaymentsAPI = {
-  async getInstitutions(_currency: string, _type?: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async fetchBankDetails(_routingNumber: string, _countryCode: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async resolveAccount(_bankCode: string, _accountNumber: string, _currency: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  // QUARANTINED — `transfer` routes to future-state
-  // (future local currency / mobile-wallet / local bank rails).
-  // `verifyTransfer` and `getTransfers` are read-only and kept
-  // operational for history display.
-  async transfer(_data: any) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async verifyTransfer(_transferId: string) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async getTransfers() {
-    return BRIDGE_ONLY_DISABLED;
-  },
-};
-
-// ============================================================================
-// US PAYMENTS (ACH / Wire)
-// ============================================================================
-
-// QUARANTINED — legacy US counterparty endpoints are hard-disabled.
-// BorderPay send/payout flows must use provider-backed transfer orchestration
-// only. Do not route any runtime path through `get-counterparty` here.
-export const usPaymentsAPI = {
-  async transfer(_data: any) {
-    return BRIDGE_ONLY_DISABLED;
-  },
-
-  async getCounterparties() { return BRIDGE_ONLY_DISABLED; },
-
-  async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
-};
 
 // ============================================================================
 // CRYPTO / STABLECOIN
@@ -1607,7 +1521,7 @@ export const addressAPI = {
 export const stablecoinAPI = {
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
-    currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
+    currency: 'USDC' | 'USDT';
     amount?: number;
     network?: string;
     address?: string;
@@ -1633,7 +1547,7 @@ export const stablecoinAPI = {
     reason?: string;
     address: string;
     chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon' | 'tron' | 'arbitrum';
-    coin: 'usdc' | 'usdt' | 'pyusd' | 'usdb' | 'eurc';
+    coin: 'usdc' | 'usdt';
     funding_source?: 'USD';
     transaction_pin?: string;
     /**
@@ -1732,7 +1646,7 @@ export const notificationsAPI = {
 // `createUSDAccount` routes to Bridge VA(USD).
 // `createDynamicAccount` is future-state (African local rails).
 // Legacy account-rail/counterparty endpoints are hard-disabled.
-// Runtime send/payout execution must remain provider-backed only.
+// Runtime send/payout execution must remain Bridge-backed only.
 export const accountsAPI = {
   async getAccounts() {
     const route = await financialReadModelAPI.getWalletRouteData();
@@ -1759,16 +1673,16 @@ export const accountsAPI = {
     return BRIDGE_ONLY_DISABLED;
   },
 
-  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
   async getSupportedRails(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
   async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
   async getCounterparty(_counterPartyId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails provider-backed only. */
+  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
   async getAccountCounterparties(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
   async createDynamicAccount(_accountName: string, _preferredBank: string, _amount?: string) {
@@ -1822,15 +1736,33 @@ export interface ProvisioningRequestBody {
 }
 
 export const provisioningAPI = {
-  async request(_body: ProvisioningRequestBody) {
-    // Legacy "Add a new funding option" flow is intentionally retired.
-    // Account/wallet creation is now done from canonical provider-backed routes
-    // inside the Wallet/Receive experience.
-    return {
-      success: false,
-      code: 'legacy_provisioning_removed',
-      error: 'This flow has moved. Open Wallet to request accounts and wallets.',
-    };
+  async request(body: ProvisioningRequestBody) {
+    const currency = (body.currency || '').toUpperCase();
+    switch (body.type) {
+      case 'virtual_account':
+        if (currency === 'USD' || currency === 'EUR' || currency === 'GBP') {
+          return apiCall('bridge-virtual-account', {
+            method: 'POST',
+            body: JSON.stringify({ currency }),
+          });
+        }
+        return RAILS_FUTURE_STATE;
+      case 'local_currency':
+        // African local currencies (NGN/KES/GHS/UGX/...) are future-state.
+        return RAILS_FUTURE_STATE;
+      case 'card':
+        return CARDS_LOCKED;
+      case 'stablecoin':
+        return apiCall('bridge-wallet', {
+          method: 'POST',
+          body: JSON.stringify({
+            symbol: currency.toLowerCase(),
+            chain: (body.network || 'base').toLowerCase(),
+          }),
+        });
+      default:
+        return { success: false, error: `Unknown provisioning type: ${body.type}` };
+    }
   },
 };
 
@@ -1976,7 +1908,15 @@ export const bridgeAPI = {
 
   /** Individual KYC hosted-link flow. Returns { link_url, link_id } or { already_approved }. */
   kyc: {
-    startIndividual: async (opts?: { redirect_url?: string; endorsements?: ('base'|'sepa'|'spei'|'crypto')[] }) =>
+    startIndividual: async (opts?: {
+      redirect_url?: string;
+      endorsements?: ('base'|'sepa'|'spei'|'crypto')[];
+      precheck?: {
+        employment_status?: string;
+        source_of_funds?: string;
+        explanation?: string;
+      };
+    }) =>
       apiCall<{ link_id?: string | null; link_url?: string | null; tos_link_url?: string | null; tos_required?: boolean; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
         'bridge-kyc-link',
         { method: 'POST', body: JSON.stringify(opts ?? {}) },
@@ -1985,7 +1925,15 @@ export const bridgeAPI = {
 
   /** Business KYB hosted-link flow. Returns { link_url, link_id } or { already_approved }. */
   kyb: {
-    startBusiness: async (opts?: { redirect_url?: string; endorsements?: ('base'|'sepa'|'spei'|'crypto')[] }) =>
+    startBusiness: async (opts?: {
+      redirect_url?: string;
+      endorsements?: ('base'|'sepa'|'spei'|'crypto')[];
+      precheck?: {
+        employment_status?: string;
+        source_of_funds?: string;
+        explanation?: string;
+      };
+    }) =>
       apiCall<{ link_id?: string | null; link_url?: string | null; tos_link_url?: string | null; tos_required?: boolean; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
         'bridge-kyb-link',
         { method: 'POST', body: JSON.stringify(opts ?? {}) },
@@ -2008,6 +1956,11 @@ export const bridgeAPI = {
 
   /** Custodial stablecoin wallet (e.g. usdc on base). */
   wallet: {
+    capabilities: async () =>
+      apiCall<{ supported: boolean; supported_symbols: string[] }>(
+        'bridge-wallet',
+        { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
+      ),
     create: async (input: { symbol: string; chain: string }) =>
       apiCall<{ wallet_id: string; deposit_address: string; symbol: string; chain: string }>(
         'bridge-wallet',
@@ -2124,6 +2077,17 @@ export const bridgeAPI = {
           business_name?: string;
         }
       | {
+          account_type: 'gb';
+          account_owner_name: string;
+          account_owner_type?: 'individual' | 'business';
+          account_name?: string;
+          first_name?: string;
+          last_name?: string;
+          business_name?: string;
+          bank_name?: string;
+          account: { sort_code: string; account_number: string };
+        }
+      | {
           account_type: 'clabe';
           account_owner_name: string;
           clabe_number: string;
@@ -2144,7 +2108,7 @@ export const bridgeAPI = {
           document_number: string;
         }
     ) =>
-      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'clabe' | 'pix'; currency: 'USD' | 'EUR' | 'MXN' | 'BRL'; rail: string; last_4: string; bank_name: string | null }>(
+      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'gb' | 'clabe' | 'pix'; currency: 'USD' | 'EUR' | 'GBP' | 'MXN' | 'BRL'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
       ),
@@ -2163,9 +2127,9 @@ export const bridgeAPI = {
       );
     },
 
-    /** Query provider-backed capabilities for external-account rails. */
+    /** Query Bridge-backed capabilities for external-account rails. */
     capabilities: async () =>
-      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'clabe' | 'pix'> }>(
+      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'> }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
       ),
@@ -2320,12 +2284,245 @@ export const subscriptionAPI = {
 /** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
-  listBanks: async (_country: string) =>
-    BRIDGE_ONLY_DISABLED as any,
+  listBanks: async (country: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      country: string;
+      banks: Array<Record<string, unknown>>;
+    }>('flutterwave-capabilities', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'banks', country }),
+    }),
+
+  /** List mobile money networks/providers by country. */
+  listMobileNetworks: async (country: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      country: string;
+      mobile_networks: Array<Record<string, unknown>>;
+    }>('flutterwave-capabilities', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'mobile_networks', country }),
+    }),
+
+  /** Fetch Flutterwave rail capabilities + corridor policy exposed by backend. */
+  capabilities: async (
+    action: 'health' | 'payment_methods' | 'banks' | 'mobile_networks' | 'corridor_policy' = 'corridor_policy',
+    payload: Record<string, unknown> = {},
+  ) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      static_ip_guard?: {
+        required?: boolean;
+        ready?: boolean;
+        blocked?: boolean;
+      };
+      local_rail_policy?: {
+        countries?: string[];
+        currencies?: string[];
+        methods?: Array<'bank' | 'mobile_money'>;
+      };
+      payment_methods?: Array<Record<string, unknown>>;
+      banks?: Array<Record<string, unknown>>;
+      mobile_networks?: Array<Record<string, unknown>>;
+      provider_status?: Record<string, unknown>;
+    }>('flutterwave-capabilities', {
+      method: 'POST',
+      body: JSON.stringify({ action, ...payload }),
+    }),
 
   /** Verify a bank account number → account holder name before payout. */
-  resolveAccount: async (_account_number: string, _bank_code: string) =>
-    BRIDGE_ONLY_DISABLED as any,
+  resolveAccount: async (account_number: string, bank_code: string, country?: string) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      resolution?: Record<string, unknown>;
+    }>('flutterwave-account-resolve', {
+      method: 'POST',
+      body: JSON.stringify({ account_number, bank_code, ...(country ? { country } : {}) }),
+    }),
+
+  /** Create a Flutterwave local payout transfer (bank/mobile rails). */
+  createTransfer: async (payload: {
+    amount: number | string;
+    currency: string;
+    account_bank: string;
+    account_number: string;
+    account_type?: 'individual' | 'business';
+    country?: string;
+    reference: string;
+    narration?: string;
+    callback_url?: string;
+    debit_currency?: string;
+    beneficiary_name?: string;
+    meta?: Record<string, unknown>;
+  }) =>
+    apiCall<{
+      mode: 'create' | 'retry';
+      capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
+      transfer?: Record<string, unknown>;
+    }>('flutterwave-transfer-create', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** Retry a previously created transfer by provider transfer id. */
+  retryTransfer: async (input: {
+    transfer_id: string;
+    account_type?: 'individual' | 'business';
+    retry_payload?: Record<string, unknown>;
+  }) =>
+    apiCall<{
+      mode: 'retry';
+      capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      transfer?: Record<string, unknown>;
+    }>('flutterwave-transfer-create', {
+      method: 'POST',
+      body: JSON.stringify({
+        mode: 'retry',
+        transfer_id: input.transfer_id,
+        ...(input.account_type ? { account_type: input.account_type } : {}),
+        ...(input.retry_payload ? { retry_payload: input.retry_payload } : {}),
+      }),
+    }),
+
+  /** Retrieve transfer status by provider transfer id. */
+  transferStatus: async (
+    transfer_id: string,
+    account_type?: 'individual' | 'business',
+  ) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      transfer_id: string;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      resolved_account_type?: string;
+      provider_request_id?: string | null;
+      transfer?: Record<string, unknown>;
+    }>('flutterwave-transfer-status', {
+      method: 'POST',
+      body: JSON.stringify({ transfer_id, ...(account_type ? { account_type } : {}) }),
+    }),
+
+  /** List payout transfers with optional filters. */
+  transfersList: async (filters: {
+    status?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+    account_type?: 'individual' | 'business';
+  } = {}) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
+      transfers?: Record<string, unknown>;
+      projected_transfers?: Array<Record<string, unknown>>;
+    }>('flutterwave-transfers-list', {
+      method: 'POST',
+      body: JSON.stringify(filters),
+    }),
+
+  /** Fetch transfer rates for corridor preview. */
+  transferRates: async (input: {
+    source_currency: string;
+    destination_currency: string;
+    amount?: number | string;
+  }) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      source_currency: string;
+      destination_currency: string;
+      amount: number | null;
+      rates?: Record<string, unknown>;
+    }>('flutterwave-transfer-rates', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  /** Create a local collection request/charge for receive flows. */
+  createCollection: async (payload: {
+    amount: number | string;
+    currency: string;
+    account_type?: 'individual' | 'business';
+    country?: string;
+    tx_ref: string;
+    customer?: Record<string, unknown>;
+    payment_options?: string;
+    redirect_url?: string;
+    customizations?: Record<string, unknown>;
+    meta?: Record<string, unknown>;
+  }) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
+      collection?: Record<string, unknown>;
+    }>('flutterwave-collection-create', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** Retrieve one collection/charge status. */
+  collectionStatus: async (
+    collection_id: string,
+    account_type?: 'individual' | 'business',
+  ) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      collection_id: string;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      resolved_account_type?: string;
+      provider_request_id?: string | null;
+      collection?: Record<string, unknown>;
+    }>('flutterwave-collection-status', {
+      method: 'POST',
+      body: JSON.stringify({ collection_id, ...(account_type ? { account_type } : {}) }),
+    }),
+
+  /** List collections/charges with optional filters. */
+  collectionsList: async (filters: {
+    tx_ref?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+    account_type?: 'individual' | 'business';
+  } = {}) =>
+    apiCall<{
+      capabilities?: Record<string, unknown>;
+      account_context?: {
+        requested_account_type?: string;
+        resolved_account_type?: string;
+      };
+      provider_request_id?: string | null;
+      collections?: Record<string, unknown>;
+      projected_collections?: Array<Record<string, unknown>>;
+    }>('flutterwave-collections-list', {
+      method: 'POST',
+      body: JSON.stringify(filters),
+    }),
 
   /**
    * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same
@@ -2351,30 +2548,23 @@ export const payoutsAPI = {
   feeQuote: async (input: {
     direction: 'payout' | 'receive';
     channel: 'bank' | 'mobile_money';
-    destination_country?: string;
-    source_currency?: string;
-    destination_currency?: string;
     currency: string;
     amount: number | string;
   }) =>
     apiCall<{
-      capabilities?: Record<string, unknown>;
-      source_currency: string;
-      destination_currency: string;
-      destination_country: string;
+      direction: 'payout' | 'receive';
       channel: 'bank' | 'mobile_money';
-      amount: number | null;
-      rates?: unknown;
-    }>('flutterwave-transfer-rates', {
-      method: 'POST',
-      body: JSON.stringify({
-        source_currency: input.source_currency || input.currency,
-        destination_currency: input.destination_currency || input.currency,
-        destination_country: input.destination_country || 'NG',
-        channel: input.channel,
-        amount: input.amount,
-      }),
-    }),
+      currency: string;
+      amount: number;
+      product: string;
+      provider_fee: number;
+      markup_fee: number;
+      total_fee: number;
+      effective_multiplier: number;
+      hard_cap_multiplier: number | null;
+      pricing_version: string;
+      quoted_at: string;
+    }>('flutterwave-fee-quote', { method: 'POST', body: JSON.stringify(input) }),
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */
@@ -2388,53 +2578,6 @@ export const externalWalletsAPI = {
     apiCall<{ wallet: ExternalWallet }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'add', ...w }) }),
   remove: async (id: string) =>
     apiCall<{ removed: boolean }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'remove', id }) }),
-};
-
-export const adminAPI = {
-  broadcast: async (
-    action: 'business_verification_delay' | 'business_platform_live' | 'individual_platform_live',
-    opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {},
-  ) =>
-    apiCall<{
-      dry_run: boolean;
-      eligible_recipients: number;
-      selected_recipients: number;
-      start_index: number;
-      max_recipients: number;
-      sent_count?: number;
-      failed_count?: number;
-      failed?: Array<{ user_id: string; email: string; error: string }>;
-    }>('admin-broadcast-email', {
-      method: 'POST',
-      body: JSON.stringify({
-        action,
-        dry_run: opts.dry_run !== false,
-        max_recipients: typeof opts.max_recipients === 'number' ? opts.max_recipients : 2000,
-        start_index: typeof opts.start_index === 'number' ? opts.start_index : 0,
-      }),
-    }),
-  broadcastBusinessVerificationDelay: async (opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {}) =>
-    adminAPI.broadcast('business_verification_delay', opts),
-  broadcastIndividualPlatformLive: async (opts: { dry_run?: boolean; max_recipients?: number; start_index?: number } = {}) =>
-    adminAPI.broadcast('individual_platform_live', opts),
-  customerControls: async (input: {
-    action: 'inspect_customer_assets' | 'revoke_virtual_accounts' | 'revoke_stablecoin_wallets' | 'revoke_cards';
-    target_user_id?: string;
-    target_email?: string;
-    dry_run?: boolean;
-  }) =>
-    apiCall<{
-      target?: Record<string, unknown>;
-      virtual_accounts?: Array<Record<string, unknown>>;
-      stablecoin_wallets?: Array<Record<string, unknown>>;
-      cards?: Array<Record<string, unknown>>;
-      processed?: number;
-      results?: Array<Record<string, unknown>>;
-      notes?: string[];
-    }>('admin-customer-controls', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
 };
 
 export interface SupportTicket {
@@ -2508,43 +2651,10 @@ export const supportAPI = {
       body: JSON.stringify({ action: 'add_message', ticket_id: ticketId, message }),
     }),
 
-  adminListTickets: async (input: { limit?: number; status?: SupportTicket['status'] } = {}) =>
-    apiCall<{ tickets: SupportTicket[] }>('support-gateway', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'admin_list_tickets', ...input }),
-    }),
-
-  adminReply: async (ticketId: string, message: string) =>
-    apiCall<{ ticket_id: string }>('support-gateway', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'admin_reply', ticket_id: ticketId, message }),
-    }),
-
-  adminAIDraft: async (ticketId: string, operatorGuidance?: string) =>
-    apiCall<{ ticket_id: string; draft: string; provider: 'azure_openai' | 'openai'; model: string }>('support-gateway', {
-      method: 'POST',
-      body: JSON.stringify({
-        action: 'admin_ai_draft',
-        ticket_id: ticketId,
-        ...(operatorGuidance?.trim() ? { operator_guidance: operatorGuidance.trim() } : {}),
-      }),
-    }) as Promise<{
-      success: boolean;
-      data?: { ticket_id: string; draft: string; provider: 'azure_openai' | 'openai'; model: string };
-      error?: string;
-      code?: string;
-    }>,
-
   health: async () =>
     apiCall<SupportHealthStatus>('support-gateway', {
       method: 'POST',
       body: JSON.stringify({ action: 'support_health' }),
-    }),
-
-  adminUpdateStatus: async (ticketId: string, status: SupportTicket['status']) =>
-    apiCall<{ ticket_id: string; status: SupportTicket['status'] }>('support-gateway', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'admin_update_status', ticket_id: ticketId, status }),
     }),
 };
 
@@ -2565,9 +2675,6 @@ export const backendAPI = {
   cards: cardAPI,
   fx: fxAPI,
   kyc: kycAPI,
-  proofOfAddress: proofOfAddressAPI,
-  localPayments: localPaymentsAPI,
-  usPayments: usPaymentsAPI,
   address: addressAPI,
   stablecoin: stablecoinAPI,
   mobileMoney: mobileMoneyAPI,
@@ -2580,7 +2687,6 @@ export const backendAPI = {
   subscription: subscriptionAPI,
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,
-  admin:        adminAPI,
   affiliate:    affiliateAPI,
   support:      supportAPI,
   team:         teamAPI,

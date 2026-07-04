@@ -2,7 +2,7 @@ import { htmlLayout, textLayout, BORDERPAY_BRAND, firstName, RenderedEmail } fro
 
 /**
  * Sent when an admin authorizes a (paid) individual's verification — the
- * "finish your document uploads" prompt. Fired by the authorize-verification
+ * "finish your document uploads" prompt.
  * edge function AFTER the manual-review authorization event (#4). Inert until
  * that function is deployed; routed only via the logged send-email path.
  */
