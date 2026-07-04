@@ -63,7 +63,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -302,7 +301,6 @@ Deno.serve(async (req) => {
   }
 
   const sourceRail = body.source.payment_rail || "stablecoin";
-  const legacyDevFeePercent = bridgeDeveloperFeePercent(sourceRail, body.source.currency);
   const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
   const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
   const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
@@ -344,7 +342,7 @@ Deno.serve(async (req) => {
       },
       developer_fee: isCryptoPayout
         ? { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD }
-        : { percentage: legacyDevFeePercent },
+        : { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD },
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.

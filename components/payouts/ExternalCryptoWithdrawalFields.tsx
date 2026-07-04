@@ -4,8 +4,8 @@
  * Replaces the old bank/mobile-money African payout form. African corridors now
  * settle as native external stablecoin transfers (USDT/USDC) over a supported
  * network. Captures:
- *   • Network (TRON/TRC-20, Polygon, Arbitrum, Solana, Base, Ethereum)
- *   • Token (USDT / USDC)
+ *   • Network (TRON/TRC-20, Base)
+ *   • Token (USDT / USDC, route-bound)
  *   • External destination address (validated per network family)
  *
  * Controlled/presentational; the parent payout flow owns state + submission.
@@ -16,7 +16,7 @@ import React from 'react';
 import { Wallet, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
-export type CryptoNetwork = 'tron' | 'polygon' | 'arbitrum' | 'solana' | 'base' | 'ethereum';
+export type CryptoNetwork = 'tron' | 'base';
 export type CryptoToken   = 'USDT' | 'USDC';
 
 export interface CryptoWithdrawalValues {
@@ -34,12 +34,8 @@ interface NetworkDef {
 }
 
 export const NETWORKS: NetworkDef[] = [
-  { id: 'tron',     label: 'TRON (TRC-20)',     family: 'tron',   tokens: ['USDT', 'USDC'] },
-  { id: 'polygon',  label: 'Polygon',           family: 'evm',    tokens: ['USDT', 'USDC'] },
-  { id: 'arbitrum', label: 'Arbitrum',          family: 'evm',    tokens: ['USDT', 'USDC'] },
+  { id: 'tron',     label: 'TRON (TRC-20)',     family: 'tron',   tokens: ['USDT'] },
   { id: 'base',     label: 'Base',              family: 'evm',    tokens: ['USDC'] },
-  { id: 'ethereum', label: 'Ethereum (ERC-20)', family: 'evm',    tokens: ['USDT', 'USDC'] },
-  { id: 'solana',   label: 'Solana',            family: 'solana', tokens: ['USDT', 'USDC'] },
 ];
 
 const ADDRESS_RULES: Record<NetworkDef['family'], { re: RegExp; hint: string }> = {

@@ -26,7 +26,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { bridgeDeveloperFeePercent } from "../_shared/fees/schedule.ts";
+import { BRIDGE_PAYOUT_DEVELOPER_FEE_USD } from "../_shared/bridge-payout-validator.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -170,8 +170,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const sourceRail    = it.source_payment_rail || "stablecoin";
-      const devFeePercent = bridgeDeveloperFeePercent(sourceRail, sourceCurrency);
+      const sourceRail = it.source_payment_rail || "stablecoin";
 
       const result = await bridgeProvider.createTransfer({
         source: {
@@ -182,7 +181,7 @@ Deno.serve(async (req) => {
           amount:       it.__parsedAmount.raw,
         },
         destination:     it.destination,
-        developer_fee:   { percentage: devFeePercent },
+        developer_fee:   { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD },
         idempotency_key: idem,
       });
 

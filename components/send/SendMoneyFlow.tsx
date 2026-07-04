@@ -42,6 +42,43 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 type TransferMethod = 'us_ach_wire' | 'stablecoin';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
+const CRYPTO_ROUTE_MIN_GROSS_USD: Record<'base' | 'tron', number> = {
+  base: 2.0,
+  tron: 4.0,
+};
+
+function normalizeCryptoRoute(network?: string, token?: string): CryptoWithdrawalValues {
+  const n = String(network || '').toLowerCase();
+  const t = String(token || '').toUpperCase();
+  if (n === 'tron') return { network: 'tron', token: 'USDT', address: '' };
+  if (n === 'base') return { network: 'base', token: 'USDC', address: '' };
+  if (t === 'USDT') return { network: 'tron', token: 'USDT', address: '' };
+  return { network: 'base', token: 'USDC', address: '' };
+}
+
+function cryptoRouteLabel(values: CryptoWithdrawalValues): string {
+  if (values.network === 'tron') return 'USDT on TRON';
+  return 'USDC on Base';
+}
+
+function cryptoMinimumMessage(values: CryptoWithdrawalValues): string {
+  const min = CRYPTO_ROUTE_MIN_GROSS_USD[values.network];
+  return `Minimum gross amount for ${cryptoRouteLabel(values)} is $${min.toFixed(2)}.`;
+}
+
+function mapCryptoTransferError(code: string | undefined, fallback: string | undefined, crypto: CryptoWithdrawalValues): string {
+  if (code === 'unsupported_crypto_route') {
+    return 'Only USDC on Base and USDT on TRON are supported right now.';
+  }
+  if (code === 'gross_below_minimum' || code === 'dust_minimum_not_met') {
+    return cryptoMinimumMessage(crypto);
+  }
+  if (code === 'chain_mismatch' || code === 'currency_mismatch') {
+    return 'Source and destination must use the same allowed route (USDC/Base or USDT/TRON).';
+  }
+  return fallback || 'Transfer failed. Please review your payout route and amount.';
+}
+
 interface Institution {
   code: string;
   name: string;
@@ -201,7 +238,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [usMemo, setUsMemo] = useState('');
 
   // External stablecoin withdrawal — network + token + destination address.
-  const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'tron', token: 'USDT', address: '' });
+  const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'base', token: 'USDC', address: '' });
 
   // Withdraw-to-saved-wallet handoff: ExternalWalletsScreen stores the chosen
   // destination, then routes here. Prefill the stablecoin flow and jump in.
@@ -213,9 +250,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       const p = JSON.parse(raw);
       if (p?.address && p?.chain) {
         const token = String(p.asset || 'USDC').toUpperCase();
+        const normalized = normalizeCryptoRoute(String(p.chain), token);
         setMethod('stablecoin');
-        setSelectedCurrency(token);
-        setCrypto({ network: p.chain as any, token: token as any, address: String(p.address) });
+        setSelectedCurrency(normalized.token);
+        setCrypto({ ...normalized, address: String(p.address) });
         setStep('details');
       }
     } catch { /* noop */ }
@@ -539,6 +577,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setLimitError(err);
   }, [amount, selectedCurrency, method]);
 
+  const stablecoinMinimumError = useMemo(() => {
+    if (method !== 'stablecoin') return null;
+    const num = parseFloat(amount);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    const min = CRYPTO_ROUTE_MIN_GROSS_USD[crypto.network];
+    if (num < min) return cryptoMinimumMessage(crypto);
+    return null;
+  }, [amount, method, crypto]);
+
   // Fee is computed synchronously by the engine (networkFee useMemo) — no async
   // fetch needed for the review step.
 
@@ -564,7 +611,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   };
 
   const canProceedAmount = () => {
-    if (limitError) return false;
+    if (limitError || stablecoinMinimumError) return false;
     const num = parseFloat(amount);
     if (method === 'us_ach_wire') {
       return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
@@ -586,11 +633,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       let result: any;
 
       if (method === 'stablecoin') {
+        if (stablecoinMinimumError) {
+          setErrorMessage(stablecoinMinimumError);
+          setStep('error');
+          toast.error(stablecoinMinimumError);
+          return;
+        }
         result = await backendAPI.stablecoin.sendTransfer({
           amount: parseFloat(amount),
           reason: reason || 'Stablecoin transfer',
           address: crypto.address.trim(),
-          chain: crypto.network,                                  // tron|polygon|arbitrum|solana|base|ethereum
+          chain: crypto.network,                                  // tron|base
           coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
           transaction_pin: verifiedPin,
           // Required by bridge-transfer v2. Reusing the per-mount key
@@ -640,6 +693,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
         : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
+        : method === 'stablecoin'         ? mapCryptoTransferError(code, result.error, crypto)
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
         : code === 'no_customer'          ? 'Finish account setup before sending funds.'
         : (result.error || t('send.txFailed'));
@@ -649,9 +703,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (friendly) toast.error(friendlyError(friendly, t('send.txFailed')));
       }
     } catch (error: any) {
-      setErrorMessage(error.message || t('send.txFailed'));
+      const fallback = error?.message || t('send.txFailed');
+      const friendly = method === 'stablecoin'
+        ? mapCryptoTransferError(undefined, fallback, crypto)
+        : fallback;
+      setErrorMessage(friendly);
       setStep('error');
-      toast.error(friendlyError(error, t('send.txFailed')));
+      toast.error(friendlyError(friendly, t('send.txFailed')));
     }
   };
 
@@ -771,7 +829,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   </div>
                   <div className="flex-1 text-left">
                     <p className={`text-sm font-semibold ${tc.text}`}>External Stablecoin Withdrawal</p>
-                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDT / USDC to any external wallet — TRON, Polygon, Arbitrum, Solana, Base</p>
+                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>Only USDC on Base or USDT on TRON.</p>
                   </div>
                   <ArrowRight size={18} className={tc.textMuted} />
                 </button>
@@ -785,7 +843,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   </div>
                   <div className="flex-1 text-left">
                     <p className={`text-sm font-semibold ${tc.text}`}>External Stablecoin Withdrawal</p>
-                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>USDT / USDC to an external wallet — pending sandbox evidence sign-off</p>
+                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>Only USDC on Base or USDT on TRON — pending sandbox evidence sign-off</p>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Pending evidence</span>
                 </div>
@@ -1213,6 +1271,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <p className="text-xs text-red-400 mt-2 px-1 flex items-center gap-1">
                   <AlertCircle size={12} className="flex-shrink-0" />
                   {limitError}
+                </p>
+              )}
+              {stablecoinMinimumError && (
+                <p className="text-xs text-red-400 mt-2 px-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  {stablecoinMinimumError}
                 </p>
               )}
             </div>
