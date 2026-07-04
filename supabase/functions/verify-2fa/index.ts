@@ -163,8 +163,10 @@ Deno.serve(async (req: Request) => {
 
     const { error: updateError } = await supabase
       .from('user_security')
-      .update({ two_factor_enabled: true })
-      .eq('user_id', user.id);
+      .upsert(
+        { user_id: user.id, two_factor_enabled: true },
+        { onConflict: 'user_id' },
+      );
     if (updateError) return json({ success: false, error: updateError.message }, 500);
 
     return json({ success: true });

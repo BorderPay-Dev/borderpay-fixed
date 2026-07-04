@@ -95,6 +95,9 @@ const USER_STORAGE_KEY = 'borderpay_user';
 const SAFE_FIELDS = [
   'id', 'email', 'full_name', 'company_name', 'country', 'phone',
   'account_type',                    // ← business vs individual routing
+  'pin_set',
+  'two_factor_enabled',
+  'mfa_enabled',
   'kyc_status',
   'kyc_level',
   'avatar_url', 'profile_picture_url', 'currency',

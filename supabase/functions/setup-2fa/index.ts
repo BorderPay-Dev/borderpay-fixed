@@ -98,6 +98,24 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return json({ success: false, error: 'Unauthorized' }, 401);
 
+    // P0 guard: block duplicate enrollment when 2FA is already active.
+    // This prevents repeated "add authenticator" loops and multiple secrets
+    // per user after enablement.
+    {
+      const { data: sec } = await supabase
+        .from('user_security')
+        .select('two_factor_enabled')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (sec?.two_factor_enabled === true) {
+        return json({
+          success: false,
+          error: '2FA already enabled',
+          code: 'two_factor_already_enabled',
+        }, 409);
+      }
+    }
+
     const encryptedBytes = await encryptSecret(generateBase32Secret().slice(0, 1));
     // ↑ above intentionally throws away that result; we just use it as a
     //   capability check below so we never generate a real secret without
