@@ -19,6 +19,7 @@ import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 interface Props {
   onBack: () => void;
@@ -46,8 +47,8 @@ function validAddress(chain: string, a: string): boolean {
   return false;
 }
 
-function readCache(): ExternalWallet[] {
-  try { const v = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+function readCache(cacheKey: string): ExternalWallet[] {
+  try { const v = JSON.parse(localStorage.getItem(cacheKey) || '[]'); return Array.isArray(v) ? v : []; }
   catch { return []; }
 }
 
@@ -64,8 +65,9 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   void snapshotReader;
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const verification = useVerification(userId);
+  const cacheKey = financialCacheKey(CACHE_KEY, { userId });
 
-  const cached = readCache();
+  const cached = readCache(cacheKey);
   useEffect(() => {
     navPerfTrackCache('external-wallets', cached.length > 0);
   }, [cached.length]);
@@ -91,7 +93,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       if (r?.success) {
         const next: ExternalWallet[] = r.data?.wallets || [];
         setWallets(next);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       }
     } catch { /* keep cache */ }
     finally { setLoading(false); }
@@ -106,7 +108,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       };
       const ric = (window as any).requestIdleCallback;
       if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
+      else setTimeout(warm, 120);
     }
 
     load();
