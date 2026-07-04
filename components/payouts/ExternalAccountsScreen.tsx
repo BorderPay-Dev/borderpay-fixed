@@ -17,12 +17,11 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExternalAccountRow {
   id: string;
   bridge_external_account_id: string;
-  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  account_type: 'us' | 'iban' | 'gb' | 'clabe' | 'pix';
   currency: string;
   account_owner_name: string | null;
   bank_name: string | null;
@@ -60,11 +59,11 @@ function normalizeExternalAccounts(payload: any): ExternalAccountRow[] {
   return rows.map((row: any, idx: number) => {
     const rawType = String(row?.account_type || '').toLowerCase();
     const accountType: ExternalAccountRow['account_type'] =
-      rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+      rawType === 'iban' || rawType === 'gb' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
     const rawCurrency = String(row?.currency || '');
     const currency = rawCurrency
       ? rawCurrency.toUpperCase()
-      : (accountType === 'iban' ? 'EUR' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
+      : (accountType === 'iban' ? 'EUR' : accountType === 'gb' ? 'GBP' : accountType === 'clabe' ? 'MXN' : accountType === 'pix' ? 'BRL' : 'USD');
     const externalId = String(row?.bridge_external_account_id || row?.external_account_id || row?.id || '');
     const last4 = row?.last_4 || row?.account?.last_4 || row?.iban?.last_4 || row?.clabe?.last_4 || row?.pix_key?.document_number_last4 || row?.br_code?.document_number_last4 || null;
     return {
@@ -75,7 +74,7 @@ function normalizeExternalAccounts(payload: any): ExternalAccountRow[] {
       account_owner_name: row?.account_owner_name ?? null,
       bank_name: row?.bank_name ?? null,
       last_4: last4 ? String(last4) : null,
-      rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
+      rail: row?.rail ?? (accountType === 'iban' ? 'sepa' : accountType === 'gb' ? 'faster_payments' : accountType === 'clabe' ? 'spei' : accountType === 'pix' ? 'pix' : 'ach'),
       status: String(row?.status || 'active'),
     } as ExternalAccountRow;
   }).filter((r: ExternalAccountRow) => !!r.bridge_external_account_id);
@@ -101,9 +100,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
 function readCache(cacheKey: string): ExternalAccountRow[] {
   try {
     const scoped = JSON.parse(localStorage.getItem(cacheKey) || '[]');
-    if (Array.isArray(scoped) && scoped.length > 0) return scoped;
-    const legacy = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]');
-    return Array.isArray(legacy) ? legacy : [];
+    return Array.isArray(scoped) ? scoped : [];
   } catch { return []; }
 }
 
@@ -114,9 +111,6 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey('borderpay_external_accounts_refresh_ts_v1', { userId });
   const cached = readCache(cacheKey);
-  useEffect(() => {
-    navPerfTrackCache('external-accounts', cached.length > 0);
-  }, [cached.length]);
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   const rowsRef = useRef<ExternalAccountRow[]>(cached);
   const loadInFlightRef = useRef<Promise<void> | null>(null);
@@ -139,6 +133,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
     const seededRows = rowsRef.current.length > 0 ? rowsRef.current : readCache(cacheKey);
     const isColdStart = seededRows.length === 0;
 
+    if (isColdStart) setLoading(true);
     setError(null);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
@@ -188,7 +183,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
           };
           const ric = (window as any).requestIdleCallback;
           if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-          else setTimeout(warm, 220);
+          else setTimeout(warm, 120);
         }
         sessionStorage.setItem(prewarmKey, String(Date.now()));
       }
@@ -234,6 +229,8 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       ? 'ACH · Wire'
       : row.account_type === 'iban'
         ? 'SEPA'
+        : row.account_type === 'gb'
+          ? 'Faster Payments'
         : row.account_type === 'clabe'
           ? 'SPEI'
           : 'PIX';

@@ -9,7 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { friendlyError } from '../../utils/errors/friendlyError';
+import { friendlyErrorFor } from '../../utils/errors/friendlyError';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Bell, CheckCheck, Trash2, AlertCircle, Loader2, ChevronLeft,
@@ -19,7 +19,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
-import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 interface NotificationRow {
   id:           string;
@@ -52,12 +52,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
 }
 
 const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
-const NOTIFICATIONS_REFRESH_TS_PREFIX = 'borderpay_notifications_refresh_ts_v1:';
-const NOTIFICATIONS_REFRESH_THROTTLE_MS = 45_000;
+
 function currentNotificationCacheKey(): string | null {
   try {
     const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    return user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null;
+    return user?.id ? financialCacheKey(NOTIFICATIONS_CACHE_PREFIX, { userId: String(user.id) }) : null;
   } catch {
     return null;
   }
@@ -124,31 +123,38 @@ function relativeTime(iso: string): string {
 export function NotificationsScreen({ onBack, onUnreadCountChange }: NotificationsScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const snapshotReader = backendAPI.financial.getSnapshot;
-  void snapshotReader;
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const initialRows = useMemo(() => readCachedNotifications(), []);
   const refreshTsKey = useMemo(() => {
-    const uid = currentUserId();
-    return uid ? `${NOTIFICATIONS_REFRESH_TS_PREFIX}${uid}` : null;
+    const uid = currentUserId() || 'anon';
+    return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
+  }, []);
+  const prewarmTsKey = useMemo(() => {
+    const uid = currentUserId() || 'anon';
+    return financialCacheKey('borderpay_notifications_prewarm_ts_v1', { userId: uid });
   }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
-  const [loading, setLoading] = useState(false);
+  const rowsRef = useRef<NotificationRow[]>(initialRows);
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
+  const [loading, setLoading] = useState(initialRows.length === 0);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
-  const hasRowsRef = useRef(initialRows.length > 0);
-
-  useEffect(() => {
-    navPerfTrackCache('notifications', rows.length > 0);
-    hasRowsRef.current = rows.length > 0;
-  }, [rows.length]);
-
   const load = useCallback(async (force = false) => {
-    // Keep first paint instant; refresh in background.
-    if (rows.length === 0) setLoading(true);
+    if (loadInFlightRef.current) {
+      await loadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
+    // Keep first paint instant; refresh in background and throttle fast re-entry.
     setError(null);
     try {
+      const hasCachedRows = rowsRef.current.length > 0;
+      if (!hasCachedRows) setLoading(true);
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+        return;
+      }
       const uid = currentUserId();
       if (!uid) {
         setRows([]);
@@ -156,48 +162,63 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         onUnreadCountChange?.(0);
         return;
       }
-      if (!force && refreshTsKey && hasRowsRef.current) {
-        try {
-          const last = Number(localStorage.getItem(refreshTsKey) || '0');
-          if (Number.isFinite(last) && Date.now() - last < NOTIFICATIONS_REFRESH_THROTTLE_MS) {
-            return;
-          }
-        } catch { /* noop */ }
-      }
       const r: any = await withTimeout(
         backendAPI.notifications.getNotifications(50),
         NOTIFICATION_FETCH_TIMEOUT_MS,
         { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rowsRef.current : [] } } as any,
       );
-      const data = Array.isArray((r as any)?.data?.notifications)
-        ? (r as any).data.notifications
-        : (Array.isArray((r as any)?.data) ? (r as any).data : []);
-      setRows(data);
-      writeCachedNotifications(data);
-      onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
-      if (refreshTsKey) {
+      if (r?.success) {
+        const data = Array.isArray((r as any)?.data?.notifications)
+          ? (r as any).data.notifications
+          : (Array.isArray((r as any)?.data) ? (r as any).data : []);
+        setRows(data);
+        writeCachedNotifications(data);
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
+        onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
+      } else if (!hasCachedRows) {
+        setError(
+          friendlyErrorFor(
+            r?.error || 'notifications_unavailable',
+            'notifications',
+            "Notifications couldn't be loaded right now."
+          ),
+        );
       }
     } catch (e: any) {
-      setError(friendlyError(e, 'Could not load notifications'));
+      setError(friendlyErrorFor(e, 'notifications', "Notifications couldn't be loaded right now."));
     } finally {
       setLoading(false);
+    }
+    })();
+    loadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadInFlightRef.current === run) {
+        loadInFlightRef.current = null;
+      }
     }
   }, [onUnreadCountChange, refreshTsKey]);
 
   useEffect(() => {
-    load(true);
-    const prefetch = (window as any).__borderpay_prefetch;
-    if (typeof prefetch === 'function') {
-      const warm = () => {
-        ['transactions', 'settings', 'profile', 'dashboard'].forEach((s) => {
-          try { prefetch(s); } catch { /* noop */ }
-        });
-      };
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(warm, { timeout: 900 });
-      else setTimeout(warm, 180);
-    }
+    load();
+    try {
+      const last = Number(localStorage.getItem(prewarmTsKey) || '0');
+      if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
+        const prefetch = (window as any).__borderpay_prefetch;
+        if (typeof prefetch === 'function') {
+          const warm = () => {
+            ['transactions', 'settings', 'profile', 'dashboard'].forEach((s) => {
+              try { prefetch(s); } catch { /* noop */ }
+            });
+          };
+          const ric = (window as any).requestIdleCallback;
+          if (typeof ric === 'function') ric(warm, { timeout: 900 });
+          else setTimeout(warm, 120);
+        }
+        localStorage.setItem(prewarmTsKey, String(Date.now()));
+      }
+    } catch { /* noop */ }
     const onFocus = () => { void load(); };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void load();
@@ -208,7 +229,8 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [load]);
+  }, [load, prewarmTsKey]);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
 
   const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
 
@@ -281,7 +303,16 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         {error && (
           <div className="mb-4 rounded-2xl bg-red-500/10 border border-red-500/30 px-4 py-3 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-            <p className={`text-xs ${tc.text}`}>{error}</p>
+            <div className="min-w-0 flex-1">
+              <p className={`text-xs ${tc.text}`}>{error}</p>
+              <button
+                type="button"
+                onClick={() => load(true)}
+                className="mt-2 text-[11px] font-semibold text-[#C7FF00]"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         )}
 
