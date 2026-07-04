@@ -42,10 +42,7 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 type TransferMethod = 'us_ach_wire' | 'stablecoin';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
-const CRYPTO_ROUTE_MIN_GROSS_USD: Record<'base' | 'tron', number> = {
-  base: 2.0,
-  tron: 4.0,
-};
+const UI_CRYPTO_MIN_GROSS_USD = 5.0;
 
 function normalizeCryptoRoute(network?: string, token?: string): CryptoWithdrawalValues {
   const n = String(network || '').toLowerCase();
@@ -62,8 +59,7 @@ function cryptoRouteLabel(values: CryptoWithdrawalValues): string {
 }
 
 function cryptoMinimumMessage(values: CryptoWithdrawalValues): string {
-  const min = CRYPTO_ROUTE_MIN_GROSS_USD[values.network];
-  return `Minimum gross amount for ${cryptoRouteLabel(values)} is $${min.toFixed(2)}.`;
+  return `Minimum gross payout in app is $${UI_CRYPTO_MIN_GROSS_USD.toFixed(2)} (${cryptoRouteLabel(values)}).`;
 }
 
 function mapCryptoTransferError(code: string | undefined, fallback: string | undefined, crypto: CryptoWithdrawalValues): string {
@@ -581,8 +577,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (method !== 'stablecoin') return null;
     const num = parseFloat(amount);
     if (!Number.isFinite(num) || num <= 0) return null;
-    const min = CRYPTO_ROUTE_MIN_GROSS_USD[crypto.network];
-    if (num < min) return cryptoMinimumMessage(crypto);
+    if (num < UI_CRYPTO_MIN_GROSS_USD) return cryptoMinimumMessage(crypto);
     return null;
   }, [amount, method, crypto]);
 
