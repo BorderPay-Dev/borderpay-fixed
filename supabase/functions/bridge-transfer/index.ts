@@ -68,6 +68,11 @@ import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import {
+  BRIDGE_PAYOUT_DEVELOPER_FEE_USD,
+  isCryptoToCryptoTransfer,
+  validateBridgePayout,
+} from "../_shared/bridge-payout-validator.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -270,14 +275,38 @@ Deno.serve(async (req) => {
     }
   }
 
-  // BorderPay developer fee is enforced SERVER-SIDE and is NOT taken from the
-  // request body — a client could otherwise omit or lower it. Bridge deducts
-  // this percentage out of the transfer (its native developer_fee_percent):
-  //   • stablecoin rail (USDT/USDC/…) → 0.99% (fixed)
-  //   • fiat rail (ach/wire/sepa)     → 2.5%
-  // The canonical schedule lives in _shared/fees/schedule.ts.
-  const sourceRail    = body.source.payment_rail || "stablecoin";
-  const devFeePercent = bridgeDeveloperFeePercent(sourceRail, body.source.currency);
+  // Crypto payout guard (BridgePayoutValidator):
+  //   - only USDC/base and USDT/tron are allowed
+  //   - flat developer fee = 1.00 (string, 2dp)
+  //   - minimum check is post-fee (dust prevention)
+  // Non-crypto rails keep their existing behavior.
+  const isCryptoPayout = isCryptoToCryptoTransfer(body);
+  let enforcedCryptoPayout:
+    | {
+        source_payment_rail: "stablecoin";
+        destination_payment_rail: "stablecoin";
+        chain: "BASE" | "TRON";
+        currency: "USDC" | "USDT";
+        gross_amount: string;
+        developer_fee: string;
+        net_destination_amount: string;
+        gross_minimum: string;
+        net_minimum: string;
+      }
+    | null = null;
+
+  if (isCryptoPayout) {
+    const validation = validateBridgePayout(body);
+    if (!validation.ok) return json(validation.body, validation.status);
+    enforcedCryptoPayout = validation.enforced;
+  }
+
+  const sourceRail = body.source.payment_rail || "stablecoin";
+  const legacyDevFeePercent = bridgeDeveloperFeePercent(sourceRail, body.source.currency);
+  const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
+  const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
+  const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
+  const transferChain = enforcedCryptoPayout?.chain ?? body.source.chain ?? body.destination.chain;
 
   try {
     fxLog("bridge_request_sent", {
@@ -285,23 +314,37 @@ Deno.serve(async (req) => {
       idempotency_key: idem,
       source_payment_rail: sourceRail,
       destination_payment_rail: body?.destination?.payment_rail ?? null,
-      amount: amount.raw,
-      currency: body.source.currency,
+      amount: transferAmount,
+      currency: transferSourceCurrency,
+      ...(enforcedCryptoPayout
+        ? {
+            payout_policy: "bridge_payout_validator_v1",
+            developer_fee: enforcedCryptoPayout.developer_fee,
+            net_destination_amount: enforcedCryptoPayout.net_destination_amount,
+          }
+        : {}),
     });
     const result = await bridgeProvider.createTransfer({
       on_behalf_of: profile.bridge_customer_id,
       source: {
         customer_id:  profile.bridge_customer_id,
         payment_rail: sourceRail,
-        currency:     body.source.currency,
-        chain:        body.source.chain,
+        currency:     transferSourceCurrency,
+        chain:        transferChain,
         from_address: body.source.from_address,
         bridge_wallet_id: body.source.bridge_wallet_id,
         external_account_id: body.source.external_account_id,
-        amount:       amount.raw,
+        amount:       transferAmount,
       },
-      destination:     body.destination,
-      developer_fee:   { percentage: devFeePercent },
+      destination: {
+        ...body.destination,
+        payment_rail: enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail,
+        currency: transferDestinationCurrency,
+        ...(transferChain ? { chain: transferChain } : {}),
+      },
+      developer_fee: isCryptoPayout
+        ? { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD }
+        : { percentage: legacyDevFeePercent },
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.
@@ -323,13 +366,16 @@ Deno.serve(async (req) => {
     const { error: upsertErr } = await supa.rpc("upsert_bridge_transaction", {
       p_user_id:            user.id,
       p_bridge_transfer_id: result.transfer_id,
-      p_amount:             amount.raw,
-      p_currency:           body.source.currency,
+      p_amount:             transferAmount,
+      p_currency:           transferSourceCurrency,
       p_status:             mapped.transactionStatus,
       p_metadata:           {
         idempotency_key: idem,
         transaction_type: "fx_conversion",
         flow: "stablecoin_sandwich",
+        payout_validator: enforcedCryptoPayout ? "bridge_payout_validator_v1" : null,
+        developer_fee: enforcedCryptoPayout?.developer_fee ?? null,
+        net_destination_amount: enforcedCryptoPayout?.net_destination_amount ?? null,
         provider_state:  mapped.providerState,
         provider_state_recognized: mapped.recognized,
         raw: result.raw,
