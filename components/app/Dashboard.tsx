@@ -615,7 +615,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           planKey={planKey ?? null}
           accountType="individual"
           userId={userId}
-          onManagePlans={() => handleNavigate('pricing')}
+          onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
           onUpgrade={onUpgrade}
           hasVirtualAccounts={hasVirtualAccounts}
         />

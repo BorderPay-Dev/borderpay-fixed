@@ -671,7 +671,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             accountType="business"
             userId={userId}
             hasVirtualAccounts={hasVirtualAccounts}
-            onManagePlans={() => onNavigate('pricing')}
+            onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
             onUpgrade={onUpgrade}
           />
         </section>

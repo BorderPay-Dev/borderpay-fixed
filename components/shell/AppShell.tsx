@@ -40,7 +40,6 @@ export type AppRoute =
   | 'send'
   | 'receive'
   | 'account'
-  | 'pricing'
   | 'cards'
   | 'wallet'
   | 'transactions'
@@ -93,7 +92,6 @@ const PREFETCH_BY_ROUTE: Record<AppRoute, string> = {
   send:          'send-money',
   receive:       'receive-money',
   account:       'profile',
-  pricing:       'pricing',
   cards:         'cards',
   wallet:        'wallet-detail',
   transactions:  'transactions',

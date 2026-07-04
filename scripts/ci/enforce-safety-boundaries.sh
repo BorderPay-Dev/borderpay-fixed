@@ -167,4 +167,32 @@ if [ -f "$ROOT/scripts/ci/verify_no_legacy_stablecoins.py" ]; then
     || fail "Legacy stablecoin runtime guard failed."
 fi
 
+# 9) Pricing route/runtime guard:
+#    PricingScreen and /pricing route are retired. Any reintroduction must fail CI.
+if [ -f "$ROOT/components/pricing/PricingScreen.tsx" ]; then
+  fail "Retired PricingScreen.tsx reintroduced."
+fi
+
+if [ "$HAS_RG" = true ]; then
+  PRICING_ROUTE_HITS="$(rg -n -S "\\bpricing\\b" \
+    "$ROOT/components/app/MainApp.tsx" \
+    "$ROOT/components/shell/AppShell.tsx" \
+    "$ROOT/components/app/Dashboard.tsx" \
+    "$ROOT/components/business/BusinessDashboard.tsx" \
+    "$ROOT/components/team/TeamScreen.tsx" \
+    "$ROOT/components/dashboard/PlanStatusCard.tsx" || true)"
+else
+  PRICING_ROUTE_HITS="$(grep -nE "\\bpricing\\b" \
+    "$ROOT/components/app/MainApp.tsx" \
+    "$ROOT/components/shell/AppShell.tsx" \
+    "$ROOT/components/app/Dashboard.tsx" \
+    "$ROOT/components/business/BusinessDashboard.tsx" \
+    "$ROOT/components/team/TeamScreen.tsx" \
+    "$ROOT/components/dashboard/PlanStatusCard.tsx" || true)"
+fi
+if [ -n "$PRICING_ROUTE_HITS" ]; then
+  echo "$PRICING_ROUTE_HITS" >&2
+  fail "Retired pricing route/runtime references detected."
+fi
+
 echo "[safety-boundary] OK"

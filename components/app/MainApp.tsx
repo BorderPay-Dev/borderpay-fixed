@@ -113,7 +113,6 @@ const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m =>
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
-const PricingScreen       = lazyImport(() => import('../pricing/PricingScreen').then(m => ({ default: m.PricingScreen })));
 const eagerPreload = () => Promise.resolve();
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
@@ -140,7 +139,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   preferences: eagerPreload,
   'help-center': eagerPreload,
   support: eagerPreload,
-  pricing:       (PricingScreen as any).preload,
   team:          eagerPreload,
   notifications: eagerPreload,
   'external-accounts':   eagerPreload,
@@ -193,7 +191,6 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
     case 'biometric-setup':
     case 'help-center':
     case 'support':
-    case 'pricing':
     case 'team':
     case 'notifications':
     case 'external-accounts':
@@ -364,7 +361,6 @@ export type AppScreen =
   | 'biometric-setup'
   | 'help-center'
   | 'support'
-  | 'pricing'
   | 'team'
   | 'notifications'
   | 'external-accounts'
@@ -381,7 +377,7 @@ export type AppScreen =
 
 const TOP_LEVEL_SCREENS: ReadonlySet<AppScreen> = new Set([
   'dashboard', 'home', 'wallet-detail', 'transactions',
-  'cards', 'profile', 'settings', 'kyc', 'pricing', 'team', 'notifications',
+  'cards', 'profile', 'settings', 'kyc', 'team', 'notifications',
 ]);
 
 const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
@@ -389,7 +385,6 @@ const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
   send:          'send-money',
   receive:       'receive-money',
   account:       'profile',
-  pricing:       'pricing',
   cards:         'cards',
   wallet:        'wallet-detail',
   transactions:  'transactions',
@@ -409,7 +404,6 @@ function screenToShellRoute(s: AppScreen): AppRoute {
     case 'wallet-detail':  return 'wallet';
     case 'transactions':   return 'transactions';
     case 'cards':          return 'cards';
-    case 'pricing':        return 'pricing';
     case 'kyc':            return 'kyc';
     case 'settings':       return 'settings';
     case 'team':           return 'team';
@@ -1054,23 +1048,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'support':
         return <SupportScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
-      case 'pricing':
-        return (
-          <PricingScreen
-            insideApp
-            accountType={accountType}
-            currentPlanKey={currentPlanKey}
-            onBack={navigateBack}
-            onUpgrade={(planKey: PlanKey) => (window as any).__borderpay_open_fund_wallet?.()}
-          />
-        );
-
       case 'team':
         return (
           <TeamScreen
             accountType={isBusinessAccount ? 'business' : 'individual'}
             onBack={navigateBack}
-            onManagePlans={() => navigateTo('pricing')}
+            onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
           />
         );
 

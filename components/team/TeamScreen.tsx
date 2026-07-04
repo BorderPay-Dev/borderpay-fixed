@@ -32,7 +32,7 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 export interface TeamScreenProps {
   onBack: () => void;
-  /** Open /pricing — for upgrade CTAs when seat cap is reached. */
+  /** Opens activation flow — for upgrade CTAs when seat cap is reached. */
   onManagePlans: () => void;
   /** Account type — passed by MainApp; individuals get the placeholder. */
   accountType: 'individual' | 'business';
@@ -228,7 +228,7 @@ function BusinessTeamPanel({
         const prefetch = (window as any).__borderpay_prefetch;
         if (typeof prefetch === 'function') {
           const warm = () => {
-            ['settings', 'profile', 'pricing', 'notifications'].forEach((s) => {
+            ['settings', 'profile', 'notifications'].forEach((s) => {
               try { prefetch(s); } catch { /* noop */ }
             });
           };

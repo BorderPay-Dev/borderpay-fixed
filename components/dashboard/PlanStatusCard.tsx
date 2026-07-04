@@ -24,7 +24,7 @@ export interface PlanStatusCardProps {
   accountType:    AccountType;
   /** Kept for API compatibility; no longer used (no "manage" on a one-time fee). */
   userId:         string;
-  /** Opens /pricing (PricingScreen) inside the app shell — fallback CTA target. */
+  /** Opens activation/upgrade flow — fallback CTA target. */
   onManagePlans:  () => void;
   /** Opens the activation flow (UpgradeModal) for the appropriate tier. */
   onUpgrade?:     () => void;
