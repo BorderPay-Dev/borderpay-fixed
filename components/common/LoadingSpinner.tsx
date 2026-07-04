@@ -7,7 +7,7 @@ import React from 'react';
 
 interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
-  color?: 'blue' | 'white' | 'gray';
+  color?: 'accent' | 'blue' | 'white' | 'gray';
   text?: string;
   fullScreen?: boolean;
   className?: string;
@@ -15,7 +15,7 @@ interface LoadingSpinnerProps {
 
 export function LoadingSpinner({
   size = 'md',
-  color = 'blue',
+  color = 'accent',
   text,
   fullScreen = false,
   className = '',
@@ -28,6 +28,7 @@ export function LoadingSpinner({
   };
 
   const colorClasses = {
+    accent: 'border-[#C7FF00] border-t-transparent',
     blue: 'border-blue-600 border-t-transparent',
     white: 'border-white border-t-transparent',
     gray: 'border-gray-300 border-t-transparent',
@@ -54,4 +55,3 @@ export function LoadingSpinner({
 
   return spinner;
 }
-

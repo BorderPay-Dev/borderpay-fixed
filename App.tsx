@@ -17,7 +17,6 @@ import { backendAPI } from './utils/api/backendAPI';
 import { readUserProfile } from './utils/supabase/client';
 import { useAuth } from './utils/auth/useAuth';
 import { ThemeLanguageProvider } from './utils/i18n/ThemeLanguageContext';
-import { AppProvider } from './utils/app/AppContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useInactivityTimer } from './utils/auth/useInactivityTimer';
 import { PINManager } from './utils/security/SecurityManager';
@@ -228,6 +227,7 @@ function AppContent() {
     if (!isVerifyRoute && (rawHash.includes('access_token=') || rawHash.includes('type=recovery') || isPasswordRecovery())) {
       setPendingResetPassword(true);
     }
+
     if (window.location.pathname === '/auth/pin-reset' && (queryParams.get('token') || hashParams.get('token'))) {
       setPendingResetPin(true);
     }
@@ -637,9 +637,13 @@ function AppContent() {
 
   // Show splash screen on first load (covers auth initialization too)
   // Keep splash visible until both auth check AND splash animation are complete
-  // Sev-1 hotfix: splash is temporarily disabled in production because boot
-  // must never be blocked by branded splash/session animation paths.
-  const showSplashScreen = false;
+  // P0: startup must always render branded splash while auth/route bootstrap is unresolved.
+  // `skipSplashOnce` should only skip the extra animation hop, never force the app
+  // into the generic loading fallback.
+  const showSplashScreen =
+    appState === 'loading' ||
+    effectiveAuthLoading ||
+    (!skipSplashOnce && showSplash);
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
@@ -796,7 +800,6 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeLanguageProvider>
-        <AppProvider>
         <AppContent />
         <Toaster
           position="top-center"
@@ -817,7 +820,6 @@ export default function App() {
           visibleToasts={3}
           offset={16}
         />
-        </AppProvider>
       </ThemeLanguageProvider>
     </ErrorBoundary>
   );

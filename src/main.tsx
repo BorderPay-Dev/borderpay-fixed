@@ -14,10 +14,11 @@ try {
   // noop
 }
 
-// Remove the initial HTML splash screen as soon as React starts rendering
+// Keep the initial HTML splash visible a bit longer to avoid blank/unstyled
+// startup frames on slower devices before React paints the branded splash.
 setTimeout(() => {
   document.body.classList.add('react-loaded');
-}, 0);
+}, 700);
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
