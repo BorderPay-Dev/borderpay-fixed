@@ -131,7 +131,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       if (r?.success && r.data?.wallet) {
         const next = [r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)];
         setWallets(next);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         setAdding(false); setLabel(''); setAddress('');
         toast.success('Wallet saved.');
       } else {
@@ -148,7 +148,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       if (r?.success) {
         const next = wallets.filter(w => w.id !== id);
         setWallets(next);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+        try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       } else { toast.error(friendlyError(r?.error, 'Could not remove that wallet.')); }
     } catch (e) { toast.error(friendlyError(e, 'Could not remove that wallet.')); }
     finally { setRemoving(null); }
