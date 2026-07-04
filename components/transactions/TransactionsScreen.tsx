@@ -121,7 +121,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
           };
           const ric = (window as any).requestIdleCallback;
           if (typeof ric === 'function') ric(warm, { timeout: 900 });
-          else setTimeout(warm, 180);
+          else setTimeout(warm, 120);
         }
         sessionStorage.setItem(prewarmKey, String(Date.now()));
       }

@@ -434,7 +434,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       };
       const ric = (window as any).requestIdleCallback;
       if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 220);
+      else setTimeout(warm, 120);
       sessionStorage.setItem(prewarmKey, String(Date.now()));
     } catch { /* noop */ }
   }, [userId]);

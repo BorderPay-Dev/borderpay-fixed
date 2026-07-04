@@ -258,7 +258,7 @@ export function AppShell({
         try { (window as any).cancelIdleCallback?.(id); } catch { /* noop */ }
       };
     }
-    const t = window.setTimeout(warm, 180);
+    const t = window.setTimeout(warm, 120);
     try { sessionStorage.setItem(prewarmKey, String(Date.now())); } catch { /* noop */ }
     return () => { window.clearTimeout(t); };
   }, [drawerOpen, isBusinessAccount, onOpenPayoutAccounts, onOpenWithdrawalWallets, prefetchRoute, prefetchScreen]);
