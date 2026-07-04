@@ -12,6 +12,7 @@ import { Shield, Copy, CheckCircle, Smartphone, Lock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { TOTPManager } from '../../utils/security/SecurityManager';
+import { backendAPI } from '../../utils/api/backendAPI';
 import {
   InputOTP,
   InputOTPGroup,
@@ -26,15 +27,49 @@ interface TwoFactorSetupProps {
 }
 
 export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupProps) {
+  const locallyEnabled = TOTPManager.isEnabled(userId);
   const [step, setStep] = useState<'qr' | 'verify' | 'success'>('qr');
   const [qrCodeUri, setQrCodeUri] = useState('');
   const [secret, setSecret] = useState('');
   const [copied, setCopied] = useState(false);
   const [token, setToken] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(!locallyEnabled);
+  const [alreadyEnabled, setAlreadyEnabled] = useState(locallyEnabled);
+  const [disablePassword, setDisablePassword] = useState('');
+  const [disabling, setDisabling] = useState(false);
 
   useEffect(() => {
-    generateSetup();
+    let cancelled = false;
+    (async () => {
+      try {
+        const localEnabled = TOTPManager.isEnabled(userId);
+
+        // Fast-path: when local signal already says 2FA is enabled, don't
+        // block UI on a backend round-trip.
+        if (localEnabled) {
+          if (cancelled) return;
+          setAlreadyEnabled(true);
+          setCheckingStatus(false);
+          return;
+        }
+
+        let backendEnabled = false;
+        try {
+          const sec: any = await backendAPI.auth.getSecurityStatus(userId);
+          backendEnabled = Boolean(sec?.success && sec?.data?.two_factor_enabled);
+        } catch {
+          // best effort
+        }
+        if (cancelled) return;
+        const enabled = localEnabled || backendEnabled;
+        setAlreadyEnabled(enabled);
+        if (!enabled) await generateSetup();
+      } finally {
+        if (!cancelled) setCheckingStatus(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const generateSetup = async () => {
@@ -89,10 +124,33 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
     }
   };
 
+  const handleDisable2FA = async () => {
+    if (!disablePassword.trim()) {
+      toast.error('Enter your password to disable 2FA');
+      return;
+    }
+    setDisabling(true);
+    try {
+      const r = await TOTPManager.disable(userId, disablePassword.trim());
+      if (!r.success) {
+        toast.error(friendlyError(r.error, 'Could not disable 2FA'));
+        return;
+      }
+      setDisablePassword('');
+      setAlreadyEnabled(false);
+      await generateSetup();
+      toast.success('2FA disabled. You can set it up again.');
+    } catch (err: any) {
+      toast.error(friendlyError(err, 'Could not disable 2FA'));
+    } finally {
+      setDisabling(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0B0E11] text-white pb-safe">
       {/* Header */}
-      <FloatingBackButton onBack={onBack} />
+      {!alreadyEnabled && <FloatingBackButton onBack={onBack} />}
       <div className="sticky top-0 z-10 bg-[#0B0E11]/95 backdrop-blur-lg border-b border-white/5">
         <div className="flex items-center justify-between px-6 py-4 pt-safe">
           <div className="w-10" />
@@ -103,7 +161,50 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
 
       {/* Content */}
       <div className="px-6 py-8 max-w-md mx-auto">
-        {step === 'success' && (
+        {checkingStatus && (
+          <div className="text-center py-10">
+            <div className="mx-auto w-8 h-8 border-2 border-white/30 border-t-[#C7FF00] rounded-full animate-spin mb-4" />
+            <p className="bp-text-body text-gray-400">Checking 2FA status…</p>
+          </div>
+        )}
+
+        {!checkingStatus && alreadyEnabled && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center space-y-6"
+          >
+            <div className="flex justify-center mb-6">
+              <div className="w-20 h-20 rounded-full bg-[#C7FF00]/10 flex items-center justify-center">
+                <CheckCircle className="w-10 h-10 text-[#C7FF00]" strokeWidth={2} />
+              </div>
+            </div>
+            <h2 className="bp-text-h2">2FA is already enabled</h2>
+            <p className="bp-text-body text-gray-400">
+              This screen is locked because 2FA is active. Disable 2FA to unlock setup again.
+            </p>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-left space-y-3">
+              <label className="bp-text-small text-gray-400">Password</label>
+              <input
+                type="password"
+                value={disablePassword}
+                onChange={(e) => setDisablePassword(e.target.value)}
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                className="w-full px-4 py-3 rounded-xl bg-black/25 border border-white/10 text-white outline-none focus:border-[#C7FF00]/60"
+              />
+              <button
+                onClick={handleDisable2FA}
+                disabled={disabling || !disablePassword.trim()}
+                className="w-full bg-[#C7FF00] disabled:opacity-50 disabled:cursor-not-allowed text-black py-3 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
+              >
+                {disabling ? 'Disabling…' : 'Disable 2FA'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {!checkingStatus && !alreadyEnabled && step === 'success' && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -126,7 +227,7 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
           </motion.div>
         )}
 
-        {step === 'qr' && (
+        {!checkingStatus && !alreadyEnabled && step === 'qr' && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -216,7 +317,7 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
           </motion.div>
         )}
 
-        {step === 'verify' && (
+        {!checkingStatus && !alreadyEnabled && step === 'verify' && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
