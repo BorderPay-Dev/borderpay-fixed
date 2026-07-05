@@ -27,7 +27,7 @@ import { toast } from 'sonner';
 type State =
   | { kind: 'verifying' }
   | { kind: 'ok'; redirect: string }
-  | { kind: 'already_used'; redirect: string }
+  | { kind: 'already_used' }
   | { kind: 'expired' }
   | { kind: 'not_found' }
   | { kind: 'malformed' }
@@ -45,7 +45,7 @@ export function EmailVerificationLanding({ token, purpose, onNavigateToLogin }: 
   const [resending, setResending] = useState(false);
 
   useEffect(() => {
-    if (state.kind !== 'ok' && state.kind !== 'already_used') return;
+    if (state.kind !== 'ok') return;
     // Keep verify UX deterministic: successful token consumption should
     // always route the user back to sign-in quickly.
     const id = window.setTimeout(() => {
@@ -65,7 +65,7 @@ export function EmailVerificationLanding({ token, purpose, onNavigateToLogin }: 
         return;
       }
       const code = r?.code || r?.body?.code;
-      if (code === 'already_used')      setState({ kind: 'already_used', redirect: '/' });
+      if (code === 'already_used')      setState({ kind: 'already_used' });
       else if (code === 'expired')      setState({ kind: 'expired' });
       else if (code === 'not_found')    setState({ kind: 'not_found' });
       else if (code === 'malformed')    setState({ kind: 'malformed' });
@@ -110,18 +110,16 @@ export function EmailVerificationLanding({ token, purpose, onNavigateToLogin }: 
           </>
         )}
 
-        {(state.kind === 'ok' || state.kind === 'already_used') && (
+        {state.kind === 'ok' && (
           <>
             <div className="w-16 h-16 mx-auto rounded-2xl bg-[#C7FF00]/10 flex items-center justify-center mb-5">
               <CheckCircle2 className="w-8 h-8 text-[#C7FF00]" />
             </div>
             <h1 className="text-xl font-bold text-white mb-2">
-              {state.kind === 'already_used' ? 'Already verified' : 'Email verified'}
+              Email verified
             </h1>
             <p className="text-sm text-white/60 mb-6">
-              {state.kind === 'already_used'
-                ? 'This link has already been used. You can sign in normally.'
-                : 'Your email is now confirmed. Sign in to continue.'}
+              Your email is now confirmed. Sign in to continue.
             </p>
             <button
               onClick={onNavigateToLogin}
@@ -133,19 +131,22 @@ export function EmailVerificationLanding({ token, purpose, onNavigateToLogin }: 
           </>
         )}
 
-        {(state.kind === 'expired' || state.kind === 'not_found' || state.kind === 'malformed' || state.kind === 'error') && (
+        {(state.kind === 'already_used' || state.kind === 'expired' || state.kind === 'not_found' || state.kind === 'malformed' || state.kind === 'error') && (
           <>
             <div className="w-16 h-16 mx-auto rounded-2xl bg-[#FF5A5A]/10 flex items-center justify-center mb-5">
               <AlertTriangle className="w-7 h-7 text-[#FF5A5A]" />
             </div>
             <h1 className="text-xl font-bold text-white mb-2">
-              {state.kind === 'expired'   ? 'Link expired'
+              {state.kind === 'already_used' ? 'Link already used'
+              : state.kind === 'expired'   ? 'Link expired'
               : state.kind === 'not_found' ? 'Invalid link'
               : state.kind === 'malformed' ? 'Bad link'
               :                              'Verification failed'}
             </h1>
             <p className="text-sm text-white/60 mb-5">
-              {state.kind === 'expired'
+              {state.kind === 'already_used'
+                ? 'This verification link was already used. Sign in with your email and password.'
+                : state.kind === 'expired'
                 ? 'For security, verification links are valid for 24 hours. Request a fresh one below.'
                 : state.kind === 'not_found' || state.kind === 'malformed'
                 ? 'This link doesn\'t look valid. Request a fresh one below.'

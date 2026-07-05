@@ -175,7 +175,10 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
     // same profile request on every quick nav open/close.
     try {
       const last = Number(localStorage.getItem(profileRefreshTsKey) || '0');
-      if (Number.isFinite(last) && Date.now() - last < 60_000) {
+      // Never skip refresh when the local cache still says email is unconfirmed.
+      // This prevents a fresh verification click from being masked by the
+      // 60-second route cache window.
+      if (Number.isFinite(last) && Date.now() - last < 60_000 && profile.email_confirmed) {
         return;
       }
     } catch { /* noop */ }
