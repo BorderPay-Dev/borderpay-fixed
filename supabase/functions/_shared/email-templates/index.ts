@@ -18,6 +18,7 @@ import { render as individualTransactionNotification }from "./individual/transac
 import { render as individualKycDecision }            from "./individual/kyc-decision.ts";
 import { render as individualAccountReady }           from "./individual/account-ready.ts";
 import { render as individualVerificationAuthorized }  from "./individual/verification-authorized.ts";
+import { render as individualVerificationReminder }    from "./individual/verification-reminder.ts";
 import { render as individualPaymentReceived }         from "./individual/payment-received.ts";
 import { render as individualFounderWelcome }          from "./individual/founder-welcome.ts";
 import { render as individualFirstTransactionReminder }from "./individual/first-transaction-reminder.ts";
@@ -45,6 +46,7 @@ export type TemplateName =
   | "individual.kyc_decision"
   | "individual.account_ready"
   | "individual.verification_authorized"
+  | "individual.verification_reminder"
   | "individual.payment_received"
   | "individual.founder_welcome"
   | "individual.first_transaction_reminder"
@@ -73,6 +75,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.kyc_decision":            individualKycDecision,
   "individual.account_ready":           individualAccountReady,
   "individual.verification_authorized": individualVerificationAuthorized,
+  "individual.verification_reminder":   individualVerificationReminder,
   "individual.payment_received":        individualPaymentReceived,
   "individual.founder_welcome":         individualFounderWelcome,
   "individual.first_transaction_reminder": individualFirstTransactionReminder,

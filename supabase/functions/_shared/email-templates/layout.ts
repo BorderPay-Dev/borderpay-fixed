@@ -85,9 +85,9 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
         <tr><td style="height:4px;background:${accentBar};line-height:4px;font-size:4px;">&nbsp;</td></tr>
         <tr>
           <td align="center" bgcolor="${b.bg}" style="background-color:${b.bg};padding:40px 28px 20px;">
-            <!-- Hero logo (keeps the 44:60 aspect ratio). -->
-            <img src="${b.logoUrl}" alt="BorderPay Africa" width="104" height="142" style="display:block;border:0;outline:none;text-decoration:none;width:104px;height:142px;max-width:104px;" />
-            <p class="bp-text" style="margin:18px 0 0;font-size:13px;font-weight:800;color:${b.text};letter-spacing:1.2px;text-transform:uppercase;">BorderPay Africa</p>
+            <!-- Hero logo (scaled down to avoid crowding on mobile clients). -->
+            <img src="${b.logoUrl}" alt="BorderPay Africa" width="80" height="109" style="display:block;border:0;outline:none;text-decoration:none;width:80px;height:109px;max-width:80px;" />
+            <p class="bp-text" style="margin:14px 0 0;font-size:13px;font-weight:800;color:${b.text};letter-spacing:1.2px;text-transform:uppercase;">BorderPay Africa</p>
           </td>
         </tr>
         <tr>

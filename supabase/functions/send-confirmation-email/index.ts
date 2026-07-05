@@ -111,7 +111,7 @@ serve(async (req) => {
           <!-- Logo -->
           <tr>
             <td align="center" style="padding:36px 32px 24px;">
-              <img src="${BRAND_LOGO_URL}" alt="BorderPay Africa" width="104" height="142" style="display:block;border:0;outline:none;text-decoration:none;width:104px;height:142px;max-width:104px;" />
+              <img src="${BRAND_LOGO_URL}" alt="BorderPay Africa" width="80" height="109" style="display:block;border:0;outline:none;text-decoration:none;width:80px;height:109px;max-width:80px;" />
               <p style="margin:12px 0 0;font-size:20px;font-weight:800;color:#FFFFFF;letter-spacing:-0.3px;">BorderPay</p>
             </td>
           </tr>
