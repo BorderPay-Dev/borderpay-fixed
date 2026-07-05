@@ -30,7 +30,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import {
   Menu, X, Home, ArrowUpRight, ArrowDownLeft, User as UserIcon,
-  Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2,
+  Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2, ArrowLeft,
   Settings, FileText, ShieldCheck, LogOut, Banknote, Lock, Users,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -75,6 +75,9 @@ export interface AppShellProps {
   /** When provided, a "Withdrawal wallets" drawer item is shown (saved external
    *  stablecoin addresses you can withdraw to directly). */
   onOpenWithdrawalWallets?: () => void;
+  /** Verification focus mode: hides app chrome except profile + return control. */
+  verificationFocus?: boolean;
+  onVerificationReturn?: () => void;
   children:           React.ReactNode;
 }
 
@@ -106,6 +109,8 @@ export function AppShell({
   unreadCount = 0, subscription, isBusinessAccount, onSignOut, onLock,
   onOpenPayoutAccounts,
   onOpenWithdrawalWallets,
+  verificationFocus = false,
+  onVerificationReturn,
   children,
 }: AppShellProps) {
   const { t } = useThemeLanguage();
@@ -182,6 +187,13 @@ export function AppShell({
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, [drawerOpen]);
+
+  useEffect(() => {
+    if (verificationFocus) {
+      setDrawerOpen(false);
+      setHeaderHidden(false);
+    }
+  }, [verificationFocus]);
 
   useEffect(() => {
     setHeaderHidden(false);
@@ -315,11 +327,13 @@ export function AppShell({
         className="relative z-0"
         style={{
           paddingTop:    `calc(env(safe-area-inset-top, 0px) + ${HEADER_BAR_PX + HEADER_TOP_GAP_PX + 16}px)`,
-          paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${FOOTER_HEIGHT_PX + 16}px)`,
+          paddingBottom: verificationFocus
+            ? `calc(env(safe-area-inset-bottom, 0px) + 16px)`
+            : `calc(env(safe-area-inset-bottom, 0px) + ${FOOTER_HEIGHT_PX + 16}px)`,
         }}
       >
         {/* Desktop-only horizontal app nav (mobile remains unchanged). */}
-        <section className="hidden md:block px-6 pb-4">
+        <section className={`hidden md:block px-6 pb-4 ${verificationFocus ? 'opacity-0 pointer-events-none h-0 p-0 overflow-hidden' : ''}`}>
           <div className="max-w-screen-xl mx-auto">
             <div className={`rounded-2xl border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_12px_30px_rgba(0,0,0,0.22)] p-2`}>
               <div className="grid grid-cols-6 gap-1">
@@ -366,7 +380,7 @@ export function AppShell({
           // by a raw CSS transform (not framer-motion) for a direct, snappy
           // translate. headerHidden is also forced false on route change and
           // when the drawer opens (see effects above).
-          transform: headerHidden ? 'translateY(-100%)' : 'translateY(0)',
+          transform: verificationFocus ? 'translateY(0)' : (headerHidden ? 'translateY(-100%)' : 'translateY(0)'),
           transition: 'transform 0.2s ease',
         }}
         aria-label={tt('shell.header', 'App header')}
@@ -377,18 +391,29 @@ export function AppShell({
           className="max-w-screen-xl mx-auto flex items-center gap-2"
           style={{ height: HEADER_BAR_PX }}
         >
-          {/* Burger — own floating chip (left) */}
-          <button
-            type="button"
-            aria-label={tt('shell.menu.open', 'Open menu')}
-            onClick={() => setDrawerOpen(true)}
-            className={`pointer-events-auto shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
-          >
-            <Menu className={`w-5 h-5 ${tc.text}`} />
-          </button>
+          {/* Left control: burger normally, return in verification focus mode */}
+          {verificationFocus ? (
+            <button
+              type="button"
+              aria-label={tt('shell.verification.return', 'Return to verification')}
+              onClick={() => { onVerificationReturn?.(); }}
+              className={`pointer-events-auto shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
+            >
+              <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label={tt('shell.menu.open', 'Open menu')}
+              onClick={() => setDrawerOpen(true)}
+              className={`pointer-events-auto shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
+            >
+              <Menu className={`w-5 h-5 ${tc.text}`} />
+            </button>
+          )}
 
           {/* Plan badge — own floating chip, only when paid */}
-          {subscription?.is_paid && (
+          {!verificationFocus && subscription?.is_paid && (
             <span className="pointer-events-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-[#C7FF00] text-black text-[10px] font-bold tracking-wider uppercase shadow-[0_10px_30px_rgba(0,0,0,0.30)]">
               <Sparkles className="w-2.5 h-2.5" />
               {subscription.display_name}
@@ -398,22 +423,24 @@ export function AppShell({
           <div className="flex-1" />
 
           {/* Notifications — own floating chip (right) */}
-          <button
-            type="button"
-            aria-label={tt('shell.notifications', 'Notifications')}
-            onPointerDown={() => prefetchRoute('notifications')}
-            onMouseEnter={() => prefetchRoute('notifications')}
-            onTouchStart={() => prefetchRoute('notifications')}
-            onClick={() => { prefetchRoute('notifications'); go('notifications'); }}
-            className={`pointer-events-auto relative shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
-          >
-            <Bell className={`w-5 h-5 ${tc.text}`} />
-            {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-[#C7FF00] text-black text-[9px] font-bold">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
+          {!verificationFocus && (
+            <button
+              type="button"
+              aria-label={tt('shell.notifications', 'Notifications')}
+              onPointerDown={() => prefetchRoute('notifications')}
+              onMouseEnter={() => prefetchRoute('notifications')}
+              onTouchStart={() => prefetchRoute('notifications')}
+              onClick={() => { prefetchRoute('notifications'); go('notifications'); }}
+              className={`pointer-events-auto relative shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
+            >
+              <Bell className={`w-5 h-5 ${tc.text}`} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-[#C7FF00] text-black text-[9px] font-bold">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Profile — own floating chip (right) */}
           <button
@@ -441,7 +468,7 @@ export function AppShell({
       </header>
 
       {/* ── Floating primary tab bar ─────────────────────────────────────── */}
-      {(() => {
+      {verificationFocus ? null : (() => {
         const tabBar = (
           <nav
             className="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3 md:hidden"
@@ -473,7 +500,7 @@ export function AppShell({
 
       {/* ── Side drawer overlay ──────────────────────────────────────────── */}
       <AnimatePresence>
-        {drawerOpen && (
+        {drawerOpen && !verificationFocus && (
           <>
             <motion.div
               className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"

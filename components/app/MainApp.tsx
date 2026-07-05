@@ -444,6 +444,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [stablecoinConfirmData, setStablecoinConfirmData] = useState<StablecoinConfirmData | null>(null);
+  const [verificationEmbedOpen, setVerificationEmbedOpen] = useState(false);
 
   // Clear one-time module-reload fuse once the app boots successfully.
   useEffect(() => {
@@ -725,6 +726,15 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const raf = window.requestAnimationFrame(() => navPerfMarkFirstPaint(currentScreen));
     return () => window.cancelAnimationFrame(raf);
   }, [currentScreen]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ open?: boolean }>;
+      setVerificationEmbedOpen(Boolean(ce?.detail?.open));
+    };
+    window.addEventListener('borderpay:verification_embed_visibility', handler as EventListener);
+    return () => window.removeEventListener('borderpay:verification_embed_visibility', handler as EventListener);
+  }, []);
 
   // Hosted verification callback deep-link:
   // Bridge returns to `/?screen=kyc`. Honor that route directly so users
@@ -1153,6 +1163,13 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
+                verificationFocus={verificationEmbedOpen}
+                onVerificationReturn={() => {
+                  try {
+                    window.dispatchEvent(new CustomEvent('borderpay:verification_embed_return'));
+                  } catch { /* noop */ }
+                  navigateTo('kyc');
+                }}
               >
                 {renderScreen()}
               </AppShell>

@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, X, Maximize2, Minimize2 } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -149,18 +149,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   });
   const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(null);
   const [embeddedUrl, setEmbeddedUrl] = useState<string | null>(null);
-  const [embeddedKind, setEmbeddedKind] = useState<'tos' | 'verification' | null>(null);
   const [embeddedPolling, setEmbeddedPolling] = useState(false);
-  const [embedChromeHidden, setEmbedChromeHidden] = useState(false);
 
   const persistTosAccepted = useCallback((accepted: boolean) => {
     setTosAccepted(accepted);
     try { localStorage.setItem(tosAcceptedKey, accepted ? '1' : '0'); } catch { /* noop */ }
   }, [tosAcceptedKey]);
 
-  const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean; kind?: 'tos' | 'verification' }) => {
+  const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
-    const kind = opts?.kind ?? 'verification';
     if (cacheAsVerifyUrl) {
       setLastHostedUrl(url);
       try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
@@ -171,10 +168,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       sessionStorage.setItem('borderpay_post_callback_screen', 'kyc');
       localStorage.setItem('borderpay_post_callback_screen', 'kyc');
     } catch { /* noop */ }
-    setEmbeddedKind(kind);
     setEmbeddedUrl(url);
     setEmbeddedPolling(true);
-    setEmbedChromeHidden(false);
+    try { window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: true } })); } catch { /* noop */ }
   }, [userId]);
 
   // If the previous attempt required Bridge ToS, resume automatically on return
@@ -303,8 +299,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         if (!isCallback) return;
         setEmbeddedPolling(false);
         setEmbeddedUrl(null);
-        setEmbeddedKind(null);
-        setEmbedChromeHidden(false);
+        try { window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false } })); } catch { /* noop */ }
         await refresh();
         await probeVerificationState(true);
       } catch {
@@ -316,6 +311,16 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       window.clearInterval(poll);
     };
   }, [embeddedPolling, embeddedUrl, probeVerificationState, refresh]);
+
+  useEffect(() => {
+    const onReturn = () => {
+      setEmbeddedPolling(false);
+      setEmbeddedUrl(null);
+      try { window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false } })); } catch { /* noop */ }
+    };
+    window.addEventListener('borderpay:verification_embed_return', onReturn);
+    return () => window.removeEventListener('borderpay:verification_embed_return', onReturn);
+  }, []);
 
   const startVerification = async () => {
     try {
@@ -335,12 +340,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           setTosLinkUrl(r.data.tos_link_url);
           try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
           toast.info('Accept Terms of Service first.');
-          openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, kind: 'tos' });
+          openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
           return;
         }
         // ToS already accepted: do not send user back to ToS again.
         if (lastHostedUrl) {
-          openHostedVerificationUrl(lastHostedUrl, { kind: 'verification' });
+          openHostedVerificationUrl(lastHostedUrl);
           return;
         }
         toast.info('Verification is preparing. Tap Continue verification again.');
@@ -349,7 +354,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (r?.success && r.data?.link_url) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
-        openHostedVerificationUrl(r.data.link_url, { kind: 'verification' });
+        openHostedVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -372,7 +377,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     try {
       if (tosLinkUrl) {
         try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-        openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false, kind: 'tos' });
+        openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false });
         return;
       }
       const ctx = await resolveVerificationContext();
@@ -405,7 +410,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-      openHostedVerificationUrl(nextTosUrl, { cacheAsVerifyUrl: false, kind: 'tos' });
+      openHostedVerificationUrl(nextTosUrl, { cacheAsVerifyUrl: false });
     } catch (e) {
       toast.error(friendlyError(e, 'Unable to open Terms of Service right now.'));
     }
@@ -534,51 +539,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       </main>
 
       {embeddedUrl && (
-        <div className="fixed inset-0 z-[200] bg-[#0B0E11] flex flex-col h-[100dvh] w-full">
-          {!embedChromeHidden && (
-            <div
-              className={`border-b ${tc.cardBorder} ${tc.card} flex items-center justify-between px-4`}
-              style={{ minHeight: '56px', paddingTop: 'max(0px, env(safe-area-inset-top, 0px))' }}
-            >
-              <div className="min-w-0">
-                <p className={`text-sm font-semibold ${tc.text}`}>
-                  {embeddedKind === 'tos' ? 'Terms of Service' : 'Identity verification'}
-                </p>
-                <p className={`text-[11px] ${tc.textMuted}`}>Complete and return automatically</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setEmbedChromeHidden(true)}
-                  className={`w-9 h-9 rounded-full border ${tc.cardBorder} ${tc.hoverBg} flex items-center justify-center`}
-                  aria-label="Full screen verification"
-                >
-                  <Maximize2 className={`w-4 h-4 ${tc.text}`} />
-                </button>
-                <button
-                  onClick={() => {
-                    setEmbeddedPolling(false);
-                    setEmbeddedUrl(null);
-                    setEmbeddedKind(null);
-                    setEmbedChromeHidden(false);
-                  }}
-                  className={`w-9 h-9 rounded-full border ${tc.cardBorder} ${tc.hoverBg} flex items-center justify-center`}
-                  aria-label="Close verification"
-                >
-                  <X className={`w-4 h-4 ${tc.text}`} />
-                </button>
-              </div>
-            </div>
-          )}
-          {embedChromeHidden && (
-            <button
-              onClick={() => setEmbedChromeHidden(false)}
-              className={`absolute top-3 right-3 z-[210] w-10 h-10 rounded-full border ${tc.cardBorder} ${tc.card} ${tc.hoverBg} flex items-center justify-center`}
-              style={{ top: 'max(0.75rem, env(safe-area-inset-top, 0px))' }}
-              aria-label="Show verification header"
-            >
-              <Minimize2 className={`w-4 h-4 ${tc.text}`} />
-            </button>
-          )}
+        <div className="fixed inset-0 z-[20] bg-[#0B0E11] flex flex-col h-[100dvh] w-full">
           <iframe
             id="kyc-embed-frame"
             title="BorderPay Verification"
