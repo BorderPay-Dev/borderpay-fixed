@@ -105,6 +105,16 @@ Deno.serve(async (req: Request) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  if (!user.email_confirmed_at) {
+    return json({
+      success: false,
+      code: "email_verification_required",
+      error: "Verify your email first, then retry verification.",
+      summary: {
+        code: "email_verification_required",
+      },
+    }, 409);
+  }
 
   // Stepped verification gate (#4 + #5): require a PAID plan + admin
   // authorization before any billable Bridge call. The env pause remains the

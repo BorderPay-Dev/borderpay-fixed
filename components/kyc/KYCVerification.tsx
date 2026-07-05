@@ -187,12 +187,20 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     try {
       // Always resolve account type from fresh profile before routing to KYC/KYB.
       let currentAccountType: AccountType = accountType;
+      let emailConfirmed = true;
       try {
         const freshProfile = await backendAPI.user.getProfile();
         const fresh = freshProfile?.success ? freshProfile?.data?.user : null;
-        if (fresh) currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
+        if (fresh) {
+          currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
+          emailConfirmed = Boolean(fresh.email_confirmed);
+        }
       } catch {
         // keep cached account type as fallback
+      }
+      if (!emailConfirmed) {
+        toast.error('Verify your email first, then retry verification.');
+        return;
       }
       const redirect_url = `${window.location.origin}/?screen=kyc`;
       const r: any = currentAccountType === 'business'
@@ -214,8 +222,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
+      if (r?.code === 'email_verification_required') {
+        toast.error('Verify your email first, then retry verification.');
+        return;
+      }
       if (r?.code === 'funding_required' || r?.code === 'plan_required' || r?.code === 'payment_required') {
-        toast.error('Complete account activation funding first, then retry verification.');
+        toast.error('Unable to start verification right now. Please retry in a moment.');
         return;
       }
       if (r?.code === 'bridge_onboarding_paused') {
