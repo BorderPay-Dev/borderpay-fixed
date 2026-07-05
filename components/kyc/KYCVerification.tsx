@@ -182,6 +182,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     })();
     if (!shouldResume) return;
     try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
+    // User is returning from ToS acceptance flow; lock ToS as accepted so we
+    // never show the ToS CTA again for this user.
+    persistTosAccepted(true);
     const timer = window.setTimeout(async () => {
       if (cancelled) return;
       await probeVerificationState(true);
@@ -226,8 +229,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       }
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
-        persistTosAccepted(false);
-        setTosLinkUrl(r.data.tos_link_url);
+        // Once accepted, never regress UI back to ToS step.
+        if (!tosAccepted) {
+          persistTosAccepted(false);
+          setTosLinkUrl(r.data.tos_link_url);
+        }
         return;
       }
       if (r?.success && r.data?.link_url) {
@@ -243,7 +249,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     } catch {
       // silent probe: never block verification screen
     }
-  }, [persistTosAccepted, requestHostedLink, resolveVerificationContext, refresh]);
+  }, [persistTosAccepted, requestHostedLink, resolveVerificationContext, refresh, tosAccepted]);
 
   useEffect(() => {
     if (status === 'verified' || status === 'under_review' || status === 'rejected') return;
@@ -260,11 +266,20 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       }
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
-        persistTosAccepted(false);
-        setTosLinkUrl(r.data.tos_link_url);
-        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-        toast.info('Accept Terms of Service first.');
-        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
+        if (!tosAccepted) {
+          persistTosAccepted(false);
+          setTosLinkUrl(r.data.tos_link_url);
+          try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
+          toast.info('Accept Terms of Service first.');
+          openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
+          return;
+        }
+        // ToS already accepted: do not send user back to ToS again.
+        if (lastHostedUrl) {
+          openHostedVerificationUrl(lastHostedUrl);
+          return;
+        }
+        toast.info('Verification is preparing. Tap Continue verification again.');
         return;
       }
       if (r?.success && r.data?.link_url) {
