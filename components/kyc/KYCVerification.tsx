@@ -395,6 +395,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const startVerification = async () => {
     try {
+      // Clear any stale resume marker from older attempts so callback-to-kyc
+      // never relaunches hosted verification unexpectedly.
+      try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
       // Always request a fresh hosted link on CTA click to avoid consumed/stale
       // URLs that can render as blank white screens in iframe mode.
       const ctx = await resolveVerificationContext();
@@ -448,6 +451,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const continueFromEmbeddedTos = async () => {
     try {
+      // User is already explicitly continuing from the embedded ToS step.
+      // Do not keep the old "resume after tos" marker, otherwise callback
+      // can auto-launch verification again and create a loop.
+      try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
