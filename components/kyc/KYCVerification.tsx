@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, Loader2 } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -141,7 +141,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   // KYC/KYB is FREE now — the user can start verification right here. Opens the
   // secure hosted verification flow; Bridge returns them to /?screen=kyc.
-  const [verifying, setVerifying] = useState(false);
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
   const tosAcceptedKey = useMemo(() => `borderpay_tos_accepted_v1:${userId}`, [userId]);
@@ -277,8 +276,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [status, probeVerificationState]);
 
   const startVerification = async () => {
-    setVerifying(true);
     try {
+      if (tosAccepted && lastHostedUrl) {
+        openHostedVerificationUrl(lastHostedUrl);
+        return;
+      }
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
@@ -321,12 +323,16 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       toast.error(safe);
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
-    } finally { setVerifying(false); }
+    }
   };
 
   const acceptTerms = async () => {
-    setVerifying(true);
     try {
+      if (tosLinkUrl) {
+        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
+        openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false });
+        return;
+      }
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
@@ -360,8 +366,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       openHostedVerificationUrl(nextTosUrl, { cacheAsVerifyUrl: false });
     } catch (e) {
       toast.error(friendlyError(e, 'Unable to open Terms of Service right now.'));
-    } finally {
-      setVerifying(false);
     }
   };
 
@@ -444,26 +448,20 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           {(status === 'not_started' || status === 'pending') && !tosAccepted && (
             <button
               onClick={() => { void acceptTerms(); }}
-              disabled={verifying}
-              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
             >
-              {verifying
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <>Accept Terms of Service <ArrowRight className="w-4 h-4" /></>}
+              <>Accept Terms of Service <ArrowRight className="w-4 h-4" /></>
             </button>
           )}
           {(status === 'not_started' || status === 'pending') && tosAccepted && (
             <button
               onClick={() => { void startVerification(); }}
-              disabled={verifying}
-              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
             >
-              {verifying
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <>{status === 'pending'
-                    ? 'Continue verification'
-                    : (isBusiness ? 'Verify your business' : 'Verify your identity')}
-                   <ArrowRight className="w-4 h-4" /></>}
+              <>{status === 'pending'
+                  ? 'Continue verification'
+                  : (isBusiness ? 'Verify your business' : 'Verify your identity')}
+                 <ArrowRight className="w-4 h-4" /></>
             </button>
           )}
           {(status === 'pending' || status === 'under_review') && (
