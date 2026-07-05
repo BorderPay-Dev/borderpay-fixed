@@ -187,7 +187,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     persistTosAccepted(true);
     const timer = window.setTimeout(async () => {
       if (cancelled) return;
-      await probeVerificationState(true);
+      await autoResumeVerificationAfterTos();
     }, 200);
     return () => {
       cancelled = true;
@@ -219,6 +219,32 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
   }, []);
 
+  const autoResumeVerificationAfterTos = useCallback(async () => {
+    const ctx = await resolveVerificationContext();
+    if (!ctx.emailConfirmed) {
+      toast.error('Verify your email first, then retry verification.');
+      return;
+    }
+    persistTosAccepted(true);
+    setTosLinkUrl(null);
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const r: any = await requestHostedLink(ctx.accountType);
+      if (r?.success && r.data?.link_url) {
+        setLastHostedUrl(r.data.link_url);
+        openHostedVerificationUrl(r.data.link_url);
+        return;
+      }
+      if (r?.success && r.data?.already_approved) {
+        await refresh();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+
+    toast.error('Could not continue verification automatically. Tap Continue verification.');
+  }, [openHostedVerificationUrl, persistTosAccepted, refresh, requestHostedLink, resolveVerificationContext]);
+
   const probeVerificationState = useCallback(async (fromTosCallback = false) => {
     try {
       const ctx = await resolveVerificationContext();
@@ -240,7 +266,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
         setLastHostedUrl(r.data.link_url);
-        if (fromTosCallback) toast.success('Terms accepted. Continue verification.');
+        if (fromTosCallback) openHostedVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) {
