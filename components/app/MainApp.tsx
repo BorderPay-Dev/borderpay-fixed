@@ -444,7 +444,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [stablecoinConfirmData, setStablecoinConfirmData] = useState<StablecoinConfirmData | null>(null);
-  const [verificationEmbedOpen, setVerificationEmbedOpen] = useState(false);
+  const [verificationEmbedOpen, setVerificationEmbedOpen] = useState<boolean>(() => {
+    try { return sessionStorage.getItem('borderpay_verification_embed_open') === '1'; } catch { return false; }
+  });
+  const [verificationEmbedTitle, setVerificationEmbedTitle] = useState<string>(() => {
+    try { return sessionStorage.getItem('borderpay_verification_embed_title') || ''; } catch { return ''; }
+  });
 
   // Clear one-time module-reload fuse once the app boots successfully.
   useEffect(() => {
@@ -729,8 +734,20 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ open?: boolean }>;
-      setVerificationEmbedOpen(Boolean(ce?.detail?.open));
+      const ce = e as CustomEvent<{ open?: boolean; title?: string }>;
+      const open = Boolean(ce?.detail?.open);
+      const title = String(ce?.detail?.title || '');
+      setVerificationEmbedOpen(open);
+      setVerificationEmbedTitle(title);
+      try {
+        if (open) {
+          sessionStorage.setItem('borderpay_verification_embed_open', '1');
+          sessionStorage.setItem('borderpay_verification_embed_title', title);
+        } else {
+          sessionStorage.removeItem('borderpay_verification_embed_open');
+          sessionStorage.removeItem('borderpay_verification_embed_title');
+        }
+      } catch { /* noop */ }
     };
     window.addEventListener('borderpay:verification_embed_visibility', handler as EventListener);
     return () => window.removeEventListener('borderpay:verification_embed_visibility', handler as EventListener);
@@ -1164,6 +1181,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
                 verificationFocus={verificationEmbedOpen}
+                verificationFocusTitle={verificationEmbedTitle}
                 onVerificationReturn={() => {
                   try {
                     window.dispatchEvent(new CustomEvent('borderpay:verification_embed_return'));

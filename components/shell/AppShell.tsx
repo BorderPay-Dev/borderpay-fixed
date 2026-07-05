@@ -77,6 +77,7 @@ export interface AppShellProps {
   onOpenWithdrawalWallets?: () => void;
   /** Verification focus mode: hides app chrome except profile + return control. */
   verificationFocus?: boolean;
+  verificationFocusTitle?: string;
   onVerificationReturn?: () => void;
   children:           React.ReactNode;
 }
@@ -110,6 +111,7 @@ export function AppShell({
   onOpenPayoutAccounts,
   onOpenWithdrawalWallets,
   verificationFocus = false,
+  verificationFocusTitle,
   onVerificationReturn,
   children,
 }: AppShellProps) {
@@ -375,7 +377,9 @@ export function AppShell({
       <header
         className="fixed top-0 inset-x-0 z-30 pointer-events-none px-3 will-change-transform"
         style={{
-          paddingTop: `calc(env(safe-area-inset-top, 0px) + ${HEADER_TOP_GAP_PX}px)`,
+          paddingTop: verificationFocus
+            ? 'max(env(safe-area-inset-top, 0px), 8px)'
+            : `calc(env(safe-area-inset-top, 0px) + ${HEADER_TOP_GAP_PX}px)`,
           // Instagram-style: hide on scroll-down, reveal on scroll-up. Driven
           // by a raw CSS transform (not framer-motion) for a direct, snappy
           // translate. headerHidden is also forced false on route change and
@@ -410,6 +414,15 @@ export function AppShell({
             >
               <Menu className={`w-5 h-5 ${tc.text}`} />
             </button>
+          )}
+
+          {/* Verification title */}
+          {verificationFocus && (
+            <div className="min-w-0 px-1">
+              <p className={`text-sm font-semibold ${tc.text} truncate`}>
+                {verificationFocusTitle || tt('shell.verification.title', 'Continue verification')}
+              </p>
+            </div>
           )}
 
           {/* Plan badge — own floating chip, only when paid */}

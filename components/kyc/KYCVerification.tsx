@@ -149,6 +149,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   });
   const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(null);
   const [embeddedUrl, setEmbeddedUrl] = useState<string | null>(null);
+  const [embeddedTitle, setEmbeddedTitle] = useState<string>('');
   const [embeddedPolling, setEmbeddedPolling] = useState(false);
 
   const persistTosAccepted = useCallback((accepted: boolean) => {
@@ -156,8 +157,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     try { localStorage.setItem(tosAcceptedKey, accepted ? '1' : '0'); } catch { /* noop */ }
   }, [tosAcceptedKey]);
 
-  const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
+  const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean; title?: string }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
+    const title = String(opts?.title || 'Continue verification');
     if (cacheAsVerifyUrl) {
       setLastHostedUrl(url);
       try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
@@ -169,8 +171,13 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       localStorage.setItem('borderpay_post_callback_screen', 'kyc');
     } catch { /* noop */ }
     setEmbeddedUrl(url);
+    setEmbeddedTitle(title);
     setEmbeddedPolling(true);
-    try { window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: true } })); } catch { /* noop */ }
+    try {
+      sessionStorage.setItem('borderpay_verification_embed_open', '1');
+      sessionStorage.setItem('borderpay_verification_embed_title', title);
+      window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: true, title } }));
+    } catch { /* noop */ }
   }, [userId]);
 
   // If the previous attempt required Bridge ToS, resume automatically on return
@@ -299,7 +306,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         if (!isCallback) return;
         setEmbeddedPolling(false);
         setEmbeddedUrl(null);
-        try { window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false } })); } catch { /* noop */ }
+        try {
+          sessionStorage.removeItem('borderpay_verification_embed_open');
+          sessionStorage.removeItem('borderpay_verification_embed_title');
+          window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '' } }));
+        } catch { /* noop */ }
         await refresh();
         await probeVerificationState(true);
       } catch {
@@ -316,7 +327,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     const onReturn = () => {
       setEmbeddedPolling(false);
       setEmbeddedUrl(null);
-      try { window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false } })); } catch { /* noop */ }
+      try {
+        sessionStorage.removeItem('borderpay_verification_embed_open');
+        sessionStorage.removeItem('borderpay_verification_embed_title');
+        window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '' } }));
+      } catch { /* noop */ }
     };
     window.addEventListener('borderpay:verification_embed_return', onReturn);
     return () => window.removeEventListener('borderpay:verification_embed_return', onReturn);
@@ -340,12 +355,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           setTosLinkUrl(r.data.tos_link_url);
           try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
           toast.info('Accept Terms of Service first.');
-          openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
+          openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service' });
           return;
         }
         // ToS already accepted: do not send user back to ToS again.
         if (lastHostedUrl) {
-          openHostedVerificationUrl(lastHostedUrl);
+          openHostedVerificationUrl(lastHostedUrl, { title: 'Continue verification' });
           return;
         }
         toast.info('Verification is preparing. Tap Continue verification again.');
@@ -354,7 +369,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (r?.success && r.data?.link_url) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
-        openHostedVerificationUrl(r.data.link_url);
+        openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification' });
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -377,7 +392,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     try {
       if (tosLinkUrl) {
         try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-        openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false });
+        openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false, title: 'Terms of Service' });
         return;
       }
       const ctx = await resolveVerificationContext();
@@ -410,7 +425,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-      openHostedVerificationUrl(nextTosUrl, { cacheAsVerifyUrl: false });
+      openHostedVerificationUrl(nextTosUrl, { cacheAsVerifyUrl: false, title: 'Terms of Service' });
     } catch (e) {
       toast.error(friendlyError(e, 'Unable to open Terms of Service right now.'));
     }
