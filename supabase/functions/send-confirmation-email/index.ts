@@ -18,6 +18,7 @@ const corsHeaders = {
 };
 const INTERNAL_TOKEN = Deno.env.get('SEND_EMAIL_INTERNAL_TOKEN') || '';
 const APP_URL = Deno.env.get('BORDERPAY_APP_URL') || 'https://app.borderpayafrica.com';
+const BRAND_LOGO_URL = 'https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-logo-email.PNG';
 
 function timingSafeEqualStr(a: string, b: string): boolean {
   const enc = new TextEncoder();
@@ -110,10 +111,7 @@ serve(async (req) => {
           <!-- Logo -->
           <tr>
             <td align="center" style="padding:36px 32px 24px;">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 110" width="44" height="60" style="display:block;">
-                <rect x="10" y="5" width="24" height="95" rx="12" fill="#C7FF00"/>
-                <path d="M38 33 A33.5 33.5 0 0 1 38 100 Z" fill="#C7FF00"/>
-              </svg>
+              <img src="${BRAND_LOGO_URL}" alt="BorderPay Africa" width="104" height="142" style="display:block;border:0;outline:none;text-decoration:none;width:104px;height:142px;max-width:104px;" />
               <p style="margin:12px 0 0;font-size:20px;font-weight:800;color:#FFFFFF;letter-spacing:-0.3px;">BorderPay</p>
             </td>
           </tr>
