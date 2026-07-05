@@ -19,6 +19,9 @@ import { render as individualKycDecision }            from "./individual/kyc-dec
 import { render as individualAccountReady }           from "./individual/account-ready.ts";
 import { render as individualVerificationAuthorized }  from "./individual/verification-authorized.ts";
 import { render as individualPaymentReceived }         from "./individual/payment-received.ts";
+import { render as individualFounderWelcome }          from "./individual/founder-welcome.ts";
+import { render as individualFirstTransactionReminder }from "./individual/first-transaction-reminder.ts";
+import { render as individualAccountSuspended }        from "./individual/account-suspended.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessPinResetLink }            from "./business/pin-reset-link.ts";
@@ -30,6 +33,9 @@ import { render as businessAccountReady }             from "./business/account-r
 import { render as businessVerificationAuthorized }    from "./business/verification-authorized.ts";
 import { render as businessVerificationReminder }      from "./business/verification-reminder.ts";
 import { render as businessPaymentReceived }           from "./business/payment-received.ts";
+import { render as businessFounderWelcome }            from "./business/founder-welcome.ts";
+import { render as businessFirstTransactionReminder }  from "./business/first-transaction-reminder.ts";
+import { render as businessAccountSuspended }          from "./business/account-suspended.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -40,6 +46,9 @@ export type TemplateName =
   | "individual.account_ready"
   | "individual.verification_authorized"
   | "individual.payment_received"
+  | "individual.founder_welcome"
+  | "individual.first_transaction_reminder"
+  | "individual.account_suspended"
   | "business.email_verification"
   | "business.pin_reset_link"
   | "business.kyb_submitted"
@@ -49,7 +58,10 @@ export type TemplateName =
   | "business.account_ready"
   | "business.verification_authorized"
   | "business.verification_reminder"
-  | "business.payment_received";
+  | "business.payment_received"
+  | "business.founder_welcome"
+  | "business.first_transaction_reminder"
+  | "business.account_suspended";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -62,6 +74,9 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.account_ready":           individualAccountReady,
   "individual.verification_authorized": individualVerificationAuthorized,
   "individual.payment_received":        individualPaymentReceived,
+  "individual.founder_welcome":         individualFounderWelcome,
+  "individual.first_transaction_reminder": individualFirstTransactionReminder,
+  "individual.account_suspended":       individualAccountSuspended,
   "business.email_verification":        businessEmailVerification,
   "business.pin_reset_link":            businessPinResetLink,
   "business.kyb_submitted":             businessKybSubmitted,
@@ -72,6 +87,9 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.verification_authorized":   businessVerificationAuthorized,
   "business.verification_reminder":     businessVerificationReminder,
   "business.payment_received":          businessPaymentReceived,
+  "business.founder_welcome":           businessFounderWelcome,
+  "business.first_transaction_reminder": businessFirstTransactionReminder,
+  "business.account_suspended":         businessAccountSuspended,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {
