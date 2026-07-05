@@ -99,10 +99,14 @@ function AppContent() {
   const [appState, setAppState] = useState<AppState>('loading');
   const [skipSplashOnce] = useState(() => {
     try {
+      const params = new URLSearchParams(window.location.search);
+      const skipByQuery =
+        params.get('skip_splash') === '1' ||
+        params.get('screen') === 'kyc';
       const sessionSkip = sessionStorage.getItem('borderpay_skip_splash_once') === '1';
       const localTs = Number(localStorage.getItem('borderpay_skip_splash_once_ts') || '0');
       const localSkip = Number.isFinite(localTs) && localTs > 0 && (Date.now() - localTs) < 10 * 60 * 1000;
-      const skip = sessionSkip || localSkip;
+      const skip = skipByQuery || sessionSkip || localSkip;
       if (sessionSkip) sessionStorage.removeItem('borderpay_skip_splash_once');
       if (localSkip) localStorage.removeItem('borderpay_skip_splash_once_ts');
       return skip;

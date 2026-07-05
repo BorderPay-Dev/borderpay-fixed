@@ -213,7 +213,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [accountType]);
 
   const requestHostedLink = useCallback(async (currentAccountType: AccountType) => {
-    const redirect_url = `${window.location.origin}/?screen=kyc`;
+    const redirect_url = `${window.location.origin}/?screen=kyc&skip_splash=1`;
     return currentAccountType === 'business'
       ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
       : await backendAPI.bridge.kyc.startIndividual({ redirect_url });

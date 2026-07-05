@@ -422,8 +422,19 @@ type StablecoinConfirmData = {
 };
 
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>('dashboard');
-  const [navigationStack, setNavigationStack] = useState<AppScreen[]>(['dashboard']);
+  const initialScreenFromCallback = useMemo<AppScreen>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('screen') === 'kyc') return 'kyc';
+    } catch { /* noop */ }
+    return 'dashboard';
+  }, []);
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>(initialScreenFromCallback);
+  const [navigationStack, setNavigationStack] = useState<AppScreen[]>(
+    initialScreenFromCallback === 'dashboard'
+      ? ['dashboard']
+      : ['dashboard', initialScreenFromCallback],
+  );
   const [refreshKey, setRefreshKey] = useState(0);
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
@@ -726,6 +737,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       }
       const url = new URL(window.location.href);
       url.searchParams.delete('screen');
+      url.searchParams.delete('skip_splash');
       window.history.replaceState({}, '', url.pathname + url.search + url.hash);
     } catch { /* noop */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
