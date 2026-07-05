@@ -161,12 +161,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       setLastHostedUrl(url);
       try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
     }
-    try {
-      // On return from hosted Bridge verification, resume app directly
-      // without replaying the branded splash animation.
-      sessionStorage.setItem('borderpay_skip_splash_once', '1');
-      localStorage.setItem('borderpay_skip_splash_once_ts', String(Date.now()));
-    } catch { /* noop */ }
     // Android/PWA-safe path: always use direct navigation.
     // Popups are frequently blocked in embedded webviews and can surface
     // generic "unable to connect" failures.
@@ -213,7 +207,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [accountType]);
 
   const requestHostedLink = useCallback(async (currentAccountType: AccountType) => {
-    const redirect_url = `${window.location.origin}/?screen=kyc&skip_splash=1`;
+    const redirect_url = `${window.location.origin}/?screen=kyc`;
     return currentAccountType === 'business'
       ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
       : await backendAPI.bridge.kyc.startIndividual({ redirect_url });

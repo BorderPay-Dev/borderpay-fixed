@@ -102,9 +102,7 @@ function AppContent() {
       const path = String(window.location.pathname || '').replace(/\/+$/, '');
       const params = new URLSearchParams(window.location.search);
       const skipByQuery =
-        params.get('skip_splash') === '1' ||
-        params.get('screen') === 'kyc' ||
-        path === '/onboarding/kyc-complete';
+        params.get('skip_splash') === '1';
       const sessionSkip = sessionStorage.getItem('borderpay_skip_splash_once') === '1';
       const localTs = Number(localStorage.getItem('borderpay_skip_splash_once_ts') || '0');
       const localSkip = Number.isFinite(localTs) && localTs > 0 && (Date.now() - localTs) < 10 * 60 * 1000;
@@ -133,8 +131,7 @@ function AppContent() {
   const [lockChecked, setLockChecked] = useState(false);
 
   // Normalize hosted verification callback paths to the in-app KYC route.
-  // Bridge may return to /onboarding/kyc-complete; map it to /?screen=kyc
-  // immediately so routing is consistent and splash stays bypassed.
+  // Bridge may return to /onboarding/kyc-complete; map it to /?screen=kyc.
   useEffect(() => {
     try {
       const path = String(window.location.pathname || '').replace(/\/+$/, '');
@@ -142,9 +139,7 @@ function AppContent() {
       const url = new URL(window.location.href);
       url.pathname = '/';
       url.searchParams.set('screen', 'kyc');
-      url.searchParams.set('skip_splash', '1');
       window.history.replaceState({}, '', url.pathname + url.search + url.hash);
-      setShowSplash(false);
     } catch { /* noop */ }
   }, []);
 
