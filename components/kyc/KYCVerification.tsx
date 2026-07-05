@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, X } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, X, Maximize2, Minimize2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -151,6 +151,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [embeddedUrl, setEmbeddedUrl] = useState<string | null>(null);
   const [embeddedKind, setEmbeddedKind] = useState<'tos' | 'verification' | null>(null);
   const [embeddedPolling, setEmbeddedPolling] = useState(false);
+  const [embedChromeHidden, setEmbedChromeHidden] = useState(false);
 
   const persistTosAccepted = useCallback((accepted: boolean) => {
     setTosAccepted(accepted);
@@ -173,6 +174,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     setEmbeddedKind(kind);
     setEmbeddedUrl(url);
     setEmbeddedPolling(true);
+    setEmbedChromeHidden(false);
   }, [userId]);
 
   // If the previous attempt required Bridge ToS, resume automatically on return
@@ -302,6 +304,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         setEmbeddedPolling(false);
         setEmbeddedUrl(null);
         setEmbeddedKind(null);
+        setEmbedChromeHidden(false);
         await refresh();
         await probeVerificationState(true);
       } catch {
@@ -531,34 +534,59 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       </main>
 
       {embeddedUrl && (
-        <div className="fixed inset-0 z-[200] bg-[#0B0E11]">
-          <div className={`h-14 border-b ${tc.cardBorder} ${tc.card} flex items-center justify-between px-4`}>
-            <div className="min-w-0">
-              <p className={`text-sm font-semibold ${tc.text}`}>
-                {embeddedKind === 'tos' ? 'Terms of Service' : 'Identity verification'}
-              </p>
-              <p className={`text-[11px] ${tc.textMuted}`}>Complete and return automatically</p>
-            </div>
-            <button
-              onClick={() => {
-                setEmbeddedPolling(false);
-                setEmbeddedUrl(null);
-                setEmbeddedKind(null);
-              }}
-              className={`w-9 h-9 rounded-full border ${tc.cardBorder} ${tc.hoverBg} flex items-center justify-center`}
-              aria-label="Close verification"
+        <div className="fixed inset-0 z-[200] bg-[#0B0E11] flex flex-col h-[100dvh] w-full">
+          {!embedChromeHidden && (
+            <div
+              className={`border-b ${tc.cardBorder} ${tc.card} flex items-center justify-between px-4`}
+              style={{ minHeight: '56px', paddingTop: 'max(0px, env(safe-area-inset-top, 0px))' }}
             >
-              <X className={`w-4 h-4 ${tc.text}`} />
+              <div className="min-w-0">
+                <p className={`text-sm font-semibold ${tc.text}`}>
+                  {embeddedKind === 'tos' ? 'Terms of Service' : 'Identity verification'}
+                </p>
+                <p className={`text-[11px] ${tc.textMuted}`}>Complete and return automatically</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setEmbedChromeHidden(true)}
+                  className={`w-9 h-9 rounded-full border ${tc.cardBorder} ${tc.hoverBg} flex items-center justify-center`}
+                  aria-label="Full screen verification"
+                >
+                  <Maximize2 className={`w-4 h-4 ${tc.text}`} />
+                </button>
+                <button
+                  onClick={() => {
+                    setEmbeddedPolling(false);
+                    setEmbeddedUrl(null);
+                    setEmbeddedKind(null);
+                    setEmbedChromeHidden(false);
+                  }}
+                  className={`w-9 h-9 rounded-full border ${tc.cardBorder} ${tc.hoverBg} flex items-center justify-center`}
+                  aria-label="Close verification"
+                >
+                  <X className={`w-4 h-4 ${tc.text}`} />
+                </button>
+              </div>
+            </div>
+          )}
+          {embedChromeHidden && (
+            <button
+              onClick={() => setEmbedChromeHidden(false)}
+              className={`absolute top-3 right-3 z-[210] w-10 h-10 rounded-full border ${tc.cardBorder} ${tc.card} ${tc.hoverBg} flex items-center justify-center`}
+              style={{ top: 'max(0.75rem, env(safe-area-inset-top, 0px))' }}
+              aria-label="Show verification header"
+            >
+              <Minimize2 className={`w-4 h-4 ${tc.text}`} />
             </button>
-          </div>
+          )}
           <iframe
             id="kyc-embed-frame"
             title="BorderPay Verification"
             src={embeddedUrl}
-            className="w-full border-0"
-            style={{ height: 'calc(100dvh - 56px)' }}
+            className="w-full flex-1 min-h-0 border-0 bg-white"
             allow="clipboard-read; clipboard-write; camera; microphone"
             referrerPolicy="no-referrer"
+            loading="eager"
           />
         </div>
       )}
