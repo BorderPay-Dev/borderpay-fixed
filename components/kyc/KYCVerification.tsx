@@ -160,6 +160,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       setLastHostedUrl(url);
       try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
     }
+    try {
+      // Sev-1 guard: persist desired post-return route so callback never drops
+      // to dashboard if query params are stripped by external redirects.
+      sessionStorage.setItem('borderpay_post_callback_screen', 'kyc');
+      localStorage.setItem('borderpay_post_callback_screen', 'kyc');
+    } catch { /* noop */ }
     // Android/PWA-safe path: always use direct navigation.
     // Popups are frequently blocked in embedded webviews and can surface
     // generic "unable to connect" failures.

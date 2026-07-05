@@ -426,6 +426,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get('screen') === 'kyc') return 'kyc';
+      const postCallback =
+        sessionStorage.getItem('borderpay_post_callback_screen') ||
+        localStorage.getItem('borderpay_post_callback_screen');
+      if (postCallback === 'kyc') return 'kyc';
     } catch { /* noop */ }
     return 'dashboard';
   }, []);
@@ -729,8 +733,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try {
       const params = new URLSearchParams(window.location.search);
       const screenParam = params.get('screen');
-      if (!screenParam) return;
-      const target = canonicalizeScreen(screenParam);
+      const marker =
+        sessionStorage.getItem('borderpay_post_callback_screen') ||
+        localStorage.getItem('borderpay_post_callback_screen');
+      if (!screenParam && marker !== 'kyc') return;
+      const target = canonicalizeScreen(screenParam || marker || 'dashboard');
       if (target !== currentScreen) {
         setCurrentScreen(target);
         setNavigationStack(target === 'dashboard' ? ['dashboard'] : ['dashboard', target]);
@@ -739,6 +746,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       url.searchParams.delete('screen');
       url.searchParams.delete('skip_splash');
       window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      sessionStorage.removeItem('borderpay_post_callback_screen');
+      localStorage.removeItem('borderpay_post_callback_screen');
     } catch { /* noop */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
