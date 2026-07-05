@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Epilogue:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap');
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
@@ -10,9 +10,9 @@
 
 :root {
   --font-size: 16px;
-  --font-family: 'Epilogue', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-display: 'Syne', 'Epilogue', -apple-system, sans-serif;
-  --font-mono: 'DM Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   
   /* Safe Area Insets for notched devices */
   --sat: env(safe-area-inset-top, 0px);
@@ -98,7 +98,7 @@
      Reference palette:
        bg #06080C · card #0D1117 · border rgba(199,255,0,0.12)
        accent #C7FF00 · gold #E8A923 · text #EEF2F7 · muted #6B7A8D
-     Fonts: Syne (display) · Epilogue (body) · DM Mono (numerals)
+     Fonts: Inter (single app font)
      Radius: 4px · Transitions: 200ms
      ============================================ */
 
