@@ -72,13 +72,16 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")   return json({ success: false, error: "POST only" }, 405);
 
-  // AuthN: internal server-to-server only. The bearer MUST equal the dedicated
-  // SEND_EMAIL_INTERNAL_TOKEN secret — NOT the service-role key, and never a
-  // user/anon JWT. Fail closed if the secret is unset. Constant-time compare;
-  // the token is never logged.
+  // AuthN: internal server-to-server only.
+  // Primary credential: SEND_EMAIL_INTERNAL_TOKEN.
+  // Compatibility path: allow service-role bearer as an internal caller token
+  // to prevent cross-repo secret drift from blocking production email sends.
+  // (Both are high-entropy secrets; token is never logged.)
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!INTERNAL_TOKEN || !timingSafeEqualStr(token, INTERNAL_TOKEN)) {
+  const internalOk = INTERNAL_TOKEN ? timingSafeEqualStr(token, INTERNAL_TOKEN) : false;
+  const serviceRoleOk = SUPABASE_SERVICE_ROLE ? timingSafeEqualStr(token, SUPABASE_SERVICE_ROLE) : false;
+  if (!(internalOk || serviceRoleOk)) {
     return json({ success: false, error: "Unauthorized — internal token required" }, 401);
   }
 
