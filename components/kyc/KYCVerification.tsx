@@ -12,7 +12,7 @@
  * of truth; developer/internal rejection reasons are never surfaced.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -162,6 +162,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [embeddedPolling, setEmbeddedPolling] = useState(false);
   const [embeddedReturnEnabled, setEmbeddedReturnEnabled] = useState(true);
   const [embedNonce, setEmbedNonce] = useState(0);
+  const [embedLoaded, setEmbedLoaded] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const persistTosAccepted = useCallback((accepted: boolean) => {
     setTosAccepted(accepted);
@@ -195,6 +197,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     setEmbeddedTitle(title);
     setEmbeddedPolling(true);
     setEmbeddedReturnEnabled(returnEnabled);
+    setEmbedLoaded(false);
     setEmbedNonce((n) => n + 1);
     try {
       sessionStorage.setItem('borderpay_verification_embed_open', '1');
@@ -203,6 +206,23 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: true, title, returnEnabled } }));
     } catch { /* noop */ }
   }, [userId]);
+
+  const openTopLevelHostedFallback = useCallback((url: string | null) => {
+    if (!url) return;
+    // Some Bridge hosted pages may refuse iframe embedding on specific hops.
+    // Hard fail-safe: open same link in current tab to avoid white-screen dead end.
+    window.location.href = url;
+  }, []);
+
+  useEffect(() => {
+    if (!embeddedUrl) return;
+    const t = window.setTimeout(() => {
+      if (!embedLoaded) {
+        openTopLevelHostedFallback(embeddedUrl);
+      }
+    }, 2200);
+    return () => window.clearTimeout(t);
+  }, [embeddedUrl, embedLoaded, openTopLevelHostedFallback, embedNonce]);
 
   // If the previous attempt required Bridge ToS, resume automatically on return
   // to fetch/open the actual hosted KYC/KYB link.
@@ -375,15 +395,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const startVerification = async () => {
     try {
-      if (!tosAccepted && tosLinkUrl && isFreshHostedLink(tosLinkUrlTs)) {
-        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-        openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
-        return;
-      }
-      if (tosAccepted && lastHostedUrl && isFreshHostedLink(lastHostedUrlTs)) {
-        openHostedVerificationUrl(lastHostedUrl, { title: 'Continue verification', returnEnabled: true });
-        return;
-      }
+      // Always request a fresh hosted link on CTA click to avoid consumed/stale
+      // URLs that can render as blank white screens in iframe mode.
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
@@ -596,10 +609,26 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             id="kyc-embed-frame"
             title="BorderPay Verification"
             src={embeddedUrl}
+            ref={iframeRef}
             className="w-full flex-1 min-h-0 border-0 bg-white"
             allow="clipboard-read; clipboard-write; camera; microphone"
             referrerPolicy="no-referrer"
             loading="eager"
+            onLoad={() => {
+              setEmbedLoaded(true);
+              try {
+                const href = iframeRef.current?.contentWindow?.location?.href || '';
+                if (href === 'about:blank') {
+                  openTopLevelHostedFallback(embeddedUrl);
+                }
+              } catch {
+                // Cross-origin access denied is expected when remote page is loaded;
+                // in that case the iframe likely rendered correctly.
+              }
+            }}
+            onError={() => {
+              openTopLevelHostedFallback(embeddedUrl);
+            }}
           />
           {!embeddedReturnEnabled && (
             <div className="absolute bottom-0 inset-x-0 p-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] bg-gradient-to-t from-black/65 to-transparent">
