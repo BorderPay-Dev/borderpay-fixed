@@ -15,7 +15,7 @@ import {
   bridgeCountryBlockResponse,
   logControlledBridgeTraffic,
 } from "../_shared/providers/bridge-country-policy.ts";
-import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody, verificationGate, loadVerificationContext } from "../_shared/launch-gates.ts";
+import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/launch-gates.ts";
 
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
@@ -114,14 +114,6 @@ Deno.serve(async (req: Request) => {
         code: "email_verification_required",
       },
     }, 409);
-  }
-
-  // Stepped verification gate (#4 + #5): require a PAID plan + admin
-  // authorization before any billable Bridge call. The env pause remains the
-  // outer guard (checked above), so production stays paused until enabled.
-  {
-    const __gate = verificationGate(await loadVerificationContext(supa, user.id));
-    if (!__gate.allowed) return json(__gate.body, __gate.status);
   }
 
   let body: { redirect_url?: string; endorsements?: string[] } = {};
