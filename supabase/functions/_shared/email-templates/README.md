@@ -121,7 +121,7 @@ select recipient, template, attempts, last_error, created_at
 |---|---|
 | `SUPABASE_URL` | Edge function self-call (auth-signup → send-email) |
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role auth for log + token tables; bearer for send-email |
-| `RESEND_API_KEY` | Resend API |
+| `BREVO_API_KEY` | Brevo SMTP API |
 | `BORDERPAY_FROM_EMAIL` | optional, defaults to `BorderPay Africa <noreply@app.borderpayafrica.com>` |
 | `BORDERPAY_APP_URL` | optional, defaults to `https://app.borderpayafrica.com` |
 
