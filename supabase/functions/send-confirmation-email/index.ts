@@ -18,7 +18,7 @@ const corsHeaders = {
 };
 const INTERNAL_TOKEN = Deno.env.get('SEND_EMAIL_INTERNAL_TOKEN') || '';
 const APP_URL = Deno.env.get('BORDERPAY_APP_URL') || 'https://app.borderpayafrica.com';
-const BRAND_LOGO_URL = 'https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-logo-email.PNG';
+const BRAND_LOGO_URL = 'https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-email-logod.png';
 
 function timingSafeEqualStr(a: string, b: string): boolean {
   const enc = new TextEncoder();

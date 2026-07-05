@@ -19,7 +19,7 @@ export const BORDERPAY_BRAND = {
   warning:   "#E8A923",
   appUrl:    "https://app.borderpayafrica.com",
   supportEmail: "support@borderpayafrica.com",
-  logoUrl:   "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-logo-email.PNG",
+  logoUrl:   "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-email-logod.png",
 };
 
 export interface RenderedEmail {
