@@ -140,17 +140,24 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   // KYC/KYB is FREE now — the user can start verification right here. Opens the
   // secure hosted verification flow; Bridge returns them to /?screen=kyc.
-  const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
+  const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(() => {
+    try { return localStorage.getItem(`borderpay_last_verify_url:${userId}`); } catch { return null; }
+  });
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
   const tosAcceptedKey = useMemo(() => `borderpay_tos_accepted_v1:${userId}`, [userId]);
   const [tosAccepted, setTosAccepted] = useState<boolean>(() => {
     try { return localStorage.getItem(`borderpay_tos_accepted_v1:${userId}`) === '1'; } catch { return false; }
   });
-  const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(null);
+  const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(() => {
+    try { return localStorage.getItem(`borderpay_last_tos_url:${userId}`); } catch { return null; }
+  });
   const [embeddedUrl, setEmbeddedUrl] = useState<string | null>(null);
   const [embeddedTitle, setEmbeddedTitle] = useState<string>('');
   const [embeddedPolling, setEmbeddedPolling] = useState(false);
   const [embeddedReturnEnabled, setEmbeddedReturnEnabled] = useState(true);
+  const [embedLoaded, setEmbedLoaded] = useState(false);
+  const [embedTimedOut, setEmbedTimedOut] = useState(false);
+  const [embedNonce, setEmbedNonce] = useState(0);
 
   const persistTosAccepted = useCallback((accepted: boolean) => {
     setTosAccepted(accepted);
@@ -174,6 +181,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     setEmbeddedTitle(title);
     setEmbeddedPolling(true);
     setEmbeddedReturnEnabled(returnEnabled);
+    setEmbedLoaded(false);
+    setEmbedTimedOut(false);
+    setEmbedNonce((n) => n + 1);
     try {
       sessionStorage.setItem('borderpay_verification_embed_open', '1');
       sessionStorage.setItem('borderpay_verification_embed_title', title);
@@ -181,6 +191,16 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: true, title, returnEnabled } }));
     } catch { /* noop */ }
   }, [userId]);
+
+  useEffect(() => {
+    if (!embeddedUrl) return;
+    setEmbedLoaded(false);
+    setEmbedTimedOut(false);
+    const t = window.setTimeout(() => {
+      setEmbedTimedOut(true);
+    }, 4500);
+    return () => window.clearTimeout(t);
+  }, [embeddedUrl, embedNonce]);
 
   // If the previous attempt required Bridge ToS, resume automatically on return
   // to fetch/open the actual hosted KYC/KYB link.
@@ -275,6 +295,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
         setLastHostedUrl(r.data.link_url);
+        try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url); } catch { /* noop */ }
+        try { localStorage.removeItem(`borderpay_last_tos_url:${userId}`); } catch { /* noop */ }
         if (fromTosCallback) openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
@@ -314,6 +336,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
           window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
         } catch { /* noop */ }
+        setEmbedLoaded(false);
+        setEmbedTimedOut(false);
         await refresh();
         await probeVerificationState(true);
       } catch {
@@ -337,6 +361,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
       } catch { /* noop */ }
       setEmbeddedReturnEnabled(true);
+      setEmbedLoaded(false);
+      setEmbedTimedOut(false);
     };
     window.addEventListener('borderpay:verification_embed_return', onReturn);
     return () => window.removeEventListener('borderpay:verification_embed_return', onReturn);
@@ -361,6 +387,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
         setTosLinkUrl(r.data.tos_link_url);
+        try { localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url); } catch { /* noop */ }
         try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
@@ -368,6 +395,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (r?.success && r.data?.link_url) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
+        try { localStorage.removeItem(`borderpay_last_tos_url:${userId}`); } catch { /* noop */ }
+        try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url); } catch { /* noop */ }
         openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
@@ -399,12 +428,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
         setLastHostedUrl(r.data.link_url);
+        try { localStorage.removeItem(`borderpay_last_tos_url:${userId}`); } catch { /* noop */ }
+        try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url); } catch { /* noop */ }
         openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
         persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
+        try { localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url); } catch { /* noop */ }
         toast.info('Please accept Terms of Service first, then continue.');
         return;
       }
@@ -531,6 +563,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       {embeddedUrl && (
         <div className="fixed inset-0 z-[20] bg-[#0B0E11] flex flex-col h-[100dvh] w-full">
           <iframe
+            key={`${embedNonce}:${embeddedUrl}`}
             id="kyc-embed-frame"
             title="BorderPay Verification"
             src={embeddedUrl}
@@ -538,7 +571,36 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             allow="clipboard-read; clipboard-write; camera; microphone"
             referrerPolicy="no-referrer"
             loading="eager"
+            onLoad={() => {
+              setEmbedLoaded(true);
+              setEmbedTimedOut(false);
+            }}
           />
+          {!embedLoaded && !embedTimedOut && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[#0B0E11]">
+              <div className="text-center px-6">
+                <p className={`text-sm font-semibold ${tc.text}`}>Opening secure verification…</p>
+              </div>
+            </div>
+          )}
+          {embedTimedOut && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[#0B0E11] px-6">
+              <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/40 p-4">
+                <p className={`text-sm ${tc.text} text-center mb-3`}>Verification is taking longer to load.</p>
+                <button
+                  onClick={() => {
+                    if (!embeddedUrl) return;
+                    setEmbedNonce((n) => n + 1);
+                    setEmbedTimedOut(false);
+                    setEmbedLoaded(false);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
+                >
+                  Retry loading
+                </button>
+              </div>
+            </div>
+          )}
           {!embeddedReturnEnabled && (
             <div className="absolute bottom-0 inset-x-0 p-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] bg-gradient-to-t from-black/65 to-transparent">
               <button
