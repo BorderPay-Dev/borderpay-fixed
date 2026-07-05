@@ -78,6 +78,7 @@ export interface AppShellProps {
   /** Verification focus mode: hides app chrome except profile + return control. */
   verificationFocus?: boolean;
   verificationFocusTitle?: string;
+  verificationReturnEnabled?: boolean;
   onVerificationReturn?: () => void;
   children:           React.ReactNode;
 }
@@ -112,6 +113,7 @@ export function AppShell({
   onOpenWithdrawalWallets,
   verificationFocus = false,
   verificationFocusTitle,
+  verificationReturnEnabled = true,
   onVerificationReturn,
   children,
 }: AppShellProps) {
@@ -397,14 +399,18 @@ export function AppShell({
         >
           {/* Left control: burger normally, return in verification focus mode */}
           {verificationFocus ? (
-            <button
-              type="button"
-              aria-label={tt('shell.verification.return', 'Return to verification')}
-              onClick={() => { onVerificationReturn?.(); }}
-              className={`pointer-events-auto shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
-            >
-              <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
-            </button>
+            verificationReturnEnabled ? (
+              <button
+                type="button"
+                aria-label={tt('shell.verification.return', 'Return to verification')}
+                onClick={() => { onVerificationReturn?.(); }}
+                className={`pointer-events-auto shrink-0 w-11 h-11 flex items-center justify-center rounded-full border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.30)] ${tc.hoverBg} transition-colors`}
+              >
+                <ArrowLeft className={`w-5 h-5 ${tc.text}`} />
+              </button>
+            ) : (
+              <div className="shrink-0 w-11 h-11" aria-hidden="true" />
+            )
           ) : (
             <button
               type="button"

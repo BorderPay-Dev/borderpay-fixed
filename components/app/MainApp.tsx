@@ -450,6 +450,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [verificationEmbedTitle, setVerificationEmbedTitle] = useState<string>(() => {
     try { return sessionStorage.getItem('borderpay_verification_embed_title') || ''; } catch { return ''; }
   });
+  const [verificationEmbedReturnEnabled, setVerificationEmbedReturnEnabled] = useState<boolean>(() => {
+    try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
+  });
 
   // Clear one-time module-reload fuse once the app boots successfully.
   useEffect(() => {
@@ -734,18 +737,22 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ open?: boolean; title?: string }>;
+      const ce = e as CustomEvent<{ open?: boolean; title?: string; returnEnabled?: boolean }>;
       const open = Boolean(ce?.detail?.open);
       const title = String(ce?.detail?.title || '');
+      const returnEnabled = ce?.detail?.returnEnabled !== false;
       setVerificationEmbedOpen(open);
       setVerificationEmbedTitle(title);
+      setVerificationEmbedReturnEnabled(returnEnabled);
       try {
         if (open) {
           sessionStorage.setItem('borderpay_verification_embed_open', '1');
           sessionStorage.setItem('borderpay_verification_embed_title', title);
+          sessionStorage.setItem('borderpay_verification_embed_return_enabled', returnEnabled ? '1' : '0');
         } else {
           sessionStorage.removeItem('borderpay_verification_embed_open');
           sessionStorage.removeItem('borderpay_verification_embed_title');
+          sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
         }
       } catch { /* noop */ }
     };
@@ -1182,6 +1189,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
                 verificationFocus={verificationEmbedOpen}
                 verificationFocusTitle={verificationEmbedTitle}
+                verificationReturnEnabled={verificationEmbedReturnEnabled}
                 onVerificationReturn={() => {
                   try {
                     window.dispatchEvent(new CustomEvent('borderpay:verification_embed_return'));
