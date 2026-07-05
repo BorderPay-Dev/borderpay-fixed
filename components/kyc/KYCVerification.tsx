@@ -18,7 +18,6 @@ import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRi
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface KYCVerificationProps {
@@ -350,20 +349,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       }
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
-        if (!tosAccepted) {
-          persistTosAccepted(false);
-          setTosLinkUrl(r.data.tos_link_url);
-          try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-          toast.info('Accept Terms of Service first.');
-          openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service' });
-          return;
-        }
-        // ToS already accepted: do not send user back to ToS again.
-        if (lastHostedUrl) {
-          openHostedVerificationUrl(lastHostedUrl, { title: 'Continue verification' });
-          return;
-        }
-        toast.info('Verification is preparing. Tap Continue verification again.');
+        setTosLinkUrl(r.data.tos_link_url);
+        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
+        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service' });
         return;
       }
       if (r?.success && r.data?.link_url) {
@@ -385,49 +373,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       toast.error(safe);
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
-    }
-  };
-
-  const acceptTerms = async () => {
-    try {
-      if (tosLinkUrl) {
-        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-        openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false, title: 'Terms of Service' });
-        return;
-      }
-      const ctx = await resolveVerificationContext();
-      if (!ctx.emailConfirmed) {
-        toast.error('Verify your email first, then retry verification.');
-        return;
-      }
-      let nextTosUrl = tosLinkUrl;
-      if (!nextTosUrl) {
-        const r: any = await requestHostedLink(ctx.accountType);
-        if (r?.success && r.data?.tos_link_url) {
-          nextTosUrl = r.data.tos_link_url;
-          setTosLinkUrl(nextTosUrl);
-        } else if (r?.success && r.data?.link_url) {
-          persistTosAccepted(true);
-          setTosLinkUrl(null);
-          setLastHostedUrl(r.data.link_url);
-          toast.success('Terms already accepted. Continue verification.');
-          return;
-        } else if (r?.code === 'email_verification_required') {
-          toast.error('Verify your email first, then retry verification.');
-          return;
-        } else {
-          toast.error(friendlyError(r?.error || 'Unable to open Terms of Service right now.', 'Unable to open Terms of Service right now.'));
-          return;
-        }
-      }
-      if (!nextTosUrl) {
-        toast.error('Unable to open Terms of Service right now.');
-        return;
-      }
-      try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-      openHostedVerificationUrl(nextTosUrl, { cacheAsVerifyUrl: false, title: 'Terms of Service' });
-    } catch (e) {
-      toast.error(friendlyError(e, 'Unable to open Terms of Service right now.'));
     }
   };
 
@@ -468,9 +413,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <FloatingBackButton onBack={onBack} />
       <header
-        className="flex items-center justify-between pl-16 pr-5 sm:pr-6 pb-3 max-w-2xl mx-auto"
+        className="flex items-center justify-between px-5 sm:px-6 pb-3 max-w-2xl mx-auto"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
       >
         <h1 className={`text-base font-semibold ${tc.text}`}>{title}</h1>
@@ -507,23 +451,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           {/* Free in-app start/continue — allow users in not_started OR pending
               to (re)open the hosted verification link. Bridge handles link reuse
               / regeneration idempotently server-side. */}
-          {(status === 'not_started' || status === 'pending') && !tosAccepted && (
-            <button
-              onClick={() => { void acceptTerms(); }}
-              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
-            >
-              <>Accept Terms of Service <ArrowRight className="w-4 h-4" /></>
-            </button>
-          )}
-          {(status === 'not_started' || status === 'pending') && tosAccepted && (
+          {(status === 'not_started' || status === 'pending') && (
             <button
               onClick={() => { void startVerification(); }}
               className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
             >
-              <>{status === 'pending'
-                  ? 'Continue verification'
-                  : (isBusiness ? 'Verify your business' : 'Verify your identity')}
-                 <ArrowRight className="w-4 h-4" /></>
+              <>Continue verification <ArrowRight className="w-4 h-4" /></>
             </button>
           )}
           {(status === 'pending' || status === 'under_review') && (
