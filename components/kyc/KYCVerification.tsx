@@ -467,7 +467,19 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
           localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
+        // Per product decision: from ToS embed, Continue verification should
+        // open Persona/Bridge KYC externally (not in embedded iframe).
+        // Keep callback marker so return lands back on verification screen.
+        try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* noop */ }
+        try {
+          sessionStorage.removeItem('borderpay_verification_embed_open');
+          sessionStorage.removeItem('borderpay_verification_embed_title');
+          sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
+          window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
+        } catch { /* noop */ }
+        setEmbeddedPolling(false);
+        setEmbeddedUrl(null);
+        window.location.href = r.data.link_url;
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
