@@ -121,7 +121,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       };
       const ric = (window as any).requestIdleCallback;
       if (typeof ric === 'function') ric(warm, { timeout: 1000 });
-      else setTimeout(warm, 120);
+      else setTimeout(warm, 220);
     }
 
     refresh();
@@ -144,6 +144,16 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [verifying, setVerifying] = useState(false);
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(null);
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
+  const tosAcceptedKey = useMemo(() => `borderpay_tos_accepted_v1:${userId}`, [userId]);
+  const [tosAccepted, setTosAccepted] = useState<boolean>(() => {
+    try { return localStorage.getItem(`borderpay_tos_accepted_v1:${userId}`) === '1'; } catch { return false; }
+  });
+  const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(null);
+
+  const persistTosAccepted = useCallback((accepted: boolean) => {
+    setTosAccepted(accepted);
+    try { localStorage.setItem(tosAcceptedKey, accepted ? '1' : '0'); } catch { /* noop */ }
+  }, [tosAcceptedKey]);
 
   const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
@@ -173,61 +183,98 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
     const timer = window.setTimeout(async () => {
       if (cancelled) return;
-      await startVerification(true);
+      await probeVerificationState(true);
     }, 200);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeAfterTosKey]);
 
-  const startVerification = async (isResume = false) => {
+  const resolveVerificationContext = useCallback(async (): Promise<{ accountType: AccountType; emailConfirmed: boolean }> => {
+    let currentAccountType: AccountType = accountType;
+    let emailConfirmed = true;
+    try {
+      const freshProfile = await backendAPI.user.getProfile();
+      const fresh = freshProfile?.success ? freshProfile?.data?.user : null;
+      if (fresh) {
+        currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
+        emailConfirmed = Boolean(fresh.email_confirmed);
+      }
+    } catch {
+      // keep cached account type as fallback
+    }
+    return { accountType: currentAccountType, emailConfirmed };
+  }, [accountType]);
+
+  const requestHostedLink = useCallback(async (currentAccountType: AccountType) => {
+    const redirect_url = `${window.location.origin}/?screen=kyc`;
+    return currentAccountType === 'business'
+      ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
+      : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
+  }, []);
+
+  const probeVerificationState = useCallback(async (fromTosCallback = false) => {
+    try {
+      const ctx = await resolveVerificationContext();
+      if (!ctx.emailConfirmed) {
+        persistTosAccepted(false);
+        setTosLinkUrl(null);
+        return;
+      }
+      const r: any = await requestHostedLink(ctx.accountType);
+      if (r?.success && r.data?.tos_link_url) {
+        persistTosAccepted(false);
+        setTosLinkUrl(r.data.tos_link_url);
+        return;
+      }
+      if (r?.success && r.data?.link_url) {
+        persistTosAccepted(true);
+        setTosLinkUrl(null);
+        setLastHostedUrl(r.data.link_url);
+        if (fromTosCallback) toast.success('Terms accepted. Continue verification.');
+        return;
+      }
+      if (r?.success && r.data?.already_approved) {
+        await refresh();
+      }
+    } catch {
+      // silent probe: never block verification screen
+    }
+  }, [persistTosAccepted, requestHostedLink, resolveVerificationContext, refresh]);
+
+  useEffect(() => {
+    if (status === 'verified' || status === 'under_review' || status === 'rejected') return;
+    void probeVerificationState(false);
+  }, [status, probeVerificationState]);
+
+  const startVerification = async () => {
     setVerifying(true);
     try {
-      // Always resolve account type from fresh profile before routing to KYC/KYB.
-      let currentAccountType: AccountType = accountType;
-      let emailConfirmed = true;
-      try {
-        const freshProfile = await backendAPI.user.getProfile();
-        const fresh = freshProfile?.success ? freshProfile?.data?.user : null;
-        if (fresh) {
-          currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
-          emailConfirmed = Boolean(fresh.email_confirmed);
-        }
-      } catch {
-        // keep cached account type as fallback
-      }
-      if (!emailConfirmed) {
+      const ctx = await resolveVerificationContext();
+      if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
         return;
       }
-      const redirect_url = `${window.location.origin}/?screen=kyc`;
-      const r: any = currentAccountType === 'business'
-        ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
-        : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
+      const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
-        // Bridge may require ToS acceptance before issuing a KYC/KYB link.
-        // Open ToS first, then auto-resume verification on return.
+        persistTosAccepted(false);
+        setTosLinkUrl(r.data.tos_link_url);
         try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
-        if (!isResume) {
-          toast.info('Please accept Terms first, then we will continue verification.');
-        }
+        toast.info('Accept Terms of Service first.');
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false });
         return;
       }
       if (r?.success && r.data?.link_url) {
-        // Product contract: route users directly to hosted verification URL.
+        persistTosAccepted(true);
+        setTosLinkUrl(null);
         openHostedVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
       if (r?.code === 'email_verification_required') {
         toast.error('Verify your email first, then retry verification.');
-        return;
-      }
-      if (r?.code === 'funding_required' || r?.code === 'plan_required' || r?.code === 'payment_required') {
-        toast.error('Unable to start verification right now. Please retry in a moment.');
         return;
       }
       if (r?.code === 'bridge_onboarding_paused') {
@@ -239,6 +286,47 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
     } finally { setVerifying(false); }
+  };
+
+  const acceptTerms = async () => {
+    setVerifying(true);
+    try {
+      const ctx = await resolveVerificationContext();
+      if (!ctx.emailConfirmed) {
+        toast.error('Verify your email first, then retry verification.');
+        return;
+      }
+      let nextTosUrl = tosLinkUrl;
+      if (!nextTosUrl) {
+        const r: any = await requestHostedLink(ctx.accountType);
+        if (r?.success && r.data?.tos_link_url) {
+          nextTosUrl = r.data.tos_link_url;
+          setTosLinkUrl(nextTosUrl);
+        } else if (r?.success && r.data?.link_url) {
+          persistTosAccepted(true);
+          setTosLinkUrl(null);
+          setLastHostedUrl(r.data.link_url);
+          toast.success('Terms already accepted. Continue verification.');
+          return;
+        } else if (r?.code === 'email_verification_required') {
+          toast.error('Verify your email first, then retry verification.');
+          return;
+        } else {
+          toast.error(friendlyError(r?.error || 'Unable to open Terms of Service right now.', 'Unable to open Terms of Service right now.'));
+          return;
+        }
+      }
+      if (!nextTosUrl) {
+        toast.error('Unable to open Terms of Service right now.');
+        return;
+      }
+      try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
+      openHostedVerificationUrl(nextTosUrl, { cacheAsVerifyUrl: false });
+    } catch (e) {
+      toast.error(friendlyError(e, 'Unable to open Terms of Service right now.'));
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const VIEW: Record<KycView, { Icon: typeof Clock; tone: string; bg: string; title: string; body: string }> = {
@@ -317,7 +405,18 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           {/* Free in-app start/continue — allow users in not_started OR pending
               to (re)open the hosted verification link. Bridge handles link reuse
               / regeneration idempotently server-side. */}
-          {(status === 'not_started' || status === 'pending') && (
+          {(status === 'not_started' || status === 'pending') && !tosAccepted && (
+            <button
+              onClick={() => { void acceptTerms(); }}
+              disabled={verifying}
+              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+            >
+              {verifying
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <>Accept Terms of Service <ArrowRight className="w-4 h-4" /></>}
+            </button>
+          )}
+          {(status === 'not_started' || status === 'pending') && tosAccepted && (
             <button
               onClick={() => { void startVerification(); }}
               disabled={verifying}
