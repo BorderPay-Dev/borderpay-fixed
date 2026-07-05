@@ -711,6 +711,26 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     return () => window.cancelAnimationFrame(raf);
   }, [currentScreen]);
 
+  // Hosted verification callback deep-link:
+  // Bridge returns to `/?screen=kyc`. Honor that route directly so users
+  // land back on verification instead of dashboard.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const screenParam = params.get('screen');
+      if (!screenParam) return;
+      const target = canonicalizeScreen(screenParam);
+      if (target !== currentScreen) {
+        setCurrentScreen(target);
+        setNavigationStack(target === 'dashboard' ? ['dashboard'] : ['dashboard', target]);
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.delete('screen');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Prefetch most-likely-next screens once the dashboard is mounted, so the
   // user's first navigation is instant. Runs once per session, in background.
   React.useEffect(() => {

@@ -165,6 +165,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       // On return from hosted Bridge verification, resume app directly
       // without replaying the branded splash animation.
       sessionStorage.setItem('borderpay_skip_splash_once', '1');
+      localStorage.setItem('borderpay_skip_splash_once_ts', String(Date.now()));
     } catch { /* noop */ }
     // Android/PWA-safe path: always use direct navigation.
     // Popups are frequently blocked in embedded webviews and can surface
