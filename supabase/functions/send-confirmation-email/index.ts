@@ -1,12 +1,12 @@
 /**
  * BorderPay Africa — Send Confirmation Email
- * Sends a branded email verification link via Resend.
+ * Sends a branded email verification link via Brevo.
  *
  * Expects JSON body:
  *   { email, full_name, confirmation_url }
  *
  * Environment:
- *   RESEND_API_KEY — Resend API key
+ *   BREVO_API_KEY — Brevo API key
  *   BORDERPAY_FROM_EMAIL — e.g. "BorderPay <noreply@borderpayafrica.com>"
  */
 
@@ -77,10 +77,10 @@ serve(async (req) => {
     }
     const safeConfirmationUrl = parsedConfirmation.toString();
 
-    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+    const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') || Deno.env.get('BREVO_API_KEYS');
     const FROM_EMAIL = Deno.env.get('BORDERPAY_FROM_EMAIL') || 'BorderPay <noreply@borderpayafrica.com>';
 
-    if (!RESEND_API_KEY) {
+    if (!BREVO_API_KEY) {
       return new Response(
         JSON.stringify({ success: false, error: 'Email service not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -174,24 +174,35 @@ serve(async (req) => {
 </body>
 </html>`;
 
-    const res = await fetch('https://api.resend.com/emails', {
+    const parseFrom = (raw: string) => {
+      const m = raw.match(/^(.*)<([^>]+)>$/);
+      if (m) {
+        const name = m[1].trim().replace(/^"|"$/g, '');
+        const email = m[2].trim();
+        return name ? { email, name } : { email };
+      }
+      return { email: raw.trim() };
+    };
+
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'accept': 'application/json',
+        'api-key': BREVO_API_KEY,
+        'content-type': 'application/json',
       },
       body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: [email],
+        sender: parseFrom(FROM_EMAIL),
+        to: [{ email }],
         subject: 'Confirm your email — BorderPay',
-        html: htmlBody,
+        htmlContent: htmlBody,
       }),
     });
 
     const resData = await res.json();
 
     if (!res.ok) {
-      console.error('Resend error:', resData);
+      console.error('Brevo error:', resData);
       return new Response(
         JSON.stringify({ success: false, error: resData.message || 'Email send failed' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -199,7 +210,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, message_id: resData.id }),
+      JSON.stringify({ success: true, message_id: resData.messageId || null }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
