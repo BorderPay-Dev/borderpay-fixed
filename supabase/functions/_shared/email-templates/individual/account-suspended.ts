@@ -1,21 +1,32 @@
-import { htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { htmlLayout, textLayout, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
-export interface IndividualAccountSuspendedProps {
+interface Props {
   full_name?: string;
+  reason_public?: string;
+  support_url?: string;
+  action_url?: string;
 }
 
-export function render(p: IndividualAccountSuspendedProps): RenderedEmail {
-  const fn = firstName(p.full_name);
-  const subject = "Important update about your BorderPay account";
-  const heading = "Account temporarily suspended";
-  const introText = `Hi ${fn}, your BorderPay account has been temporarily suspended for security/compliance review.`;
+export function render(props: Props = {}): RenderedEmail {
+  const fullName = String(props.full_name || "").trim() || "there";
+  const reasonPublic = String(props.reason_public || "Your account is temporarily restricted while we complete a review.").trim();
+  const supportUrl = String(props.support_url || "https://app.borderpayafrica.com/settings/support").trim();
+  const actionUrl = String(props.action_url || "https://app.borderpayafrica.com").trim();
+  const subject = "BorderPay account temporarily restricted";
+  const heading = "Your account is temporarily restricted";
+  const introText = `Hi ${fullName}, some account actions are paused while we complete a review.`;
   const body = `
-    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
-      Our team can help you resolve this quickly.
+    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
+      ${escapeHtml(reasonPublic)}
     </p>
-    <p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
-      Please contact support for next steps.
-    </p>`;
+    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
+      Our team is reviewing your account status. We’ll notify you as soon as this is resolved.
+    </p>
+    <p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
+      If you need help now, contact support: <a href="${escapeHtml(supportUrl)}" style="color:${BORDERPAY_BRAND.accent};text-decoration:underline;">Contact support</a>.
+    </p>
+  `;
+
   return {
     subject,
     html: htmlLayout({
@@ -23,11 +34,29 @@ export function render(p: IndividualAccountSuspendedProps): RenderedEmail {
       heading,
       introText,
       body,
-      ctaText: "Contact support",
-      ctaUrl: `mailto:${BORDERPAY_BRAND.supportEmail}`,
+      ctaText: "Open BorderPay",
+      ctaUrl: actionUrl,
       brandTone: "warning",
     }),
-    text: textLayout({ heading, body: "Your account is temporarily suspended. Contact support for next steps.", ctaText: "Support", ctaUrl: `mailto:${BORDERPAY_BRAND.supportEmail}` }),
+    text: textLayout({
+      heading,
+      body:
+        `Hi ${fullName}, some account actions are paused while we complete a review.\n\n` +
+        `${reasonPublic}\n\n` +
+        "Our team is reviewing your account status and will notify you once resolved.",
+      ctaText: "Open BorderPay",
+      ctaUrl: actionUrl,
+      footerNote: `Contact support: ${supportUrl}`,
+    }),
   };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
 }
 

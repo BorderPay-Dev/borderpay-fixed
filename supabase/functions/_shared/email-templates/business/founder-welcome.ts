@@ -1,4 +1,4 @@
-import { htmlLayout, textLayout, BORDERPAY_BRAND, RenderedEmail, escapeHtml } from "../layout.ts";
+import { htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 export interface BusinessFounderWelcomeProps {
   full_name?: string;
@@ -6,42 +6,50 @@ export interface BusinessFounderWelcomeProps {
 }
 
 export function render(p: BusinessFounderWelcomeProps): RenderedEmail {
-  const company = p.company_name || "your business";
-  const subject = "Welcome to BorderPay Africa";
-  const heading = "Welcome to BorderPay Business";
-  const introText = `Hi ${escapeHtml(p.full_name || "there")},`;
+  const fn = firstName(p.full_name) || "there";
+  const company = String(p.company_name || "your business").trim();
+  const subject = "Welcome to BorderPay";
+  const heading = "Welcome to BorderPay";
+  const introText = `Hi ${fn}, welcome to BorderPay for ${company}.`;
+
   const body = `
-    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
-      I'm <strong style="color:${BORDERPAY_BRAND.text};">Mark Ikaba</strong>, Founder and CEO of BorderPay, and I wanted to personally thank you for joining us.
+    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
+      BorderPay helps businesses receive and move money internationally with clear, reliable workflows.
     </p>
-    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
-      BorderPay was created with one mission: to make moving money across borders simple, fast, and accessible for individuals and businesses across Africa and beyond.
+    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
+      We’re building this platform with operators like you, and your feedback directly influences our roadmap.
     </p>
-    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
-      Whether ${escapeHtml(company)} is using BorderPay to receive international payments, send money globally, manage multiple currencies, or grow internationally, we're committed to building a financial platform you can rely on.
+    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
+      Over the coming months, you’ll see stronger payouts, better treasury controls, and improved cross-border settlement flows.
     </p>
-    <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
-      We're still at the beginning of our journey, and we are building BorderPay together with our early users. Your feedback shapes every product improvement we make.
+    <p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
+      Warm regards,<br />
+      <strong>Mark Ikaba</strong><br />
+      Founder &amp; CEO, BorderPay
     </p>
-    <p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
-      Thank you once again for trusting BorderPay.<br/><br/>
-      Warm regards,<br/>
-      <strong style="color:${BORDERPAY_BRAND.text};">Mark Ikaba</strong><br/>
-      Founder &amp; CEO<br/>
-      BorderPay Africa
-    </p>`;
+  `;
+
   return {
     subject,
-    html: htmlLayout({ preview: subject, heading, introText, body, ctaText: "Open dashboard", ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard` }),
+    html: htmlLayout({
+      preview: "Welcome to BorderPay",
+      heading,
+      introText,
+      body,
+      ctaText: "Open BorderPay",
+      ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
+      footerNote: "If you have any questions, just reply to this email.",
+    }),
     text: textLayout({
       heading,
       body:
-        `Hi ${p.full_name || "there"},\n\n` +
-        `I'm Mark Ikaba, Founder and CEO of BorderPay, and I wanted to personally thank you for joining us.\n\n` +
-        `We're excited to support ${company} with global payments and multi-currency wallet operations.\n\n` +
-        `Warm regards,\nMark Ikaba\nFounder & CEO\nBorderPay Africa`,
-      ctaText: "Open dashboard",
+        `Welcome to BorderPay for ${company}.\n\n` +
+        "BorderPay helps businesses receive and move money internationally with reliable workflows.\n\n" +
+        "Your feedback directly influences our roadmap.\n\n" +
+        "Warm regards,\nMark Ikaba\nFounder & CEO, BorderPay",
+      ctaText: "Open BorderPay",
       ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
+      footerNote: "If you have any questions, just reply to this email.",
     }),
   };
 }
