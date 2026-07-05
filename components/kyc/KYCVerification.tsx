@@ -143,6 +143,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`borderpay_last_verify_url:${userId}`); } catch { return null; }
   });
+  const [lastHostedUrlTs, setLastHostedUrlTs] = useState<number>(() => {
+    try { return Number(localStorage.getItem(`borderpay_last_verify_url_ts:${userId}`) || '0'); } catch { return 0; }
+  });
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
   const tosAcceptedKey = useMemo(() => `borderpay_tos_accepted_v1:${userId}`, [userId]);
   const [tosAccepted, setTosAccepted] = useState<boolean>(() => {
@@ -150,6 +153,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   });
   const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`borderpay_last_tos_url:${userId}`); } catch { return null; }
+  });
+  const [tosLinkUrlTs, setTosLinkUrlTs] = useState<number>(() => {
+    try { return Number(localStorage.getItem(`borderpay_last_tos_url_ts:${userId}`) || '0'); } catch { return 0; }
   });
   const [embeddedUrl, setEmbeddedUrl] = useState<string | null>(null);
   const [embeddedTitle, setEmbeddedTitle] = useState<string>('');
@@ -162,13 +168,23 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     try { localStorage.setItem(tosAcceptedKey, accepted ? '1' : '0'); } catch { /* noop */ }
   }, [tosAcceptedKey]);
 
+  const isFreshHostedLink = useCallback((ts: number) => {
+    if (!Number.isFinite(ts) || ts <= 0) return false;
+    return (Date.now() - ts) <= 90_000;
+  }, []);
+
   const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean; title?: string; returnEnabled?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
     const title = String(opts?.title || 'Continue verification');
     const returnEnabled = opts?.returnEnabled !== false;
     if (cacheAsVerifyUrl) {
       setLastHostedUrl(url);
-      try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, url); } catch { /* noop */ }
+      const now = Date.now();
+      setLastHostedUrlTs(now);
+      try {
+        localStorage.setItem(`borderpay_last_verify_url:${userId}`, url);
+        localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
+      } catch { /* noop */ }
     }
     try {
       // Sev-1 guard: persist desired post-return route so callback never drops
@@ -281,8 +297,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
         setLastHostedUrl(r.data.link_url);
-        try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url); } catch { /* noop */ }
-        try { localStorage.removeItem(`borderpay_last_tos_url:${userId}`); } catch { /* noop */ }
+        const now = Date.now();
+        setLastHostedUrlTs(now);
+        setTosLinkUrlTs(0);
+        try {
+          localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
+          localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
+          localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
+          localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
+        } catch { /* noop */ }
         if (fromTosCallback) openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
@@ -352,12 +375,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const startVerification = async () => {
     try {
-      if (!tosAccepted && tosLinkUrl) {
+      if (!tosAccepted && tosLinkUrl && isFreshHostedLink(tosLinkUrlTs)) {
         try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
         openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
       }
-      if (tosAccepted && lastHostedUrl) {
+      if (tosAccepted && lastHostedUrl && isFreshHostedLink(lastHostedUrlTs)) {
         openHostedVerificationUrl(lastHostedUrl, { title: 'Continue verification', returnEnabled: true });
         return;
       }
@@ -369,7 +392,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
         setTosLinkUrl(r.data.tos_link_url);
-        try { localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url); } catch { /* noop */ }
+        const now = Date.now();
+        setTosLinkUrlTs(now);
+        try {
+          localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url);
+          localStorage.setItem(`borderpay_last_tos_url_ts:${userId}`, String(now));
+        } catch { /* noop */ }
         try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
@@ -377,8 +405,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (r?.success && r.data?.link_url) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
-        try { localStorage.removeItem(`borderpay_last_tos_url:${userId}`); } catch { /* noop */ }
-        try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url); } catch { /* noop */ }
+        const now = Date.now();
+        setLastHostedUrlTs(now);
+        setTosLinkUrlTs(0);
+        try {
+          localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
+          localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
+          localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
+          localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
+        } catch { /* noop */ }
         openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
@@ -410,15 +445,27 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
         setLastHostedUrl(r.data.link_url);
-        try { localStorage.removeItem(`borderpay_last_tos_url:${userId}`); } catch { /* noop */ }
-        try { localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url); } catch { /* noop */ }
+        const now = Date.now();
+        setLastHostedUrlTs(now);
+        setTosLinkUrlTs(0);
+        try {
+          localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
+          localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
+          localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
+          localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
+        } catch { /* noop */ }
         openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
         persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
-        try { localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url); } catch { /* noop */ }
+        const now = Date.now();
+        setTosLinkUrlTs(now);
+        try {
+          localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url);
+          localStorage.setItem(`borderpay_last_tos_url_ts:${userId}`, String(now));
+        } catch { /* noop */ }
         toast.info('Please accept Terms of Service first, then continue.');
         return;
       }
