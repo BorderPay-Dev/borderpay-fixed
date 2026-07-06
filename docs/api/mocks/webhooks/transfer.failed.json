@@ -1,0 +1,23 @@
+{
+  "id": "evt_01J2X7V9Q6MPG7QCKWQ3D6TCZR",
+  "type": "transfer.failed",
+  "created_at": "2026-07-06T12:18:00Z",
+  "data": {
+    "transfer_id": "tr_01J2X7V9QF8NRT6V15GZZ8EG9Y",
+    "status": "failed",
+    "failure_code": "provider_unavailable",
+    "failure_reason": "Upstream provider timeout",
+    "source": {
+      "payment_rail": "stablecoin",
+      "currency": "USDT",
+      "chain": "TRON",
+      "amount": "15.00"
+    },
+    "destination": {
+      "payment_rail": "stablecoin",
+      "currency": "USDT",
+      "chain": "TRON",
+      "address": "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE"
+    }
+  }
+}
