@@ -1,0 +1,437 @@
+openapi: 3.1.0
+info:
+  title: BorderPay Public API
+  version: 1.0.1
+  summary: BorderPay API v1 (gateway-enforced contract)
+  description: |
+    Public partner API contract aligned to live gateway validators (Step 2D, 2026-07-06).
+
+    Contract guarantees:
+    - Provider-neutral payloads and responses.
+    - Strict request validation at gateway boundary.
+    - Required idempotency for all mutating endpoints.
+    - Stable error code envelope for machine handling.
+servers:
+  - url: https://api.borderpayafrica.com
+    description: Production
+  - url: https://sandbox.api.borderpayafrica.com
+    description: Sandbox
+security:
+  - BearerAuth: []
+tags:
+  - name: Health
+  - name: Customers
+  - name: Wallets
+  - name: Virtual Accounts
+  - name: Transfers
+  - name: Payouts
+  - name: Webhooks
+paths:
+  /v1/health:
+    get:
+      tags: [Health]
+      summary: Gateway health and tenant runtime status
+      operationId: getGatewayHealth
+      responses:
+        '200':
+          description: Health snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/customers:
+    post:
+      tags: [Customers]
+      summary: Create customer
+      operationId: createCustomer
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCustomerResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/wallets:
+    post:
+      tags: [Wallets]
+      summary: Create stablecoin wallet
+      operationId: createWallet
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWalletRequest'
+      responses:
+        '201':
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWalletResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/virtual-accounts:
+    post:
+      tags: [Virtual Accounts]
+      summary: Create virtual account
+      operationId: createVirtualAccount
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVirtualAccountRequest'
+      responses:
+        '201':
+          description: Virtual account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateVirtualAccountResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/transfers:
+    post:
+      tags: [Transfers]
+      summary: Create transfer
+      operationId: createTransfer
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+      responses:
+        '201':
+          description: Transfer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransferResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/payouts:
+    post:
+      tags: [Payouts]
+      summary: Create payout
+      operationId: createPayout
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+      responses:
+        '201':
+          description: Payout created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransferResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/webhooks:
+    post:
+      tags: [Webhooks]
+      summary: Register webhook endpoint
+      operationId: createWebhookEndpoint
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook endpoint created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWebhookResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API_KEY_OR_JWT
+
+  parameters:
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      description: Required for all mutating endpoints (8-256 printable chars).
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 256
+
+  responses:
+    ErrorResponse:
+      description: Standard API error envelope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    ErrorCode:
+      type: string
+      enum:
+        - unauthorized
+        - forbidden
+        - invalid_request
+        - idempotency_key_required
+        - idempotency_replay_mismatch
+        - not_found
+        - rate_limited
+        - provider_unavailable
+        - provider_error
+        - internal_error
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+
+    HealthResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          type: object
+          required: [request_id, route, tenant_id, tenant_name, mode, rate_limit_per_minute, remaining, reset_at, gateway]
+          properties:
+            request_id: { type: string }
+            route: { type: string, example: GET /v1/health }
+            tenant_id: { type: string, format: uuid }
+            tenant_name: { type: string }
+            mode: { type: string, enum: [sandbox, production] }
+            rate_limit_per_minute: { type: integer }
+            remaining: { type: integer }
+            reset_at: { type: string, format: date-time }
+            gateway: { type: string, example: ready }
+
+    CreateCustomerRequest:
+      type: object
+      required: [account_type, email, country_code, borderpay_user_id]
+      properties:
+        account_type:
+          type: string
+          enum: [individual, business]
+        email:
+          type: string
+          format: email
+        country_code:
+          type: string
+          pattern: '^[A-Z]{2}$'
+        full_name:
+          type: string
+          description: Required when account_type=individual.
+        company_name:
+          type: string
+          description: Required when account_type=business.
+        registration_number:
+          type: string
+        phone_e164:
+          type: string
+        borderpay_user_id:
+          type: string
+          description: Partner reference for your customer.
+
+    CreateCustomerResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [customer_id, provider]
+          properties:
+            customer_id: { type: string }
+            provider: { type: string, enum: [borderpay] }
+
+    CreateWalletRequest:
+      type: object
+      required: [customer_id, symbol, chain]
+      properties:
+        customer_id:
+          type: string
+        symbol:
+          type: string
+          enum: [USDC, USDT, PYUSD, USDB, EURC]
+        chain:
+          type: string
+          enum: [ETH, SOL, BSC, POLYGON, TRON, BASE, OPTIMISM, ARBITRUM]
+
+    CreateWalletResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [wallet_id, deposit_address, symbol, chain]
+          properties:
+            wallet_id: { type: string }
+            deposit_address: { type: string }
+            symbol: { type: string }
+            chain: { type: string }
+
+    CreateVirtualAccountRequest:
+      type: object
+      required: [customer_id, currency, destination]
+      properties:
+        customer_id:
+          type: string
+        currency:
+          type: string
+          enum: [USD, EUR, GBP]
+        destination:
+          type: object
+          required: [rail, currency, address]
+          properties:
+            rail: { type: string }
+            currency: { type: string }
+            address: { type: string }
+
+    CreateVirtualAccountResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [virtual_account_id, currency]
+          properties:
+            virtual_account_id: { type: string }
+            currency: { type: string }
+            account_number: { type: [string, 'null'] }
+            routing_number: { type: [string, 'null'] }
+            iban: { type: [string, 'null'] }
+            bic: { type: [string, 'null'] }
+            bank_name: { type: [string, 'null'] }
+
+    TransferParty:
+      type: object
+      required: [payment_rail, currency]
+      properties:
+        payment_rail: { type: string }
+        currency: { type: string }
+        chain: { type: string }
+        amount: { type: string }
+        customer_id: { type: string }
+        from_address: { type: string }
+        address: { type: string }
+        bridge_wallet_id: { type: string }
+        external_account_id: { type: string }
+        deposit_id: { type: string }
+        bank_account:
+          type: object
+          properties:
+            account_number: { type: string }
+            routing_number: { type: string }
+            iban: { type: string }
+            bic: { type: string }
+
+    CreateTransferRequest:
+      type: object
+      required: [source, destination, idempotency_key]
+      properties:
+        source:
+          $ref: '#/components/schemas/TransferParty'
+        destination:
+          $ref: '#/components/schemas/TransferParty'
+        developer_fee:
+          type: object
+          properties:
+            percentage: { type: number }
+            flat_amount: { type: string }
+        idempotency_key:
+          type: string
+
+    CreateTransferResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [transfer_id, state, provider]
+          properties:
+            transfer_id: { type: string }
+            state: { type: string }
+            provider: { type: string, enum: [borderpay] }
+
+    CreateWebhookRequest:
+      type: object
+      required: [endpoint_url]
+      properties:
+        endpoint_url:
+          type: string
+          format: uri
+
+    CreateWebhookResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [webhook_id, endpoint_url, signing_secret, created_at]
+          properties:
+            webhook_id: { type: string }
+            endpoint_url: { type: string, format: uri }
+            signing_secret:
+              type: string
+              description: Returned once at creation.
+            created_at: { type: string, format: date-time }
