@@ -1,0 +1,15 @@
+{
+  "tenants": [
+    {
+      "tenant_id": "00000000-0000-0000-0000-000000000000",
+      "tenant_name": "Acme Payroll API",
+      "gateway_api_key": "bpk_live_replace_me",
+      "preflight_expect_forbidden": true,
+      "promote": false,
+      "default_mode": "production",
+      "beta_access_enabled": true,
+      "max_single_transfer_usd": 5000,
+      "rate_limit_per_minute": 120
+    }
+  ]
+}
