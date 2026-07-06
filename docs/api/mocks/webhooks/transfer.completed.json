@@ -1,0 +1,22 @@
+{
+  "id": "evt_01J2X7TQJ4Q4P8E8VQ6W5YH6KZ",
+  "type": "transfer.completed",
+  "created_at": "2026-07-06T12:10:00Z",
+  "data": {
+    "transfer_id": "tr_01J2X7TQK5PZCC5M5J4N6Q9S1A",
+    "status": "completed",
+    "source": {
+      "payment_rail": "stablecoin",
+      "currency": "USDC",
+      "chain": "BASE",
+      "amount": "10.00"
+    },
+    "destination": {
+      "payment_rail": "stablecoin",
+      "currency": "USDC",
+      "chain": "BASE",
+      "address": "0x0000000000000000000000000000000000000002"
+    },
+    "settled_at": "2026-07-06T12:09:56Z"
+  }
+}
