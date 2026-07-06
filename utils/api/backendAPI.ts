@@ -459,7 +459,10 @@ export const walletAPI = {
         .from('bridge_balance_ledger')
         .select('currency,amount_minor,direction,entity_type,created_at')
         .or(ownerOrFilter(user.id))
-        .eq('entity_type', 'wallet'),
+        // Receive-money credits are posted as virtual_account ledger entries
+        // first. Include both wallet + virtual_account so dashboard balances
+        // reflect incoming funds instantly for individual and business users.
+        .in('entity_type', ['wallet', 'virtual_account']),
     ]);
 
     const firstErr = bridgeWalletErr || bridgeVaErr || walletBalanceLedgerErr;
@@ -489,9 +492,9 @@ export const walletAPI = {
       return row;
     };
 
-    // Canonical spendable balances come only from wallet-settled ledger entries.
-    // Virtual accounts are receive rails and attribution metadata, not a second
-    // spendable wallet source.
+    // Canonical spendable balances come from credited bridge ledger entries for
+    // wallet and virtual_account entities. We aggregate by currency to keep one
+    // unified wallet row per currency in the dashboard.
     const ledgerByCurrency = new Map<string, number>();
     for (const r of (walletBalanceLedger || [])) {
       const c = String((r as any).currency || '').toUpperCase();
