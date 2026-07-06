@@ -1,0 +1,175 @@
+{
+  "info": {
+    "_postman_id": "bf1e2050-95c4-4cdc-90a7-f20f7757467c",
+    "name": "BorderPay API v1",
+    "description": "Partner-ready collection aligned to docs/api/openapi-v1.yaml (v1.0.1).\n\nAuth model:\n- public-api-gateway uses API key bearer token\n- api-gateway-admin uses admin JWT or service-role bearer\n\nSet collection variables before use.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://sandbox.api.borderpayafrica.com/functions/v1/public-api-gateway" },
+    { "key": "admin_url", "value": "https://sandbox.api.borderpayafrica.com/functions/v1/api-gateway-admin" },
+    { "key": "api_key", "value": "" },
+    { "key": "admin_jwt", "value": "" },
+    { "key": "mode", "value": "sandbox" },
+    { "key": "tenant_id", "value": "" },
+    { "key": "customer_id", "value": "" },
+    { "key": "webhook_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Gateway Health",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-borderpay-route", "value": "/v1/health" },
+          { "key": "x-borderpay-mode", "value": "{{mode}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"method\": \"GET\"\n}"
+        },
+        "url": "{{base_url}}"
+      }
+    },
+    {
+      "name": "Create Customer",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-borderpay-route", "value": "/v1/customers" },
+          { "key": "x-borderpay-mode", "value": "{{mode}}" },
+          { "key": "Idempotency-Key", "value": "idem-customer-001" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"account_type\": \"individual\",\n  \"email\": \"partner-user@example.com\",\n  \"country_code\": \"NG\",\n  \"full_name\": \"Partner User\",\n  \"borderpay_user_id\": \"partner_ref_001\"\n}"
+        },
+        "url": "{{base_url}}"
+      }
+    },
+    {
+      "name": "Create Wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-borderpay-route", "value": "/v1/wallets" },
+          { "key": "x-borderpay-mode", "value": "{{mode}}" },
+          { "key": "Idempotency-Key", "value": "idem-wallet-001" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"symbol\": \"USDC\",\n  \"chain\": \"BASE\"\n}"
+        },
+        "url": "{{base_url}}"
+      }
+    },
+    {
+      "name": "Create Virtual Account",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-borderpay-route", "value": "/v1/virtual-accounts" },
+          { "key": "x-borderpay-mode", "value": "{{mode}}" },
+          { "key": "Idempotency-Key", "value": "idem-va-001" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"currency\": \"USD\",\n  \"destination\": {\n    \"rail\": \"base\",\n    \"currency\": \"usdc\",\n    \"address\": \"0x0000000000000000000000000000000000000001\"\n  }\n}"
+        },
+        "url": "{{base_url}}"
+      }
+    },
+    {
+      "name": "Create Transfer",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-borderpay-route", "value": "/v1/transfers" },
+          { "key": "x-borderpay-mode", "value": "{{mode}}" },
+          { "key": "Idempotency-Key", "value": "idem-transfer-001" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"source\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDC\",\n    \"chain\": \"BASE\",\n    \"amount\": \"10.00\",\n    \"customer_id\": \"{{customer_id}}\"\n  },\n  \"destination\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDC\",\n    \"chain\": \"BASE\",\n    \"address\": \"0x0000000000000000000000000000000000000002\"\n  },\n  \"idempotency_key\": \"idem-transfer-001\"\n}"
+        },
+        "url": "{{base_url}}"
+      }
+    },
+    {
+      "name": "Create Payout",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-borderpay-route", "value": "/v1/payouts" },
+          { "key": "x-borderpay-mode", "value": "{{mode}}" },
+          { "key": "Idempotency-Key", "value": "idem-payout-001" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"source\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDT\",\n    \"chain\": \"TRON\",\n    \"amount\": \"15.00\",\n    \"customer_id\": \"{{customer_id}}\"\n  },\n  \"destination\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDT\",\n    \"chain\": \"TRON\",\n    \"address\": \"TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE\"\n  },\n  \"idempotency_key\": \"idem-payout-001\"\n}"
+        },
+        "url": "{{base_url}}"
+      }
+    },
+    {
+      "name": "Create Webhook Endpoint",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-borderpay-route", "value": "/v1/webhooks" },
+          { "key": "x-borderpay-mode", "value": "{{mode}}" },
+          { "key": "Idempotency-Key", "value": "idem-webhook-001" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"endpoint_url\": \"https://example.com/borderpay/webhooks\"\n}"
+        },
+        "url": "{{base_url}}"
+      }
+    },
+    {
+      "name": "Admin - Upsert Tenant",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{admin_jwt}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"upsert_tenant\",\n  \"tenant_name\": \"Partner Sandbox A\",\n  \"default_mode\": \"sandbox\",\n  \"rate_limit_per_minute\": 120\n}"
+        },
+        "url": "{{admin_url}}"
+      }
+    },
+    {
+      "name": "Admin - Create API Key",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{admin_jwt}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"create_api_key\",\n  \"tenant_id\": \"{{tenant_id}}\",\n  \"key_label\": \"partner-primary\",\n  \"scopes\": [\n    \"customers:write\",\n    \"wallets:write\",\n    \"virtual_accounts:write\",\n    \"transfers:write\",\n    \"payouts:write\",\n    \"webhooks:write\"\n  ]\n}"
+        },
+        "url": "{{admin_url}}"
+      }
+    }
+  ]
+}
