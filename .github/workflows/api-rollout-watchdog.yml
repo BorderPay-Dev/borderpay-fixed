@@ -1,0 +1,57 @@
+name: API Rollout Watchdog
+
+on:
+  workflow_dispatch:
+    inputs:
+      auto_rollback_on_alert:
+        description: "Set true to auto-run emergency rollback on alert"
+        required: false
+        default: "false"
+      window_minutes:
+        description: "Metrics window in minutes"
+        required: false
+        default: "15"
+  schedule:
+    - cron: '*/15 * * * *'
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.API_GATEWAY_SUPABASE_URL }}
+      SERVICE_ROLE_KEY: ${{ secrets.API_GATEWAY_SERVICE_ROLE_KEY }}
+      TENANT_IDS: ${{ secrets.API_GATEWAY_TENANT_IDS }}
+      ALERT_ERROR_RATE_PCT: ${{ secrets.API_GATEWAY_ALERT_ERROR_RATE_PCT }}
+      ALERT_P95_LATENCY_MS: ${{ secrets.API_GATEWAY_ALERT_P95_LATENCY_MS }}
+      ALERT_PROVIDER_ERRORS: ${{ secrets.API_GATEWAY_ALERT_PROVIDER_ERRORS }}
+      ALERT_RATE_LIMITED_REQUESTS: ${{ secrets.API_GATEWAY_ALERT_RATE_LIMITED_REQUESTS }}
+      ALERT_MIN_REQUESTS: ${{ secrets.API_GATEWAY_ALERT_MIN_REQUESTS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing API_GATEWAY_SUPABASE_URL secret" && exit 1)
+          test -n "$SERVICE_ROLE_KEY" || (echo "Missing API_GATEWAY_SERVICE_ROLE_KEY secret" && exit 1)
+          test -n "$TENANT_IDS" || (echo "Missing API_GATEWAY_TENANT_IDS secret" && exit 1)
+
+      - name: Run rollout watchdog
+        run: |
+          chmod +x scripts/api/*.sh
+          WINDOW_MINUTES="${{ github.event.inputs.window_minutes || '15' }}" \
+          AUTO_ROLLBACK_ON_ALERT="${{ github.event.inputs.auto_rollback_on_alert || 'false' }}" \
+          AUTO_ROLLBACK_REVOKE_KEYS="true" \
+          WATCHDOG_SUMMARY_PATH="/tmp/api_rollout_watchdog_summary.md" \
+          scripts/api/run_rollout_watchdog.sh
+
+      - name: Publish watchdog summary
+        if: always()
+        run: |
+          if [ -f /tmp/api_rollout_watchdog_summary.md ]; then
+            cat /tmp/api_rollout_watchdog_summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No watchdog summary produced." >> "$GITHUB_STEP_SUMMARY"
+          fi

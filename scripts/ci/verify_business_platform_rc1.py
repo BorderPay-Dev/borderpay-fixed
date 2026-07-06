@@ -77,6 +77,7 @@ def main() -> int:
         "transactions?: any[]" in treasury_card
         or "backendAPI.transactions.getTransactions" in treasury_card
         or "backendAPI.financial.getTransactionsRouteData" in treasury_card
+        or "backendAPI.financial.getSnapshot" in treasury_card
     )
     must(
         "Treasury card uses canonical transaction source",

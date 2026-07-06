@@ -1,0 +1,12 @@
+{
+  "id": "evt_01J2X7XJKSMR8WFY76YMB2QH4B",
+  "type": "customer.verification.updated",
+  "created_at": "2026-07-06T12:26:00Z",
+  "data": {
+    "customer_id": "cus_01J2X7XJK2D8M4Y9FA2QG3Z7SE",
+    "verification": {
+      "status": "approved",
+      "reviewed_at": "2026-07-06T12:25:42Z"
+    }
+  }
+}
