@@ -1,0 +1,16 @@
+{
+  "name": "@borderpay/sdk-starter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BorderPay API v1 starter SDK (Step 2G)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
