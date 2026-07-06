@@ -1,0 +1,54 @@
+name: API Contract Pack
+
+on:
+  pull_request:
+    paths:
+      - 'docs/api/**'
+      - 'docs/API_V1_**'
+      - 'docs/API_STEP2**'
+      - 'scripts/ci/verify_api_contract_pack.py'
+      - 'scripts/ci/verify_api_mock_fixtures.py'
+      - '.github/workflows/api-contract-pack.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/api/**'
+      - 'docs/API_V1_**'
+      - 'docs/API_STEP2**'
+      - 'scripts/ci/verify_api_contract_pack.py'
+      - 'scripts/ci/verify_api_mock_fixtures.py'
+      - '.github/workflows/api-contract-pack.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify API contract pack
+        run: python3 scripts/ci/verify_api_contract_pack.py
+
+      - name: Verify webhook mock fixtures
+        run: python3 scripts/ci/verify_api_mock_fixtures.py
+
+      - name: Build SDK starter
+        working-directory: docs/api/sdk/typescript
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run webhook conformance test
+        working-directory: docs/api/sdk/typescript
+        run: node test/webhook.conformance.mjs
