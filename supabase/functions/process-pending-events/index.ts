@@ -54,13 +54,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
 
 const WORKER_ID = `worker-${crypto.randomUUID().slice(0, 8)}`;
 
-// ── Webhook-email (KYC/KYB decisions only — v1) ──────────────────────────────
-// Per docs/bridge-webhook-email-policy.md. v1 wires ONLY terminal KYC/KYB
-// decisions (confirmed Bridge vocabulary). VA/wallet/transfer emails are NOT
-// wired — their terminal status vocabulary is unconfirmed from real payloads,
-// and transfer is dark behind TRANSFERS_LIVE regardless. All sends route through
-// the logged `send-email` (never direct Resend) and are BEST-EFFORT: a send
-// failure must never fail webhook processing.
+// ── Webhook-email (best-effort only) ──────────────────────────────────────────
+// KYC/KYB decision emails and receive-money transaction receipts are sent via
+// logged `send-email`. Failures never block webhook processing.
 const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 
 // Suppression config (DB/env only — never decided from the webhook payload).
@@ -155,8 +151,75 @@ async function emailKycDecisionBestEffort(
   }
 }
 
-// NOTE: v1 webhook email policy intentionally sends only KYC/KYB terminal
-// decision emails. Wallet activity emails are out of scope here.
+function minorToAmount(minor: bigint, currency: string): number {
+  const c = currency.toUpperCase();
+  const scale =
+    c === "USDC" || c === "USDT" || c === "USDB" || c === "PYUSD" || c === "EURC"
+      ? 6
+      : 2;
+  return Number(minor) / (10 ** scale);
+}
+
+async function emailTransactionReceiptBestEffort(input: {
+  userId: string;
+  accountType: "individual" | "business";
+  eventId: string;
+  amount: number;
+  currency: string;
+  reference: string;
+  description?: string | null;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN || !input.userId) return;
+    if (!Number.isFinite(input.amount) || input.amount <= 0) return;
+
+    const rcpt = await resolveEmailRecipient(input.userId);
+    if (!rcpt) return;
+
+    const props: Record<string, unknown> = {
+      direction: "credit",
+      amount: input.amount,
+      currency: input.currency.toUpperCase(),
+      reference: input.reference,
+      description: input.description ?? "Deposit received",
+      occurred_at: new Date().toISOString(),
+    };
+
+    let template = "individual.transaction_notification";
+    if (input.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", input.userId)
+        .maybeSingle();
+      template = "business.transaction_notification";
+      props.company_name = biz?.company_name || "Your business";
+    } else {
+      props.full_name = rcpt.full_name;
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: rcpt.email,
+        user_id: input.userId,
+        idempotency_key: `wh:tx:${input.eventId}:${template}`,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email transaction send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email transaction best-effort error: ${(e as Error).message}`);
+  }
+}
 
 interface PendingEvent {
   id:           string;
@@ -862,6 +925,15 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     if (mirrorErr) {
       throw new Error(`apply_bridge_wallet_credit_and_complete failed: ${mirrorErr.message}`);
     }
+    await emailTransactionReceiptBestEffort({
+      userId: resolved,
+      accountType: account_type,
+      eventId: ev.event_id,
+      amount: amountDecimal,
+      currency,
+      reference: `bridge:${ev.event_id}`,
+      description: "Virtual account deposit credit",
+    });
     // Backlink the webhook event to the VA for ops visibility (the RPC does
     // not touch bridge_webhook_events; we always set the entity backlink
     // for the activity branch here).
@@ -869,6 +941,18 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
       .eq("event_id", ev.event_id);
     return;
+  }
+
+  if (creditRow?.applied) {
+    await emailTransactionReceiptBestEffort({
+      userId: resolved,
+      accountType: account_type,
+      eventId: ev.event_id,
+      amount: minorToAmount(amountMinor, currency),
+      currency,
+      reference: `bridge:${ev.event_id}`,
+      description: "Virtual account deposit credit",
+    });
   }
 
   await supabase.from("bridge_webhook_events")
@@ -1028,7 +1112,15 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
       }, { onConflict: "event_id", ignoreDuplicates: true });
     }
 
-    // v1 webhook policy: do not send wallet activity emails here.
+    await emailTransactionReceiptBestEffort({
+      userId: resolved,
+      accountType: account_type,
+      eventId: ev.event_id,
+      amount: amountValue,
+      currency,
+      reference: txReference,
+      description: "Wallet deposit credit",
+    });
   }
 
   await supabase.from("bridge_webhook_events")

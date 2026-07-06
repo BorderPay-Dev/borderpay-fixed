@@ -27,7 +27,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
 import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, isAppLocked, setAppLocked, clearAppLocked } from '../../utils/supabase/client';
-import { ENV_CONFIG, isKycVerified } from '../../utils/config/environment';
+import { ENV_CONFIG } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface LoginScreenProps {
@@ -155,11 +155,12 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         // Auto-enroll biometrics (non-blocking, fires in background)
         tryBiometricEnrollment(data.user.id, userProfile.full_name || data.user.email || 'User');
 
-        const has2FA      = TOTPManager.isEnabled(userProfile.id);
+        const has2FA = TOTPManager.isEnabled(userProfile.id);
         const profileHas2FA = userProfile.two_factor_enabled || userProfile.mfa_enabled;
-        const isVerified  = isKycVerified(userProfile);
 
-        if (isVerified && (has2FA || profileHas2FA)) {
+        // P0 security contract: if 2FA is enabled, enforce it immediately after
+        // successful sign-in before app access (PIN/biometric remains downstream).
+        if (has2FA || profileHas2FA) {
           setPendingUser(userProfile);
           setShow2FA(true);
           return;
@@ -342,8 +343,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
       toast.success('Biometric authentication successful!');
 
       const has2FA = TOTPManager.isEnabled(mergedProfile.id);
-      const isVerified = isKycVerified(mergedProfile);
-      if (isVerified && (has2FA || mergedProfile.two_factor_enabled || mergedProfile.mfa_enabled)) {
+      if (has2FA || mergedProfile.two_factor_enabled || mergedProfile.mfa_enabled) {
         setPendingUser(mergedProfile);
         setShow2FA(true);
       } else {
