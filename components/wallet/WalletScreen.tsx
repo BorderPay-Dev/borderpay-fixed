@@ -18,8 +18,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Shield, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, Plus, RefreshCw,
-  ChevronRight, Loader2,
+  Shield, RefreshCw, ChevronRight,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
@@ -31,8 +30,6 @@ import { usePreferences } from '../../utils/hooks/usePreferences';
 import {
   AssetBadge, WalletDetailSheet, AccountDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
-import { friendlyError } from '../../utils/errors/friendlyError';
-import { showToast } from '../common/StatusToast';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
@@ -73,7 +70,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   });
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
-  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -126,7 +122,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   });
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [creating, setCreating] = useState<string | null>(null);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
@@ -262,23 +257,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   };
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const caps = await backendAPI.bridge.virtualAccount.capabilities();
-        if (!alive || !caps?.success) return;
-        const supported = Array.isArray(caps.data?.supported_currencies)
-          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
-          : [];
-        if (supported.length > 0) setAvailableVaCurrencies(supported);
-      } catch {
-        // Keep fallback country policy list.
-      }
-    })();
-    return () => { alive = false; };
-  }, [userId]);
-
-  useEffect(() => {
     const prewarmKey = `borderpay_wallet_prewarm_v1:${userId}`;
     try {
       const last = Number(sessionStorage.getItem(prewarmKey) || '0');
@@ -310,62 +288,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       document.removeEventListener('visibilitychange', onVisibility);
     };
   /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
-
-  // ── Missing VA currencies (the "deposit chooser") ────────────────────────
-  const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
-  const missingVa = availableVaCurrencies.filter(c => !haveVa.has(c));
-  const haveStable = useMemo(
-    () => new Set(stables.map((s) => String(s.currency || '').toUpperCase()).filter(Boolean)),
-    [stables],
-  );
-  const missingStable = useMemo(
-    () => (['USDC', 'USDT'] as const).filter((s) => !haveStable.has(s)),
-    [haveStable],
-  );
-
-  const handleCreate = async (currency: BridgeVirtualAccountCurrency) => {
-    setCreating(currency);
-    const r = await backendAPI.bridge.virtualAccount.create({ currency });
-    setCreating(null);
-    if (!r.success) {
-      const code = String((r as any)?.code || '').toLowerCase();
-      if (code === 'country_rail_not_supported') {
-        showToast.error(`${currency} is not available in your region yet.`);
-        return;
-      }
-      const lower = String((r as any)?.code || '').toLowerCase();
-      if (currency === 'GBP') {
-        showToast.error(
-          lower.includes('unsupported') || lower.includes('not_enabled') || lower.includes('invalid_destination')
-            ? 'GBP account requests are reviewed manually. Contact support to enable GBP for your profile.'
-            : friendlyError(r.error, 'GBP account is not available yet for this profile. Contact support.'),
-        );
-        return;
-      }
-      showToast.error(friendlyError(r.error, `Could not open ${currency} account. Please try again.`));
-      return;
-    }
-    showToast.success(`${currency} account opened`);
-    refresh();
-  };
-
-  const handleCreateStable = async (symbol: 'USDC' | 'USDT') => {
-    setCreating(symbol);
-    const defaultChain = symbol === 'USDT' ? 'TRON' : 'BASE';
-    const r = await backendAPI.bridge.wallet.create({ symbol, chain: defaultChain });
-    setCreating(null);
-    if (!r.success) {
-      const code = String((r as any)?.code || '').toLowerCase();
-      if (code === 'wallet_country_not_supported' || code === 'country_not_supported') {
-        showToast.error(`${symbol} wallet is not available in your region yet.`);
-        return;
-      }
-      showToast.error(friendlyError(r.error, `Could not add ${symbol} wallet right now.`));
-      return;
-    }
-    showToast.success(`${symbol} wallet added`);
-    refresh(true);
-  };
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {
@@ -490,52 +412,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           )}
         </div>
 
-        {/* Missing-currency "+ open account" rows now live INLINE at the bottom
-            of the Balances list (one row per currency), so the user has a single
-            unified surface and we don't repeat the promo-card pattern. */}
-        {missingVa.length > 0 && (
-          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-            {missingVa.map((c, i) => (
-              <button key={c} disabled={creating === c} onClick={() => handleCreate(c)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}>
-                <AssetBadge symbol={c} size={40} />
-                <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text}`}>
-                    Open {c} account <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[c]})</span>
-                  </div>
-                  <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
-                </div>
-                {creating === c
-                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {missingStable.length > 0 && (
-          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-            {missingStable.map((sym, i) => (
-              <button
-                key={sym}
-                disabled={creating === sym}
-                onClick={() => handleCreateStable(sym)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}
-              >
-                <AssetBadge symbol={sym} size={40} />
-                <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text}`}>
-                    Add {sym} wallet
-                  </div>
-                  <div className={`text-[11px] ${tc.textMuted}`}>Request {sym} deposit wallet from provider</div>
-                </div>
-                {creating === sym
-                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Granted-only policy: do not render synthetic "open account" or
+            "add wallet" placeholders. Only Bridge-provisioned rows are shown. */}
 
       </div>
 

@@ -128,9 +128,9 @@ Deno.serve(async (req) => {
     .maybeSingle();
 
   if (isBridgeBlocked(profile?.country)) return json(bridgeCountryBlockResponse(profile!.country!), 403);
+  // Incident policy: do not hard-block bulk payouts on maintenance flags.
   if (maintenance?.maintenance_overdue === true) {
-    return json({ success: false, code: "maintenance_due",
-      error: "Clear your account maintenance fee before sending. Outbound transfers are paused until then." }, 402);
+    console.warn("bridge-bulk-payout maintenance_overdue flag set; continuing payout path", { user_id: user.id });
   }
   logControlledBridgeTraffic("bridge-bulk-payout", profile?.country, user.id);
   if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);

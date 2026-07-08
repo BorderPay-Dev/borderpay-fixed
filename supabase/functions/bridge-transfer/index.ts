@@ -205,14 +205,11 @@ Deno.serve(async (req) => {
   if (isBridgeBlocked(profile?.country)) {
     return json(bridgeCountryBlockResponse(profile!.country!), 403);
   }
-  // Maintenance gate (#3): block OUTBOUND money movement while a virtual-account
-  // maintenance fee is unpaid. Inbound/top-ups stay open so the user can clear it.
-  if (maintenance?.maintenance_overdue === true) {
-    return json({
-      success: false,
-      code:    "maintenance_due",
-      error:   "Top up your wallet to cover your account maintenance fee before sending. Outbound transfers are paused until then.",
-    }, 402);
+  // Incident policy: do not hard-block payouts on maintenance flags.
+  // We still record this state in logs/metadata for follow-up billing flows.
+  const maintenanceDue = maintenance?.maintenance_overdue === true;
+  if (maintenanceDue) {
+    console.warn("bridge-transfer maintenance_overdue flag set; continuing payout path", { user_id: user.id });
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {

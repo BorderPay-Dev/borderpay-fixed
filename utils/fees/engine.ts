@@ -9,10 +9,8 @@
  *   International (US / EU / LatAm — international fiat payout):
  *     0.35% orchestration + 0.999% fixed settlement + 2.5% BorderPay markup,
  *     for BOTH individual and business. Third-party/network costs pass through.
- *   African (EXTERNAL STABLECOIN withdrawal — USDT/USDC over TRON/Polygon/
- *     Solana/Arbitrum/Base):
- *     0.10% Bridge USDT support cost + 0.90% BorderPay markup = 1.00% flat,
- *     both account types.
+ *   Stablecoin payout (USDT/USDC):
+ *     $1.00 flat + 0.25% orchestration.
  *
  * NOTE: the 2.5% virtual-account developer fee is intentionally NOT shown at
  * payout. It is applied/mapped at virtual-account creation and never surfaced
@@ -29,10 +27,11 @@ export const INTL_ORCHESTRATION_PERCENT   = 0.35;
 export const INTL_FIXED_SETTLEMENT_PERCENT = 0.999;
 export const INTL_DEVELOPER_MARKUP_PERCENT = BRIDGE_DEVELOPER_FEE_PERCENT.fiat; // 2.5
 
-/** African external-stablecoin components (percent). Flat for both account types. */
-export const STABLECOIN_BRIDGE_USDT_PERCENT = 0.10;  // raw Bridge USDT support cost
-export const STABLECOIN_APP_MARKUP_PERCENT  = 0.90;  // BorderPay markup
-export const STABLECOIN_TOTAL_PERCENT       = STABLECOIN_BRIDGE_USDT_PERCENT + STABLECOIN_APP_MARKUP_PERCENT; // 1.00
+/** Stablecoin payout policy (production):
+ *  flat $1.00 + 0.25% orchestration.
+ */
+export const STABLECOIN_ORCHESTRATION_PERCENT = 0.25;
+export const STABLECOIN_FLAT_FEE              = 1.00;
 
 export interface PayoutFeeInput {
   corridor:        Corridor;
@@ -73,20 +72,24 @@ export function computePayoutFee(input: PayoutFeeInput): PayoutFeeResult {
       breakdown.push({ label, percent: pct, amount: round2(amount * pct / 100) });
     }
   } else {
-    // African → external stablecoin. 0.10% Bridge USDT + 0.90% markup = 1.00%,
-    // disclosed as a single combined line (the 2.5% VA dev fee is NOT shown).
-    feePercent += STABLECOIN_TOTAL_PERCENT;
+    // Stablecoin: flat $1.00 + 0.25% orchestration.
+    feePercent += STABLECOIN_ORCHESTRATION_PERCENT;
     breakdown.push({
-      label:   'BorderPay Network Fee',
-      percent: STABLECOIN_TOTAL_PERCENT,
-      amount:  round2(amount * STABLECOIN_TOTAL_PERCENT / 100),
+      label:   'Bridge orchestration',
+      percent: STABLECOIN_ORCHESTRATION_PERCENT,
+      amount:  round2(amount * STABLECOIN_ORCHESTRATION_PERCENT / 100),
+    });
+    breakdown.push({
+      label:  'BorderPay flat fee',
+      amount: STABLECOIN_FLAT_FEE,
     });
   }
 
   const percentFee = round2(amount * feePercent / 100);
   if (passThrough > 0) breakdown.push({ label: 'Network fee', amount: round2(passThrough) });
 
-  const totalFee = round2(percentFee + passThrough);
+  const stablecoinFlat = input.corridor === 'stablecoin' ? STABLECOIN_FLAT_FEE : 0;
+  const totalFee = round2(percentFee + stablecoinFlat + passThrough);
   return {
     corridor:        input.corridor,
     feePercent:      round2(feePercent),
