@@ -133,6 +133,7 @@ export interface TransferCreateInput {
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     address?:       string;            // crypto address
+    to_address?:    string;            // Bridge canonical crypto destination field
     bridge_wallet_id?: string;
     external_account_id?: string;
     deposit_id?:    string;

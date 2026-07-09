@@ -99,6 +99,40 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
   return { raw, numeric };
 }
 
+async function resolveSourceBridgeWalletId(input: {
+  bridgeCustomerId: string;
+  currency: string;
+  chain: string;
+  providedWalletId?: string | null;
+}): Promise<{ ok: true; bridge_wallet_id: string } | { ok: false; error: string }> {
+  const provided = String(input.providedWalletId || "").trim();
+  if (provided) return { ok: true, bridge_wallet_id: provided };
+
+  const currency = String(input.currency || "").trim().toUpperCase();
+  const chain = String(input.chain || "").trim().toLowerCase();
+  if (!currency || !chain) return { ok: false, error: "Source wallet currency and chain are required." };
+
+  const { data, error } = await supa
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,status")
+    .eq("bridge_customer_id", input.bridgeCustomerId)
+    .ilike("currency", currency)
+    .ilike("chain", chain)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: "Could not verify the source wallet. Please try again." };
+  if (!data?.bridge_wallet_id) return { ok: false, error: `${currency} wallet on ${chain.toUpperCase()} is not available for this account yet.` };
+
+  const status = String(data.status || "active").toLowerCase();
+  if (["inactive", "disabled", "closed", "archived", "blocked", "suspended", "deactivated"].includes(status)) {
+    return { ok: false, error: `${currency} wallet on ${chain.toUpperCase()} is not active.` };
+  }
+
+  return { ok: true, bridge_wallet_id: String(data.bridge_wallet_id) };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -217,6 +251,22 @@ Deno.serve(async (req) => {
         continue;
       }
       const enforced = validation.enforced;
+      const sourceWallet = await resolveSourceBridgeWalletId({
+        bridgeCustomerId: profile.bridge_customer_id,
+        currency: enforced.currency,
+        chain: enforced.chain,
+        providedWalletId: it.source_bridge_wallet_id || it.source?.bridge_wallet_id,
+      });
+      if (!sourceWallet.ok) {
+        results.push({
+          row,
+          label: it.label ?? null,
+          state: "failed",
+          error: sourceWallet.error,
+        });
+        failed++;
+        continue;
+      }
 
       const result = await bridgeProvider.createTransfer({
         source: {
@@ -224,6 +274,7 @@ Deno.serve(async (req) => {
           payment_rail: enforced.source_payment_rail,
           currency:     enforced.currency,
           chain:        enforced.chain,
+          bridge_wallet_id: sourceWallet.bridge_wallet_id,
           amount:       enforced.gross_amount,
         },
         destination: {

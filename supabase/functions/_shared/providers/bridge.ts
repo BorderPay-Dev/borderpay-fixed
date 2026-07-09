@@ -630,6 +630,16 @@ export class BridgeProvider implements PaymentProvider {
         ? destinationChain
         : destinationRail;
     const isBlockchainDestination = blockchainRails.has(bridgeDestinationRail);
+    const destinationAddress = input.destination.to_address || input.destination.address;
+    if (bridgeSourceRail === "bridge_wallet" && !input.source.bridge_wallet_id) {
+      throw new BridgeProviderError(
+        "Bridge createTransfer request invalid: bridge_wallet_id is required for bridge_wallet source",
+        {
+          bridge_code: "invalid_parameters",
+          bridge_error: "source.bridge_wallet_id is required when source.payment_rail is bridge_wallet",
+        },
+      );
+    }
     const body: Record<string, unknown> = {
       amount: input.source.amount,
       ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),
@@ -646,8 +656,8 @@ export class BridgeProvider implements PaymentProvider {
         payment_rail: bridgeDestinationRail,
         currency:     String(input.destination.currency).toLowerCase(),
         ...(destinationRail !== "stablecoin" && !isBlockchainDestination && input.destination.chain ? { chain: input.destination.chain.toLowerCase() } : {}),
-        ...(isBlockchainDestination && input.destination.address ? { to_address: input.destination.address } : {}),
-        ...(!isBlockchainDestination && input.destination.address ? { address: input.destination.address } : {}),
+        ...(isBlockchainDestination && destinationAddress ? { to_address: destinationAddress } : {}),
+        ...(!isBlockchainDestination && destinationAddress ? { address: destinationAddress } : {}),
         ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),
         ...(input.destination.external_account_id ? { external_account_id: input.destination.external_account_id } : {}),
         ...(input.destination.deposit_id ? { deposit_id: input.destination.deposit_id } : {}),
