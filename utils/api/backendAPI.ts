@@ -118,6 +118,10 @@ async function apiCall<T = any>(
         success: false,
         error: sanitizeError(data.error || data.message),
         ...(data?.code ? { code: data.code } : {}),
+        ...(data?.provider_status ? { provider_status: data.provider_status } : {}),
+        ...(data?.provider_request_id ? { provider_request_id: data.provider_request_id } : {}),
+        ...(data?.bridge_code ? { bridge_code: data.bridge_code } : {}),
+        ...(data?.bridge_error ? { bridge_error: data.bridge_error } : {}),
         ...(data?.upgrade_to ? { upgrade_to: data.upgrade_to } : {}),
       } as any;
     }

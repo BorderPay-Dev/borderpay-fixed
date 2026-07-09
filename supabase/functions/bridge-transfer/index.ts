@@ -531,6 +531,8 @@ Deno.serve(async (req) => {
       error: providerMessage,
       provider_status: providerStatus,
       provider_request_id: providerError?.request_id ?? null,
+      bridge_code: providerError?.bridge_code ?? null,
+      bridge_error: providerError?.bridge_error ?? null,
     }, clientStatus);
   }
 });

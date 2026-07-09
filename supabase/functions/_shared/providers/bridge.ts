@@ -620,7 +620,7 @@ export class BridgeProvider implements PaymentProvider {
         payment_rail: input.destination.payment_rail,
         currency:     String(input.destination.currency).toLowerCase(),
         ...(input.destination.chain    ? { chain:    input.destination.chain.toLowerCase() } : {}),
-        ...(input.destination.address  ? { to_address: input.destination.address } : {}),
+        ...(input.destination.address  ? { address: input.destination.address } : {}),
         ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),
         ...(input.destination.external_account_id ? { external_account_id: input.destination.external_account_id } : {}),
         ...(input.destination.deposit_id ? { deposit_id: input.destination.deposit_id } : {}),

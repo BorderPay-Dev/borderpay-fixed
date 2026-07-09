@@ -1,14 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, Plus } from 'lucide-react';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
-import {
-  type BridgeVirtualAccountCurrency,
-} from '../../utils/compliance/partnerCountryPolicy';
 import { AssetBadge } from '../dashboard/bridge/WalletVisuals';
 import { FloatingBackButton } from '../common/FloatingBackButton';
-import { showToast } from '../common/StatusToast';
-import { friendlyError } from '../../utils/errors/friendlyError';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 interface AddWalletScreenProps {
@@ -17,7 +11,7 @@ interface AddWalletScreenProps {
 }
 
 interface StableRow { id: string; currency: string }
-interface VaRow { id: string; currency: BridgeVirtualAccountCurrency }
+interface VaRow { id: string; currency: string }
 
 type WalletType = 'virtual_account' | 'stablecoin';
 
@@ -36,41 +30,15 @@ const CARDS: WalletCard[] = [
   { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Stablecoin wallet' },
 ];
 
-const STABLE_CHAIN: Record<string, string> = {
-  USDC: 'BASE',
-  USDT: 'TRON',
-};
-
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
 };
 
-function isApproved(value?: string | null): boolean {
-  if (typeof value !== 'string') return false;
-  return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
-}
-
 export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
-
-  const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
-  const [stableSupported, setStableSupported] = useState<boolean>(false);
-  const [supportedStableSymbols, setSupportedStableSymbols] = useState<string[]>(['USDC', 'USDT']);
-
-  const [verified, setVerified] = useState<boolean>(() => {
-    try {
-      const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-      const accountType = String(cached?.account_type || 'individual').toLowerCase();
-      return accountType === 'business'
-        ? (isApproved(cached?.bridge_kyb_status) || isApproved(cached?.bridge_kyc_status) || isApproved(cached?.bridge_account_status))
-        : (isApproved(cached?.bridge_kyc_status) || isApproved(cached?.bridge_account_status));
-    } catch {
-      return false;
-    }
-  });
 
   const walletCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v2', { userId }),
@@ -96,7 +64,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       return [];
     }
   });
-  const [creating, setCreating] = useState<string | null>(null);
   const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
@@ -117,50 +84,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         .filter((row: any) => ['USDC', 'USDT'].includes(String(row?.currency || '').toUpperCase()))
         .reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
       try { localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(total)); } catch { /* noop */ }
-
-      try {
-        const [vaCaps, walletCaps] = await Promise.all([
-          backendAPI.bridge.virtualAccount.capabilities(),
-          backendAPI.bridge.wallet.capabilities(),
-        ]);
-        if (vaCaps?.success && Array.isArray(vaCaps?.data?.supported_currencies)) {
-          const next = vaCaps.data.supported_currencies
-            .filter((c: unknown): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c).toUpperCase()))
-            .map((c: string) => c.toUpperCase() as BridgeVirtualAccountCurrency);
-          setSupportedVaCurrencies(next);
-        } else {
-          setSupportedVaCurrencies([]);
-        }
-        if (walletCaps?.success) {
-          setStableSupported(Boolean(walletCaps?.data?.supported));
-          if (Array.isArray(walletCaps?.data?.supported_symbols) && walletCaps.data.supported_symbols.length > 0) {
-            const supported = walletCaps.data.supported_symbols
-              .map((s: any) => String(s || '').toUpperCase())
-              .filter((s: string) => s === 'USDC' || s === 'USDT');
-            setSupportedStableSymbols(supported);
-          } else {
-            setSupportedStableSymbols(['USDC', 'USDT']);
-          }
-        } else {
-          setStableSupported(false);
-          setSupportedStableSymbols([]);
-        }
-      } catch {
-        // Fail-closed on capabilities fetch errors.
-        setSupportedVaCurrencies([]);
-        setStableSupported(false);
-        setSupportedStableSymbols([]);
-      }
-
-      const p = await backendAPI.user.getProfile();
-      if (p?.success && p?.data?.user) {
-        const u = p.data.user;
-        const accountType = String(u?.account_type || 'individual').toLowerCase();
-        const isVerified = accountType === 'business'
-          ? (isApproved(u?.bridge_kyb_status) || isApproved(u?.bridge_kyc_status) || isApproved(u?.bridge_account_status))
-          : (isApproved(u?.bridge_kyc_status) || isApproved(u?.bridge_account_status));
-        setVerified(isVerified);
-      }
     } finally {
       refreshInFlightRef.current = false;
     }
@@ -181,41 +104,12 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const visibleCards = useMemo(
     () => CARDS.filter((card) => {
       if (card.type === 'virtual_account') {
-        return existingVa.has(card.code) || supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
+        return existingVa.has(card.code);
       }
-      return existingStable.has(card.code) || (stableSupported && supportedStableSymbols.includes(card.code));
+      return existingStable.has(card.code);
     }),
-    [existingStable, existingVa, stableSupported, supportedStableSymbols, supportedVaCurrencies],
+    [existingStable, existingVa],
   );
-
-  const requestWallet = async (card: WalletCard) => {
-    if (creating) return;
-    setCreating(card.code);
-    try {
-      if (card.type === 'virtual_account') {
-        const res: any = await backendAPI.bridge.virtualAccount.create({
-          currency: card.code as BridgeVirtualAccountCurrency,
-        });
-        if (!res?.success) {
-          const msg = friendlyError(res?.error, `Could not activate ${card.code} account.`);
-          showToast.error(msg);
-          return;
-        }
-        showToast.success(`${card.code} account activated`);
-      } else {
-        const chain = STABLE_CHAIN[card.code] || 'BASE';
-        const res: any = await backendAPI.bridge.wallet.create({ symbol: card.code, chain });
-        if (!res?.success) {
-          showToast.error(friendlyError(res?.error, `Could not add ${card.code} wallet.`));
-          return;
-        }
-        showToast.success(`${card.code} wallet added`);
-      }
-      await refresh();
-    } finally {
-      setCreating(null);
-    }
-  };
 
   const renderAction = (card: WalletCard) => {
     const alreadyExists = card.type === 'virtual_account'
@@ -232,39 +126,9 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       );
     }
 
-    const supported = card.type === 'virtual_account'
-      ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
-      : (stableSupported && supportedStableSymbols.includes(card.code));
-
-    if (!supported) {
-      return (
-        <button
-          disabled
-          className="h-10 px-4 rounded-xl border border-white/15 text-white/55 text-sm font-semibold"
-        >
-          Unavailable
-        </button>
-      );
-    }
-
-    if (!verified) {
-      return (
-        <button
-          disabled
-          className="h-10 px-4 rounded-xl border border-white/15 text-white/55 text-sm font-semibold"
-        >
-          Verify first
-        </button>
-      );
-    }
-
     return (
-      <button
-        onClick={() => void requestWallet(card)}
-        disabled={creating === card.code}
-        className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
-      >
-        {creating === card.code ? 'Adding…' : (card.type === 'virtual_account' ? 'Activate' : 'Add')}
+      <button disabled className="h-10 px-4 rounded-xl border border-white/15 text-white/55 text-sm font-semibold">
+        Not granted
       </button>
     );
   };
@@ -295,9 +159,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
               const exists = card.type === 'virtual_account'
                 ? existingVa.has(card.code)
                 : existingStable.has(card.code);
-              const supported = card.type === 'virtual_account'
-                ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
-                : (stableSupported && supportedStableSymbols.includes(card.code));
               return (
                 <div
                   key={card.code}
@@ -318,15 +179,9 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {exists
-                        ? `${card.subtitle} · active`
-                        : !supported
-                          ? `${card.subtitle} · not available in your region`
-                          : card.subtitle}
+                      {exists ? `${card.subtitle} · active` : `${card.subtitle} · not granted`}
                     </div>
                   </div>
-                  {!supported && <Lock className="w-4 h-4 text-white/45 mr-1" />}
-                  {!exists && supported && <Plus className="w-4 h-4 text-white/45 mr-1" />}
                   {renderAction(card)}
                 </div>
               );
