@@ -68,12 +68,12 @@ export function PlanStatusCard({
 
         <div className="flex-1 min-w-0">
           <h3 className={`text-sm font-semibold ${tc.text}`}>
-            {isBusiness ? 'Receive first funds to unlock business accounts' : 'Receive first funds to unlock your accounts'}
+            {isBusiness ? 'Business accounts are enabled based on profile readiness' : 'Accounts are enabled based on profile readiness'}
           </h3>
           <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
             {isBusiness
-              ? 'Receive your first transfer or deposit at least $50 in USDC/USDT to unlock USD, EUR & GBP accounts automatically.'
-              : 'Receive your first transfer or deposit at least $20 in USDC/USDT to unlock USD, EUR & GBP accounts automatically.'}
+              ? 'Virtual accounts are provisioned automatically when granted for your business profile and supported region.'
+              : 'Virtual accounts are provisioned automatically when granted for your profile and supported region.'}
           </p>
         </div>
 

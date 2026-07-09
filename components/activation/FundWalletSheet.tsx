@@ -27,8 +27,8 @@ import { showToast } from '../common/StatusToast';
 export const FUNDING_MIN_USD_INDIVIDUAL = 20;
 export const FUNDING_MIN_USD_BUSINESS   = 50;
 const fundingMessage = (minUsd: number) =>
-  `Receive your first transfer or deposit at least $${minUsd} in USDC or USDT to unlock your USD, EUR and GBP accounts automatically. ` +
-  'Your funds stay in your wallet and are available for transfers and payouts.';
+  `Maintain at least $${minUsd} in USDC or USDT to keep transfers and payouts available. ` +
+  'Your funds stay in your wallet and remain available to you.';
 
 interface Props {
   open: boolean;

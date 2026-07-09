@@ -262,7 +262,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         <button
           disabled
           className="h-10 px-4 rounded-xl border border-white/15 text-white/55 text-sm font-semibold"
-          title="Receive your first transfer to unlock virtual accounts."
+          title="Virtual accounts are enabled automatically when available for your profile."
         >
           Locked
         </button>
@@ -298,7 +298,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           <div className={`mb-4 rounded-2xl border ${tc.cardBorder} ${tc.card} p-3 flex items-start gap-2`}>
             <Shield className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
             <p className={`text-xs ${tc.textSecondary}`}>
-              Receive your first transfer to unlock virtual accounts (USD, EUR, GBP).
+              Virtual accounts appear automatically when granted by the provider for your profile and region.
               Stablecoin wallets can be added now.
             </p>
           </div>
