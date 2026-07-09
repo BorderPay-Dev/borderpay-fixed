@@ -5,7 +5,7 @@
 // Idempotent: creates a wallet only if that (currency, chain) is missing; if it
 // already exists (incl. created on the Bridge dashboard once synced), it's a
 // no-op. Safe to call on every dashboard load — ineligible users get a silent
-// no-op (NO plan_required 402, so it never triggers the activation popup).
+// no-op (no paid-plan or activation response).
 //
 // POST {} → { success, data: { wallets: [{symbol, chain, address, already}] } }
 

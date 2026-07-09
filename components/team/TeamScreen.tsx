@@ -10,7 +10,7 @@
  * Server-driven authorisation: the edge functions enforce role + seat-cap
  * rules and return structured codes. This screen renders those codes
  * cleanly:
- *   • 402 plan_required → opens Upgrade UX with a clear inline message.
+ *   • 402 seat_limit_reached → renders an inline message.
  *   • 403 forbidden_role → renders inline as a disabled-form notice.
  *
  * Account-type guard:
@@ -32,7 +32,7 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 export interface TeamScreenProps {
   onBack: () => void;
-  /** Opens activation flow — for upgrade CTAs when seat cap is reached. */
+  /** Legacy no-op callback kept for prop compatibility. */
   onManagePlans: () => void;
   /** Account type — passed by MainApp; individuals get the placeholder. */
   accountType: 'individual' | 'business';
@@ -272,10 +272,9 @@ function BusinessTeamPanel({
         setInviteOpen(false);
         await load(true);
       } else {
-        // 402 plan_required is auto-intercepted globally → UpgradeModal opens.
-        // Surface other errors inline.
         const code = (r as any)?.code;
-        if (code !== 'plan_required') setError(friendlyError(r.error, 'Could not send invite'));
+        if (code === 'seat_limit_reached') setError(friendlyError(r.error, 'Team seat limit reached'));
+        else setError(friendlyError(r.error, 'Could not send invite'));
       }
     } catch (e: any) {
       setError(friendlyError(e, 'Could not send invite'));

@@ -1,61 +1,32 @@
 #!/usr/bin/env python3
 """
-Funding gate outage policy audit.
+Retired funding gate audit.
 
-Ensures Bridge-balance dependency is explicit and fail-closed on provider
-outage; no VA-balance fallback, no synthetic FX logic.
+The old provider-balance funding gate is intentionally removed from production.
+This audit fails if the helper or any direct imports come back.
 """
-from __future__ import annotations
+
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-GATE = ROOT / "supabase" / "functions" / "_shared" / "funding-gate.ts"
+GATE = ROOT / "supabase/functions/_shared/funding-gate.ts"
 
+failures: list[str] = []
 
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.is_file() else ""
+if GATE.exists():
+    failures.append("funding-gate.ts must not exist")
 
+for path in (ROOT / "supabase/functions").rglob("*.ts"):
+    src = path.read_text(encoding="utf-8")
+    if "funding-gate.ts" in src or "requireMinimumWalletBalance" in src:
+        failures.append(f"{path.relative_to(ROOT)} imports or references the retired funding gate")
 
-def main() -> int:
-    src = read(GATE)
-    checks: list[tuple[str, bool, str]] = []
+if failures:
+    print("RETIRED FUNDING GATE AUDIT: FAIL")
+    for failure in failures:
+        print(f"  ✗ {failure}")
+    sys.exit(1)
 
-    checks.append((
-        "F1 outage policy constant exists",
-        "FUNDING_OUTAGE_POLICY" in src,
-        "missing explicit outage policy constant",
-    ))
-    checks.append((
-        "F2 default fail-closed policy",
-        '|| "fail_closed"' in src and 'policy: "fail_closed"' in src,
-        "missing fail_closed default behavior",
-    ))
-    checks.append((
-        "F3 provider outage returns balance_unavailable",
-        "funding_balance_unavailable" in src and "status: 503" in src,
-        "missing explicit 503 balance_unavailable response",
-    ))
-    checks.append((
-        "F4 no virtual-account balance source",
-        "bridge_virtual_account_balances" not in src,
-        "VA balances should never satisfy funding gate",
-    ))
-    checks.append((
-        "F5 no synthetic FX conversion map",
-        "FX_TO_USD" not in src and "sumVirtualAccountBalancesUsd" not in src,
-        "legacy FX/VA conversion logic should be removed",
-    ))
-
-    print("funding_gate_outage_policy_audit:")
-    ok = True
-    for name, passed, detail in checks:
-        print(f"  [{'OK' if passed else 'XX'}] {name}" + ("" if passed else f"  -> {detail}"))
-        ok = ok and passed
-    print(("PASS" if ok else "FAIL") + f" ({sum(1 for c in checks if c[1])}/{len(checks)})")
-    return 0 if ok else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-
+print("RETIRED FUNDING GATE AUDIT: PASS")
+print("  ✓ funding gate helper and imports are absent")

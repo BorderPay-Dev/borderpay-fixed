@@ -3,7 +3,6 @@ import { htmlLayout, textLayout, BORDERPAY_BRAND, RenderedEmail } from "../layou
 interface Props {
   company_name?: string;
   full_name?: string;
-  minimum_deposit?: string;
   stablecoins?: string;
   action_url?: string;
 }
@@ -11,22 +10,18 @@ interface Props {
 export function render(props: Props = {}): RenderedEmail {
   const companyName = String(props.company_name || "").trim() || "your business";
   const fullName = String(props.full_name || "").trim();
-  const minimumDeposit = String(props.minimum_deposit || "$50").trim();
   const stablecoins = String(props.stablecoins || "USDC/USDT").trim();
   const actionUrl = String(props.action_url || "https://app.borderpayafrica.com").trim();
   const greeting = fullName ? `Hi ${fullName},` : "Hi there,";
-  const subject = "Make your first transaction to unlock your business global accounts";
-  const heading = "Unlock your business global accounts";
-  const introText = `${greeting} ${companyName} is almost ready.`;
+  const subject = "Your business BorderPay account is ready";
+  const heading = "Your business global accounts are ready";
+  const introText = `${greeting} ${companyName} is ready to use.`;
   const body = `
     <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
-      Complete your first transfer or deposit of at least <strong>${escapeHtml(minimumDeposit)}</strong> in <strong>${escapeHtml(stablecoins)}</strong>.
+      Your team can receive funds through available business global accounts and use <strong>${escapeHtml(stablecoins)}</strong> wallets when ready.
     </p>
     <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
-      Once completed, your USD, EUR, and GBP business receive accounts unlock automatically.
-    </p>
-    <p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
-      This is not an activation fee. Funds remain in your wallet and are available to use. No hidden charges.
+      No funding transaction is required to make the account available.
     </p>
   `;
 
@@ -44,10 +39,9 @@ export function render(props: Props = {}): RenderedEmail {
     text: textLayout({
       heading,
       body:
-        `${greeting} ${companyName} is almost ready.\n\n` +
-        `Complete your first transfer or deposit of at least ${minimumDeposit} in ${stablecoins}.\n` +
-        "Once completed, your USD, EUR, and GBP business receive accounts unlock automatically.\n\n" +
-        "This is not an activation fee. Funds remain in your wallet. No hidden charges.",
+        `${greeting} ${companyName} is ready to use.\n\n` +
+        `Your team can receive funds through available business global accounts and use ${stablecoins} wallets when ready.\n` +
+        "No funding transaction is required to make the account available.",
       ctaText: "Open BorderPay",
       ctaUrl: actionUrl,
       footerNote: "If your team needs assistance, contact support from your BorderPay dashboard.",

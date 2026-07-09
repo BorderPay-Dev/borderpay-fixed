@@ -409,7 +409,7 @@ function SuccessState({
         {tt('upgrade.success.title', 'Account activated')}
       </h2>
       <p className={`mt-2 text-sm ${tc.textSecondary}`}>
-        {tt('upgrade.success.body', 'Your wallet meets the minimum funding requirement. Multi-wallet features are unlocked.')}
+        {tt('upgrade.success.body', 'Your wallet is ready. You can continue using BorderPay.')}
       </p>
       <button
         onClick={onDone}

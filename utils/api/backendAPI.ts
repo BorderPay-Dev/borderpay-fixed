@@ -88,19 +88,6 @@ async function apiCall<T = any>(
       }
     }
 
-    // Funding gate: when an edge function returns 402 funding_required (new
-    // minimum-balance model), surface it as a DOM event so any screen pops the
-    // FundWalletSheet without prop-drilling.
-    // Bridge-converged funding gate: only canonical `funding_required`.
-    if (
-      response.status === 402 &&
-      data?.code === 'funding_required' &&
-      typeof window !== 'undefined'
-    ) {
-      try {
-        window.dispatchEvent(new CustomEvent('borderpay:funding_required', { detail: data }));
-      } catch { /* SSR / no CustomEvent — ignore */ }
-    }
     // VA grant-pending (202): surface a friendly toast-like event so the VA
     // card / Wallet screen can render "review pending" instead of an error.
     if (response.status === 202 && data?.code === 'va_grant_pending' && typeof window !== 'undefined') {
@@ -2283,7 +2270,7 @@ export const teamAPI = {
       body:   JSON.stringify({}),
     }),
 
-  /** Invite an email. Returns 402 with code='plan_required' when seat cap is hit. */
+  /** Invite an email. Returns 402 with code='seat_limit_reached' when cap is hit. */
   invite: async (input: { email: string; role?: Exclude<TeamRole, 'owner'> }) =>
     apiCall<TeamMemberRow & { reused?: boolean }>('business-team-invite', {
       method: 'POST',

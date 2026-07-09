@@ -7,14 +7,10 @@
 //   • Caller must be owner OR admin on the business. Members/viewers cannot
 //     invite. Anyone else: 403.
 //
-// Seat enforcement (flat one-time activation model — no Growth/Enterprise):
-//   • Reads the business's active plan_key from user_subscriptions.
-//     business_starter   →  10 seats (view-only until activated).
-//     business_activated →  10 seats.
-//   • Counts currently-occupied seats via count_active_team_seats RPC. If
-//     adding one more would exceed the cap: un-activated → 402 'plan_required'
-//     + upgrade_to: 'business_activated'; activated-at-cap → 402
-//     'seat_limit_reached' (no higher tier).
+// Seat enforcement:
+//   • Business accounts have a fixed 10-seat cap.
+//   • Counts currently-occupied seats via count_active_team_seats RPC.
+//   • If adding one more would exceed the cap, returns 402 'seat_limit_reached'.
 //
 // Idempotency:
 //   • UNIQUE (business_user_id, invited_email) is enforced by the schema.
@@ -128,17 +124,11 @@ Deno.serve(async (req) => {
     const { data: used } = await supa.rpc("count_active_team_seats", { p_business_user_id: businessUserId });
     const usedN = typeof used === "number" ? used : 0;
     if (usedN >= cap) {
-      const notActivated = planKey === "business_starter";
       return json({
         success:           false,
-        code:              notActivated ? "plan_required" : "seat_limit_reached",
-        error:             notActivated
-          ? `Activate your business to add team members (up to ${cap} seats).`
-          : `Your plan includes ${cap} team seats, which are all in use.`,
+        code:              "seat_limit_reached",
+        error:             `Your business includes ${cap} team seats, which are all in use.`,
         current_plan:      planKey,
-        // Only an un-activated business has an upgrade path; activated is the
-        // single paid tier (flat 10-seat cap), so no higher tier to point to.
-        ...(notActivated ? { upgrade_to: "business_activated" } : {}),
         seats_used:        usedN,
         seats_cap:         cap,
       }, 402);

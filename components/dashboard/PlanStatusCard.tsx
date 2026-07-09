@@ -1,16 +1,8 @@
 /**
- * PlanStatusCard — Wise-style activation prompt for the signed-in dashboard.
+ * PlanStatusCard — legacy no-op.
  *
- * Behaviour (individual + business):
- *   • While the account is NOT activated yet, this shows a single, friendly
- *     "Fund your wallet" card whose CTA opens the Fund Wallet sheet
- *     (verify ID → unlock multi-currency accounts + wallet).
- *   • Once the account IS activated, the card renders NOTHING and disappears
- *     entirely — exactly like the setup checklist vanishes at 4/4. There is no
- *     persistent "Starter" tier and nothing to "manage" on a one-time fee.
- *
- * Provider neutrality: this card knows nothing about Bridge. The activation /
- * wallet-debit flow lives entirely in UpgradeModal + subscription-upgrade.
+ * Production no longer uses paid-plan or deposit-unlock dashboard prompts.
+ * The component remains only to preserve existing imports.
  */
 
 import React from 'react';
@@ -22,11 +14,11 @@ export interface PlanStatusCardProps {
   accountType:    AccountType;
   /** Kept for API compatibility; no longer used (no "manage" on a one-time fee). */
   userId:         string;
-  /** Opens activation/upgrade flow — fallback CTA target. */
+  /** Legacy no-op callback. */
   onManagePlans:  () => void;
-  /** Opens the activation flow (UpgradeModal) for the appropriate tier. */
+  /** Legacy no-op callback. */
   onUpgrade?:     () => void;
-  /** Hide activation prompt once user already has any VA (USD/EUR/GBP). */
+  /** Legacy no-op flag. */
   hasVirtualAccounts?: boolean;
 }
 

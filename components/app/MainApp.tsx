@@ -43,7 +43,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../common/ErrorBoundary';
-import { FundWalletSheet } from '../activation/FundWalletSheet';
 import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
 import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
@@ -661,28 +660,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     return () => { cancelled = true; };
   }, [userId, accountType, refreshKey]);
 
-  // ─── Funding gate: open FundWalletSheet on 402 funding_required ────────
-  const [fundCurrentUsd, setFundCurrentUsd] = useState<number | undefined>(undefined);
-  const [fundMinUsd, setFundMinUsd] = useState<number | undefined>(undefined);
-  const [fundOpen, setFundOpen] = useState(false);
+  // Legacy helpers retained as no-ops for older CTAs.
   useEffect(() => {
-    const onFundingRequired = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
-      setFundCurrentUsd(typeof detail.current_balance_usd === 'number' ? detail.current_balance_usd : undefined);
-      setFundMinUsd(typeof detail.minimum_usd === 'number' ? detail.minimum_usd : undefined);
-      setFundOpen(true);
-    };
-    window.addEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-    return () => {
-      window.removeEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-    };
-  }, []);
-
-  // Public helper any screen can call to open the Fund Wallet sheet manually.
-  // `__borderpay_open_upgrade` kept as a legacy alias so older CTAs still work
-  // — both now route to the same FundWalletSheet (no more activation modal).
-  useEffect(() => {
-    const opener = () => { setFundCurrentUsd(undefined); setFundOpen(true); };
+    const opener = () => {};
     (window as any).__borderpay_open_upgrade = opener;
     (window as any).__borderpay_open_fund_wallet = opener;
     return () => {
@@ -1123,7 +1103,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <TeamScreen
             accountType={isBusinessAccount ? 'business' : 'individual'}
             onBack={navigateBack}
-            onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
+            onManagePlans={() => {}}
           />
         );
 
@@ -1140,7 +1120,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
               onLogout={onLogout}
               onNavigate={navigateTo as (s: string) => void}
               planKey={currentPlanKey}
-              onUpgrade={() => (window as any).__borderpay_open_fund_wallet?.()}
+              onUpgrade={() => {}}
             />
           );
         }
@@ -1151,7 +1131,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onNavigate={navigateTo}
             currentScreen={currentScreen}
             planKey={currentPlanKey}
-            onUpgrade={() => (window as any).__borderpay_open_fund_wallet?.()}
+            onUpgrade={() => {}}
           />
         );
     }
@@ -1200,21 +1180,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           </Suspense>
         </ErrorBoundary>
       </div>
-
-      {/* ── Funding gate (replaces the prior activation paywall) ──────────
-          Opens on any 402 funding_required response or via
-          window.__borderpay_open_fund_wallet(). Funds remain the user's;
-          $20 USD-equivalent minimum balance unlocks money movement + VAs. */}
-      <FundWalletSheet
-        open={fundOpen}
-        onClose={() => setFundOpen(false)}
-        currentUsd={fundCurrentUsd}
-        minUsd={fundMinUsd}
-        accountType={accountType}
-        onOpenWallet={() => navigateTo('wallet-detail')}
-        onOpenReceive={() => navigateTo('receive-money')}
-        userId={userId}
-      />
 
       {/* New Device / IP Security Alert */}
       <AnimatePresence>

@@ -1,16 +1,8 @@
 /**
- * FundWalletSheet — replaces the prior activation-fee paywall.
+ * FundWalletSheet — legacy shell.
  *
- * The product no longer charges an activation fee. To unlock global virtual
- * accounts and money movement, users must hold a minimum balance ($20 USD-eq.)
- * in their BorderPay wallets. Funds REMAIN the user's — nothing is deducted.
- *
- * This sheet:
- *   • Shows the exact required messaging.
- *   • Shows current balance vs the $20 minimum (when known).
- *   • Surfaces the user's auto-provisioned USDC/USDT deposit addresses so they
- *     can fund right from this sheet (copy address + open Wallet for the QR).
- *   • Closes silently once balance reaches the minimum.
+ * Production no longer uses a deposit/minimum-balance unlock gate. The
+ * component is retained as a no-op compatibility target for older event hooks.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -21,21 +13,17 @@ import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { AssetBadge, chainLabel, assetName } from '../dashboard/bridge/WalletVisuals';
 import { showToast } from '../common/StatusToast';
 
-/** Per-policy floors. Individuals $20, businesses $50. Sheet receives the exact
- *  min via the 402 detail when triggered by a gate; falls back to these per
- *  account_type when opened manually. */
+/** Legacy constants retained for import compatibility. */
 export const FUNDING_MIN_USD_INDIVIDUAL = 20;
 export const FUNDING_MIN_USD_BUSINESS   = 50;
-const fundingMessage = (minUsd: number) =>
-  `Maintain at least $${minUsd} in USDC or USDT to keep transfers and payouts available. ` +
-  'Your funds stay in your wallet and remain available to you.';
+const fundingMessage = (_minUsd: number) => 'Wallet funding is available from the Receive screen.';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   /** Best-known current balance in USD-equivalent. Optional; sheet fetches own data. */
   currentUsd?: number;
-  /** Minimum required (from the funding_required event). Falls back per account type. */
+  /** Legacy prop retained for compatibility. */
   minUsd?: number;
   accountType?: 'individual' | 'business';
   /** Navigates the host app (e.g. to the Wallet tab). */
