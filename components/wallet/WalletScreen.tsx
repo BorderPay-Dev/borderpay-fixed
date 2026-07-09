@@ -49,7 +49,6 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
-const INACTIVE_VA_STATUSES = new Set(['inactive', 'deactivated', 'disabled', 'closed', 'archived', 'cancelled', 'canceled', 'rejected', 'suspended', 'blocked']);
 const ACTIVE_VA_STATUSES = new Set(['active', 'activated']);
 
 function getVaStatus(row: VaRow): string {
@@ -58,6 +57,10 @@ function getVaStatus(row: VaRow): string {
 
 function isActiveVa(row: VaRow): boolean {
   return ACTIVE_VA_STATUSES.has(getVaStatus(row));
+}
+
+function activeVasOnly(rows: unknown): VaRow[] {
+  return Array.isArray(rows) ? (rows as VaRow[]).filter(isActiveVa) : [];
 }
 
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {
@@ -118,7 +121,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [vas, setVas] = useState<VaRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      return Array.isArray(scoped) ? scoped : [];
+      return activeVasOnly(scoped);
     } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
@@ -147,7 +150,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     try { requested = String(sessionStorage.getItem('borderpay_open_wallet_currency') || '').toUpperCase(); } catch { requested = ''; }
     if (!requested) return;
 
-    const va = vas.find((row) => String(row.currency || '').toUpperCase() === requested);
+    const va = vas.find((row) => isActiveVa(row) && String(row.currency || '').toUpperCase() === requested);
     if (va) {
       setSelectedVa(va);
       preselectConsumedRef.current = true;
@@ -188,7 +191,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        return Array.isArray(scoped) ? scoped.filter(isActiveVa) : [];
+        return activeVasOnly(scoped);
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -200,7 +203,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       }
       const routeData: any = await backendAPI.financial.getWalletRouteData();
       const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
-      const vList = ((routeData?.data?.virtual_accounts as VaRow[]) ?? []).filter(isActiveVa);
+      const vList = activeVasOnly(routeData?.data?.virtual_accounts);
       setStables(sList);
       setVas(vList);
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
@@ -231,7 +234,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           try {
             const next: any = await backendAPI.financial.getWalletRouteData();
             const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
-            const nextVas = ((next?.data?.virtual_accounts as VaRow[]) ?? []).filter(isActiveVa);
+            const nextVas = activeVasOnly(next?.data?.virtual_accounts);
             setStables(nextStables);
             setVas(nextVas);
             try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
@@ -380,10 +383,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           ) : (
             <>
               {/* Fiat virtual accounts first */}
-              {vas.map((v, i) => {
+              {vas.filter(isActiveVa).map((v, i) => {
                 const cur = String(v.currency).toUpperCase();
-                const status = getVaStatus(v);
-                const inactive = INACTIVE_VA_STATUSES.has(status);
                 return (
                   <button key={v.id} onClick={() => setSelectedVa(v)}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 || stables.length > 0 ? `border-t ${tc.borderLight}` : ''}`}>
@@ -392,13 +393,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
                         {CURRENCY_FULL_NAME[cur] ?? cur} <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[cur] ?? 'Bank transfer'})</span>
                       </div>
-                      <div className={`text-[11px] ${inactive ? 'text-amber-300' : tc.textMuted}`}>
-                        {inactive ? `${cur} account · ${status}` : `${cur} account`}
+                      <div className={`text-[11px] ${tc.textMuted}`}>
+                        {cur} account
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className={`text-[10px] ${inactive ? 'text-amber-300' : tc.textMuted} uppercase tracking-wider`}>
-                        {inactive ? status : 'View details'}
+                      <div className={`text-[10px] ${tc.textMuted} uppercase tracking-wider`}>
+                        View details
                       </div>
                     </div>
                     <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />

@@ -129,7 +129,6 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const initialRows = useMemo(() => readCachedNotifications(), []);
-  const snapshotReader = backendAPI.financial.getSnapshot;
   const refreshTsKey = useMemo(() => {
     const uid = currentUserId() || 'anon';
     return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
@@ -141,7 +140,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
   const rowsRef = useRef<NotificationRow[]>(initialRows);
   const loadInFlightRef = useRef<Promise<void> | null>(null);
-  const [loading, setLoading] = useState(initialRows.length === 0);
+  const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const load = useCallback(async (force = false) => {
@@ -155,7 +154,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 	    try {
 	      const rows = rowsRef.current;
 	      const hasCachedRows = rows.length > 0;
-	      if (rows.length === 0) setLoading(true);
+	      if (rows.length > 0) setLoading(true);
 	      const last = Number(localStorage.getItem(refreshTsKey) || '0');
 	      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
 	        return;
@@ -207,7 +206,6 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 	  useEffect(() => {
     navPerfTrackCache('notifications', initialRows.length > 0);
 	    load();
-    void snapshotReader(10).catch(() => undefined);
 	    try {
       const last = Number(localStorage.getItem(prewarmTsKey) || '0');
       if (!Number.isFinite(last) || Date.now() - last >= 180_000) {

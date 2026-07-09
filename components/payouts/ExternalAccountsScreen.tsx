@@ -89,7 +89,7 @@ interface ExternalAccountsScreenProps {
 // Native-app pattern: cache the last-loaded list so the screen mounts INSTANTLY
 // with known data on the next visit, then refreshes in the background.
 const CACHE_KEY = 'borderpay_payout_accounts_v1';
-const EXTERNAL_ACCOUNTS_FETCH_TIMEOUT_MS = 1400;
+const EXTERNAL_ACCOUNTS_FETCH_TIMEOUT_MS = 8500;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return Promise.race<T>([
