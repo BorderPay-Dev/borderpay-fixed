@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const sourceRail = it.source_payment_rail || "stablecoin";
+      const sourceRail = it.source_payment_rail || "bridge_wallet";
       const validation = validateBridgePayout({
         source: {
           payment_rail: sourceRail,

@@ -9,8 +9,8 @@
  *   International (US / EU / LatAm — international fiat payout):
  *     0.35% orchestration + 0.999% fixed settlement + 2.5% BorderPay markup,
  *     for BOTH individual and business. Third-party/network costs pass through.
- *   Stablecoin payout (USDT/USDC):
- *     $1.00 flat + 0.25% orchestration.
+ *   Bridge Wallet payout (USDT/USDC):
+ *     $1.00 flat.
  *
  * NOTE: the 2.5% virtual-account developer fee is intentionally NOT shown at
  * payout. It is applied/mapped at virtual-account creation and never surfaced
@@ -27,10 +27,10 @@ export const INTL_ORCHESTRATION_PERCENT   = 0.35;
 export const INTL_FIXED_SETTLEMENT_PERCENT = 0.999;
 export const INTL_DEVELOPER_MARKUP_PERCENT = BRIDGE_DEVELOPER_FEE_PERCENT.fiat; // 2.5
 
-/** Stablecoin payout policy (production):
- *  flat $1.00 + 0.25% orchestration.
+/** Bridge Wallet payout policy (production):
+ *  flat $1.00.
  */
-export const STABLECOIN_ORCHESTRATION_PERCENT = 0.25;
+export const STABLECOIN_ORCHESTRATION_PERCENT = 0;
 export const STABLECOIN_FLAT_FEE              = 1.00;
 
 export interface PayoutFeeInput {
@@ -72,13 +72,7 @@ export function computePayoutFee(input: PayoutFeeInput): PayoutFeeResult {
       breakdown.push({ label, percent: pct, amount: round2(amount * pct / 100) });
     }
   } else {
-    // Stablecoin: flat $1.00 + 0.25% orchestration for USDC and USDT.
-    feePercent += STABLECOIN_ORCHESTRATION_PERCENT;
-    breakdown.push({
-      label:   'Orchestration',
-      percent: STABLECOIN_ORCHESTRATION_PERCENT,
-      amount:  round2(amount * STABLECOIN_ORCHESTRATION_PERCENT / 100),
-    });
+    // Bridge Wallet payout: flat $1.00 for USDC and USDT.
     breakdown.push({
       label:  'Flat transfer fee',
       amount: STABLECOIN_FLAT_FEE,

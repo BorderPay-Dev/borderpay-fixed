@@ -3,7 +3,7 @@
  * Active transfer methods:
  *   1. External Bank Account (linked payout destination)
  *   2. BorderPay recipient (wallet-to-wallet)
- *   3. Stablecoin Withdrawal (external wallet address)
+ *   3. Bridge Wallet Withdrawal (external wallet address)
  *
  * Flow: Choose Method → Enter Details → Amount → Review → PIN → Success
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
@@ -248,11 +248,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [usMemo, setUsMemo] = useState('');
   const [borderPayRecipientEmail, setBorderPayRecipientEmail] = useState('');
 
-  // External stablecoin withdrawal — network + token + destination address.
+  // External Bridge Wallet withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'base', token: 'USDC', address: '' });
 
   // Withdraw-to-saved-wallet handoff: ExternalWalletsScreen stores the chosen
-  // destination, then routes here. Prefill the stablecoin flow and jump in.
+  // destination, then routes here. Prefill the Bridge Wallet withdrawal flow and jump in.
   useEffect(() => {
     try {
       const raw = localStorage.getItem('borderpay_prefill_withdraw');
@@ -304,9 +304,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const fallbackNetworkFee = useMemo(() => {
     const num = parseFloat(amount);
     if (!num || num <= 0) return null;
-    // The crypto withdrawal track forces the stablecoin route,
+    // The crypto withdrawal track forces the Bridge Wallet route,
     // bypassing any country classification. Otherwise classify by destination
-    // country (African countries also settle via stablecoin).
+    // country (African countries also settle through Bridge Wallet crypto rails).
     const country = SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.country;
     if (method === 'borderpay') return null;
     const corridor: 'international' | 'stablecoin' =
@@ -495,7 +495,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
   }, [method, selectedExternalAccount, selectedCurrency]);
 
-  // Stablecoin sends must always use the selected stablecoin asset as source.
+  // Bridge Wallet withdrawals must always use the selected USDC/USDT wallet as source.
   useEffect(() => {
     if (method !== 'stablecoin') return;
     const tokenCurrency = String(crypto.token || 'USDC').toUpperCase();
@@ -630,7 +630,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
     }
     if (method === 'stablecoin') {
-      return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
+      return num > 0 && selectedWallet && !!selectedWallet.bridge_wallet_id && num <= selectedWallet.balance && reason.trim().length > 0;
     }
     if (method === 'borderpay') {
       return num > 0 && selectedWallet && !!selectedWallet.bridge_wallet_id && num <= selectedWallet.balance && reason.trim().length > 0;
@@ -657,10 +657,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         result = await backendAPI.stablecoin.sendTransfer({
           amount: parseFloat(amount),
-          reason: reason || 'Stablecoin transfer',
+          reason: reason || 'Bridge Wallet transfer',
           address: crypto.address.trim(),
           chain: crypto.network,                                  // tron|base
           coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
+          bridge_wallet_id: selectedWallet?.bridge_wallet_id || undefined,
           transaction_pin: verifiedPin,
           // Required by bridge-transfer v2. Reusing the per-mount key
           // means a network retry of the same Confirm tap returns the
@@ -727,7 +728,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const friendly =
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
-        : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
+        : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the Bridge Wallet withdrawal path for now.'
         : method === 'stablecoin'         ? mapCryptoTransferError(code, result.error, crypto)
         : method === 'borderpay'          ? mapBorderPayTransferError(code, result.error)
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
@@ -784,7 +785,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const getStepTitle = () => {
     switch (step) {
       case 'method': return t('send.title');
-      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Stablecoin Transfer' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayDetails');
+      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Bridge Wallet Withdrawal' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayDetails');
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
@@ -844,7 +845,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           >
             <p className={`text-sm ${tc.textSecondary} mb-3`}>{t('send.chooseMethod')}</p>
 
-            {/* External Stablecoin Withdrawal — the primary African/global payout
+            {/* External Bridge Wallet Withdrawal — the primary African/global payout
                 track. Interactive only when TRANSFERS_LIVE is on; until the
                 money-movement flag flips it stays a non-interactive "Pending
                 evidence" card (no user-facing money movement). The crypto form,
@@ -902,7 +903,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <Coins size={22} className="text-cyan-400" />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className={`text-sm font-semibold ${tc.text}`}>External Stablecoin Withdrawal</p>
+                    <p className={`text-sm font-semibold ${tc.text}`}>External Bridge Wallet Withdrawal</p>
                     <p className={`text-xs ${tc.textMuted} mt-0.5`}>Only USDC on Base or USDT on TRON.</p>
                   </div>
                   <ArrowRight size={18} className={tc.textMuted} />
@@ -916,7 +917,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <Coins size={22} className="text-cyan-400" />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className={`text-sm font-semibold ${tc.text}`}>External Stablecoin Withdrawal</p>
+                    <p className={`text-sm font-semibold ${tc.text}`}>External Bridge Wallet Withdrawal</p>
                     <p className={`text-xs ${tc.textMuted} mt-0.5`}>Only USDC on Base or USDT on TRON — pending sandbox evidence sign-off</p>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Pending evidence</span>
@@ -980,7 +981,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
               <Info size={16} className="text-[#C7FF00] mt-0.5 flex-shrink-0" />
               <p className={`text-xs ${tc.textMuted}`}>
-                Stablecoin transfers settle in seconds. Other payout rails launch through BorderPay.
+                Bridge Wallet payouts settle in seconds. Other payout rails launch through BorderPay.
               </p>
             </div>
           </motion.div>
@@ -997,7 +998,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             exit={{ opacity: 0, x: -20 }}
             className="px-5 py-6"
           >
-            {/* Currency Picker (Africa only — not for P2P, US, or Stablecoin) */}
+            {/* Currency Picker (Africa only — not for P2P, US, or Bridge Wallet withdrawals) */}
             {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && (() => {
               const availableCurrencies = method === 'bank'
                 ? SUPPORTED_CURRENCIES.filter(c => BANK_TRANSFER_CURRENCIES.includes(c.code))
@@ -1224,7 +1225,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
             )}
 
-            {/* Stablecoin Transfer Details */}
+            {/* Bridge Wallet Withdrawal Details */}
             {method === 'stablecoin' && (
               <>
                 {/* External crypto withdrawal — network + token + validated address */}
@@ -1472,7 +1473,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.method')}</span>
                   <span className={`text-sm font-medium ${tc.text}`}>
-                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayPay')}
+                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Bridge Wallet' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayPay')}
                   </span>
                 </div>
 

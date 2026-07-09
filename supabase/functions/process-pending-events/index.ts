@@ -1230,7 +1230,7 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       p_metadata: {
         source:           "bridge",
         transaction_type: "fx_conversion",
-        flow:             "stablecoin_sandwich",
+        flow:             "bridge_wallet_crypto_payout",
         account_type:     owner.account_type,
         source_type:      normSource,
         destination_type: normDest,

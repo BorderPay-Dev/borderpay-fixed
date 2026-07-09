@@ -3,12 +3,12 @@
  * ---------------------------------------------------------------------------
  * Enforces BorderPay crypto payout safety rules before calling Bridge.
  *
- * Active production crypto payout pathways:
+ * Active production Bridge Wallet payout pathways:
  *   1) USDC on BASE
  *   2) USDT on TRON
  *
  * Developer fee:
- *   - USD 1.00 flat + 0.25% of the requested destination amount.
+ *   - USD 1.00 flat.
  *
  * Dust prevention:
  *   - Bridge minimum is enforced on NET destination amount:
@@ -18,7 +18,7 @@
  */
 
 export const BRIDGE_PAYOUT_DEVELOPER_FEE_USD = "1.00";
-export const BRIDGE_PAYOUT_ORCHESTRATION_BPS = 25; // 0.25%
+export const BRIDGE_PAYOUT_ORCHESTRATION_BPS = 0;
 
 type SupportedRoute = {
   chain: "BASE" | "TRON";
@@ -97,24 +97,26 @@ function parseFixedToCents(v: string): number {
 
 function computeDeveloperFeeCents(destinationAmountCents: number): number {
   const flatCents = parseFixedToCents(BRIDGE_PAYOUT_DEVELOPER_FEE_USD);
-  const orchestrationCents = Math.round(destinationAmountCents * BRIDGE_PAYOUT_ORCHESTRATION_BPS / 10_000);
+  const orchestrationCents = BRIDGE_PAYOUT_ORCHESTRATION_BPS > 0
+    ? Math.round(destinationAmountCents * BRIDGE_PAYOUT_ORCHESTRATION_BPS / 10_000)
+    : 0;
   return flatCents + orchestrationCents;
 }
 
 /**
- * Returns true when the request is a crypto-to-crypto stablecoin payout.
+ * Returns true when the request is a Bridge Wallet to blockchain crypto payout.
  */
 export function isCryptoToCryptoTransfer(body: any): boolean {
   const srcRail = normalizeRail(body?.source?.payment_rail);
   const dstRail = normalizeRail(body?.destination?.payment_rail);
   return (
-    (srcRail === "stablecoin" || srcRail === "bridge_wallet") &&
-    (dstRail === "stablecoin" || BRIDGE_CHAIN_RAILS.has(dstRail))
+    srcRail === "bridge_wallet" &&
+    BRIDGE_CHAIN_RAILS.has(dstRail)
   );
 }
 
 /**
- * Validate + normalize payout payload for supported crypto payout routes.
+ * Validate + normalize payout payload for supported Bridge Wallet crypto payout routes.
  * Non-crypto transfers are intentionally out-of-scope and return ok=true with
  * no enforced payload.
  */
@@ -126,11 +128,12 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
       body: {
         success: false,
         code: "unsupported_payout_type",
-        error: "Only stablecoin-to-stablecoin crypto payouts are supported by this payout validator.",
+        error: "Only Bridge Wallet to supported blockchain crypto payouts are supported.",
       },
     };
   }
 
+  const sourceRail = normalizeRail(body?.source?.payment_rail);
   const sourceChain = normalizeChain(body?.source?.chain);
   const destinationRail = normalizeRail(body?.destination?.payment_rail);
   const destinationChain = normalizeChain(
@@ -140,14 +143,14 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
   const sourceCurrency = normalizeCurrency(body?.source?.currency);
   const destinationCurrency = normalizeCurrency(body?.destination?.currency);
 
-  if (!sourceChain || !destinationChain || sourceChain !== destinationChain) {
+  if (!destinationChain || (sourceRail !== "bridge_wallet" && (!sourceChain || sourceChain !== destinationChain))) {
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
         code: "chain_mismatch",
-        error: "Source and destination chain must match for crypto payouts.",
+        error: "Destination chain is required for Bridge Wallet crypto payouts.",
       },
     };
   }
@@ -163,7 +166,7 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
     };
   }
 
-  const route = ROUTES[`${sourceChain}:${sourceCurrency}`];
+  const route = ROUTES[`${destinationChain}:${sourceCurrency}`];
   if (!route) {
     return {
       ok: false,
@@ -260,16 +263,16 @@ export function simulateBridgePayoutValidation(input: {
 }): Record<string, unknown> {
   const body = {
     source: {
-      payment_rail: "stablecoin",
+      payment_rail: "bridge_wallet",
       chain: input.chain,
       currency: input.currency,
       amount: input.destination_amount ?? input.gross_amount,
     },
     destination: {
-      payment_rail: "stablecoin",
+      payment_rail: bridgeDestinationRail(normalizeChain(input.chain) === "TRON" ? "TRON" : "BASE"),
       chain: input.chain,
       currency: input.currency,
-      address: "simulated_destination",
+      to_address: "simulated_destination",
     },
   };
   const res = validateBridgePayout(body);

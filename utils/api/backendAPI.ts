@@ -1579,7 +1579,7 @@ export const addressAPI = {
 
 // `logTransaction` is local audit-only; persists to a stablecoin tx log
 // table and does not call any provider write endpoint.
-// `sendTransfer` orchestrates a stablecoin send via `bridge-transfer`. The
+// `sendTransfer` orchestrates a Bridge Wallet crypto payout via `bridge-transfer`. The
 // edge function handles country gating (DRC → 403), KYC gating (409), and
 // African-rail destinations (NGN/KES/etc → 503 no_partner).
 export const stablecoinAPI = {
@@ -1600,8 +1600,8 @@ export const stablecoinAPI = {
   },
 
   /**
-   * Send stablecoin through the active stablecoin rail. `chain` is uppercased,
-   * and `amount` is sent as a decimal string to avoid float drift on the wire.
+   * Send USDC/USDT from a Bridge Wallet to a blockchain address.
+   * `amount` is sent as a decimal string to avoid float drift on the wire.
    * The transaction PIN is verified separately by the caller before this is
    * invoked — this method itself does NOT verify the PIN (server-side PIN
    * verification belongs on a dedicated endpoint and is unchanged).
@@ -1612,6 +1612,7 @@ export const stablecoinAPI = {
     address: string;
     chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon' | 'tron' | 'arbitrum';
     coin: 'usdc' | 'usdt';
+    bridge_wallet_id?: string;
     funding_source?: 'USD';
     transaction_pin?: string;
     /**
@@ -1639,13 +1640,13 @@ export const stablecoinAPI = {
           source:      {
             payment_rail: 'bridge_wallet',
             currency:     symbol,
-            chain,
             amount:       String(data.amount),
+            ...(data.bridge_wallet_id ? { bridge_wallet_id: data.bridge_wallet_id } : {}),
           },
           destination: {
             payment_rail: data.chain,
             currency:     symbol,
-            address:      data.address,
+            to_address:   data.address,
           },
         }),
       },
@@ -2118,8 +2119,7 @@ export const bridgeAPI = {
    * Shape matches the bridge-transfer edge function exactly:
    *   • `source.amount`     — decimal string (no float drift)
    *   • `source.currency`   — uppercase ISO/stablecoin symbol
-   *   • `source.chain`      — uppercase chain name for stablecoin rails
-   *   • `source.payment_rail` defaults to 'stablecoin' server-side if omitted
+   *   • `source.payment_rail` must be 'bridge_wallet' for USDC/USDT payouts
    *   • The `idempotency_key` is generated server-side from user_id + a
    *     short UUID; clients never supply one.
    */

@@ -619,16 +619,10 @@ export class BridgeProvider implements PaymentProvider {
     ]);
     const sourceRail = String(input.source.payment_rail || "").toLowerCase();
     const sourceChain = String(input.source.chain || "").toLowerCase();
-    const bridgeSourceRail =
-      sourceRail === "stablecoin" && sourceChain
-        ? sourceChain
-        : sourceRail;
+    const bridgeSourceRail = sourceRail;
     const destinationRail = String(input.destination.payment_rail || "").toLowerCase();
     const destinationChain = String(input.destination.chain || "").toLowerCase();
-    const bridgeDestinationRail =
-      destinationRail === "stablecoin" && destinationChain
-        ? destinationChain
-        : destinationRail;
+    const bridgeDestinationRail = destinationRail || destinationChain;
     const isBlockchainDestination = blockchainRails.has(bridgeDestinationRail);
     const destinationAddress = input.destination.to_address || input.destination.address;
     if (bridgeSourceRail === "bridge_wallet" && !input.source.bridge_wallet_id) {
@@ -655,7 +649,7 @@ export class BridgeProvider implements PaymentProvider {
       source: {
         payment_rail: bridgeSourceRail,
         currency:     String(input.source.currency).toLowerCase(),
-        ...(sourceRail !== "stablecoin" && bridgeSourceRail !== "bridge_wallet" && input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
+        ...(bridgeSourceRail !== "bridge_wallet" && input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
         ...(bridgeSourceRail !== "bridge_wallet" && input.source.customer_id ? { customer_id: input.source.customer_id } : {}),
         ...(input.source.from_address ? { from_address: input.source.from_address } : {}),
         ...(input.source.bridge_wallet_id ? { bridge_wallet_id: input.source.bridge_wallet_id } : {}),
@@ -664,7 +658,7 @@ export class BridgeProvider implements PaymentProvider {
       destination: {
         payment_rail: bridgeDestinationRail,
         currency:     String(input.destination.currency).toLowerCase(),
-        ...(destinationRail !== "stablecoin" && !isBlockchainDestination && input.destination.chain ? { chain: input.destination.chain.toLowerCase() } : {}),
+        ...(!isBlockchainDestination && input.destination.chain ? { chain: input.destination.chain.toLowerCase() } : {}),
         ...(isBlockchainDestination && destinationAddress ? { to_address: destinationAddress } : {}),
         ...(!isBlockchainDestination && destinationAddress ? { address: destinationAddress } : {}),
         ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),

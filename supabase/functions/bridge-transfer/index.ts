@@ -9,11 +9,11 @@
 //
 //   NOTE: developer_fee is NOT accepted from the client. It is computed and
 //   enforced server-side from the canonical schedule in _shared/fees/schedule.ts
-//   (stablecoin 0.99% / fiat 2.5%). Any developer_fee in the body is ignored.
+//   Any developer_fee in the body is ignored.
 //
 // Feature-flag gate (P0.2):
 //
-//   Stablecoin send is considered NOT LIVE until a sandbox evidence
+//   Bridge Wallet crypto payout is considered NOT LIVE until a sandbox evidence
 //   package is attached and approved. UI disable alone is not enough —
 //   any authenticated approved user can call this endpoint directly with
 //   a JWT. v3 reads the env `BRIDGE_TRANSFERS_ENABLED` and fails closed
@@ -399,7 +399,7 @@ Deno.serve(async (req) => {
     user_id: user.id,
     source_currency: body?.source?.currency ?? null,
     destination_currency: body?.destination?.currency ?? null,
-    source_payment_rail: body?.source?.payment_rail ?? "stablecoin",
+    source_payment_rail: body?.source?.payment_rail ?? "bridge_wallet",
     destination_payment_rail: body?.destination?.payment_rail ?? null,
   });
 
@@ -423,10 +423,9 @@ Deno.serve(async (req) => {
   const clientKey = body.idempotency_key as string;
   const idem      = `borderpay:transfer:${user.id}:${clientKey}`;
 
-  // Corridor note (#B1): African corridors settle via EXTERNAL STABLECOIN
-  // (USDT/USDC to a user-supplied address on a supported network) — these flow
-  // through the standard Bridge stablecoin transfer below (destination =
-  // stablecoin rail + chain + address), no local-bank aggregator. International
+  // Corridor note (#B1): African corridors settle through Bridge Wallet crypto
+  // payout rails (USDT/USDC to a user-supplied address on a supported network).
+  // Destination is the blockchain rail + address, no local-bank aggregator. International
   // fiat payouts use a fiat destination. Bridge handles both natively. The
   // customer-facing fee tier is computed at checkout (utils/fees/engine.ts).
 
@@ -459,9 +458,9 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Crypto payout guard (BridgePayoutValidator):
+  // Bridge Wallet crypto payout guard (BridgePayoutValidator):
   //   - only USDC/base and USDT/tron are allowed
-  //   - developer fee = 1.00 + 0.25% of requested destination amount
+  //   - developer fee = 1.00 flat
   //   - source amount is grossed up so post-fee destination amount matches request
   //   - minimum check is post-fee (dust prevention)
   // Non-crypto rails keep their existing behavior.
@@ -487,7 +486,7 @@ Deno.serve(async (req) => {
     enforcedCryptoPayout = validation.enforced;
   }
 
-  const sourceRail = body.source.payment_rail || "stablecoin";
+  const sourceRail = body.source.payment_rail || "bridge_wallet";
   const requestedDestinationRail = String(body.destination.payment_rail || "").toLowerCase();
   const isWalletToWallet = String(sourceRail || "").toLowerCase() === "bridge_wallet" && requestedDestinationRail === "bridge_wallet";
   const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
@@ -598,7 +597,7 @@ Deno.serve(async (req) => {
       p_metadata:           {
         idempotency_key: idem,
         transaction_type: isWalletToWallet ? "p2p_transfer" : "fx_conversion",
-        flow: isWalletToWallet ? "wallet_to_wallet" : "stablecoin_sandwich",
+        flow: isWalletToWallet ? "wallet_to_wallet" : isCryptoPayout ? "bridge_wallet_crypto_payout" : "bridge_transfer",
         payout_validator: enforcedCryptoPayout ? "bridge_payout_validator_v1" : null,
         recipient_user_id: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_user_id : null,
         recipient_email: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_email : null,
