@@ -116,6 +116,13 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
   USDC: { symbol: '$',  color: '#2775CA' },
 };
 
+const ACTIVE_VA_STATUSES = new Set(['active', 'activated']);
+
+function isActiveVirtualAccount(row: any): boolean {
+  const status = String(row?.account_details?.status || row?.status || '').trim().toLowerCase();
+  return ACTIVE_VA_STATUSES.has(status);
+}
+
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
@@ -335,9 +342,14 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           : Array.isArray(walletRouteData?.wallets)
             ? walletRouteData.wallets
             : null;
+        const vaSource = Array.isArray(snapshotData?.virtual_accounts)
+          ? snapshotData.virtual_accounts
+          : Array.isArray(walletRouteData?.virtual_accounts)
+            ? walletRouteData.virtual_accounts
+            : null;
         if (Array.isArray(walletSource)) {
           const raw = walletSource || [];
-          const rows: Row[] = raw.map((w: any) => {
+          const spendableRows: Row[] = raw.map((w: any) => {
             const c = String(w?.currency || '').toUpperCase();
             return {
               currency: c,
@@ -346,18 +358,43 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               color: CURRENCY_CONFIG[c]?.color || '#666',
             };
           });
+          const seen = new Set(spendableRows.map((row) => row.currency));
+          const activeVaRows: Row[] = Array.isArray(vaSource)
+            ? vaSource
+              .filter((va: any) =>
+                ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
+                isActiveVirtualAccount(va)
+              )
+              .map((va: any) => {
+                const c = String(va?.currency || '').toUpperCase();
+                return {
+                  currency: c,
+                  balance: 0,
+                  symbol: CURRENCY_CONFIG[c]?.symbol || c,
+                  color: CURRENCY_CONFIG[c]?.color || '#666',
+                };
+              })
+              .filter((row) => {
+                if (!row.currency || seen.has(row.currency)) return false;
+                seen.add(row.currency);
+                return true;
+              })
+            : [];
+          const order = ['USD', 'EUR', 'GBP', 'USDC', 'USDT'];
+          const rank = (currency: string) => {
+            const idx = order.indexOf(currency);
+            return idx === -1 ? order.length : idx;
+          };
+          const rows = [...activeVaRows, ...spendableRows]
+            .sort((a, b) => rank(a.currency) - rank(b.currency));
           setWallets(rows);
-          setTotalBalance(usdLikeTotal(rows));
+          setTotalBalance(usdLikeTotal(spendableRows));
           writeJSON(dashWalletsKey, rows);
         }
-        const vaSource = Array.isArray(snapshotData?.virtual_accounts)
-          ? snapshotData.virtual_accounts
-          : Array.isArray(walletRouteData?.virtual_accounts)
-            ? walletRouteData.virtual_accounts
-            : null;
         if (Array.isArray(vaSource)) {
           const hasVA = (vaSource as any[]).some((va: any) =>
-            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
+            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
+            isActiveVirtualAccount(va),
           );
           setHasVirtualAccounts(hasVA);
         }

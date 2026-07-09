@@ -72,19 +72,27 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   });
   const [requesting, setRequesting] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<Set<string>>(new Set());
   const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     try {
-      const route: any = await backendAPI.financial.getWalletRouteData();
+      const [route, caps]: any[] = await Promise.all([
+        backendAPI.financial.getWalletRouteData(),
+        backendAPI.bridge.virtualAccount.capabilities().catch(() => null),
+      ]);
       const routeData = route?.data || {};
       const nextStable = Array.isArray(routeData?.stablecoin_wallets) ? routeData.stablecoin_wallets : [];
       const nextVa = Array.isArray(routeData?.virtual_accounts) ? routeData.virtual_accounts : [];
       const wallets = Array.isArray(routeData?.wallets) ? routeData.wallets : [];
       setStableRows(nextStable);
       setVaRows(nextVa);
+      const supported = Array.isArray(caps?.data?.supported_currencies)
+        ? caps.data.supported_currencies.map((c: any) => String(c || '').toUpperCase())
+        : [];
+      setSupportedVaCurrencies(new Set(supported));
       try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
 
@@ -113,18 +121,28 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     const map = new Map<string, VaRow>();
     for (const row of vaRows) {
       const currency = String(row.currency || '').toUpperCase();
-      if (currency && !map.has(currency)) map.set(currency, row);
+      if (!currency) continue;
+      const existing = map.get(currency);
+      if (!existing) {
+        map.set(currency, row);
+        continue;
+      }
+      const existingStatus = getVaStatus(existing);
+      const nextStatus = getVaStatus(row);
+      if (!ACTIVE_VA_STATUSES.has(existingStatus) && ACTIVE_VA_STATUSES.has(nextStatus)) {
+        map.set(currency, row);
+      }
     }
     return map;
   }, [vaRows]);
   const visibleCards = useMemo(
     () => CARDS.filter((card) => {
       if (card.type === 'virtual_account') {
-        return existingVa.has(card.code);
+        return existingVa.has(card.code) || supportedVaCurrencies.has(card.code);
       }
       return existingStable.has(card.code);
     }),
-    [existingStable, existingVa],
+    [existingStable, existingVa, supportedVaCurrencies],
   );
 
   const requestVirtualAccount = async (currency: string) => {
@@ -149,6 +167,17 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     const alreadyExists = card.type === 'virtual_account'
       ? existingVa.has(card.code)
       : existingStable.has(card.code);
+    if (card.type === 'virtual_account' && !alreadyExists && supportedVaCurrencies.has(card.code)) {
+      return (
+        <button
+          onClick={() => void requestVirtualAccount(card.code)}
+          disabled={requesting === card.code}
+          className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
+        >
+          {requesting === card.code ? 'Requesting' : 'Request'}
+        </button>
+      );
+    }
     if (alreadyExists) {
       const vaStatus = card.type === 'virtual_account' ? getVaStatus(vaByCurrency.get(card.code)) : 'active';
       const inactive = card.type === 'virtual_account' && INACTIVE_VA_STATUSES.has(vaStatus);
@@ -236,7 +265,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {exists ? `${card.subtitle} · ${inactive ? vaStatus : active ? 'active' : 'request required'}` : `${card.subtitle} · not granted`}
+                      {exists ? `${card.subtitle} · ${inactive ? vaStatus : active ? 'active' : 'request required'}` : `${card.subtitle} · request available`}
                     </div>
                   </div>
                   {renderAction(card)}
