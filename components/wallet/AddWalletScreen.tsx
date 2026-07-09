@@ -79,6 +79,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     try {
+      await Promise.race([
+        backendAPI.bridge.syncAccounts(),
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]);
       const [route, caps]: any[] = await Promise.all([
         backendAPI.financial.getWalletRouteData(),
         backendAPI.bridge.virtualAccount.capabilities().catch(() => null),
@@ -182,23 +186,18 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       const vaStatus = card.type === 'virtual_account' ? getVaStatus(vaByCurrency.get(card.code)) : 'active';
       const inactive = card.type === 'virtual_account' && INACTIVE_VA_STATUSES.has(vaStatus);
       const active = card.type !== 'virtual_account' || ACTIVE_VA_STATUSES.has(vaStatus);
-      if (card.type === 'virtual_account' && !active && !inactive) {
-        return (
-          <button
-            onClick={() => void requestVirtualAccount(card.code)}
-            disabled={requesting === card.code}
-            className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
-          >
-            {requesting === card.code ? 'Requesting' : 'Request'}
-          </button>
-        );
-      }
       return (
         <button
           disabled
-          className={`h-10 px-4 rounded-xl text-sm font-semibold ${inactive ? 'border border-amber-400/30 text-amber-300 bg-amber-400/10' : 'bg-[#C7FF00] text-black'}`}
+          className={`h-10 px-4 rounded-xl text-sm font-semibold ${
+            inactive
+              ? 'border border-amber-400/30 text-amber-300 bg-amber-400/10'
+              : active
+                ? 'bg-[#C7FF00] text-black'
+                : 'border border-white/15 text-white/70 bg-white/5'
+          }`}
         >
-          {inactive ? vaStatus : 'Active'}
+          {inactive ? vaStatus : active ? 'Active' : 'Pending'}
         </button>
       );
     }
@@ -265,7 +264,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {exists ? `${card.subtitle} · ${inactive ? vaStatus : active ? 'active' : 'request required'}` : `${card.subtitle} · request available`}
+                      {exists ? `${card.subtitle} · ${inactive ? vaStatus : active ? 'active' : 'pending'}` : `${card.subtitle} · request available`}
                     </div>
                   </div>
                   {renderAction(card)}

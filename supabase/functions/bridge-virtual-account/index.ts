@@ -55,6 +55,71 @@ function extractDepositInstructions(details: any): Record<string, unknown> {
   return {};
 }
 
+async function upsertProviderVirtualAccount(input: {
+  userId: string;
+  isBusiness: boolean;
+  bridgeCustomerId: string;
+  account: {
+    virtual_account_id: string;
+    currency: string;
+    rail?: string;
+    status?: string;
+    developer_fee_percent?: number;
+    account_details: unknown;
+  };
+}) {
+  const details = input.account.account_details && typeof input.account.account_details === "object"
+    ? input.account.account_details as Record<string, unknown>
+    : {};
+  const { data: existing } = await supa
+    .from("bridge_virtual_accounts")
+    .select("account_details")
+    .eq("bridge_virtual_account_id", input.account.virtual_account_id)
+    .maybeSingle();
+  const existingDetails = existing?.account_details && typeof existing.account_details === "object"
+    ? existing.account_details as Record<string, unknown>
+    : {};
+  const accountDetails = {
+    ...details,
+    ...(existingDetails.borderpay_user_requested ? { borderpay_user_requested: existingDetails.borderpay_user_requested } : {}),
+    ...(existingDetails.borderpay_user_requested_at ? { borderpay_user_requested_at: existingDetails.borderpay_user_requested_at } : {}),
+  };
+
+  await supa.from("bridge_virtual_accounts").upsert({
+    user_id: input.isBusiness ? null : input.userId,
+    business_user_id: input.isBusiness ? input.userId : null,
+    bridge_customer_id: input.bridgeCustomerId,
+    bridge_virtual_account_id: input.account.virtual_account_id,
+    currency: String(input.account.currency || "").toUpperCase(),
+    rail: input.account.rail ?? null,
+    status: String(input.account.status || "active").toLowerCase(),
+    developer_fee_percent: input.account.developer_fee_percent ?? null,
+    account_details: accountDetails,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "bridge_virtual_account_id" });
+}
+
+function vaResponseDataFromProvider(account: {
+  virtual_account_id: string;
+  currency: string;
+  account_details: unknown;
+}) {
+  const details = account.account_details && typeof account.account_details === "object"
+    ? account.account_details as Record<string, unknown>
+    : {};
+  const dep = extractDepositInstructions(details);
+  return {
+    virtual_account_id: account.virtual_account_id,
+    account_number:     dep.bank_account_number ?? null,
+    routing_number:     dep.bank_routing_number ?? null,
+    iban:               dep.iban ?? null,
+    bic:                dep.bic ?? null,
+    bank_name:          dep.bank_name ?? null,
+    currency: String(account.currency || "").toUpperCase(),
+    already_exists: true,
+  };
+}
+
 async function loadCustomerUsdcBaseDestination(
   userId: string,
   bridgeCustomerId: string,
@@ -245,6 +310,54 @@ Deno.serve(async (req) => {
         code: "kyc_not_approved",
       },
     }, 409);
+  }
+
+  // Bridge source-of-truth guard: dashboard/operator-created accounts can
+  // exist before our webhook projection catches up. Always pull Bridge before
+  // creating so a user cannot generate duplicate VAs by clicking Request.
+  try {
+    const providerAccounts = await bridgeProvider.listVirtualAccounts(profile.bridge_customer_id);
+    for (const account of providerAccounts) {
+      if (!account.virtual_account_id) continue;
+      await upsertProviderVirtualAccount({
+        userId: user.id,
+        isBusiness,
+        bridgeCustomerId: profile.bridge_customer_id,
+        account,
+      });
+    }
+    const providerCurrencyMatch = providerAccounts.find((account) =>
+      String(account.currency || "").toUpperCase() === currency
+    );
+    if (providerCurrencyMatch?.virtual_account_id) {
+      const providerStatus = String(providerCurrencyMatch.status || "active").toLowerCase();
+      if (DEACTIVATED_STATUSES.has(providerStatus)) {
+        return json({
+          success: false,
+          code: "virtual_account_deactivated",
+          error: `${currency} account is deactivated. Contact support before using this rail.`,
+          currency,
+          summary: {
+            code: "virtual_account_deactivated",
+            currency,
+            virtual_account_id: providerCurrencyMatch.virtual_account_id,
+          },
+        }, 409);
+      }
+      return json({
+        success: true,
+        code: "virtual_account_already_exists",
+        summary: {
+          code: "virtual_account_already_exists",
+          currency,
+          already_exists: true,
+          source: "bridge",
+        },
+        data: vaResponseDataFromProvider(providerCurrencyMatch),
+      });
+    }
+  } catch (e) {
+    console.warn(`bridge-virtual-account source-of-truth preflight failed: ${(e as Error).message}`);
   }
 
   // Existing-customer protection: one activated VA per currency. Deactivated
