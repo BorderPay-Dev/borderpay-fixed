@@ -14,9 +14,7 @@
  */
 
 import React from 'react';
-import { Sparkles, ArrowRight } from 'lucide-react';
-import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { getPlan, type PlanKey, type AccountType } from '../../utils/subscriptions/plans';
+import { type PlanKey, type AccountType } from '../../utils/subscriptions/plans';
 
 export interface PlanStatusCardProps {
   /** The user's active plan_key. null while loading. */
@@ -35,62 +33,12 @@ export interface PlanStatusCardProps {
 export function PlanStatusCard({
   planKey, accountType, onManagePlans, onUpgrade, hasVirtualAccounts = false,
 }: PlanStatusCardProps) {
-  const tc = useThemeClasses();
-
-  // Loading skeleton until the parent's subscription fetch resolves.
-  if (!planKey) {
-    return (
-      <div className={`rounded-2xl ${tc.card} border ${tc.cardBorder} px-4 py-4 flex items-center gap-3`}>
-        <div className={`w-9 h-9 rounded-full ${tc.bgAlt} animate-pulse`} />
-        <div className="flex-1 space-y-1.5">
-          <div className={`h-3 w-24 rounded ${tc.bgAlt} animate-pulse`} />
-          <div className={`h-2.5 w-32 rounded ${tc.bgAlt} animate-pulse`} />
-        </div>
-      </div>
-    );
-  }
-
-  // Activated → the card disappears. Nothing to show, nothing to manage.
-  if (getPlan(planKey).is_activated) return null;
-  // If the user already has virtual accounts, they are effectively unlocked;
-  // never keep showing the first-funding activation banner.
-  if (hasVirtualAccounts) return null;
-
-  const onActivate = onUpgrade ?? onManagePlans;
-  const isBusiness = accountType === 'business';
-
-  return (
-    <div className={`rounded-2xl border px-4 py-4 ${tc.card} ${tc.cardBorder}`}>
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-[#C7FF00]/15">
-          <Sparkles className="w-4 h-4 text-[#C7FF00]" />
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <h3 className={`text-sm font-semibold ${tc.text}`}>
-            {isBusiness ? 'Business accounts are enabled based on profile readiness' : 'Accounts are enabled based on profile readiness'}
-          </h3>
-          <p className={`text-[11px] ${tc.textMuted} mt-0.5 leading-snug`}>
-            {isBusiness
-              ? 'Virtual accounts are provisioned automatically when granted for your business profile and supported region.'
-              : 'Virtual accounts are provisioned automatically when granted for your profile and supported region.'}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={onActivate}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#C7FF00] text-black text-[11px] font-bold flex-shrink-0 hover:brightness-95 transition"
-        >
-          Get started
-          <ArrowRight className="w-3 h-3" />
-        </button>
-      </div>
-      <p className={`text-[11px] ${tc.textMuted} mt-2 ml-[3.25rem]`}>
-        Funds stay in your wallet. No fees. No hidden charges.
-      </p>
-    </div>
-  );
+  void planKey;
+  void accountType;
+  void onManagePlans;
+  void onUpgrade;
+  void hasVirtualAccounts;
+  return null;
 }
 
 export default PlanStatusCard;

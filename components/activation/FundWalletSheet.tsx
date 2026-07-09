@@ -48,6 +48,16 @@ interface Props {
 interface Stable { id: string; currency: string; chain: string; address: string }
 
 export function FundWalletSheet({ open, onClose, currentUsd, minUsd, accountType, onOpenWallet, onOpenReceive, userId }: Props) {
+  void open;
+  void onClose;
+  void currentUsd;
+  void minUsd;
+  void accountType;
+  void onOpenWallet;
+  void onOpenReceive;
+  void userId;
+  return null;
+
   const minRequired = minUsd ?? (accountType === 'business' ? FUNDING_MIN_USD_BUSINESS : FUNDING_MIN_USD_INDIVIDUAL);
   const tc = useThemeClasses();
   const [stables, setStables] = useState<Stable[]>(() => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, Plus, Shield } from 'lucide-react';
+import { Lock, Plus } from 'lucide-react';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
@@ -72,15 +72,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     }
   });
 
-  const [hasFirstFunding, setHasFirstFunding] = useState<boolean>(() => {
-    try {
-      const raw = localStorage.getItem(`borderpay_wallet_total_${userId}`);
-      return Number(raw || 0) > 0;
-    } catch {
-      return false;
-    }
-  });
-
   const walletCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -123,7 +114,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
 
       const total = wallets.reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
-      setHasFirstFunding(total > 0);
       try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total)); } catch { /* noop */ }
 
       try {
@@ -257,18 +247,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       );
     }
 
-    if (card.type === 'virtual_account' && !hasFirstFunding) {
-      return (
-        <button
-          disabled
-          className="h-10 px-4 rounded-xl border border-white/15 text-white/55 text-sm font-semibold"
-          title="Virtual accounts are enabled automatically when available for your profile."
-        >
-          Locked
-        </button>
-      );
-    }
-
     return (
       <button
         onClick={() => void requestWallet(card)}
@@ -293,16 +271,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
             Add only what you need. Unsupported wallets stay locked for your region.
           </p>
         </div>
-
-        {!hasFirstFunding && (
-          <div className={`mb-4 rounded-2xl border ${tc.cardBorder} ${tc.card} p-3 flex items-start gap-2`}>
-            <Shield className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
-            <p className={`text-xs ${tc.textSecondary}`}>
-              Virtual accounts appear automatically when granted by the provider for your profile and region.
-              Stablecoin wallets can be added now.
-            </p>
-          </div>
-        )}
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
           {CARDS.map((card, idx) => {

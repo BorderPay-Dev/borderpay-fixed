@@ -64,7 +64,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
-import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
 import {
@@ -219,17 +218,7 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
 
-  // Paid gate: outbound transfers require an activated (paid) plan. In the Wise
-  // funnel KYC can be free, so this is what keeps money movement paid-gated —
-  // an unpaid user gets `plan_required` → the app shows the activation popup.
-  {
-    const isBusiness = profile.account_type === "business";
-    const __planGate = await requireMinimumWalletBalance(supa, user.id, {
-      isBusiness,
-      bridgeCustomerId: profile.bridge_customer_id,
-    });
-    if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
-  }
+  // Product policy: no activation/funding gate. Approved users can move money.
 
   // Canonicalise: include user.id so two users can't collide on the same key.
   const clientKey = body.idempotency_key as string;

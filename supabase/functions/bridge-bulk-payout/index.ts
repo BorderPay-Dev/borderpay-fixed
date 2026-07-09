@@ -28,7 +28,6 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { BRIDGE_PAYOUT_DEVELOPER_FEE_USD } from "../_shared/bridge-payout-validator.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
-import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
 
@@ -135,14 +134,7 @@ Deno.serve(async (req) => {
   logControlledBridgeTraffic("bridge-bulk-payout", profile?.country, user.id);
   if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);
   if (profile.verification_status !== "approved") return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
-  {
-    const isBusiness = profile.account_type === "business";
-    const gate = await requireMinimumWalletBalance(supa, user.id, {
-      isBusiness,
-      bridgeCustomerId: profile.bridge_customer_id,
-    });
-    if (!gate.allowed) return json(gate.body, gate.status);
-  }
+  // Product policy: no activation/funding gate. Approved users can move money.
 
   // Process each recipient sequentially. A per-item failure is recorded and the
   // batch continues — it never aborts the run or retries a succeeded row.
