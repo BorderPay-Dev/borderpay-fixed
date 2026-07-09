@@ -636,7 +636,7 @@ export class BridgeProvider implements PaymentProvider {
           input.developer_fee.percentage == null
             ? undefined
             : String(input.developer_fee.percentage),
-        developer_fee_amount:  input.developer_fee.flat_amount,
+        developer_fee:  input.developer_fee.flat_amount,
       } : {}),
     };
     const r = await bridgeFetch({

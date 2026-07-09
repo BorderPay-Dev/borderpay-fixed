@@ -62,7 +62,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
@@ -425,11 +425,29 @@ Deno.serve(async (req) => {
       },
     });
   } catch (e) {
+    const providerError = e instanceof BridgeProviderError ? e : null;
+    const providerStatus = providerError?.status ?? 502;
+    const providerMessage = providerError?.bridge_error || providerError?.message || "Bridge transfer could not be created.";
+    const clientStatus = providerStatus >= 400 && providerStatus < 500 ? 400 : 502;
+    const clientCode =
+      providerStatus === 400 ? "bridge_transfer_rejected"
+      : providerStatus === 409 ? "bridge_transfer_conflict"
+      : "bridge_transfer_failed";
     fxLog("bridge_request_failed", {
       user_id: user.id,
       idempotency_key: idem,
       error: (e as Error).message,
+      provider_status: providerStatus,
+      provider_request_id: providerError?.request_id ?? null,
+      bridge_code: providerError?.bridge_code ?? null,
+      bridge_error: providerError?.bridge_error ?? null,
     });
-    return json({ success: false, error: (e as Error).message }, 502);
+    return json({
+      success: false,
+      code: clientCode,
+      error: providerMessage,
+      provider_status: providerStatus,
+      provider_request_id: providerError?.request_id ?? null,
+    }, clientStatus);
   }
 });

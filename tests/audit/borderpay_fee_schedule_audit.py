@@ -11,8 +11,9 @@ Guards the money-math invariants for the BorderPay fee schedule:
       enterprise 0.5).
   F3  Frontend mirror exists and carries byte-identical numbers to the edge
       module (display can never drift from what the server charges).
-  F4  bridge-transfer enforces the developer fee SERVER-SIDE: it imports
-      bridgeDeveloperFeePercent and passes a computed developer_fee percentage.
+  F4  bridge-transfer enforces the crypto payout fee SERVER-SIDE through
+      BridgePayoutValidator: $1.00 flat + 0.25%, passed as a fixed
+      developer_fee amount.
   F5  bridge-transfer NO LONGER trusts a client-supplied developer_fee
       (no `developer_fee: body.developer_fee`).
 
@@ -79,12 +80,14 @@ if front:
         if got != v:
             failures.append(f"F3 frontend mirror {k}: expected {v}, got {got}")
 
-# F4 — server-side enforcement --------------------------------------------
+# F4 — server-side crypto payout enforcement -------------------------------
 if xfer:
-    if "bridgeDeveloperFeePercent" not in xfer:
-        failures.append("F4 bridge-transfer does not import/use bridgeDeveloperFeePercent")
-    if not re.search(r"developer_fee\s*:\s*\{\s*percentage\s*:\s*devFeePercent", xfer):
-        failures.append("F4 bridge-transfer does not pass a server-computed developer_fee percentage")
+    if "validateBridgePayout" not in xfer:
+        failures.append("F4 bridge-transfer does not use validateBridgePayout")
+    if "enforcedCryptoPayout.developer_fee" not in xfer:
+        failures.append("F4 bridge-transfer does not pass server-computed crypto payout developer_fee")
+    if not re.search(r"developer_fee\s*:\s*isCryptoPayout\s*\?", xfer):
+        failures.append("F4 bridge-transfer does not conditionally enforce crypto payout developer_fee")
 
 # F5 — client value no longer trusted -------------------------------------
 if xfer:
@@ -103,5 +106,5 @@ print(f"FEE SCHEDULE AUDIT: PASS ({total}/{total})")
 print("  ✓ F1 edge Bridge dev fee 2.5% fiat / 0.999% stablecoin")
 print("  ✓ F2 edge African payout markup tiers (1.0/0.75 starter, 0.5 premium/growth/ent)")
 print("  ✓ F3 frontend mirror numbers identical to edge")
-print("  ✓ F4 bridge-transfer enforces developer fee server-side")
+print("  ✓ F4 bridge-transfer enforces crypto payout developer fee server-side")
 print("  ✓ F5 bridge-transfer ignores client-supplied developer_fee")
