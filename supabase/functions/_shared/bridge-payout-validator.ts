@@ -28,7 +28,7 @@ type SupportedBridgeDestinationRail = "base" | "tron";
 
 const ROUTES: Record<string, SupportedRoute> = {
   "BASE:USDC": { chain: "BASE", currency: "USDC", min_usd: 1.0 },
-  "TRON:USDT": { chain: "TRON", currency: "USDT", min_usd: 3.0 },
+  "TRON:USDT": { chain: "TRON", currency: "USDT", min_usd: 5.0 },
 };
 
 const BRIDGE_CHAIN_RAILS = new Set(["base", "tron"]);
