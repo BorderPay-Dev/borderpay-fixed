@@ -16,6 +16,12 @@ import {
   isBridgeVirtualAccountCurrencyAvailable,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
+import {
+  loadVirtualAccountDeveloperFeePercent,
+  loadVirtualAccountDestinationConfig,
+  type VaCurrency,
+} from "../_shared/providers/virtual-account-config.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -30,6 +36,23 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 });
 
 const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
+const ACTIVE_STATUSES = new Set(["active", "activated"]);
+const DEACTIVATED_STATUSES = new Set(["inactive", "deactivated", "disabled", "closed", "archived", "cancelled", "canceled", "rejected", "suspended", "blocked"]);
+
+function normalizeVaStatus(row: any): string {
+  return String(row?.account_details?.status || row?.status || "").trim().toLowerCase();
+}
+
+function extractDepositInstructions(details: any): Record<string, unknown> {
+  if (!details || typeof details !== "object") return {};
+  if (details.source_deposit_instructions && typeof details.source_deposit_instructions === "object") {
+    return details.source_deposit_instructions as Record<string, unknown>;
+  }
+  if (details.deposit_instructions && typeof details.deposit_instructions === "object") {
+    return details.deposit_instructions as Record<string, unknown>;
+  }
+  return {};
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -184,26 +207,24 @@ Deno.serve(async (req) => {
     }, 409);
   }
 
-  // Existing-customer protection: one active VA per currency.
-  const { data: existingVa } = await supa
+  // Existing-customer protection: one activated VA per currency. Deactivated
+  // rows are provider-owned history and must not be shown/treated as active.
+  const { data: existingRows } = await supa
     .from("bridge_virtual_accounts")
     .select("id, bridge_virtual_account_id, currency, status, rail, account_details")
     .or(`user_id.eq.${user.id},business_user_id.eq.${user.id}`)
     .eq("bridge_customer_id", profile.bridge_customer_id)
     .eq("currency", currency)
-    .eq("status", "active")
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(10);
+  const existingVa = Array.isArray(existingRows)
+    ? existingRows.find((row: any) => ACTIVE_STATUSES.has(normalizeVaStatus(row)) || ACTIVE_STATUSES.has(String(row?.status || "").toLowerCase()))
+    : null;
   if (existingVa?.bridge_virtual_account_id) {
     const details = (existingVa.account_details && typeof existingVa.account_details === "object")
       ? (existingVa.account_details as Record<string, unknown>)
       : {};
-    const dep = (details.deposit_instructions && typeof details.deposit_instructions === "object")
-      ? details.deposit_instructions as Record<string, unknown>
-      : (details.source_deposit_instructions && typeof details.source_deposit_instructions === "object")
-      ? details.source_deposit_instructions as Record<string, unknown>
-      : {};
+    const dep = extractDepositInstructions(details);
     return json({
       success: true,
       code: "virtual_account_already_exists",
@@ -225,15 +246,88 @@ Deno.serve(async (req) => {
     });
   }
 
-  return json({
-    success: false,
-    code: "virtual_account_not_granted",
-    error: `${currency} account is not available on your Bridge profile yet. Contact support if you need this rail.`,
-    currency,
-    summary: {
-      code: "virtual_account_not_granted",
+  const deactivatedVa = Array.isArray(existingRows)
+    ? existingRows.find((row: any) => DEACTIVATED_STATUSES.has(normalizeVaStatus(row)) || DEACTIVATED_STATUSES.has(String(row?.status || "").toLowerCase()))
+    : null;
+  if (deactivatedVa?.bridge_virtual_account_id) {
+    return json({
+      success: false,
+      code: "virtual_account_deactivated",
+      error: `${currency} account is deactivated. Contact support before using this rail.`,
       currency,
-    },
-  }, 409);
+      summary: {
+        code: "virtual_account_deactivated",
+        currency,
+        virtual_account_id: deactivatedVa.bridge_virtual_account_id,
+      },
+    }, 409);
+  }
+
+  try {
+    const developerFeePercent = await loadVirtualAccountDeveloperFeePercent(supa);
+    const destination = await loadVirtualAccountDestinationConfig(supa, currency as VaCurrency);
+    const result = await bridgeProvider.createVirtualAccount({
+      customer_id: profile.bridge_customer_id,
+      currency: currency as VaCurrency,
+      developer_fee_percent: developerFeePercent,
+      destination,
+      idempotency_key: `borderpay:va:${profile.bridge_customer_id}:${currency}`,
+    });
+    const raw = (result.raw as any)?.data ?? result.raw;
+    const details = raw && typeof raw === "object" ? raw : {};
+    const dep = extractDepositInstructions(details);
+    const status = String((details as any)?.status || "activated").toLowerCase();
+
+    await supa.from("bridge_virtual_accounts").upsert({
+      user_id: isBusiness ? null : user.id,
+      business_user_id: isBusiness ? user.id : null,
+      bridge_customer_id: profile.bridge_customer_id,
+      bridge_virtual_account_id: result.virtual_account_id,
+      currency,
+      rail: result.raw && typeof result.raw === "object"
+        ? ((dep.payment_rail as string | undefined) ?? (Array.isArray(dep.payment_rails) ? String(dep.payment_rails[0] || "") : null))
+        : null,
+      status,
+      developer_fee_percent: Number(developerFeePercent),
+      account_details: details,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "bridge_virtual_account_id" });
+
+    return json({
+      success: true,
+      code: "virtual_account_created",
+      summary: {
+        code: "virtual_account_created",
+        currency,
+        developer_fee_percent: developerFeePercent,
+      },
+      data: {
+        virtual_account_id: result.virtual_account_id,
+        account_number:     result.account_number ?? dep.bank_account_number ?? null,
+        routing_number:     result.routing_number ?? dep.bank_routing_number ?? null,
+        iban:               result.iban ?? dep.iban ?? null,
+        bic:                result.bic ?? dep.bic ?? null,
+        bank_name:          result.bank_name ?? dep.bank_name ?? null,
+        currency,
+        already_exists: false,
+      },
+    });
+  } catch (e) {
+    const providerError = e instanceof BridgeProviderError ? e : null;
+    const providerStatus = providerError?.status ?? 502;
+    return json({
+      success: false,
+      code: providerStatus >= 400 && providerStatus < 500 ? "bridge_virtual_account_rejected" : "bridge_virtual_account_failed",
+      error: providerError?.bridge_error || providerError?.message || "Virtual account could not be created.",
+      provider_status: providerStatus,
+      provider_request_id: providerError?.request_id ?? null,
+      bridge_code: providerError?.bridge_code ?? null,
+      bridge_error: providerError?.bridge_error ?? null,
+      summary: {
+        code: providerStatus >= 400 && providerStatus < 500 ? "bridge_virtual_account_rejected" : "bridge_virtual_account_failed",
+        currency,
+      },
+    }, providerStatus >= 400 && providerStatus < 500 ? 400 : 502);
+  }
 
 });

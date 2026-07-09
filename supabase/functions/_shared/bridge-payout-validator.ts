@@ -10,11 +10,9 @@
  * Developer fee:
  *   - USD 1.00 flat.
  *
- * Dust prevention:
- *   - Bridge minimum is enforced on NET destination amount:
- *       net = gross - developer_fee
- *   - Requests that would settle below the rail minimum are rejected
- *     before Bridge API execution.
+ * The Bridge request amount is the user-entered transfer amount. BorderPay's
+ * flat developer fee is sent separately as `developer_fee`; we do not gross up
+ * or otherwise rewrite the Bridge team-provided transfer payload shape.
  */
 
 export const BRIDGE_PAYOUT_DEVELOPER_FEE_USD = "1.00";
@@ -23,17 +21,14 @@ export const BRIDGE_PAYOUT_ORCHESTRATION_BPS = 0;
 type SupportedRoute = {
   chain: "BASE" | "TRON";
   currency: "USDC" | "USDT";
-  // Absolute gross lower bound we enforce at request boundary.
-  gross_min_usd: number;
-  // Bridge-safe post-fee minimum (net destination amount).
-  net_min_usd: number;
+  min_usd: number;
 };
 
 type SupportedBridgeDestinationRail = "base" | "tron";
 
 const ROUTES: Record<string, SupportedRoute> = {
-  "BASE:USDC": { chain: "BASE", currency: "USDC", gross_min_usd: 2.0, net_min_usd: 1.0 },
-  "TRON:USDT": { chain: "TRON", currency: "USDT", gross_min_usd: 4.0, net_min_usd: 3.0 },
+  "BASE:USDC": { chain: "BASE", currency: "USDC", min_usd: 1.0 },
+  "TRON:USDT": { chain: "TRON", currency: "USDT", min_usd: 3.0 },
 };
 
 const BRIDGE_CHAIN_RAILS = new Set(["base", "tron"]);
@@ -45,12 +40,9 @@ export type BridgePayoutValidationOk = {
     destination_payment_rail: SupportedBridgeDestinationRail;
     chain: "BASE" | "TRON";
     currency: "USDC" | "USDT";
-    requested_destination_amount: string; // 2dp
-    gross_amount: string; // 2dp
+    amount: string; // 2dp
     developer_fee: string; // 2dp
-    net_destination_amount: string; // 2dp
-    gross_minimum: string; // 2dp
-    net_minimum: string; // 2dp
+    minimum: string; // 2dp
   };
 };
 
@@ -95,12 +87,9 @@ function parseFixedToCents(v: string): number {
   return Math.round(n * 100);
 }
 
-function computeDeveloperFeeCents(destinationAmountCents: number): number {
+function computeDeveloperFeeCents(_amountCents: number): number {
   const flatCents = parseFixedToCents(BRIDGE_PAYOUT_DEVELOPER_FEE_USD);
-  const orchestrationCents = BRIDGE_PAYOUT_ORCHESTRATION_BPS > 0
-    ? Math.round(destinationAmountCents * BRIDGE_PAYOUT_ORCHESTRATION_BPS / 10_000)
-    : 0;
-  return flatCents + orchestrationCents;
+  return flatCents;
 }
 
 /**
@@ -179,57 +168,33 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
     };
   }
 
-  const requestedDestinationCents = parseDecimalToCents(body?.source?.amount);
-  if (requestedDestinationCents == null) {
+  const amountCents = parseDecimalToCents(body?.source?.amount);
+  if (amountCents == null) {
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
         code: "invalid_amount",
-        error: "source.amount must be a positive destination amount.",
+        error: "source.amount must be a positive transfer amount.",
       },
     };
   }
 
-  const feeCents = computeDeveloperFeeCents(requestedDestinationCents);
-  const grossCents = requestedDestinationCents + feeCents;
-  const grossMinCents = Math.round(route.gross_min_usd * 100);
-  const netMinCents = Math.round(route.net_min_usd * 100);
-  const netCents = requestedDestinationCents;
-
-  if (grossCents < grossMinCents) {
+  const feeCents = computeDeveloperFeeCents(amountCents);
+  const minCents = Math.round(route.min_usd * 100);
+  if (amountCents < minCents) {
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
-        code: "gross_below_minimum",
-        error: `Gross transfer amount is below the minimum for ${route.currency} on ${route.chain}.`,
+        code: "amount_below_minimum",
+        error: `Transfer amount is below the minimum for ${route.currency} on ${route.chain}.`,
         details: {
           route: `${route.currency}:${route.chain}`,
-          gross_amount: centsToFixed(grossCents),
-          gross_minimum: centsToFixed(grossMinCents),
-          developer_fee: centsToFixed(feeCents),
-        },
-      },
-    };
-  }
-
-  if (netCents < netMinCents) {
-    return {
-      ok: false,
-      status: 400,
-      body: {
-        success: false,
-        code: "dust_minimum_not_met",
-        error: "Transfer blocked to prevent dust: net destination amount falls below the route minimum after fee deduction.",
-        details: {
-          route: `${route.currency}:${route.chain}`,
-          gross_amount: centsToFixed(grossCents),
-          developer_fee: centsToFixed(feeCents),
-          net_destination_amount: centsToFixed(netCents),
-          net_minimum: centsToFixed(netMinCents),
+          amount: centsToFixed(amountCents),
+          minimum: centsToFixed(minCents),
         },
       },
     };
@@ -242,12 +207,9 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
       destination_payment_rail: bridgeDestinationRail(route.chain),
       chain: route.chain,
       currency: route.currency,
-      requested_destination_amount: centsToFixed(requestedDestinationCents),
-      gross_amount: centsToFixed(grossCents),
+      amount: centsToFixed(amountCents),
       developer_fee: centsToFixed(feeCents),
-      net_destination_amount: centsToFixed(netCents),
-      gross_minimum: centsToFixed(grossMinCents),
-      net_minimum: centsToFixed(netMinCents),
+      minimum: centsToFixed(minCents),
     },
   };
 }

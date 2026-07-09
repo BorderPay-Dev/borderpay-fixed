@@ -1633,8 +1633,8 @@ export const stablecoinAPI = {
      */
     idempotency_key: string;
   }) {
-    const symbol = (data.coin || 'usdc').toUpperCase();
-    const chain  = (data.chain || 'base').toUpperCase();
+    const symbol = (data.coin || 'usdc').toLowerCase();
+    const rail = (data.chain || 'base').toLowerCase();
     return apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed'; replayed?: boolean }>(
       'bridge-transfer',
       {
@@ -1648,7 +1648,7 @@ export const stablecoinAPI = {
             ...(data.bridge_wallet_id ? { bridge_wallet_id: data.bridge_wallet_id } : {}),
           },
           destination: {
-            payment_rail: data.chain,
+            payment_rail: rail,
             currency:     symbol,
             to_address:   data.address,
           },

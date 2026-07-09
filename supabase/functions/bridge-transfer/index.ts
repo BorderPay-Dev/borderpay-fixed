@@ -63,6 +63,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
+import type { BridgeCurrencySymbol } from "../_shared/providers/types.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
@@ -461,8 +462,7 @@ Deno.serve(async (req) => {
   // Bridge Wallet crypto payout guard (BridgePayoutValidator):
   //   - only USDC/base and USDT/tron are allowed
   //   - developer fee = 1.00 flat
-  //   - source amount is grossed up so post-fee destination amount matches request
-  //   - minimum check is post-fee (dust prevention)
+  //   - source amount is passed to Bridge unchanged
   // Non-crypto rails keep their existing behavior.
   const isCryptoPayout = isCryptoToCryptoTransfer(body);
   let enforcedCryptoPayout:
@@ -471,12 +471,9 @@ Deno.serve(async (req) => {
         destination_payment_rail: "base" | "tron";
         chain: "BASE" | "TRON";
         currency: "USDC" | "USDT";
-        requested_destination_amount: string;
-        gross_amount: string;
+        amount: string;
         developer_fee: string;
-        net_destination_amount: string;
-        gross_minimum: string;
-        net_minimum: string;
+        minimum: string;
       }
     | null = null;
 
@@ -489,9 +486,9 @@ Deno.serve(async (req) => {
   const sourceRail = body.source.payment_rail || "bridge_wallet";
   const requestedDestinationRail = String(body.destination.payment_rail || "").toLowerCase();
   const isWalletToWallet = String(sourceRail || "").toLowerCase() === "bridge_wallet" && requestedDestinationRail === "bridge_wallet";
-  const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
-  const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
-  const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
+  const transferAmount = enforcedCryptoPayout?.amount ?? amount.raw;
+  const transferSourceCurrency = String(enforcedCryptoPayout?.currency ?? body.source.currency).toLowerCase() as BridgeCurrencySymbol;
+  const transferDestinationCurrency = String(enforcedCryptoPayout?.currency ?? body.destination.currency).toLowerCase() as BridgeCurrencySymbol;
   const transferChain = enforcedCryptoPayout?.chain ?? body.source.chain ?? body.destination.chain;
   const transferSourceRail = enforcedCryptoPayout?.source_payment_rail ?? sourceRail;
   const transferDestinationRail = enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail;
@@ -538,8 +535,7 @@ Deno.serve(async (req) => {
         ? {
             payout_policy: "bridge_payout_validator_v1",
             developer_fee: enforcedCryptoPayout.developer_fee,
-            requested_destination_amount: enforcedCryptoPayout.requested_destination_amount,
-            net_destination_amount: enforcedCryptoPayout.net_destination_amount,
+            bridge_amount: enforcedCryptoPayout.amount,
           }
         : isWalletToWallet
         ? {
@@ -602,8 +598,7 @@ Deno.serve(async (req) => {
         recipient_user_id: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_user_id : null,
         recipient_email: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_email : null,
         developer_fee: enforcedCryptoPayout?.developer_fee ?? null,
-        requested_destination_amount: enforcedCryptoPayout?.requested_destination_amount ?? null,
-        net_destination_amount: enforcedCryptoPayout?.net_destination_amount ?? null,
+        bridge_amount: enforcedCryptoPayout?.amount ?? null,
         provider_state:  mapped.providerState,
         provider_state_recognized: mapped.recognized,
         raw: result.raw,

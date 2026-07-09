@@ -35,6 +35,7 @@ const STABLE_ICON_URL: Record<string, string> = {
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
 };
 const INACTIVE_VA_STATUSES = new Set(['inactive', 'deactivated', 'disabled', 'closed', 'archived', 'cancelled', 'canceled', 'rejected', 'suspended', 'blocked']);
+const ACTIVE_VA_STATUSES = new Set(['active', 'activated']);
 
 function getVaStatus(row?: VaRow): string {
   return String(row?.account_details?.status || row?.status || 'active').trim().toLowerCase();
@@ -69,6 +70,8 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       return [];
     }
   });
+  const [requesting, setRequesting] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState('');
   const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
@@ -124,6 +127,24 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     [existingStable, existingVa],
   );
 
+  const requestVirtualAccount = async (currency: string) => {
+    if (requesting) return;
+    setErrorMessage('');
+    setRequesting(currency);
+    try {
+      const res: any = await backendAPI.wallets.createVirtualAccount(userId, currency);
+      if (!res?.success) {
+        setErrorMessage(String(res?.error || 'Account request failed. Please try again.'));
+        return;
+      }
+      await refresh();
+    } catch (e) {
+      setErrorMessage((e as Error)?.message || 'Account request failed. Please try again.');
+    } finally {
+      setRequesting(null);
+    }
+  };
+
   const renderAction = (card: WalletCard) => {
     const alreadyExists = card.type === 'virtual_account'
       ? existingVa.has(card.code)
@@ -131,6 +152,18 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     if (alreadyExists) {
       const vaStatus = card.type === 'virtual_account' ? getVaStatus(vaByCurrency.get(card.code)) : 'active';
       const inactive = card.type === 'virtual_account' && INACTIVE_VA_STATUSES.has(vaStatus);
+      const active = card.type !== 'virtual_account' || ACTIVE_VA_STATUSES.has(vaStatus);
+      if (card.type === 'virtual_account' && !active && !inactive) {
+        return (
+          <button
+            onClick={() => void requestVirtualAccount(card.code)}
+            disabled={requesting === card.code}
+            className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
+          >
+            {requesting === card.code ? 'Requesting' : 'Request'}
+          </button>
+        );
+      }
       return (
         <button
           disabled
@@ -162,6 +195,12 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           </p>
         </div>
 
+        {errorMessage && (
+          <div className="mb-3 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {errorMessage}
+          </div>
+        )}
+
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
           {visibleCards.length === 0 ? (
             <div className="px-4 py-6">
@@ -176,6 +215,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                 : existingStable.has(card.code);
               const vaStatus = card.type === 'virtual_account' ? getVaStatus(vaByCurrency.get(card.code)) : 'active';
               const inactive = card.type === 'virtual_account' && INACTIVE_VA_STATUSES.has(vaStatus);
+              const active = card.type !== 'virtual_account' || ACTIVE_VA_STATUSES.has(vaStatus);
               return (
                 <div
                   key={card.code}
@@ -196,7 +236,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {exists ? `${card.subtitle} · ${inactive ? vaStatus : 'active'}` : `${card.subtitle} · not granted`}
+                      {exists ? `${card.subtitle} · ${inactive ? vaStatus : active ? 'active' : 'request required'}` : `${card.subtitle} · not granted`}
                     </div>
                   </div>
                   {renderAction(card)}

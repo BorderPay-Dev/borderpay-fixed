@@ -50,9 +50,14 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
 const INACTIVE_VA_STATUSES = new Set(['inactive', 'deactivated', 'disabled', 'closed', 'archived', 'cancelled', 'canceled', 'rejected', 'suspended', 'blocked']);
+const ACTIVE_VA_STATUSES = new Set(['active', 'activated']);
 
 function getVaStatus(row: VaRow): string {
   return String(row?.account_details?.status || row?.status || 'active').trim().toLowerCase();
+}
+
+function isActiveVa(row: VaRow): boolean {
+  return ACTIVE_VA_STATUSES.has(getVaStatus(row));
 }
 
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {
@@ -107,7 +112,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      return Array.isArray(scoped) ? scoped : [];
+      return Array.isArray(scoped) ? scoped.filter(isActiveVa) : [];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
@@ -183,7 +188,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        return Array.isArray(scoped) ? scoped : [];
+        return Array.isArray(scoped) ? scoped.filter(isActiveVa) : [];
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -195,7 +200,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       }
       const routeData: any = await backendAPI.financial.getWalletRouteData();
       const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
-      const vList = (routeData?.data?.virtual_accounts as VaRow[]) ?? [];
+      const vList = ((routeData?.data?.virtual_accounts as VaRow[]) ?? []).filter(isActiveVa);
       setStables(sList);
       setVas(vList);
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
@@ -226,7 +231,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           try {
             const next: any = await backendAPI.financial.getWalletRouteData();
             const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
-            const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
+            const nextVas = ((next?.data?.virtual_accounts as VaRow[]) ?? []).filter(isActiveVa);
             setStables(nextStables);
             setVas(nextVas);
             try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }

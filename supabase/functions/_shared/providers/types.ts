@@ -7,6 +7,11 @@ export type ProviderName = "bridge";
 export type AccountType  = "individual" | "business";
 export type FiatCurrency = "USD" | "EUR" | "GBP" | "NGN" | "KES" | "GHS" | "UGX" | "TZS" | "XAF" | "XOF" | "ZAR";
 export type StablecoinSymbol = "USDC" | "USDT" | "PYUSD" | "USDB" | "EURC";
+export type BridgeCurrencySymbol =
+  | StablecoinSymbol
+  | Lowercase<StablecoinSymbol>
+  | FiatCurrency
+  | Lowercase<FiatCurrency>;
 export type StablecoinChain  = "ETH" | "SOL" | "BSC" | "POLYGON" | "TRON" | "BASE" | "OPTIMISM" | "ARBITRUM";
 export type BridgeBlockchainRail =
   | "arbitrum"
@@ -121,7 +126,7 @@ export interface TransferCreateInput {
   source: {
     customer_id:    string;
     payment_rail:   "bridge_wallet" | BridgeBlockchainRail | "ach" | "wire" | "sepa";
-    currency:       StablecoinSymbol | FiatCurrency;
+    currency:       BridgeCurrencySymbol;
     chain?:         StablecoinChain;
     from_address?:  string;
     bridge_wallet_id?: string;
@@ -130,7 +135,7 @@ export interface TransferCreateInput {
   };
   destination: {
     payment_rail:   "bridge_wallet" | BridgeBlockchainRail | "ach" | "wire" | "sepa" | "mobile_money" | "local_bank";
-    currency:       StablecoinSymbol | FiatCurrency;
+    currency:       BridgeCurrencySymbol;
     chain?:         StablecoinChain;
     address?:       string;            // crypto address
     to_address?:    string;            // Bridge canonical crypto destination field
