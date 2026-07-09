@@ -659,23 +659,74 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
 
+  const traceSend = useCallback((stage: string, extra: Record<string, any> = {}) => {
+    const wallet = selectedWallet;
+    const external = selectedExternalAccount;
+    const destinationRail =
+      method === 'stablecoin' ? crypto.network
+      : method === 'borderpay' ? 'bridge_wallet'
+      : external?.account_type === 'iban' ? 'sepa'
+      : external?.account_type === 'clabe' ? 'spei'
+      : external?.account_type === 'pix' ? 'pix'
+      : method === 'us_ach_wire' ? 'ach'
+      : undefined;
+
+    void backendAPI.bridge.transfer.trace({
+      stage,
+      method,
+      amount: amount || undefined,
+      currency: selectedCurrency,
+      asset: selectedCurrency,
+      network: method === 'stablecoin' ? crypto.network : wallet?.chain || undefined,
+      source_payment_rail: 'bridge_wallet',
+      destination_payment_rail: destinationRail,
+      source_wallet_id: wallet?.bridge_wallet_id || undefined,
+      destination_external_account_id: external?.bridge_external_account_id || undefined,
+      destination_address: method === 'stablecoin' ? crypto.address.trim() || undefined : undefined,
+      idempotency_key: transferIdempotencyKey,
+      ...extra,
+    }).catch(() => {
+      // Trace calls are diagnostic only and must never block money movement.
+    });
+  }, [
+    amount,
+    crypto.address,
+    crypto.network,
+    method,
+    selectedCurrency,
+    selectedExternalAccount,
+    selectedWallet,
+    transferIdempotencyKey,
+  ]);
+
   // ---------------------------------------------------------------------------
   // Process transaction
   // ---------------------------------------------------------------------------
   const processTransaction = async (verifiedPin: string) => {
     setStep('processing');
     setErrorMessage('');
+    traceSend('send_confirm', { notes: 'PIN verified locally; processing started' });
 
     try {
       let result: any;
 
       if (method === 'stablecoin') {
         if (stablecoinMinimumError) {
+          traceSend('blocked_before_bridge_transfer', {
+            code: 'stablecoin_minimum',
+            error: stablecoinMinimumError,
+            notes: 'Client blocked before bridge-transfer',
+          });
           setErrorMessage(stablecoinMinimumError);
           setStep('error');
           toast.error(stablecoinMinimumError);
           return;
         }
+        traceSend('bridge_transfer_call_start', {
+          destination_payment_rail: crypto.network,
+          destination_address: crypto.address.trim(),
+          notes: 'Calling bridge-transfer through stablecoin.sendTransfer',
+        });
         result = await backendAPI.stablecoin.sendTransfer({
           amount: parseFloat(amount),
           reason: reason || 'Bridge Wallet transfer',
@@ -691,8 +742,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         });
       } else if (method === 'borderpay') {
         if (!selectedWallet?.bridge_wallet_id) {
+          traceSend('blocked_before_bridge_transfer', {
+            code: 'source_wallet_missing',
+            error: 'Select an active BorderPay wallet',
+            notes: 'Client blocked before bridge-transfer',
+          });
           throw new Error('Select an active BorderPay wallet');
         }
+        traceSend('bridge_transfer_call_start', {
+          destination_payment_rail: 'bridge_wallet',
+          notes: 'Calling bridge-transfer for BorderPay wallet-to-wallet',
+        });
         result = await backendAPI.bridge.transfer.create({
           idempotency_key: transferIdempotencyKey,
           source: {
@@ -710,6 +770,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         });
       } else if (method === 'us_ach_wire') {
         if (!selectedExternalAccount) {
+          traceSend('blocked_before_bridge_transfer', {
+            code: 'external_account_missing',
+            error: 'Select an external account',
+            notes: 'Client blocked before bridge-transfer',
+          });
           throw new Error('Select an external account');
         }
         const destinationRail =
@@ -717,6 +782,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           : selectedExternalAccount.account_type === 'clabe' ? 'spei'
           : selectedExternalAccount.account_type === 'pix' ? 'pix'
           : 'ach';
+        traceSend('bridge_transfer_call_start', {
+          destination_payment_rail: destinationRail,
+          destination_external_account_id: selectedExternalAccount.bridge_external_account_id,
+          notes: 'Calling bridge-transfer for external account payout',
+        });
         result = await backendAPI.bridge.transfer.create({
           idempotency_key: transferIdempotencyKey,
           source: {
@@ -732,10 +802,21 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           },
         });
       } else {
+        traceSend('blocked_before_bridge_transfer', {
+          code: 'unsupported_method',
+          error: 'Unsupported transfer method.',
+          notes: 'Client blocked before bridge-transfer',
+        });
         throw new Error('Unsupported transfer method.');
       }
 
       if (result.success) {
+        traceSend('bridge_transfer_call_success', {
+          transfer_id: result.data?.transfer_id || result.data?.transaction_id || undefined,
+          provider_status: result.data?.state || result.data?.status || undefined,
+          response: result.data || null,
+          notes: 'bridge-transfer returned success to client',
+        });
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
         setTransactionId(result.data?.transaction_id || result.data?.transfer_id || '');
@@ -744,6 +825,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setStep('success');
         toast.success(t('send.txSuccessful'));
       } else {
+        traceSend('bridge_transfer_call_failed', {
+          code: (result as any)?.code || (result as any)?.bridge_code || undefined,
+          error: result.error || (result as any)?.bridge_error || undefined,
+          provider_status: (result as any)?.provider_status || undefined,
+          response: result,
+          notes: 'bridge-transfer returned failure to client',
+        });
         // Map structured server codes to friendly user-facing messages.
         const code = (result as any)?.code;
         const friendly =
@@ -762,6 +850,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
     } catch (error: any) {
       const fallback = error?.message || t('send.txFailed');
+      traceSend('bridge_transfer_exception', {
+        error: fallback,
+        notes: 'Client exception before or during bridge-transfer call',
+      });
       const friendly = method === 'stablecoin'
         ? mapCryptoTransferError(undefined, fallback, crypto)
         : method === 'borderpay'

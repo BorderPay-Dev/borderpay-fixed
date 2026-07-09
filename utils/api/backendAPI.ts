@@ -2151,6 +2151,35 @@ export const bridgeAPI = {
           }),
         },
       ),
+    trace: async (input: {
+      stage: string;
+      method?: string;
+      amount?: string | number;
+      currency?: string;
+      asset?: string;
+      network?: string;
+      source_payment_rail?: string;
+      destination_payment_rail?: string;
+      source_wallet_id?: string | null;
+      destination_bridge_wallet_id?: string | null;
+      destination_external_account_id?: string | null;
+      destination_address?: string | null;
+      idempotency_key?: string;
+      transfer_id?: string | null;
+      http_status?: number;
+      code?: string;
+      error?: string;
+      provider_status?: string;
+      notes?: string;
+      response?: unknown;
+    }) =>
+      apiCall<{ stage: string }>(
+        'client-transfer-trace',
+        {
+          method: 'POST',
+          body: JSON.stringify(input),
+        },
+      ),
   },
 
   /** Fiat payout (offramp) destinations — Bridge external accounts.
