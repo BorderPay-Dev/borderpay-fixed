@@ -39,7 +39,9 @@ interface NotificationsScreenProps {
   onBack: () => void;
   onUnreadCountChange?: (count: number) => void;
 }
-const NOTIFICATION_FETCH_TIMEOUT_MS = 1400;
+// Production mobile networks frequently exceed 1.4s; keep this aligned with
+// backend apiCall timeout behaviour to avoid false "Request timed out" errors.
+const NOTIFICATION_FETCH_TIMEOUT_MS = 8500;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
