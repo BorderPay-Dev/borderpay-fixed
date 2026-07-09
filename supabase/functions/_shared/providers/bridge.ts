@@ -49,6 +49,32 @@ const KYC_REDIRECT_URL =
     ? `${Deno.env.get("BORDERPAY_APP_URL")}/onboarding/kyc-complete`
     : "https://app.borderpayafrica.com/onboarding/kyc-complete";
 
+function redactBridgeValue(value: unknown): unknown {
+  const raw = String(value ?? "");
+  if (!raw) return value;
+  if (raw.length <= 12) return `${raw.slice(0, 3)}...`;
+  return `${raw.slice(0, 8)}...${raw.slice(-6)}`;
+}
+
+function redactTransferBody(body: Record<string, unknown>): Record<string, unknown> {
+  const source = { ...((body.source as Record<string, unknown> | undefined) ?? {}) };
+  const destination = { ...((body.destination as Record<string, unknown> | undefined) ?? {}) };
+  if (source.bridge_wallet_id) source.bridge_wallet_id = redactBridgeValue(source.bridge_wallet_id);
+  if (source.customer_id) source.customer_id = redactBridgeValue(source.customer_id);
+  if (source.from_address) source.from_address = redactBridgeValue(source.from_address);
+  if (source.external_account_id) source.external_account_id = redactBridgeValue(source.external_account_id);
+  if (destination.bridge_wallet_id) destination.bridge_wallet_id = redactBridgeValue(destination.bridge_wallet_id);
+  if (destination.to_address) destination.to_address = redactBridgeValue(destination.to_address);
+  if (destination.address) destination.address = redactBridgeValue(destination.address);
+  if (destination.external_account_id) destination.external_account_id = redactBridgeValue(destination.external_account_id);
+  return {
+    ...body,
+    on_behalf_of: body.on_behalf_of ? redactBridgeValue(body.on_behalf_of) : body.on_behalf_of,
+    source,
+    destination,
+  };
+}
+
 export class BridgeProvider implements PaymentProvider {
   readonly name = "bridge" as const;
 
@@ -679,6 +705,12 @@ export class BridgeProvider implements PaymentProvider {
         developer_fee:  input.developer_fee.flat_amount,
       } : {}),
     };
+    console.log(JSON.stringify({
+      service: "bridge-provider",
+      stage: "create_transfer_payload",
+      at: new Date().toISOString(),
+      body: redactTransferBody(body),
+    }));
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,
       idempotencyKey: input.idempotency_key,
