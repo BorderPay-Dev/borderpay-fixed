@@ -1142,7 +1142,7 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the transfer; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const transferId = d?.transfer_id ?? d?.id ?? ev.payload?.event_object_id;
-  const customer   = d?.customer_id ?? d?.customer?.id ?? d?.source?.customer_id ?? d?.destination?.customer_id;
+  const customer   = d?.customer_id ?? d?.customer?.id ?? d?.on_behalf_of ?? d?.source?.customer_id ?? d?.destination?.customer_id;
   if (!transferId) throw new Error("bridge transfer event missing id");
 
   const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
@@ -1157,7 +1157,14 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   let owner: { resolved: string | null; account_type: "individual" | "business" | null } = { resolved: null, account_type: null };
   let reconciliationReason: string | null = null;
   if (!customer) {
-    reconciliationReason = "missing_customer_id";
+    const walletOwner =
+      await resolveOwnerFromBridgeWalletId(d?.source?.bridge_wallet_id ?? d?.source?.wallet_id) ??
+      await resolveOwnerFromBridgeWalletId(d?.destination?.bridge_wallet_id ?? d?.destination?.wallet_id);
+    if (walletOwner) {
+      owner = walletOwner;
+    } else {
+      reconciliationReason = "missing_customer_id";
+    }
   } else {
     try {
       owner = await resolveOwnerFromBridgeCustomer(customer);
@@ -1241,6 +1248,32 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
     });
     if (txErr) {
       throw new Error(`upsert_bridge_transaction failed: ${txErr.message}`);
+    }
+
+    const { data: existingNotification } = await supabase
+      .from("notifications")
+      .select("id")
+      .eq("user_id", owner.resolved)
+      .eq("type", "transaction")
+      .contains("metadata", { bridge_transfer_id: String(transferId) })
+      .maybeSingle();
+    if (!existingNotification?.id) {
+      await supabase.from("notifications").insert({
+        user_id: owner.resolved,
+        type: "transaction",
+        title: mappedState.transactionStatus === "failed" ? "Transfer failed" : "Transfer updated",
+        body: `${mappedState.transactionStatus === "completed" ? "Sent" : "Transfer"} ${amount} ${currency}.`,
+        metadata: {
+          source: "bridge",
+          bridge_transfer_id: String(transferId),
+          bridge_event_id: ev.event_id,
+          amount,
+          currency,
+          direction: "debit",
+          provider_state: mappedState.providerState,
+          status: mappedState.transactionStatus,
+        },
+      });
     }
   }
 
@@ -1442,6 +1475,26 @@ async function resolveOwnerFromBridgeCustomer(bridgeCustomerId: string): Promise
   if (owners.length === 0) throw new Error(`no profile row for bridge_customer_id=${bridgeCustomerId}`);
 
   throw new Error(`ambiguous profile rows for bridge_customer_id=${bridgeCustomerId}`);
+}
+
+async function resolveOwnerFromBridgeWalletId(bridgeWalletId: unknown): Promise<{ resolved: string; account_type: "individual" | "business" } | null> {
+  const walletId = String(bridgeWalletId ?? "").trim();
+  if (!walletId) return null;
+  const { data: wallet } = await supabase
+    .from("bridge_wallets")
+    .select("user_id,business_user_id,bridge_customer_id")
+    .eq("bridge_wallet_id", walletId)
+    .maybeSingle();
+  if (wallet?.business_user_id) {
+    return { resolved: String(wallet.business_user_id), account_type: "business" };
+  }
+  if (wallet?.user_id) {
+    return { resolved: String(wallet.user_id), account_type: "individual" };
+  }
+  if (wallet?.bridge_customer_id) {
+    return await resolveOwnerFromBridgeCustomer(String(wallet.bridge_customer_id));
+  }
+  return null;
 }
 
 // ── claim & drain ────────────────────────────────────────────────────────
