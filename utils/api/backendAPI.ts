@@ -712,7 +712,7 @@ export const financialReadModelAPI = (() => {
   }
 
   function persistKey(userId: string): string {
-    return `borderpay_snapshot_cache_v2:${userId}`;
+    return `borderpay_snapshot_cache_v3:${userId}`;
   }
 
   function loadPersistedSnapshot(userId: string): { snapshot: any; at: number } | null {
@@ -1635,15 +1635,14 @@ export const stablecoinAPI = {
         body: JSON.stringify({
           idempotency_key: data.idempotency_key,
           source:      {
-            payment_rail: 'stablecoin',
+            payment_rail: 'bridge_wallet',
             currency:     symbol,
             chain,
             amount:       String(data.amount),
           },
           destination: {
-            payment_rail: 'stablecoin',
+            payment_rail: data.chain,
             currency:     symbol,
-            chain,
             address:      data.address,
           },
         }),

@@ -34,7 +34,7 @@ const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v2';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
 const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v2';
-const VA_LIST_CACHE_KEY = 'borderpay_va_v2';
+const VA_LIST_CACHE_KEY = 'borderpay_va_v3';
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }

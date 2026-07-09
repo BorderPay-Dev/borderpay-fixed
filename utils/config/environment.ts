@@ -47,7 +47,7 @@ export const ENV_CONFIG = {
 /**
  * Returns true if the given kyc_status string represents Full Enrollment.
  *
- * Accepts every canonical form: 'verified' | 'approved' | 'tier2' |
+ * Accepts every canonical form: 'verified' | 'approved' | 'active' | 'tier2' |
  * 'full_enrollment' | 'full enrollment'. Trims and lowercases so a row
  * with stray whitespace (legacy data wrote "Approved " with a trailing
  * space) doesn't make the entire app render the "starter" state.
@@ -58,6 +58,7 @@ export function isFullEnrollment(kycStatus: string | null | undefined): boolean 
   return (
     s === 'verified' ||
     s === 'approved' ||
+    s === 'active' ||
     s === 'tier2' ||
     s === 'full_enrollment' ||
     s === 'full enrollment'
@@ -109,7 +110,7 @@ export function deriveKycStatus(profile: KycProfileLike | null | undefined): Der
   // 1. Bridge terminal rejection wins (overrides a stale legacy 'pending').
   if (bridgeKyc === 'rejected' || bridgeAcct === 'rejected') return 'rejected';
   // 2. Bridge terminal approval.
-  if (bridgeKyc === 'approved') return 'verified';
+  if (bridgeKyc === 'approved' || bridgeKyc === 'active') return 'verified';
   // 3. Legacy terminal states (preserve existing verified users when Bridge is
   //    non-terminal/absent).
   if (legacy === 'rejected' || legacy === 'failed') return 'rejected';

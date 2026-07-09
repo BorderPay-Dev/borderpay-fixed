@@ -71,11 +71,11 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
   const stableWalletsCacheKey = useMemo(
-    () => financialCacheKey('borderpay_wallets_v2', { userId }),
+    () => financialCacheKey('borderpay_wallets_v3', { userId }),
     [userId],
   );
   const vaCacheKey = useMemo(
-    () => financialCacheKey('borderpay_va_v2', { userId }),
+    () => financialCacheKey('borderpay_va_v3', { userId }),
     [userId],
   );
   useEffect(() => {
@@ -94,7 +94,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     navPerfTrackCache('wallet-detail', hasStable || hasVa);
   }, [stableWalletsCacheKey, vaCacheKey]);
   const walletRefreshTsKey = useMemo(
-    () => financialCacheKey('borderpay_wallet_refresh_ts_v2', { userId }),
+    () => financialCacheKey('borderpay_wallet_refresh_ts_v3', { userId }),
     [userId],
   );
 

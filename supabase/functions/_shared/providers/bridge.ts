@@ -636,8 +636,8 @@ export class BridgeProvider implements PaymentProvider {
       source: {
         payment_rail: bridgeSourceRail,
         currency:     String(input.source.currency).toLowerCase(),
-        ...(sourceRail !== "stablecoin" && input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
-        ...(input.source.customer_id ? { customer_id: input.source.customer_id } : {}),
+        ...(sourceRail !== "stablecoin" && bridgeSourceRail !== "bridge_wallet" && input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
+        ...(bridgeSourceRail !== "bridge_wallet" && input.source.customer_id ? { customer_id: input.source.customer_id } : {}),
         ...(input.source.from_address ? { from_address: input.source.from_address } : {}),
         ...(input.source.bridge_wallet_id ? { bridge_wallet_id: input.source.bridge_wallet_id } : {}),
         ...(input.source.external_account_id ? { external_account_id: input.source.external_account_id } : {}),

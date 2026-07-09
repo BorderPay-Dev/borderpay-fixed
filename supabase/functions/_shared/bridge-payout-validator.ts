@@ -36,6 +36,8 @@ const ROUTES: Record<string, SupportedRoute> = {
   "TRON:USDT": { chain: "TRON", currency: "USDT", gross_min_usd: 4.0, net_min_usd: 3.0 },
 };
 
+const BRIDGE_CHAIN_RAILS = new Set(["base", "tron"]);
+
 export type BridgePayoutValidationOk = {
   ok: true;
   enforced: {
@@ -105,7 +107,10 @@ function computeDeveloperFeeCents(destinationAmountCents: number): number {
 export function isCryptoToCryptoTransfer(body: any): boolean {
   const srcRail = normalizeRail(body?.source?.payment_rail);
   const dstRail = normalizeRail(body?.destination?.payment_rail);
-  return srcRail === "stablecoin" && dstRail === "stablecoin";
+  return (
+    (srcRail === "stablecoin" || srcRail === "bridge_wallet") &&
+    (dstRail === "stablecoin" || BRIDGE_CHAIN_RAILS.has(dstRail))
+  );
 }
 
 /**
@@ -127,7 +132,11 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
   }
 
   const sourceChain = normalizeChain(body?.source?.chain);
-  const destinationChain = normalizeChain(body?.destination?.chain);
+  const destinationRail = normalizeRail(body?.destination?.payment_rail);
+  const destinationChain = normalizeChain(
+    body?.destination?.chain ||
+    (destinationRail === "base" ? "BASE" : destinationRail === "tron" ? "TRON" : ""),
+  );
   const sourceCurrency = normalizeCurrency(body?.source?.currency);
   const destinationCurrency = normalizeCurrency(body?.destination?.currency);
 

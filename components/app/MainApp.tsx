@@ -814,9 +814,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Wallet / Receive / Transactions / External Accounts render from cache.
   React.useEffect(() => {
     let cancelled = false;
-    const warmTsKey = financialCacheKey('borderpay_financial_warm_ts_v2', { userId });
-    const walletsKey = financialCacheKey('borderpay_wallets_v2', { userId });
-    const vaKey = financialCacheKey('borderpay_va_v2', { userId });
+    const warmTsKey = financialCacheKey('borderpay_financial_warm_ts_v3', { userId });
+    const walletsKey = financialCacheKey('borderpay_wallets_v3', { userId });
+    const vaKey = financialCacheKey('borderpay_va_v3', { userId });
     const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
     const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
     const warm = async () => {

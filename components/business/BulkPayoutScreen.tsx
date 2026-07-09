@@ -103,7 +103,7 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
         amount: String(r.amount),
         idempotency_key: (crypto as any).randomUUID(),
         source_chain: r.chain,
-        destination: { payment_rail: 'stablecoin', currency: asset, chain: r.chain, address: r.address.trim() },
+        destination: { payment_rail: r.chain, currency: asset, address: r.address.trim() },
       }));
       const res: any = await backendAPI.payouts.bulkPayout({ source_currency: asset, items });
       if (res?.success && res.data) {

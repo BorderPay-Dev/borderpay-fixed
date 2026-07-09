@@ -41,11 +41,11 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const walletCacheKey = useMemo(
-    () => financialCacheKey('borderpay_wallets_v2', { userId }),
+    () => financialCacheKey('borderpay_wallets_v3', { userId }),
     [userId],
   );
   const vaCacheKey = useMemo(
-    () => financialCacheKey('borderpay_va_v2', { userId }),
+    () => financialCacheKey('borderpay_va_v3', { userId }),
     [userId],
   );
   const [stableRows, setStableRows] = useState<StableRow[]>(() => {

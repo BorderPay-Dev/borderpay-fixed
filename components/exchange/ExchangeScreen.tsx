@@ -89,7 +89,7 @@ function readCachedDashboardWallets(): CachedWalletRow[] {
     for (const userId of userIds) {
       keys.push(`borderpay_dash_wallets_v2:${userId}`);
       keys.push(`borderpay_business_dash_wallets_v2:${userId}`);
-      keys.push(`borderpay_snapshot_cache_v2:${userId}`);
+      keys.push(`borderpay_snapshot_cache_v3:${userId}`);
     }
     for (const key of keys) {
       const raw = localStorage.getItem(key);
@@ -127,8 +127,8 @@ function readCachedVirtualAccounts(): Array<{ currency?: string; bridge_virtual_
     const userIds = getKnownUserIdsForCache();
     for (const userId of userIds) {
       const keys = [
-        `borderpay_va_v2:${userId}`,
-        `borderpay_snapshot_cache_v2:${userId}`,
+        `borderpay_va_v3:${userId}`,
+        `borderpay_snapshot_cache_v3:${userId}`,
       ];
       for (const key of keys) {
         const raw = localStorage.getItem(key);

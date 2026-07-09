@@ -153,6 +153,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   const [isVerified, setIsVerified]       = useState<boolean>(!!isCachedVerified);
   const [kycStatus, setKycStatus]         = useState(cachedKycStatus);
+  const [identityResolved, setIdentityResolved] = useState<boolean>(false);
   const { prefs, updatePrefs } = usePreferences();
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
@@ -322,6 +323,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           storeUserProfile(p);
         }
       }
+      setIdentityResolved(true);
 
       // ── Wallets ───────────────────────────────────────────────────────────
       // Spendable balances are wallet-settled only. Virtual accounts are
@@ -632,7 +634,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       </section>
 
       {/* ── 5. Setup checklist (compact, dismissible) ──────────────── */}
-      {accountStatus !== 'active' && !allStepsComplete && !loading && showSetupBanner && (
+      {identityResolved && accountStatus !== 'active' && !allStepsComplete && !loading && showSetupBanner && (
         <section className="px-5 sm:px-6 mt-6">
           <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5`}>
             <div className="flex items-center justify-between mb-3">
@@ -923,7 +925,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       {/* KYC reminder — nudges unverified users to verify (free); opens the
           Identity & KYC screen. Once-per-session; disappears when verified. */}
       <KycReminderPopup
-        open={!isVerified}
+        open={identityResolved && !isVerified}
         isBusiness={false}
         onVerify={() => handleNavigate('kyc')}
         onClose={() => { /* dismissed for this session inside the popup */ }}
