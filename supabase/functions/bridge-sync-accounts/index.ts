@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
 
   const ownerCols = isBusiness
     ? { user_id: user.id, business_user_id: user.id }
-    : { user_id: user.id };
+    : { user_id: user.id, business_user_id: null };
 
   // ── Wallets ───────────────────────────────────────────────────────────────
   try {
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
       // label (and now also trip the bridge_wallets_currency_nonempty CHECK).
       const keepNonEmpty = (next: string, prev?: string | null) =>
         (next && String(next).trim().length > 0) ? next : (prev ?? "");
-      const row = {
+      const row: Record<string, unknown> = {
         ...ownerCols,
         bridge_customer_id: customerId,
         bridge_wallet_id:   w.wallet_id,
@@ -90,15 +90,26 @@ Deno.serve(async (req) => {
     for (const v of bva) {
       if (!v.virtual_account_id) continue;
       const { data: existing } = await supa.from("bridge_virtual_accounts")
-        .select("id").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
-      const row = {
+        .select("id,account_details").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+      const existingDetails = existing?.account_details && typeof existing.account_details === "object"
+        ? existing.account_details as Record<string, unknown>
+        : {};
+      const incomingDetails = v.account_details && typeof v.account_details === "object"
+        ? v.account_details as Record<string, unknown>
+        : {};
+      const accountDetails = {
+        ...incomingDetails,
+        ...(existingDetails.borderpay_user_requested ? { borderpay_user_requested: existingDetails.borderpay_user_requested } : {}),
+        ...(existingDetails.borderpay_user_requested_at ? { borderpay_user_requested_at: existingDetails.borderpay_user_requested_at } : {}),
+      };
+      const row: Record<string, unknown> = {
         ...ownerCols,
         bridge_customer_id:        customerId,
         bridge_virtual_account_id: v.virtual_account_id,
         currency:                  v.currency,
         rail:                      v.rail ?? null,
         status:                    v.status ?? "active",
-        account_details:           v.account_details ?? null,
+        account_details:           accountDetails,
         updated_at:                new Date().toISOString(),
       };
       if (existing?.id) await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id);

@@ -9,7 +9,6 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
 import {
   isBridgeBlocked,
   bridgeCountryBlockResponse,
@@ -17,11 +16,6 @@ import {
   isBridgeVirtualAccountCurrencyAvailable,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
-import {
-  loadVirtualAccountDestinationConfig,
-  loadVirtualAccountDeveloperFeePercent,
-  type VaCurrency,
-} from "../_shared/providers/virtual-account-config.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -36,34 +30,6 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 });
 
 const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
-const RAIL_BY_CCY: Record<string, string> = { USD: "ach", EUR: "sepa", GBP: "faster_payments" };
-
-function normalizeDeveloperFeePercent(value: unknown): number | null {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
-  return Number(n.toFixed(4));
-}
-
-async function deterministicIdempotencyKey(input: {
-  customerId: string;
-  currency: VaCurrency;
-  destinationRail: string;
-  destinationCurrency: string;
-  destinationAddress: string;
-  developerFeePercent: string;
-}): Promise<string> {
-  const digestInput = [
-    input.customerId,
-    input.currency,
-    input.destinationRail.toLowerCase(),
-    input.destinationCurrency.toLowerCase(),
-    input.destinationAddress,
-    input.developerFeePercent,
-  ].join("|");
-  const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(digestInput));
-  const hash = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 20);
-  return `borderpay:va:${input.customerId}:${input.currency.toLowerCase()}:${hash}`;
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -235,14 +201,30 @@ Deno.serve(async (req) => {
       : {};
     const dep = (details.deposit_instructions && typeof details.deposit_instructions === "object")
       ? details.deposit_instructions as Record<string, unknown>
+      : (details.source_deposit_instructions && typeof details.source_deposit_instructions === "object")
+      ? details.source_deposit_instructions as Record<string, unknown>
       : {};
+    const requestedAt = String(details.borderpay_user_requested_at || new Date().toISOString());
+    const nextDetails = {
+      ...details,
+      borderpay_user_requested: true,
+      borderpay_user_requested_at: requestedAt,
+    };
+    await supa
+      .from("bridge_virtual_accounts")
+      .update({
+        account_details: nextDetails,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingVa.id);
     return json({
       success: true,
-      code: "virtual_account_already_exists",
+      code: "virtual_account_activated",
       summary: {
-        code: "virtual_account_already_exists",
+        code: "virtual_account_activated",
         currency,
         already_exists: true,
+        user_requested: true,
       },
       data: {
         virtual_account_id: existingVa.bridge_virtual_account_id,
@@ -253,211 +235,21 @@ Deno.serve(async (req) => {
         bank_name:          dep.bank_name ?? null,
         currency,
         already_exists: true,
+        user_requested: true,
+        requested_at: requestedAt,
       },
     });
   }
 
-  const destination = await loadVirtualAccountDestinationConfig(supa, currency as VaCurrency);
-  const developerFeePercent = await loadVirtualAccountDeveloperFeePercent(supa);
-  const idempotencyKey = await deterministicIdempotencyKey({
-    customerId: profile.bridge_customer_id,
-    currency: currency as VaCurrency,
-    destinationRail: destination.payment_rail,
-    destinationCurrency: destination.currency,
-    destinationAddress: destination.address,
-    developerFeePercent: developerFeePercent,
-  });
-
-  try {
-    const result = await bridgeProvider.createVirtualAccount({
-      customer_id: profile.bridge_customer_id,
-      currency:    currency as "USD" | "EUR" | "GBP",
-      developer_fee_percent: developerFeePercent,
-      idempotency_key: idempotencyKey,
-      destination: {
-        payment_rail: destination.payment_rail,
-        currency: destination.currency,
-        address: destination.address,
-      },
-    });
-    const raw = (result.raw && typeof result.raw === "object")
-      ? (result.raw as Record<string, unknown>)
-      : {};
-    const srcDep = (raw.source_deposit_instructions && typeof raw.source_deposit_instructions === "object")
-      ? (raw.source_deposit_instructions as Record<string, unknown>)
-      : {};
-    const persistedFee = normalizeDeveloperFeePercent((raw as Record<string, unknown>)?.developer_fee_percent) ??
-      normalizeDeveloperFeePercent(developerFeePercent);
-    if (persistedFee === null) {
-      throw new Error(`Invalid developer fee resolved for ${currency}`);
-    }
-
-    // Write the table the dashboard reads (bridge_virtual_accounts), plus keep
-    // the legacy wallets mirror for balance/ledger compatibility.
-    await supa.from("bridge_virtual_accounts").insert({
-      user_id:                   user.id,
-      ...(isBusiness ? { business_user_id: user.id } : {}),
-      bridge_customer_id:        profile.bridge_customer_id,
-      bridge_virtual_account_id: result.virtual_account_id,
+  return json({
+    success: false,
+    code: "virtual_account_not_granted",
+    error: `${currency} account is not available on your Bridge profile yet. Contact support if you need this rail.`,
+    currency,
+    summary: {
+      code: "virtual_account_not_granted",
       currency,
-      rail:                      String(srcDep.payment_rail || RAIL_BY_CCY[currency] || "").toLowerCase() || null,
-      status:                    "active",
-      developer_fee_percent:     persistedFee,
-      account_details: {
-        ...raw,
-        source_currency: currency.toLowerCase(),
-        destination,
-        payment_rail: destination.payment_rail,
-        developer_fee_percent: developerFeePercent,
-        idempotency_key: idempotencyKey,
-        provisioned_at: new Date().toISOString(),
-        source_deposit_instructions: srcDep,
-        deposit_instructions: srcDep,
-        bridge_response: raw,
-      },
-    });
-    await supa.from("wallets").upsert({
-      user_id:                   user.id,
-      currency,
-      balance:                   0,
-      provider:                  "bridge",
-      asset_type:                "fiat_virtual_account",
-      bridge_virtual_account_id: result.virtual_account_id,
-      virtual_account_number:    result.account_number || result.iban || null,
-      status:                    "active",
-    }, { onConflict: "user_id,currency", ignoreDuplicates: false });
+    },
+  }, 409);
 
-    return json({
-      success: true,
-      code: "virtual_account_created",
-      summary: {
-        code: "virtual_account_created",
-        currency,
-        already_exists: false,
-      },
-      data: {
-        virtual_account_id: result.virtual_account_id,
-        account_number:     result.account_number ?? srcDep.bank_account_number ?? null,
-        routing_number:     result.routing_number ?? srcDep.bank_routing_number ?? null,
-        iban:               result.iban ?? srcDep.iban ?? null,
-        bic:                result.bic ?? srcDep.bic ?? null,
-        bank_name:          result.bank_name ?? srcDep.bank_name ?? null,
-        currency,
-      },
-    });
-  } catch (e) {
-    const err = e as Error;
-    const msg = err.message || "";
-    const providerCode = e instanceof BridgeProviderError ? String(e.bridge_code || "").toLowerCase() : "";
-    const providerErrorText = e instanceof BridgeProviderError ? String(e.bridge_error || "") : "";
-    const classifierText = `${msg} ${providerErrorText}`.toLowerCase();
-    if (e instanceof BridgeProviderError) {
-      console.error(JSON.stringify({
-        tag: "bridge_va_provision_error",
-        status: e.status ?? null,
-        bridge_code: e.bridge_code ?? null,
-        bridge_request_id: e.request_id ?? null,
-        customer_id: profile.bridge_customer_id,
-        idempotency_key: idempotencyKey,
-        bridge_error: e.bridge_error ?? null,
-      }));
-      const code = String(e.bridge_code || "").toLowerCase();
-      if (code === "has_not_accepted_tos") {
-        return json({
-          success: false,
-          code: "tos_required",
-          error: "Please accept Terms of Service before creating an account.",
-          provider_code: code || undefined,
-          bridge_request_id: e.request_id || undefined,
-          summary: {
-            code: "tos_required",
-          },
-        }, 409);
-      }
-      if (code === "requires_active_kyc_status") {
-        return json({
-          success: false,
-          code: "kyc_not_approved",
-          error: isBusiness
-            ? "Business verification is required before creating an account."
-            : "Identity verification is required before creating an account.",
-          expected_verification_status: "approved",
-          provider_code: code || undefined,
-          bridge_request_id: e.request_id || undefined,
-          summary: {
-            code: "kyc_not_approved",
-          },
-        }, 409);
-      }
-      if (code === "missing_required_endorsements" || code === "endorsement_requirements_not_met") {
-        return json({
-          success: false,
-          code: "endorsement_required",
-          error: "This virtual account currency is not enabled for your profile yet.",
-          currency,
-          provider_code: code || undefined,
-          bridge_request_id: e.request_id || undefined,
-          summary: {
-            code: "endorsement_required",
-            currency,
-          },
-        }, 403);
-      }
-    } else {
-      console.error(JSON.stringify({
-        tag: "bridge_va_provision_error",
-        status: null,
-        bridge_code: null,
-        bridge_request_id: null,
-        customer_id: profile.bridge_customer_id,
-        idempotency_key: idempotencyKey,
-        bridge_error: msg,
-      }));
-    }
-    // Bridge returns errors like "endorsement_not_granted" / "capability_not_granted"
-    // when the customer hasn't been approved for SEPA / Faster Payments / etc. yet.
-    // Queue the request for admin review instead of leaking a raw failure.
-    const lower = classifierText;
-    const isGrantPending =
-      providerCode.includes("endorsement") ||
-      providerCode.includes("capability") ||
-      providerCode.includes("not_granted") ||
-      providerCode.includes("not_eligible") ||
-      lower.includes("endorsement") ||
-      lower.includes("not granted") ||
-      lower.includes("not_granted") ||
-      lower.includes("capability") ||
-      lower.includes("not eligible") ||
-      lower.includes("not_eligible");
-    if (isGrantPending) {
-      try {
-        await supa.from("pending_va_requests").upsert({
-          user_id:            user.id,
-          bridge_customer_id: profile.bridge_customer_id,
-          currency,
-          status:             "pending",
-          bridge_error:       msg.slice(0, 500),
-          bridge_error_code:  "endorsement_not_granted",
-        }, { onConflict: "user_id,currency" });
-      } catch { /* best-effort */ }
-      return json({
-        success: false,
-        code:    "va_grant_pending",
-        error:   "Virtual account request is pending review. You will receive an email once approved.",
-        currency,
-        summary: {
-          code: "va_grant_pending",
-          currency,
-        },
-      }, 202);  // accepted, pending review
-    }
-    return json({
-      success: false,
-      code: "virtual_account_provision_failed",
-      error: "Unable to create the account right now. Please try again shortly.",
-      summary: {
-        code: "virtual_account_provision_failed",
-      },
-    }, 502);
-  }
 });

@@ -20,12 +20,14 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 interface Row { label: string; chain: string; address: string; amount: string }
 
 type Asset = 'USDC' | 'USDT';
-// Chains each stablecoin is actually issued on (provider-supported).
+// Keep this in lockstep with bridge-payout-validator: production payout routes
+// are USDC/Base and USDT/Tron only.
 const CHAINS_BY_ASSET: Record<Asset, string[]> = {
-  USDC: ['solana', 'ethereum', 'base', 'polygon'],
-  USDT: ['tron', 'ethereum', 'solana', 'polygon'],
+  USDC: ['base'],
+  USDT: ['tron'],
 };
 const defaultChain = (a: Asset) => CHAINS_BY_ASSET[a][0];
+const prefillKey = 'borderpay_bulk_prefill_v1';
 
 const blankRow = (chain: string): Row => ({ label: '', chain, address: '', amount: '' });
 
@@ -41,6 +43,32 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const [asset, setAsset] = useState<Asset>('USDC');
   const [rows, setRows] = useState<Row[]>([blankRow(defaultChain('USDC')), blankRow(defaultChain('USDC'))]);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(prefillKey);
+      if (!raw) return;
+      localStorage.removeItem(prefillKey);
+      const parsed = JSON.parse(raw);
+      const nextAsset: Asset = parsed?.asset === 'USDT' ? 'USDT' : 'USDC';
+      const allowedChain = defaultChain(nextAsset);
+      const items = Array.isArray(parsed?.items) ? parsed.items : [];
+      const nextRows = items
+        .map((item: any) => ({
+          label: String(item?.label || ''),
+          chain: CHAINS_BY_ASSET[nextAsset].includes(String(item?.chain || '').toLowerCase())
+            ? String(item.chain).toLowerCase()
+            : allowedChain,
+          address: String(item?.address || ''),
+          amount: String(item?.amount || ''),
+        }))
+        .filter((row: Row) => row.address || row.amount || row.label);
+      setAsset(nextAsset);
+      setRows(nextRows.length > 0 ? nextRows : [blankRow(allowedChain), blankRow(allowedChain)]);
+    } catch {
+      // Ignore malformed local prefill and keep a blank batch.
+    }
+  }, []);
 
   // Switching stablecoin resets each row's chain to one that asset is issued on.
   const switchAsset = (a: Asset) => {

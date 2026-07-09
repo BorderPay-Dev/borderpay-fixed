@@ -13,8 +13,8 @@ interface EmployeeRow {
 }
 
 const CHAINS_BY_ASSET: Record<PayrollAsset, string[]> = {
-  USDC: ['solana', 'ethereum', 'base', 'polygon'],
-  USDT: ['tron', 'ethereum', 'solana', 'polygon'],
+  USDC: ['base'],
+  USDT: ['tron'],
 };
 
 const prefillKey = 'borderpay_bulk_prefill_v1';

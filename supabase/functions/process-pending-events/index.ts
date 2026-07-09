@@ -729,6 +729,20 @@ async function upsertBridgeVirtualAccountProjection(params: {
     payloadFee ??
     normalizeDeveloperFeePercent(params.existingFeePercent) ??
     canonicalFee;
+  const incomingDetails = params.payload?.source_deposit_instructions ?? params.payload?.account_details ?? {};
+  const { data: existingDetailsRow } = await supabase
+    .from("bridge_virtual_accounts")
+    .select("account_details")
+    .eq("bridge_virtual_account_id", String(params.vaId))
+    .maybeSingle();
+  const existingDetails = existingDetailsRow?.account_details && typeof existingDetailsRow.account_details === "object"
+    ? existingDetailsRow.account_details as Record<string, unknown>
+    : {};
+  const accountDetails = {
+    ...(incomingDetails && typeof incomingDetails === "object" ? incomingDetails : {}),
+    ...(existingDetails.borderpay_user_requested ? { borderpay_user_requested: existingDetails.borderpay_user_requested } : {}),
+    ...(existingDetails.borderpay_user_requested_at ? { borderpay_user_requested_at: existingDetails.borderpay_user_requested_at } : {}),
+  };
 
   await supabase.from("bridge_virtual_accounts").upsert({
     bridge_virtual_account_id: String(params.vaId),
@@ -737,7 +751,7 @@ async function upsertBridgeVirtualAccountProjection(params: {
     business_user_id:          account_type === "business"   ? resolved : null,
     currency:                  params.currency,
     rail:                      params.payload?.rail ?? params.payload?.payment_rail ?? null,
-    account_details:           params.payload?.source_deposit_instructions ?? params.payload?.account_details ?? {},
+    account_details:           accountDetails,
     status:                    String(params.payload?.status ?? "active").toLowerCase(),
     developer_fee_percent:     effectiveFee,
     updated_at:                new Date().toISOString(),

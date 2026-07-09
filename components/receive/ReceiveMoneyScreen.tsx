@@ -225,7 +225,15 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
 
   const visibleVas = useMemo(
-    () => vas.filter((v) => String(v.status || '').toLowerCase() === 'active' && Boolean(v.bridge_virtual_account_id)),
+    () => vas.filter((v) => {
+      const details = v.account_details || {};
+      const requested = Boolean(
+        details.borderpay_user_requested ||
+        details.borderpay_user_requested_at ||
+        details.provisioned_at,
+      );
+      return requested && String(v.status || '').toLowerCase() === 'active' && Boolean(v.bridge_virtual_account_id);
+    }),
     [vas],
   );
 
