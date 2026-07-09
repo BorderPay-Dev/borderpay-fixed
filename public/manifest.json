@@ -1,7 +1,10 @@
 {
+  "id": "/",
   "name": "BorderPay Africa",
   "short_name": "BorderPay",
   "description": "Borderless Finance for Africa. Send, receive, and manage money across borders with low fees.",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
@@ -9,8 +12,37 @@
   "orientation": "portrait",
   "scope": "/",
   "prefer_related_applications": false,
-  "categories": ["finance", "business"],
+  "categories": ["finance", "business", "productivity"],
   "display_override": ["standalone", "minimal-ui"],
+  "shortcuts": [
+    {
+      "name": "Send Money",
+      "short_name": "Send",
+      "description": "Open send flow",
+      "url": "/?shortcut=send"
+    },
+    {
+      "name": "Receive Money",
+      "short_name": "Receive",
+      "description": "Open receive flow",
+      "url": "/?shortcut=receive"
+    },
+    {
+      "name": "Wallets",
+      "short_name": "Wallet",
+      "description": "Open wallets and accounts",
+      "url": "/?shortcut=wallet"
+    },
+    {
+      "name": "Transactions",
+      "short_name": "History",
+      "description": "Open transaction history",
+      "url": "/?shortcut=transactions"
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "icons": [
     {
       "src": "/icons/icon-72x72.png",

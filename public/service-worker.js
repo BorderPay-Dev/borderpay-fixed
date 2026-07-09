@@ -1,36 +1,63 @@
-// Sev-1 kill switch: retire service worker control to recover stuck clients.
-// This worker immediately activates, clears all caches, unregisters itself,
-// and asks open tabs to reload to fetch fresh network HTML/assets.
-// Recovery audit marker: keep cache version token bumped for stale-client checks.
-const CACHE_NAME = 'borderpay-app-v2.12.0';
-const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.0';
+const SW_VERSION = 'borderpay-sw-v3';
+const STATIC_CACHE = `${SW_VERSION}-static`;
+const RUNTIME_CACHE = `${SW_VERSION}-runtime`;
+const PRECACHE_URLS = [
+  '/manifest.json',
+  '/favicon.ico',
+  '/favicon-32x32.png',
+  '/favicon-16x16.png',
+  '/apple-touch-icon.png',
+];
 
 self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)).catch(() => {})
+  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    try {
-      const cacheKeys = await caches.keys();
-      await Promise.all(cacheKeys.map((key) => caches.delete(key)));
-    } catch (_) {
-      // best effort
-    }
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key !== STATIC_CACHE && key !== RUNTIME_CACHE)
+        .map((key) => caches.delete(key))
+    );
+    await self.clients.claim();
+  })());
+});
 
-    try {
-      await self.registration.unregister();
-    } catch (_) {
-      // best effort
-    }
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
 
-    try {
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const client of clients) {
-        try { client.navigate(client.url); } catch (_) { /* noop */ }
-      }
-    } catch (_) {
-      // best effort
-    }
+  const isStaticAsset =
+    req.destination === 'style' ||
+    req.destination === 'script' ||
+    req.destination === 'font' ||
+    req.destination === 'image' ||
+    url.pathname.startsWith('/assets/') ||
+    url.pathname.startsWith('/icons/') ||
+    url.pathname === '/manifest.json' ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.js');
+
+  // Never cache HTML navigations here to avoid stale app shell regressions.
+  if (!isStaticAsset) return;
+
+  event.respondWith((async () => {
+    const cache = await caches.open(RUNTIME_CACHE);
+    const cached = await cache.match(req);
+    const networkFetch = fetch(req)
+      .then((res) => {
+        if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
+        return res;
+      })
+      .catch(() => cached);
+
+    return cached || networkFetch;
   })());
 });
