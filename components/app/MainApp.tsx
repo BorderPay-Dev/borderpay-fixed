@@ -156,10 +156,6 @@ if (typeof window !== 'undefined') {
   (window as any).__borderpay_prefetch = prefetchScreen;
 }
 
-const RETIRED_BRIDGE_VA_IDS = new Set([
-  'c4309673-678f-4906-8e0c-72b7f60dcc9a',
-]);
-
 function canonicalizeScreen(screen: AppScreen | string): AppScreen {
   switch (String(screen || '').trim()) {
     case 'ramps':
@@ -763,23 +759,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       sessionStorage.removeItem('borderpay_post_callback_screen');
     } catch { /* noop */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    try {
-      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        const raw = localStorage.getItem(key) || '';
-        if (!raw) continue;
-        for (const retiredId of RETIRED_BRIDGE_VA_IDS) {
-          if (raw.includes(retiredId)) {
-            localStorage.removeItem(key);
-            break;
-          }
-        }
-      }
-    } catch { /* noop */ }
   }, []);
 
   // Prefetch most-likely-next screens once the dashboard is mounted, so the

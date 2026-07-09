@@ -811,7 +811,11 @@ export const financialReadModelAPI = (() => {
     const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
     const transactions = Array.isArray((txRes as any)?.data?.transactions) ? (txRes as any).data.transactions : [];
     const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data.filter(isBridgeResourceVisible) : [];
-    const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data.filter(isBridgeResourceVisible) : [];
+    // Virtual accounts are receiving rails, not spendable balances. Keep every
+    // Bridge-owned VA row visible so verified users can inspect granted account
+    // details and see provider status. Do not hide deactivated rows here; the
+    // detail sheet/status copy is the safety layer.
+    const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
     const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
     const externalAccounts = ((externalListRes as any)?.success && Array.isArray((externalListRes as any)?.data?.external_accounts))
       ? (externalListRes as any).data.external_accounts
@@ -1010,7 +1014,7 @@ export const financialReadModelAPI = (() => {
         data: {
           wallets,
           stablecoin_wallets: Array.isArray(stableRes?.data) ? stableRes.data.filter(isBridgeResourceVisible) : [],
-          virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data.filter(isBridgeResourceVisible) : [],
+          virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data : [],
           balance_by_currency: balanceByCurrency,
           total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
           stablecoin_wallets_partial: Boolean(stableRes?.error),
