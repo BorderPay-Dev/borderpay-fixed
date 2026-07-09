@@ -7,12 +7,12 @@
  *   1) USDC on BASE
  *   2) USDT on TRON
  *
- * Developer fee:
+ * BorderPay fee policy:
  *   - USD 1.00 flat.
  *
- * The Bridge request amount is the user-entered transfer amount. BorderPay's
- * flat developer fee is sent separately as `developer_fee`; we do not gross up
- * or otherwise rewrite the Bridge team-provided transfer payload shape.
+ * The Bridge request amount is the user-entered transfer amount. Bridge rejects
+ * `developer_fee` on same-currency crypto payouts (for example usdt -> usdt),
+ * so the transfer edge function must not send the fee field for those routes.
  */
 
 export const BRIDGE_PAYOUT_DEVELOPER_FEE_USD = "1.00";

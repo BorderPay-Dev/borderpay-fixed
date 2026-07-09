@@ -750,8 +750,10 @@ Deno.serve(async (req) => {
 
   // Bridge Wallet crypto payout guard (BridgePayoutValidator):
   //   - only USDC/base and USDT/tron are allowed
-  //   - developer fee = 1.00 flat
   //   - source amount is passed to Bridge unchanged
+  //   - Bridge rejects developer_fee for same-currency crypto payouts
+  //     (e.g. usdt -> usdt), so the provider payload must omit it here.
+  //     BorderPay fee collection must be handled outside this Bridge transfer.
   // Non-crypto rails keep their existing behavior.
   const isCryptoPayout = isCryptoToCryptoTransfer(body);
   let enforcedCryptoPayout:
@@ -793,6 +795,8 @@ Deno.serve(async (req) => {
   const transferChain = enforcedCryptoPayout?.chain ?? body.source.chain ?? body.destination.chain;
   const transferSourceRail = enforcedCryptoPayout?.source_payment_rail ?? sourceRail;
   const transferDestinationRail = enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail;
+  const suppressBridgeDeveloperFee = isCryptoPayout &&
+    String(transferSourceCurrency).toLowerCase() === String(transferDestinationCurrency).toLowerCase();
   if (isWalletToWallet && String(transferSourceCurrency).toUpperCase() !== String(transferDestinationCurrency).toUpperCase()) {
     await traceTransfer("validation_failed", {
       userId: user.id,
@@ -892,7 +896,7 @@ Deno.serve(async (req) => {
         bridge_wallet_id: recipientWalletResolution?.ok ? recipientWalletResolution.bridge_wallet_id : body.destination.bridge_wallet_id,
         ...(transferChain ? { chain: transferChain } : {}),
       },
-      developer_fee: isCryptoPayout
+      developer_fee: isCryptoPayout && !suppressBridgeDeveloperFee
         ? { flat_amount: enforcedCryptoPayout!.developer_fee }
         : undefined,
       idempotency_key: idem,
@@ -908,6 +912,7 @@ Deno.serve(async (req) => {
         ? {
             payout_policy: "bridge_payout_validator_v1",
             developer_fee: enforcedCryptoPayout.developer_fee,
+            bridge_developer_fee_sent: !suppressBridgeDeveloperFee,
             bridge_amount: enforcedCryptoPayout.amount,
           }
         : isWalletToWallet
@@ -966,6 +971,10 @@ Deno.serve(async (req) => {
         recipient_user_id: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_user_id : null,
         recipient_email: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_email : null,
         developer_fee: enforcedCryptoPayout?.developer_fee ?? null,
+        bridge_developer_fee_sent: enforcedCryptoPayout ? !suppressBridgeDeveloperFee : null,
+        fee_collection_note: suppressBridgeDeveloperFee
+          ? "Bridge rejected developer_fee for same-currency crypto payout; collect BorderPay fee separately."
+          : null,
         bridge_amount: enforcedCryptoPayout?.amount ?? null,
         provider_state:  mapped.providerState,
         provider_state_recognized: mapped.recognized,
