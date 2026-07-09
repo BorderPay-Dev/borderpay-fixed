@@ -8,6 +8,18 @@ export type AccountType  = "individual" | "business";
 export type FiatCurrency = "USD" | "EUR" | "GBP" | "NGN" | "KES" | "GHS" | "UGX" | "TZS" | "XAF" | "XOF" | "ZAR";
 export type StablecoinSymbol = "USDC" | "USDT" | "PYUSD" | "USDB" | "EURC";
 export type StablecoinChain  = "ETH" | "SOL" | "BSC" | "POLYGON" | "TRON" | "BASE" | "OPTIMISM" | "ARBITRUM";
+export type BridgeBlockchainRail =
+  | "arbitrum"
+  | "avalanche_c_chain"
+  | "base"
+  | "celo"
+  | "ethereum"
+  | "optimism"
+  | "polygon"
+  | "solana"
+  | "stellar"
+  | "tempo"
+  | "tron";
 
 export interface CustomerCreateInput {
   account_type:        AccountType;
@@ -108,7 +120,7 @@ export interface TransferCreateInput {
   on_behalf_of?: string;
   source: {
     customer_id:    string;
-    payment_rail:   "bridge_wallet" | "stablecoin" | "ach" | "wire" | "sepa";
+    payment_rail:   "bridge_wallet" | "stablecoin" | BridgeBlockchainRail | "ach" | "wire" | "sepa";
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     from_address?:  string;
@@ -117,7 +129,7 @@ export interface TransferCreateInput {
     amount:         string;            // decimal as string
   };
   destination: {
-    payment_rail:   "stablecoin" | "ach" | "wire" | "sepa" | "mobile_money" | "local_bank";
+    payment_rail:   "stablecoin" | BridgeBlockchainRail | "ach" | "wire" | "sepa" | "mobile_money" | "local_bank";
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     address?:       string;            // crypto address

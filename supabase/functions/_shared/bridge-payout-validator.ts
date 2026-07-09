@@ -29,6 +29,8 @@ type SupportedRoute = {
   net_min_usd: number;
 };
 
+type SupportedBridgeDestinationRail = "base" | "tron";
+
 const ROUTES: Record<string, SupportedRoute> = {
   "BASE:USDC": { chain: "BASE", currency: "USDC", gross_min_usd: 2.0, net_min_usd: 1.0 },
   "TRON:USDT": { chain: "TRON", currency: "USDT", gross_min_usd: 4.0, net_min_usd: 3.0 },
@@ -38,7 +40,7 @@ export type BridgePayoutValidationOk = {
   ok: true;
   enforced: {
     source_payment_rail: "bridge_wallet";
-    destination_payment_rail: "stablecoin";
+    destination_payment_rail: SupportedBridgeDestinationRail;
     chain: "BASE" | "TRON";
     currency: "USDC" | "USDT";
     requested_destination_amount: string; // 2dp
@@ -60,6 +62,10 @@ export type BridgePayoutValidationResult = BridgePayoutValidationOk | BridgePayo
 
 function normalizeRail(v: unknown): string {
   return String(v ?? "").trim().toLowerCase();
+}
+
+function bridgeDestinationRail(chain: SupportedRoute["chain"]): SupportedBridgeDestinationRail {
+  return chain === "TRON" ? "tron" : "base";
 }
 
 function normalizeChain(v: unknown): string {
@@ -221,7 +227,7 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
     ok: true,
     enforced: {
       source_payment_rail: "bridge_wallet",
-      destination_payment_rail: "stablecoin",
+      destination_payment_rail: bridgeDestinationRail(route.chain),
       chain: route.chain,
       currency: route.currency,
       requested_destination_amount: centsToFixed(requestedDestinationCents),

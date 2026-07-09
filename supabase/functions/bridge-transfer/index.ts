@@ -357,7 +357,7 @@ Deno.serve(async (req) => {
   let enforcedCryptoPayout:
     | {
         source_payment_rail: "bridge_wallet";
-        destination_payment_rail: "stablecoin";
+        destination_payment_rail: "base" | "tron";
         chain: "BASE" | "TRON";
         currency: "USDC" | "USDT";
         requested_destination_amount: string;

@@ -604,30 +604,50 @@ export class BridgeProvider implements PaymentProvider {
 
   // ── Money movement ────────────────────────────────────────────────────────
   async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
+    const blockchainRails = new Set([
+      "arbitrum",
+      "avalanche_c_chain",
+      "base",
+      "celo",
+      "ethereum",
+      "optimism",
+      "polygon",
+      "solana",
+      "stellar",
+      "tempo",
+      "tron",
+    ]);
+    const sourceRail = String(input.source.payment_rail || "").toLowerCase();
+    const sourceChain = String(input.source.chain || "").toLowerCase();
+    const bridgeSourceRail =
+      sourceRail === "stablecoin" && sourceChain
+        ? sourceChain
+        : sourceRail;
     const destinationRail = String(input.destination.payment_rail || "").toLowerCase();
     const destinationChain = String(input.destination.chain || "").toLowerCase();
-    const cryptoDestinationRail =
+    const bridgeDestinationRail =
       destinationRail === "stablecoin" && destinationChain
         ? destinationChain
         : destinationRail;
+    const isBlockchainDestination = blockchainRails.has(bridgeDestinationRail);
     const body: Record<string, unknown> = {
       amount: input.source.amount,
       ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),
       source: {
-        payment_rail: input.source.payment_rail,
+        payment_rail: bridgeSourceRail,
         currency:     String(input.source.currency).toLowerCase(),
-        ...(input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
+        ...(sourceRail !== "stablecoin" && input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
         ...(input.source.customer_id ? { customer_id: input.source.customer_id } : {}),
         ...(input.source.from_address ? { from_address: input.source.from_address } : {}),
         ...(input.source.bridge_wallet_id ? { bridge_wallet_id: input.source.bridge_wallet_id } : {}),
         ...(input.source.external_account_id ? { external_account_id: input.source.external_account_id } : {}),
       },
       destination: {
-        payment_rail: cryptoDestinationRail,
+        payment_rail: bridgeDestinationRail,
         currency:     String(input.destination.currency).toLowerCase(),
-        ...(destinationRail !== "stablecoin" && input.destination.chain ? { chain: input.destination.chain.toLowerCase() } : {}),
-        ...(destinationRail === "stablecoin" && input.destination.address ? { to_address: input.destination.address } : {}),
-        ...(destinationRail !== "stablecoin" && input.destination.address ? { address: input.destination.address } : {}),
+        ...(destinationRail !== "stablecoin" && !isBlockchainDestination && input.destination.chain ? { chain: input.destination.chain.toLowerCase() } : {}),
+        ...(isBlockchainDestination && input.destination.address ? { to_address: input.destination.address } : {}),
+        ...(!isBlockchainDestination && input.destination.address ? { address: input.destination.address } : {}),
         ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),
         ...(input.destination.external_account_id ? { external_account_id: input.destination.external_account_id } : {}),
         ...(input.destination.deposit_id ? { deposit_id: input.destination.deposit_id } : {}),
