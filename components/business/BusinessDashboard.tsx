@@ -52,20 +52,11 @@ function hasActiveCachedVa(userId: string): boolean {
       const cur = String(va?.currency || '').toUpperCase();
       const status = String(va?.status || '').toLowerCase();
       const active = status === '' || ['active', 'provisioned', 'ready', 'enabled'].includes(status);
-      return ['USD', 'EUR', 'GBP'].includes(cur) && active && isUserRequestedVa(va);
+      return ['USD', 'EUR', 'GBP'].includes(cur) && active;
     });
   } catch {
     return false;
   }
-}
-
-function isUserRequestedVa(va: any): boolean {
-  const details = va?.account_details || {};
-  return Boolean(
-    details.borderpay_user_requested ||
-    details.borderpay_user_requested_at ||
-    details.provisioned_at,
-  );
 }
 
 interface BusinessDashboardProps {
@@ -235,8 +226,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         setWallets(formatted);
         const hasVA = Array.isArray(walletData?.virtual_accounts) && walletData.virtual_accounts.some((va: any) =>
           ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
-          ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()) &&
-          isUserRequestedVa(va),
+          ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
         );
         setHasVirtualAccounts(prev => prev || Boolean(hasVA));
         try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
@@ -259,8 +249,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           }
           const hasVA = Array.isArray(snapshotRes?.data?.virtual_accounts) && snapshotRes.data.virtual_accounts.some((va: any) =>
             ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
-            ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()) &&
-            isUserRequestedVa(va),
+            ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
           );
           setHasVirtualAccounts(prev => prev || Boolean(hasVA));
         } else if (seededWallets.length === 0) {

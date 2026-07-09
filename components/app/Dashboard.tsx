@@ -76,15 +76,6 @@ function writeJSON(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota/private mode */ }
 }
 
-function isUserRequestedVa(va: any): boolean {
-  const details = va?.account_details || {};
-  return Boolean(
-    details.borderpay_user_requested ||
-    details.borderpay_user_requested_at ||
-    details.provisioned_at,
-  );
-}
-
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((resolve) => {
@@ -364,7 +355,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
             : null;
         if (Array.isArray(vaSource)) {
           const hasVA = (vaSource as any[]).some((va: any) =>
-            isUserRequestedVa(va) &&
             ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
           );
           setHasVirtualAccounts(hasVA);

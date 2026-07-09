@@ -204,27 +204,13 @@ Deno.serve(async (req) => {
       : (details.source_deposit_instructions && typeof details.source_deposit_instructions === "object")
       ? details.source_deposit_instructions as Record<string, unknown>
       : {};
-    const requestedAt = String(details.borderpay_user_requested_at || new Date().toISOString());
-    const nextDetails = {
-      ...details,
-      borderpay_user_requested: true,
-      borderpay_user_requested_at: requestedAt,
-    };
-    await supa
-      .from("bridge_virtual_accounts")
-      .update({
-        account_details: nextDetails,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", existingVa.id);
     return json({
       success: true,
-      code: "virtual_account_activated",
+      code: "virtual_account_already_exists",
       summary: {
-        code: "virtual_account_activated",
+        code: "virtual_account_already_exists",
         currency,
         already_exists: true,
-        user_requested: true,
       },
       data: {
         virtual_account_id: existingVa.bridge_virtual_account_id,
@@ -235,8 +221,6 @@ Deno.serve(async (req) => {
         bank_name:          dep.bank_name ?? null,
         currency,
         already_exists: true,
-        user_requested: true,
-        requested_at: requestedAt,
       },
     });
   }

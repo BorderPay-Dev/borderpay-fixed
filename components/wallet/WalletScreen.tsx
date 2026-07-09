@@ -131,25 +131,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
 
-  const visibleVas = useMemo(
-    () => vas.filter((row) => {
-      const details = row.account_details || {};
-      return Boolean(
-        details.borderpay_user_requested ||
-        details.borderpay_user_requested_at ||
-        details.provisioned_at,
-      );
-    }),
-    [vas],
-  );
-
   useEffect(() => {
     if (preselectConsumedRef.current) return;
     let requested = '';
     try { requested = String(sessionStorage.getItem('borderpay_open_wallet_currency') || '').toUpperCase(); } catch { requested = ''; }
     if (!requested) return;
 
-    const va = visibleVas.find((row) => String(row.currency || '').toUpperCase() === requested);
+    const va = vas.find((row) => String(row.currency || '').toUpperCase() === requested);
     if (va) {
       setSelectedVa(va);
       preselectConsumedRef.current = true;
@@ -163,7 +151,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
       return;
     }
-  }, [visibleVas, stables, loading, refreshing]);
+  }, [vas, stables, loading, refreshing]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -367,7 +355,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
             <div className="px-4 py-4">
               <SkeletonRows count={4} />
             </div>
-          ) : visibleVas.length === 0 && stables.length === 0 ? (
+          ) : vas.length === 0 && stables.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <p className={`text-sm ${tc.textMuted}`}>
                 No accounts yet.
@@ -382,7 +370,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           ) : (
             <>
               {/* Fiat virtual accounts first */}
-              {visibleVas.map((v, i) => {
+              {vas.map((v, i) => {
                 const cur = String(v.currency).toUpperCase();
                 return (
                   <button key={v.id} onClick={() => setSelectedVa(v)}
@@ -405,7 +393,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
               {stables.map((s, i) => {
                 const sym = String(s.currency || '').toUpperCase();
                 const stableBalance = Number(balanceByCurrency[sym] || 0);
-                const showDivider = visibleVas.length > 0 || i > 0;
+                const showDivider = vas.length > 0 || i > 0;
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>

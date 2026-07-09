@@ -11,7 +11,7 @@ interface AddWalletScreenProps {
 }
 
 interface StableRow { id: string; currency: string }
-interface VaRow { id: string; currency: string; account_details?: any }
+interface VaRow { id: string; currency: string }
 
 type WalletType = 'virtual_account' | 'stablecoin';
 
@@ -64,8 +64,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       return [];
     }
   });
-  const [requesting, setRequesting] = useState<string | null>(null);
-  const [requestError, setRequestError] = useState<string | null>(null);
   const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
@@ -113,58 +111,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     [existingStable, existingVa],
   );
 
-  const vaByCurrency = useMemo(() => {
-    const out = new Map<string, VaRow>();
-    for (const row of vaRows) {
-      const code = String(row.currency || '').toUpperCase();
-      if (code && !out.has(code)) out.set(code, row);
-    }
-    return out;
-  }, [vaRows]);
-
-  const isVaRequested = (code: string) => {
-    const details = vaByCurrency.get(code)?.account_details || {};
-    return Boolean(
-      details.borderpay_user_requested ||
-      details.borderpay_user_requested_at ||
-      details.provisioned_at,
-    );
-  };
-
-  const requestVirtualAccount = async (code: string) => {
-    if (requesting) return;
-    setRequesting(code);
-    setRequestError(null);
-    try {
-      const result = await backendAPI.bridge.virtualAccount.create({ currency: code as 'USD' | 'EUR' | 'GBP' });
-      if (!result?.success) {
-        setRequestError(result?.error || `${code} account is not available yet.`);
-        return;
-      }
-      await refresh();
-    } catch (error: any) {
-      setRequestError(error?.message || `${code} account could not be requested.`);
-    } finally {
-      setRequesting(null);
-    }
-  };
-
   const renderAction = (card: WalletCard) => {
     const alreadyExists = card.type === 'virtual_account'
       ? existingVa.has(card.code)
       : existingStable.has(card.code);
-    if (card.type === 'virtual_account' && alreadyExists && !isVaRequested(card.code)) {
-      return (
-        <button
-          type="button"
-          onClick={() => requestVirtualAccount(card.code)}
-          disabled={requesting === card.code}
-          className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
-        >
-          {requesting === card.code ? 'Requesting' : 'Request'}
-        </button>
-      );
-    }
     if (alreadyExists) {
       return (
         <button
@@ -193,11 +143,8 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           </p>
           <h1 className={`text-lg font-semibold ${tc.text} mt-1`}>Available wallets</h1>
           <p className={`text-xs ${tc.textMuted} mt-1`}>
-            Request accounts already granted on your Bridge profile. Unsupported rails stay hidden.
+            Accounts loaded from your Bridge profile. Unsupported rails stay hidden.
           </p>
-          {requestError && (
-            <p className="text-xs text-red-400 mt-2">{requestError}</p>
-          )}
         </div>
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
@@ -232,9 +179,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {card.type === 'virtual_account' && exists && !isVaRequested(card.code)
-                        ? `${card.subtitle} · granted`
-                        : exists ? `${card.subtitle} · active` : `${card.subtitle} · not granted`}
+                      {exists ? `${card.subtitle} · active` : `${card.subtitle} · not granted`}
                     </div>
                   </div>
                   {renderAction(card)}
