@@ -54,16 +54,14 @@ removeBrevoWidgetArtifacts();
 const brevoWidgetObserver = new MutationObserver(() => removeBrevoWidgetArtifacts());
 brevoWidgetObserver.observe(document.documentElement, { childList: true, subtree: true });
 
-// Sev-1 production safety: disable SW registration and purge stale workers/caches.
+// Register Service Worker for PWA installability.
+// Safety policy:
+// - Do NOT cache HTML navigation requests (prevents stale-bundle lock).
+// - Cache static hashed assets only via stale-while-revalidate.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations()
-      .then((regs) => Promise.all(regs.map((r) => r.unregister())))
-      .catch(() => {});
-    if ('caches' in window) {
-      caches.keys()
-        .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-        .catch(() => {});
-    }
+    navigator.serviceWorker.register('/service-worker.js').catch(() => {
+      // Keep app functional even if SW registration fails.
+    });
   });
 }
