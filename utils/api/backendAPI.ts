@@ -35,6 +35,23 @@ function sanitizeError(raw: string | undefined): string {
   return raw;
 }
 
+function isBridgeResourceVisible(row: any): boolean {
+  const status = String(row?.status || '').trim().toLowerCase();
+  if (!status) return true;
+  return ![
+    'inactive',
+    'deactivated',
+    'disabled',
+    'closed',
+    'archived',
+    'cancelled',
+    'canceled',
+    'rejected',
+    'suspended',
+    'blocked',
+  ].includes(status);
+}
+
 // ── Core API caller with retry for transient network failures ────────────────
 
 async function apiCall<T = any>(
@@ -505,7 +522,7 @@ export const walletAPI = {
       const signedMinor = direction === 'debit' ? -Math.abs(rawMinor) : Math.abs(rawMinor);
       ledgerByCurrency.set(c, (ledgerByCurrency.get(c) || 0) + minorToMajor(signedMinor, c));
     }
-    for (const w of (bridgeWallets || [])) {
+    for (const w of (bridgeWallets || []).filter(isBridgeResourceVisible)) {
       const c = String((w as any).currency || '').toUpperCase();
       const row = ensure(c);
       if (!row) continue;
@@ -518,7 +535,7 @@ export const walletAPI = {
     // Keep virtual-account identifiers visible on the canonical currency rows
     // so receive screens can attribute rail details without creating duplicate
     // spendable balances.
-    for (const va of (bridgeVas || [])) {
+    for (const va of (bridgeVas || []).filter(isBridgeResourceVisible)) {
       const c = String((va as any).currency || '').toUpperCase();
       const row = ensure(c);
       if (!row) continue;
@@ -804,8 +821,8 @@ export const financialReadModelAPI = (() => {
     const profile = (profileRes as any)?.data?.user || {};
     const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
     const transactions = Array.isArray((txRes as any)?.data?.transactions) ? (txRes as any).data.transactions : [];
-    const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
-    const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
+    const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data.filter(isBridgeResourceVisible) : [];
+    const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data.filter(isBridgeResourceVisible) : [];
     const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
     const externalAccounts = ((externalListRes as any)?.success && Array.isArray((externalListRes as any)?.data?.external_accounts))
       ? (externalListRes as any).data.external_accounts
@@ -1003,8 +1020,8 @@ export const financialReadModelAPI = (() => {
         success: true,
         data: {
           wallets,
-          stablecoin_wallets: Array.isArray(stableRes?.data) ? stableRes.data : [],
-          virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data : [],
+          stablecoin_wallets: Array.isArray(stableRes?.data) ? stableRes.data.filter(isBridgeResourceVisible) : [],
+          virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data.filter(isBridgeResourceVisible) : [],
           balance_by_currency: balanceByCurrency,
           total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
           stablecoin_wallets_partial: Boolean(stableRes?.error),

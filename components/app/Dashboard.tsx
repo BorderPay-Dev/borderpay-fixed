@@ -732,10 +732,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
             {wallets.length === 0 ? (
               <button
-                onPointerDown={() => prefetchScreen('wallet-detail')}
-                onMouseEnter={() => prefetchScreen('wallet-detail')}
-                onTouchStart={() => prefetchScreen('wallet-detail')}
-                onClick={() => handleNavigate('wallet-detail')}
+                onPointerDown={() => prefetchScreen('add-wallet')}
+                onMouseEnter={() => prefetchScreen('add-wallet')}
+                onTouchStart={() => prefetchScreen('add-wallet')}
+                onClick={() => handleNavigate('add-wallet')}
                 className={`flex-shrink-0 w-[200px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
               >
                 <div className={`w-8 h-8 rounded-full ${tc.bgAlt} flex items-center justify-center mb-3`}>
@@ -769,10 +769,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                   </button>
                 ))}
                 <button
-                  onPointerDown={() => prefetchScreen('wallet-detail')}
-                  onMouseEnter={() => prefetchScreen('wallet-detail')}
-                  onTouchStart={() => prefetchScreen('wallet-detail')}
-                  onClick={() => handleNavigate('wallet-detail')}
+                  onPointerDown={() => prefetchScreen('add-wallet')}
+                  onMouseEnter={() => prefetchScreen('add-wallet')}
+                  onTouchStart={() => prefetchScreen('add-wallet')}
+                  onClick={() => handleNavigate('add-wallet')}
                   className={`flex-shrink-0 w-[140px] rounded-2xl border border-dashed ${tc.cardBorder} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors flex flex-col items-start`}
                   aria-label={tt('dashboard.addWallet', 'Add account')}
                 >

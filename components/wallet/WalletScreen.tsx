@@ -151,10 +151,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
       return;
     }
-    if (!loading && !refreshing) {
-      preselectConsumedRef.current = true;
-      try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
-    }
   }, [vas, stables, loading, refreshing]);
 
   const shouldRunProviderSync = () => {
