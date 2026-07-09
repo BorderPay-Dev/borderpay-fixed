@@ -935,8 +935,17 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   }
 
   const amountValue = Number(d?.amount);
+  const activityKind = String(d?.type ?? "").trim().toLowerCase();
+  const isDebitActivity =
+    activityKind === "withdrawal" ||
+    activityKind === "debit" ||
+    activityKind === "transfer_out" ||
+    activityKind === "payout";
+  const activityTxType = isDebitActivity ? "transfer" : "deposit";
+  const activityTitle = isDebitActivity ? "Transfer sent" : "Deposit received";
+  const activityDescription = isDebitActivity ? "Wallet transfer debit" : "Wallet deposit credit";
   const shouldProjectWalletActivityTx =
-    isActivity && Number.isFinite(amountValue) && amountValue > 0 && !!resolved;
+    isActivity && Number.isFinite(amountValue) && Math.abs(amountValue) > 0 && !!resolved;
 
   await supabase.from("bridge_wallets").upsert({
     bridge_wallet_id:    String(walletId),
@@ -955,23 +964,26 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   if (shouldProjectWalletActivityTx) {
     const txReference = `bridge:${ev.event_id}`;
     const currency = String(d?.currency ?? "USDC").toUpperCase();
+    const txAmount = Math.abs(amountValue);
     await supabase.from("transactions").upsert({
       user_id:     resolved,
-      type:        "deposit",
-      amount:      amountValue,
+      type:        activityTxType,
+      amount:      txAmount,
       currency,
       status:      "completed",
       reference:   txReference,
       metadata:    {
         source: "bridge",
         kind: "wallet_activity",
+        activity_type: activityKind || null,
+        direction: isDebitActivity ? "debit" : "credit",
         bridge_event_id: ev.event_id,
         bridge_wallet_id: String(walletId),
         bridge_customer_id: String(customer),
         raw: d,
       },
       provider:    "bridge",
-      description: "Wallet deposit credit",
+      description: activityDescription,
       updated_at:  new Date().toISOString(),
     }, { onConflict: "reference" });
 
@@ -986,19 +998,22 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
       await supabase.from("notifications").insert({
         user_id: resolved,
         type: "transaction",
-        title: "Deposit received",
-        body: `Received ${amountValue} ${currency} via account activity.`,
+        title: activityTitle,
+        body: isDebitActivity
+          ? `Sent ${txAmount} ${currency} via wallet activity.`
+          : `Received ${txAmount} ${currency} via wallet activity.`,
         metadata: {
           bridge_event_id: ev.event_id,
           bridge_wallet_id: String(walletId),
-          amount: amountValue,
+          amount: txAmount,
           currency,
+          direction: isDebitActivity ? "debit" : "credit",
           source: "bridge",
         },
       });
     }
 
-    const amountMinor = toMinorUnits(d?.amount, currency);
+    const amountMinor = toMinorUnits(txAmount.toString(), currency);
     if (amountMinor !== null) {
       await supabase.from("bridge_balance_ledger").upsert({
         event_id: ev.event_id,
@@ -1009,10 +1024,12 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
         business_user_id: account_type === "business" ? resolved : null,
         currency,
         amount_minor: amountMinor.toString(),
-        direction: amountMinor >= 0n ? "credit" : "debit",
+        direction: isDebitActivity ? "debit" : "credit",
         metadata: {
           source: "bridge",
           kind: "wallet_activity",
+          activity_type: activityKind || null,
+          direction: isDebitActivity ? "debit" : "credit",
           bridge_event_id: ev.event_id,
           bridge_wallet_id: String(walletId),
           bridge_customer_id: String(customer),
@@ -1265,7 +1282,8 @@ async function ensureStablecoinWalletsProvisioned(input: {
     country = String(userProfile?.country || "");
   }
   if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
-  if (String(profile?.[statusCol] || "").toLowerCase() !== "approved") return;
+  const profileStatus = String((profile as Record<string, unknown> | null | undefined)?.[statusCol] || "").toLowerCase();
+  if (profileStatus !== "approved") return;
 
   for (const { symbol, chain } of DEFAULT_STABLECOIN_WALLETS) {
     const chainLc = chain.toLowerCase();
@@ -1470,7 +1488,6 @@ Deno.serve(async (req) => {
     // We do not issue direct pending_events updates from the worker anymore.
     const result = await drain(1);
     return new Response(JSON.stringify({
-      ok: true,
       mode: "insert_webhook_drain",
       requested_event_id: eventId,
       ...result,
@@ -1480,7 +1497,7 @@ Deno.serve(async (req) => {
   // Path 2: drain mode (pg_cron / manual ops).
   const batch = Math.min(Number(body?.batch_size ?? 25), 100);
   const result = await drain(batch);
-  return new Response(JSON.stringify({ ok: true, worker: WORKER_ID, ...result }), {
+  return new Response(JSON.stringify({ worker: WORKER_ID, ...result }), {
     status: 200, headers: { "Content-Type": "application/json" },
   });
 });
