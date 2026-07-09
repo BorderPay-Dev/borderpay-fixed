@@ -188,12 +188,12 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
 
 async function resolveSourceBridgeWalletId(input: {
   bridgeCustomerId: string;
+  userId: string;
   currency: string;
   chain?: string | null;
   providedWalletId?: string | null;
 }): Promise<{ ok: true; bridge_wallet_id: string } | { ok: false; status: number; body: Record<string, unknown> }> {
   const provided = String(input.providedWalletId || "").trim();
-  if (provided) return { ok: true, bridge_wallet_id: provided };
 
   const currency = String(input.currency || "").trim().toUpperCase();
   const chain = String(input.chain || "").trim().toLowerCase();
@@ -213,9 +213,11 @@ async function resolveSourceBridgeWalletId(input: {
     .from("bridge_wallets")
     .select("bridge_wallet_id,status")
     .eq("bridge_customer_id", input.bridgeCustomerId)
+    .or(`user_id.eq.${input.userId},business_user_id.eq.${input.userId}`)
     .ilike("currency", currency)
     .order("updated_at", { ascending: false })
     .limit(1);
+  if (provided) query = query.eq("bridge_wallet_id", provided);
   if (chain) query = query.ilike("chain", chain);
   const { data, error } = await query.maybeSingle();
 
@@ -256,6 +258,38 @@ async function resolveSourceBridgeWalletId(input: {
     };
   }
   return { ok: true, bridge_wallet_id: String(data.bridge_wallet_id) };
+}
+
+async function syncBridgeWalletsForTransfer(input: {
+  userId: string;
+  accountType: "individual" | "business";
+  bridgeCustomerId: string;
+}): Promise<void> {
+  try {
+    const wallets = await bridgeProvider.listWallets(input.bridgeCustomerId);
+    for (const wallet of wallets) {
+      if (!wallet.wallet_id) continue;
+      const currency = String(wallet.currency || "").trim().toUpperCase();
+      const chain = String(wallet.chain || "").trim().toLowerCase();
+      if (!currency || !chain) continue;
+      await supa.from("bridge_wallets").upsert({
+        user_id: input.accountType === "business" ? null : input.userId,
+        business_user_id: input.accountType === "business" ? input.userId : null,
+        bridge_customer_id: input.bridgeCustomerId,
+        bridge_wallet_id: wallet.wallet_id,
+        currency,
+        chain,
+        address: String(wallet.address || ""),
+        status: "active",
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "bridge_wallet_id" });
+    }
+  } catch (e) {
+    fxLog("wallet_sync_failed", {
+      user_id: input.userId,
+      error: (e as Error).message,
+    });
+  }
 }
 
 async function resolveRecipientBridgeWallet(input: {
@@ -499,9 +533,17 @@ Deno.serve(async (req) => {
       error: "BorderPay-to-BorderPay transfers currently require the same wallet currency.",
     }, 400);
   }
+  if (String(transferSourceRail || "").toLowerCase() === "bridge_wallet") {
+    await syncBridgeWalletsForTransfer({
+      userId: user.id,
+      accountType: profile.account_type,
+      bridgeCustomerId: profile.bridge_customer_id,
+    });
+  }
   const sourceWalletResolution = transferSourceRail === "bridge_wallet"
     ? await resolveSourceBridgeWalletId({
         bridgeCustomerId: profile.bridge_customer_id,
+        userId: user.id,
         currency: transferSourceCurrency,
         chain: transferChain,
         providedWalletId: body.source.bridge_wallet_id,

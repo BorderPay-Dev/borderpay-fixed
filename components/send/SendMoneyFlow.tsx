@@ -661,6 +661,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           address: crypto.address.trim(),
           chain: crypto.network,                                  // tron|base
           coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
+          bridge_wallet_id: selectedWallet?.bridge_wallet_id || undefined,
           transaction_pin: verifiedPin,
           // Required by bridge-transfer v2. Reusing the per-mount key
           // means a network retry of the same Confirm tap returns the
