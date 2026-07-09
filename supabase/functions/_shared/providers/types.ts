@@ -108,7 +108,7 @@ export interface TransferCreateInput {
   on_behalf_of?: string;
   source: {
     customer_id:    string;
-    payment_rail:   "stablecoin" | "ach" | "wire" | "sepa";
+    payment_rail:   "bridge_wallet" | "stablecoin" | "ach" | "wire" | "sepa";
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     from_address?:  string;

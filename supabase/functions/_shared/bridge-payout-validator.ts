@@ -37,7 +37,7 @@ const ROUTES: Record<string, SupportedRoute> = {
 export type BridgePayoutValidationOk = {
   ok: true;
   enforced: {
-    source_payment_rail: "stablecoin";
+    source_payment_rail: "bridge_wallet";
     destination_payment_rail: "stablecoin";
     chain: "BASE" | "TRON";
     currency: "USDC" | "USDT";
@@ -220,7 +220,7 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
   return {
     ok: true,
     enforced: {
-      source_payment_rail: "stablecoin",
+      source_payment_rail: "bridge_wallet",
       destination_payment_rail: "stablecoin",
       chain: route.chain,
       currency: route.currency,

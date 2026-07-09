@@ -445,7 +445,7 @@ export const walletAPI = {
         .or(ownerOrFilter(user.id)),
       supabase
         .from('bridge_balance_ledger')
-        .select('currency,amount_minor,direction,entity_type,created_at')
+        .select('event_id,currency,amount_minor,direction,entity_type,entity_id,created_at')
         .or(ownerOrFilter(user.id))
         // Receive-money credits are posted as virtual_account ledger entries
         // first. Include both wallet + virtual_account so dashboard balances
@@ -485,9 +485,21 @@ export const walletAPI = {
     // wallet and virtual_account entities. We aggregate by currency to keep one
     // unified wallet row per currency in the dashboard.
     const ledgerByCurrency = new Map<string, number>();
+    const seenLedgerEvents = new Set<string>();
     for (const r of (walletBalanceLedger || [])) {
       const c = String((r as any).currency || '').toUpperCase();
       if (!c) continue;
+      const eventId = String((r as any).event_id || '').replace(/^bridge:/i, '');
+      if (eventId) {
+        const dedupeKey = [
+          String((r as any).entity_type || ''),
+          String((r as any).entity_id || ''),
+          c,
+          eventId,
+        ].join(':');
+        if (seenLedgerEvents.has(dedupeKey)) continue;
+        seenLedgerEvents.add(dedupeKey);
+      }
       const rawMinor = Number((r as any).amount_minor ?? 0);
       const direction = String((r as any).direction || '').toLowerCase();
       const signedMinor = direction === 'debit' ? -Math.abs(rawMinor) : Math.abs(rawMinor);

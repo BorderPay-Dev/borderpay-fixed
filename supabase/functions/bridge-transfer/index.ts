@@ -150,6 +150,76 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
   return { raw, numeric };
 }
 
+async function resolveSourceBridgeWalletId(input: {
+  bridgeCustomerId: string;
+  currency: string;
+  chain: string;
+  providedWalletId?: string | null;
+}): Promise<{ ok: true; bridge_wallet_id: string } | { ok: false; status: number; body: Record<string, unknown> }> {
+  const provided = String(input.providedWalletId || "").trim();
+  if (provided) return { ok: true, bridge_wallet_id: provided };
+
+  const currency = String(input.currency || "").trim().toUpperCase();
+  const chain = String(input.chain || "").trim().toLowerCase();
+  if (!currency || !chain) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        code: "source_wallet_required",
+        error: "Source wallet currency and chain are required for stablecoin payouts.",
+      },
+    };
+  }
+
+  const { data, error } = await supa
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,status")
+    .eq("bridge_customer_id", input.bridgeCustomerId)
+    .ilike("currency", currency)
+    .ilike("chain", chain)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false,
+      status: 500,
+      body: {
+        success: false,
+        code: "source_wallet_lookup_failed",
+        error: "Could not verify the source wallet. Please try again.",
+      },
+    };
+  }
+  if (!data?.bridge_wallet_id) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        success: false,
+        code: "source_wallet_not_found",
+        error: `${currency} wallet on ${chain.toUpperCase()} is not available for this account yet.`,
+      },
+    };
+  }
+  const status = String(data.status || "active").toLowerCase();
+  if (["inactive", "disabled", "closed", "archived", "blocked", "suspended", "deactivated"].includes(status)) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        success: false,
+        code: "source_wallet_inactive",
+        error: `${currency} wallet on ${chain.toUpperCase()} is not active.`,
+      },
+    };
+  }
+  return { ok: true, bridge_wallet_id: String(data.bridge_wallet_id) };
+}
+
 const SUPPORTED_FX_PAIRS = new Set([
   "USD_BRL", "BRL_USD",
   "USD_COP", "COP_USD",
@@ -286,7 +356,7 @@ Deno.serve(async (req) => {
   const isCryptoPayout = isCryptoToCryptoTransfer(body);
   let enforcedCryptoPayout:
     | {
-        source_payment_rail: "stablecoin";
+        source_payment_rail: "bridge_wallet";
         destination_payment_rail: "stablecoin";
         chain: "BASE" | "TRON";
         currency: "USDC" | "USDT";
@@ -310,13 +380,26 @@ Deno.serve(async (req) => {
   const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
   const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
   const transferChain = enforcedCryptoPayout?.chain ?? body.source.chain ?? body.destination.chain;
+  const transferSourceRail = enforcedCryptoPayout?.source_payment_rail ?? sourceRail;
+  const transferDestinationRail = enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail;
+  const sourceWalletResolution = transferSourceRail === "bridge_wallet"
+    ? await resolveSourceBridgeWalletId({
+        bridgeCustomerId: profile.bridge_customer_id,
+        currency: transferSourceCurrency,
+        chain: transferChain,
+        providedWalletId: body.source.bridge_wallet_id,
+      })
+    : null;
+  if (sourceWalletResolution && !sourceWalletResolution.ok) {
+    return json(sourceWalletResolution.body, sourceWalletResolution.status);
+  }
 
   try {
     fxLog("bridge_request_sent", {
       user_id: user.id,
       idempotency_key: idem,
-      source_payment_rail: sourceRail,
-      destination_payment_rail: body?.destination?.payment_rail ?? null,
+      source_payment_rail: transferSourceRail,
+      destination_payment_rail: transferDestinationRail ?? null,
       amount: transferAmount,
       currency: transferSourceCurrency,
       ...(enforcedCryptoPayout
@@ -332,17 +415,17 @@ Deno.serve(async (req) => {
       on_behalf_of: profile.bridge_customer_id,
       source: {
         customer_id:  profile.bridge_customer_id,
-        payment_rail: sourceRail,
+        payment_rail: transferSourceRail,
         currency:     transferSourceCurrency,
         chain:        transferChain,
         from_address: body.source.from_address,
-        bridge_wallet_id: body.source.bridge_wallet_id,
+        bridge_wallet_id: sourceWalletResolution?.ok ? sourceWalletResolution.bridge_wallet_id : body.source.bridge_wallet_id,
         external_account_id: body.source.external_account_id,
         amount:       transferAmount,
       },
       destination: {
         ...body.destination,
-        payment_rail: enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail,
+        payment_rail: transferDestinationRail,
         currency: transferDestinationCurrency,
         ...(transferChain ? { chain: transferChain } : {}),
       },
