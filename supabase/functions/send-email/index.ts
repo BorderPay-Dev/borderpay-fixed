@@ -1,8 +1,8 @@
 // send-email — unified transactional email entrypoint.
 //
 // Single send path for every BorderPay email. Renders one of the registered
-// templates, calls Resend, logs the attempt to public.email_log, and retries
-// on transient failures.
+// templates, calls the configured email provider, logs the attempt to
+// public.email_log, and retries on transient failures.
 //
 // Auth model:
 //   • verify_jwt = false  (called server-to-server from other edge functions
@@ -36,6 +36,7 @@ const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // (log_email_attempt RPC + email_log writes). It is NOT the HTTP caller password.
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const RESEND_KEY            = Deno.env.get("RESEND_API_KEY") ?? "";
+const BREVO_KEY             = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("BREVO_API_KEYS") ?? "";
 const FROM_EMAIL            = Deno.env.get("BORDERPAY_FROM_EMAIL") ?? "BorderPay Africa <noreply@app.borderpayafrica.com>";
 // Dedicated internal caller token. send-email is invoked server-to-server only
 // (auth-signup / auth-resend-verification / cron). The HTTP gate compares the
@@ -124,9 +125,14 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Send with retry/backoff ────────────────────────────────────────────
-  if (!RESEND_KEY) {
-    await markFailed(logId, "RESEND_API_KEY missing");
-    return json({ success: false, error: "Email service not configured (RESEND_API_KEY missing)", log_id: logId }, 500);
+  const provider = RESEND_KEY ? "resend" : (BREVO_KEY ? "brevo" : "");
+  if (!provider) {
+    await markFailed(logId, "Email provider missing: RESEND_API_KEY or BREVO_API_KEY required");
+    return json({
+      success: false,
+      error: "Email service not configured (RESEND_API_KEY or BREVO_API_KEY missing)",
+      log_id: logId,
+    }, 500);
   }
 
   await supabaseAdmin
@@ -140,33 +146,50 @@ Deno.serve(async (req: Request) => {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${RESEND_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from:    FROM_EMAIL,
-          to:      [body.to],
-          subject: rendered.subject,
-          html:    rendered.html,
-          text:    rendered.text,
-          ...(body.reply_to ? { reply_to: body.reply_to } : {}),
-        }),
-      });
+      const res = provider === "resend"
+        ? await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${RESEND_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from:    FROM_EMAIL,
+              to:      [body.to],
+              subject: rendered.subject,
+              html:    rendered.html,
+              text:    rendered.text,
+              ...(body.reply_to ? { reply_to: body.reply_to } : {}),
+            }),
+          })
+        : await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: {
+              "accept": "application/json",
+              "api-key": BREVO_KEY,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              sender: parseFrom(FROM_EMAIL),
+              to: [{ email: body.to }],
+              subject: rendered.subject,
+              htmlContent: rendered.html,
+              textContent: rendered.text,
+              ...(body.reply_to ? { replyTo: parseFrom(body.reply_to) } : {}),
+            }),
+          });
       const data = await res.json().catch(() => ({}));
-      const msgId = String((data as any)?.id || "");
+      const msgId = String((data as any)?.id || (data as any)?.messageId || "");
       if (res.ok && msgId) {
         providerId  = msgId;
         lastError = "";
         break;
       }
-      lastError = `Resend HTTP ${res.status}: ${(data as any)?.message || JSON.stringify(data).slice(0, 300)}`;
+      lastError = `${provider === "resend" ? "Resend" : "Brevo"} HTTP ${res.status}: ${(data as any)?.message || JSON.stringify(data).slice(0, 300)}`;
       // 4xx = don't retry (validation, missing-from, etc.); 5xx + network = retry.
       if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) break;
     } catch (e) {
-      lastError = `Resend network: ${(e as Error).message}`;
+      lastError = `${provider === "resend" ? "Resend" : "Brevo"} network: ${(e as Error).message}`;
     }
     if (attempt < maxAttempts) {
       const backoffMs = Math.min(8000, 500 * Math.pow(2, attempt - 1));

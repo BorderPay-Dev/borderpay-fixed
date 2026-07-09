@@ -151,6 +151,79 @@ async function emailKycDecisionBestEffort(
   }
 }
 
+async function emailTransactionBestEffort(
+  userId: string,
+  accountType: "individual" | "business",
+  input: {
+    idempotencyKey: string;
+    direction: "credit" | "debit";
+    amount: number;
+    currency: string;
+    reference: string;
+    description?: string;
+    occurredAt?: string;
+  },
+): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    if (!Number.isFinite(input.amount) || input.amount <= 0) return;
+    const rcpt = await resolveEmailRecipient(userId);
+    if (!rcpt) return;
+
+    let template: string;
+    let props: Record<string, unknown>;
+    if (accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      template = "business.transaction_notification";
+      props = {
+        company_name: biz?.company_name ?? "your business",
+        direction: input.direction,
+        amount: input.amount,
+        currency: input.currency,
+        reference: input.reference,
+        description: input.description,
+        occurred_at: input.occurredAt,
+      };
+    } else {
+      template = "individual.transaction_notification";
+      props = {
+        full_name: rcpt.full_name,
+        direction: input.direction,
+        amount: input.amount,
+        currency: input.currency,
+        reference: input.reference,
+        description: input.description,
+        occurred_at: input.occurredAt,
+      };
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to:              rcpt.email,
+        user_id:         userId,
+        idempotency_key: input.idempotencyKey,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email transaction send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email transaction best-effort error: ${(e as Error).message}`);
+  }
+}
+
 interface PendingEvent {
   id:           string;
   event_id:     string;
@@ -1052,6 +1125,21 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
       }, { onConflict: "event_id", ignoreDuplicates: true });
     }
 
+    await emailTransactionBestEffort(resolved, account_type, {
+      idempotencyKey: `wh:transaction:${resolved}:${ev.event_id}`,
+      direction: isDebitActivity ? "debit" : "credit",
+      amount: txAmount,
+      currency,
+      reference: txReference,
+      description: activityDescription,
+      occurredAt: String(
+        d?.created_at ??
+        d?.createdAt ??
+        d?.timestamp ??
+        ev.payload?.created_at ??
+        new Date().toISOString(),
+      ),
+    });
   }
 
   await supabase.from("bridge_webhook_events")
@@ -1273,6 +1361,26 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
           provider_state: mappedState.providerState,
           status: mappedState.transactionStatus,
         },
+      });
+    }
+
+    if (mappedState.transactionStatus === "completed") {
+      const emailAccountType = owner.account_type === "business" ? "business" : "individual";
+      await emailTransactionBestEffort(owner.resolved, emailAccountType, {
+        idempotencyKey: `wh:transfer:${owner.resolved}:${transferId}:${mappedState.providerState}`,
+        direction: "debit",
+        amount,
+        currency,
+        reference: String(transferId),
+        description: "Bridge wallet transfer",
+        occurredAt: String(
+          d?.created_at ??
+          d?.createdAt ??
+          d?.updated_at ??
+          d?.updatedAt ??
+          ev.payload?.created_at ??
+          new Date().toISOString(),
+        ),
       });
     }
   }
