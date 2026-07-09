@@ -102,22 +102,29 @@ export function deriveKycStatus(profile: KycProfileLike | null | undefined): Der
   if (!profile) return 'not_started';
   const norm = (s?: string | null) => String(s ?? '').trim().toLowerCase();
 
-  const isBusiness = norm(profile.account_type) === 'business';
-  const bridgeKyc  = isBusiness ? norm(profile.bridge_kyb_status) : norm(profile.bridge_kyc_status);
+  const bridgeKyc  = norm(profile.bridge_kyc_status);
+  const bridgeKyb  = norm(profile.bridge_kyb_status);
   const bridgeAcct = norm(profile.bridge_account_status);
   const legacy     = norm(profile.kyc_status);
 
   // 1. Bridge terminal rejection wins (overrides a stale legacy 'pending').
-  if (bridgeKyc === 'rejected' || bridgeAcct === 'rejected') return 'rejected';
+  if (bridgeKyc === 'rejected' || bridgeKyb === 'rejected' || bridgeAcct === 'rejected') return 'rejected';
   // 2. Bridge terminal approval.
-  if (bridgeKyc === 'approved' || bridgeKyc === 'active') return 'verified';
+  if (
+    bridgeKyc === 'approved' ||
+    bridgeKyc === 'active' ||
+    bridgeKyb === 'approved' ||
+    bridgeKyb === 'active' ||
+    bridgeAcct === 'approved' ||
+    bridgeAcct === 'active'
+  ) return 'verified';
   // 3. Legacy terminal states (preserve existing verified users when Bridge is
   //    non-terminal/absent).
   if (legacy === 'rejected' || legacy === 'failed') return 'rejected';
   if (isFullEnrollment(legacy)) return 'verified';
   // 4. In-progress — prefer the more specific Bridge state for display.
-  if (bridgeKyc === 'under_review') return 'under_review';
-  if (bridgeKyc === 'pending' || legacy === 'pending') return 'pending';
+  if (bridgeKyc === 'under_review' || bridgeKyb === 'under_review') return 'under_review';
+  if (bridgeKyc === 'pending' || bridgeKyb === 'pending' || legacy === 'pending') return 'pending';
   // 5. Nothing started.
   return 'not_started';
 }
