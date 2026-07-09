@@ -8,7 +8,7 @@
  * (white-labeled) fees we actually display/charge.
  *
  * Figures are the provider's published schedule, verbatim:
- *   Basic orchestration ............ 0.35% of amount
+ *   Basic orchestration ............ 0.25% of amount
  *   Virtual-account orchestration .. 0.50% of amount
  *   Virtual account (USD/GBP/EUR) .. $2.00 per active or created account (annual/maintenance)
  *   Virtual account (MXN) .......... $1.50
@@ -24,10 +24,10 @@
  *   Third-party fees .............. passed through AT COST
  */
 
-/** Percentages are expressed as PERCENT (0.35 == 0.35%). USD amounts in dollars. */
+/** Percentages are expressed as PERCENT (0.25 == 0.25%). USD amounts in dollars. */
 export const PROVIDER_COST = {
   orchestration: {
-    basic_percent:           0.35,
+    basic_percent:           0.25,
     virtual_account_percent: 0.50,
   },
   /** Per active-or-created virtual account, charged monthly (maintenance). */
@@ -48,7 +48,7 @@ export const PROVIDER_COST = {
     COP: 0.75,
   } as Record<string, number>,
   usdb_aum_percent: 0.25,
-  wallet_usd:       0.25,   // per active or created wallet
+  wallet_usd:       0.25,   // per active or created stablecoin wallet
   /** Third-party network/banking fees are passed through with NO markup. */
   third_party: "pass_through_at_cost" as const,
 } as const;
@@ -67,7 +67,7 @@ export function onboardingIdentityCostUsd(accountType: string | null | undefined
     : PROVIDER_COST.identity_usd.kyc;
 }
 
-/** Per-wallet one-time provider cost (stablecoin wallet). */
+/** Per-wallet provider cost for active/created stablecoin wallets. */
 export function walletCostUsd(): number {
   return PROVIDER_COST.wallet_usd;
 }

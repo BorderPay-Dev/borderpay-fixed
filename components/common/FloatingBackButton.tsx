@@ -16,15 +16,23 @@ import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 export function FloatingBackButton({
   onBack,
   label = 'Back',
+  position = 'fixed',
 }: {
   onBack: () => void;
   label?: string;
+  position?: 'fixed' | 'relative';
 }) {
   const tc = useThemeClasses();
+  const wrapperClass = position === 'relative'
+    ? 'relative z-40 pointer-events-none'
+    : 'fixed top-0 left-0 z-40 px-3 pointer-events-none';
+  const wrapperStyle = position === 'relative'
+    ? undefined
+    : { paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' };
   return (
     <div
-      className="fixed top-0 left-0 z-40 px-3 pointer-events-none"
-      style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
+      className={wrapperClass}
+      style={wrapperStyle}
     >
       <button
         type="button"

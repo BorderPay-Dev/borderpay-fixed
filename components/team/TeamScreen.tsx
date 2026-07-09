@@ -174,7 +174,8 @@ function BusinessTeamPanel({
   }, [roster]);
 
   // Background refresh — does not blank the cached roster (no setLoading(true)).
-  const load = useCallback(async (force = false) => {
+  const load = useCallback(async (forceOrEvent: boolean | React.MouseEvent<HTMLButtonElement> = false) => {
+    const force = forceOrEvent === true;
     if (loadInFlightRef.current) {
       await loadInFlightRef.current;
       return;
@@ -340,7 +341,7 @@ function BusinessTeamPanel({
               <p className={`text-xs ${tc.text}`}>{error}</p>
               <button
                 type="button"
-                onClick={load}
+              onClick={load}
                 className="mt-2 text-xs font-semibold text-red-200 hover:text-white"
               >
                 Retry

@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 
 interface KYCVerificationProps {
   userId:     string;
@@ -149,7 +150,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
   const tosAcceptedKey = useMemo(() => `borderpay_tos_accepted_v1:${userId}`, [userId]);
   const [tosAccepted, setTosAccepted] = useState<boolean>(() => {
-    try { return localStorage.getItem(`borderpay_tos_accepted_v1:${userId}`) === '1'; } catch { return false; }
+    try {
+      const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+      return Boolean(cached?.tos_accepted_at) || localStorage.getItem(`borderpay_tos_accepted_v1:${userId}`) === '1';
+    } catch {
+      return false;
+    }
   });
   const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`borderpay_last_tos_url:${userId}`); } catch { return null; }
@@ -161,6 +167,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [embeddedTitle, setEmbeddedTitle] = useState<string>('');
   const [embeddedPolling, setEmbeddedPolling] = useState(false);
   const [embeddedReturnEnabled, setEmbeddedReturnEnabled] = useState(true);
+  const [showTosWebview, setShowTosWebview] = useState(false);
   const [embedNonce, setEmbedNonce] = useState(0);
   const [embedLoaded, setEmbedLoaded] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -244,21 +251,24 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeAfterTosKey]);
 
-  const resolveVerificationContext = useCallback(async (): Promise<{ accountType: AccountType; emailConfirmed: boolean }> => {
+  const resolveVerificationContext = useCallback(async (): Promise<{ accountType: AccountType; emailConfirmed: boolean; hasAcceptedTos: boolean }> => {
     let currentAccountType: AccountType = accountType;
     let emailConfirmed = true;
+    let hasAcceptedTos = tosAccepted;
     try {
       const freshProfile = await backendAPI.user.getProfile();
       const fresh = freshProfile?.success ? freshProfile?.data?.user : null;
       if (fresh) {
         currentAccountType = fresh.account_type === 'business' ? 'business' : 'individual';
         emailConfirmed = Boolean(fresh.email_confirmed);
+        hasAcceptedTos = Boolean(fresh.tos_accepted_at);
+        persistTosAccepted(hasAcceptedTos);
       }
     } catch {
       // keep cached account type as fallback
     }
-    return { accountType: currentAccountType, emailConfirmed };
-  }, [accountType]);
+    return { accountType: currentAccountType, emailConfirmed, hasAcceptedTos };
+  }, [accountType, persistTosAccepted, tosAccepted]);
 
   const requestHostedLink = useCallback(async (currentAccountType: AccountType) => {
     const redirect_url = `${window.location.origin}/?screen=kyc`;
@@ -273,6 +283,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       toast.error('Verify your email first, then retry verification.');
       return;
     }
+    if (!ctx.hasAcceptedTos) {
+      persistTosAccepted(false);
+      setShowTosWebview(true);
+      return;
+    }
 
     for (let attempt = 0; attempt < 4; attempt++) {
       const r: any = await requestHostedLink(ctx.accountType);
@@ -284,7 +299,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
-        persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
@@ -307,9 +321,13 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         setTosLinkUrl(null);
         return;
       }
+      if (!ctx.hasAcceptedTos) {
+        persistTosAccepted(false);
+        setTosLinkUrl(null);
+        return;
+      }
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
-        persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
         return;
       }
@@ -405,6 +423,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verify your email first, then retry verification.');
         return;
       }
+      if (!ctx.hasAcceptedTos) {
+        persistTosAccepted(false);
+        setShowTosWebview(true);
+        return;
+      }
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.tos_link_url) {
         setTosLinkUrl(r.data.tos_link_url);
@@ -442,6 +465,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verification is temporarily unavailable. Please try again shortly.');
         return;
       }
+      if (r?.code === 'tos_required') {
+        persistTosAccepted(false);
+        setShowTosWebview(true);
+        return;
+      }
       const safe = friendlyError(r?.error || 'Could not open verification link. Please try again.', 'Could not start verification. Please try again.');
       toast.error(safe);
     } catch (e) {
@@ -460,6 +488,21 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verify your email first, then retry verification.');
         return;
       }
+      const accepted: any = await backendAPI.bridge.tos.accept({ version: '2024-11-14' });
+      if (!accepted?.success) {
+        toast.error(friendlyError(accepted?.error || 'Could not accept Terms of Service.', 'Could not accept Terms of Service.'));
+        return;
+      }
+      persistTosAccepted(true);
+      setShowTosWebview(false);
+      try {
+        const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+        localStorage.setItem('borderpay_user', JSON.stringify({
+          ...cached,
+          tos_accepted_at: accepted.data?.tos_accepted_at || new Date().toISOString(),
+          tos_version: accepted.data?.tos_version || '2024-11-14',
+        }));
+      } catch { /* noop */ }
       const r: any = await requestHostedLink(ctx.accountType);
       if (r?.success && r.data?.link_url) {
         persistTosAccepted(true);
@@ -475,7 +518,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
         // Per product decision: from ToS embed, Continue verification should
-        // open Persona/Bridge KYC externally (not in embedded iframe).
+        // open the hosted verification flow externally (not in embedded iframe).
         // Keep callback marker so return lands back on verification screen.
         try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* noop */ }
         try {
@@ -490,7 +533,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
-        persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
         const now = Date.now();
         setTosLinkUrlTs(now);
@@ -620,6 +662,16 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           </span>
         </div>
       </main>
+
+      {showTosWebview && (
+        <div className="fixed inset-0 z-[20] bg-black">
+          <TermsOfServiceScreen
+            onBack={() => setShowTosWebview(false)}
+            showAcceptButton
+            onAccept={() => { void continueFromEmbeddedTos(); }}
+          />
+        </div>
+      )}
 
       {embeddedUrl && (
         <div className="fixed inset-0 z-[20] bg-[#0B0E11] flex flex-col h-[100dvh] w-full">

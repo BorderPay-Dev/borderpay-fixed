@@ -20,6 +20,7 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface NotificationRow {
   id:           string;
@@ -58,7 +59,7 @@ const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
 function currentNotificationCacheKey(): string | null {
   try {
     const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    return user?.id ? financialCacheKey(NOTIFICATIONS_CACHE_PREFIX, { userId: String(user.id) }) : null;
+    return user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null;
   } catch {
     return null;
   }
@@ -128,6 +129,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
   const initialRows = useMemo(() => readCachedNotifications(), []);
+  const snapshotReader = backendAPI.financial.getSnapshot;
   const refreshTsKey = useMemo(() => {
     const uid = currentUserId() || 'anon';
     return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
@@ -149,13 +151,14 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     }
     const run = (async () => {
     // Keep first paint instant; refresh in background and throttle fast re-entry.
-    setError(null);
-    try {
-      const hasCachedRows = rowsRef.current.length > 0;
-      if (!hasCachedRows) setLoading(true);
-      const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
-        return;
+	    setError(null);
+	    try {
+	      const rows = rowsRef.current;
+	      const hasCachedRows = rows.length > 0;
+	      if (rows.length === 0) setLoading(true);
+	      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+	      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+	        return;
       }
       const uid = currentUserId();
       if (!uid) {
@@ -165,10 +168,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         return;
       }
       const r: any = await withTimeout(
-        backendAPI.notifications.getNotifications(50),
-        NOTIFICATION_FETCH_TIMEOUT_MS,
-        { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rowsRef.current : [] } } as any,
-      );
+	        backendAPI.notifications.getNotifications(50),
+	        NOTIFICATION_FETCH_TIMEOUT_MS,
+	        { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rows : [] } } as any,
+	      );
       if (r?.success) {
         const data = Array.isArray((r as any)?.data?.notifications)
           ? (r as any).data.notifications
@@ -199,11 +202,13 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         loadInFlightRef.current = null;
       }
     }
-  }, [onUnreadCountChange, refreshTsKey]);
+	  }, [onUnreadCountChange, refreshTsKey]);
 
-  useEffect(() => {
-    load();
-    try {
+	  useEffect(() => {
+    navPerfTrackCache('notifications', initialRows.length > 0);
+	    load();
+    void snapshotReader(10).catch(() => undefined);
+	    try {
       const last = Number(localStorage.getItem(prewarmTsKey) || '0');
       if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
         const prefetch = (window as any).__borderpay_prefetch;

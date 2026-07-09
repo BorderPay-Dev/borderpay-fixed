@@ -176,6 +176,15 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     () => new Set(vaRows.map((r) => String(r.currency || '').toUpperCase())),
     [vaRows],
   );
+  const visibleCards = useMemo(
+    () => CARDS.filter((card) => {
+      if (card.type === 'virtual_account') {
+        return existingVa.has(card.code) || supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
+      }
+      return existingStable.has(card.code) || (stableSupported && supportedStableSymbols.includes(card.code));
+    }),
+    [existingStable, existingVa, stableSupported, supportedStableSymbols, supportedVaCurrencies],
+  );
 
   const requestWallet = async (card: WalletCard) => {
     if (creating) return;
@@ -273,7 +282,14 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         </div>
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {CARDS.map((card, idx) => {
+          {visibleCards.length === 0 ? (
+            <div className="px-4 py-6">
+              <p className={`text-sm font-medium ${tc.text}`}>No wallets available</p>
+              <p className={`text-xs ${tc.textMuted} mt-1`}>
+                Available accounts are loaded from your approved provider profile.
+              </p>
+            </div>
+          ) : visibleCards.map((card, idx) => {
               const exists = card.type === 'virtual_account'
                 ? existingVa.has(card.code)
                 : existingStable.has(card.code);

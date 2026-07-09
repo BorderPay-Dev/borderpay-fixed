@@ -13,7 +13,6 @@ import { Plus, Trash2, Users, Loader2, CheckCircle2, AlertCircle } from 'lucide-
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { toast } from 'sonner';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
@@ -37,7 +36,7 @@ export interface BulkPayoutScreenProps {
 export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const tc = useThemeClasses();
   useEffect(() => {
-    navPerfTrackCache('bulk-payout', isAccountActivated());
+    navPerfTrackCache('bulk-payout', true);
   }, []);
   const [asset, setAsset] = useState<Asset>('USDC');
   const [rows, setRows] = useState<Row[]>([blankRow(defaultChain('USDC')), blankRow(defaultChain('USDC'))]);
@@ -62,10 +61,6 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const removeRow = (i: number) => setRows((rs) => (rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs));
 
   const submit = async () => {
-    if (!isAccountActivated()) {
-      (window as any).__borderpay_open_upgrade?.('business_activated');
-      return;
-    }
     if (valid.length === 0) { toast.error('Add at least one recipient with an address and amount.'); return; }
     if (!confirm(
       `Send ${valid.length} payout${valid.length > 1 ? 's' : ''} totalling $${total.toFixed(2)} ${asset}?\n\n` +

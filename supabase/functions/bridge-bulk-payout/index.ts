@@ -26,7 +26,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { BRIDGE_PAYOUT_DEVELOPER_FEE_USD } from "../_shared/bridge-payout-validator.ts";
+import { validateBridgePayout } from "../_shared/bridge-payout-validator.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
@@ -52,6 +52,40 @@ function isValidIdempotencyKey(v: unknown): v is string {
 }
 function transfersEnabled(): boolean {
   return (Deno.env.get("BRIDGE_TRANSFERS_ENABLED") || "").toLowerCase() === "true";
+}
+
+async function insertTransferNotification(input: {
+  userId: string;
+  transferId: string;
+  amount: string;
+  currency: string;
+  label?: string | null;
+  state: string;
+}) {
+  const { data: existing } = await supa
+    .from("notifications")
+    .select("id")
+    .eq("user_id", input.userId)
+    .eq("type", "transaction")
+    .contains("metadata", { bridge_transfer_id: input.transferId })
+    .maybeSingle();
+  if (existing?.id) return;
+
+  await supa.from("notifications").insert({
+    user_id: input.userId,
+    type: "transaction",
+    title: input.label ? `Payout submitted: ${input.label}` : "Payout submitted",
+    body: `Payout of ${input.amount} ${input.currency} is ${input.state}.`,
+    metadata: {
+      source: "bridge",
+      bulk: true,
+      label: input.label ?? null,
+      bridge_transfer_id: input.transferId,
+      amount: input.amount,
+      currency: input.currency,
+      state: input.state,
+    },
+  });
 }
 
 /** Strict positive decimal parser for money values.
@@ -150,7 +184,7 @@ Deno.serve(async (req) => {
       // Idempotent replay guard — if we already created this item, reuse it.
       const { data: existing } = await supa
         .from("transactions")
-        .select("bridge_transfer_id, status")
+        .select("bridge_transfer_id, status, amount")
         .eq("user_id", user.id)
         .eq("metadata->>idempotency_key", idem)
         .maybeSingle();
@@ -158,22 +192,47 @@ Deno.serve(async (req) => {
         results.push({ row, label: it.label ?? null, transfer_id: existing.bridge_transfer_id,
           state: existing.status === "completed" ? "succeeded" : existing.status === "failed" ? "failed" : "pending",
           replayed: true });
-        submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
+        submitted++; totalAmount += Number(existing.amount ?? it.__parsedAmount?.numeric ?? 0) || 0;
         continue;
       }
 
       const sourceRail = it.source_payment_rail || "stablecoin";
+      const validation = validateBridgePayout({
+        source: {
+          payment_rail: sourceRail,
+          currency: sourceCurrency,
+          chain: it.source_chain ?? it.destination?.chain,
+          amount: it.__parsedAmount.raw,
+        },
+        destination: it.destination,
+      });
+      if (!validation.ok) {
+        results.push({
+          row,
+          label: it.label ?? null,
+          state: "failed",
+          error: String(validation.body?.error || "Invalid payout route"),
+        });
+        failed++;
+        continue;
+      }
+      const enforced = validation.enforced;
 
       const result = await bridgeProvider.createTransfer({
         source: {
           customer_id:  profile.bridge_customer_id,
-          payment_rail: sourceRail,
-          currency:     sourceCurrency,
-          chain:        it.source_chain,
-          amount:       it.__parsedAmount.raw,
+          payment_rail: enforced.source_payment_rail,
+          currency:     enforced.currency,
+          chain:        enforced.chain,
+          amount:       enforced.gross_amount,
         },
-        destination:     it.destination,
-        developer_fee:   { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD },
+        destination: {
+          ...it.destination,
+          payment_rail: enforced.destination_payment_rail,
+          currency: enforced.currency,
+          chain: enforced.chain,
+        },
+        developer_fee:   { flat_amount: enforced.developer_fee },
         idempotency_key: idem,
       });
 
@@ -181,13 +240,17 @@ Deno.serve(async (req) => {
       const { error: upsertErr } = await supa.rpc("upsert_bridge_transaction", {
         p_user_id:            user.id,
         p_bridge_transfer_id: result.transfer_id,
-        p_amount:             it.__parsedAmount.raw,
-        p_currency:           sourceCurrency,
+        p_amount:             enforced.gross_amount,
+        p_currency:           enforced.currency,
         p_status:             mapped.transactionStatus,
         p_metadata:           {
           idempotency_key: idem,
           bulk: true,
           label: it.label ?? null,
+          payout_validator: "bridge_payout_validator_v1",
+          developer_fee: enforced.developer_fee,
+          requested_destination_amount: enforced.requested_destination_amount,
+          net_destination_amount: enforced.net_destination_amount,
           provider_state: mapped.providerState,
           provider_state_recognized: mapped.recognized,
           raw: result.raw,
@@ -201,6 +264,15 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      await insertTransferNotification({
+        userId: user.id,
+        transferId: result.transfer_id,
+        amount: enforced.gross_amount,
+        currency: enforced.currency,
+        label: it.label ?? null,
+        state: mapped.transactionStatus,
+      });
+
       results.push({
         row,
         label: it.label ?? null,
@@ -208,7 +280,7 @@ Deno.serve(async (req) => {
         state: mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
         provider_state: mapped.providerState,
       });
-      submitted++; totalAmount += it.__parsedAmount?.numeric ?? 0;
+      submitted++; totalAmount += Number(enforced.gross_amount) || 0;
     } catch (e) {
       results.push({ row, label: it.label ?? null, state: "failed", error: (e as Error).message });
       failed++;

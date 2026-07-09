@@ -35,9 +35,8 @@ Deno.serve(async (req) => {
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
-  // Stepped verification gate (#4 + #5): require a PAID plan + admin
-  // authorization before any billable Bridge call. The env pause remains the
-  // outer guard (checked above), so production stays paused until enabled.
+  // Stepped verification gate: ToS must be durably accepted before any
+  // provider customer/KYC/KYB call.
   {
     const __gate = verificationGate(await loadVerificationContext(supa, user.id));
     if (!__gate.allowed) return json(__gate.body, __gate.status);

@@ -72,15 +72,15 @@ export function computePayoutFee(input: PayoutFeeInput): PayoutFeeResult {
       breakdown.push({ label, percent: pct, amount: round2(amount * pct / 100) });
     }
   } else {
-    // Stablecoin: flat $1.00 + 0.25% orchestration.
+    // Stablecoin: flat $1.00 + 0.25% orchestration for USDC and USDT.
     feePercent += STABLECOIN_ORCHESTRATION_PERCENT;
     breakdown.push({
-      label:   'Bridge orchestration',
+      label:   'Orchestration',
       percent: STABLECOIN_ORCHESTRATION_PERCENT,
       amount:  round2(amount * STABLECOIN_ORCHESTRATION_PERCENT / 100),
     });
     breakdown.push({
-      label:  'BorderPay flat fee',
+      label:  'Flat transfer fee',
       amount: STABLECOIN_FLAT_FEE,
     });
   }

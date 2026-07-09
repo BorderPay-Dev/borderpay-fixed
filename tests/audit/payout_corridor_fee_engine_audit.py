@@ -3,10 +3,10 @@
 Payout corridor router + stablecoin fee engine audit (#B1/#B2/#B3), fail-closed.
 
 African corridors now settle as EXTERNAL STABLECOIN withdrawals (USDT/USDC over
-TRON/Polygon/Solana/Arbitrum/Base) — not a bank aggregator.
+TRON/Base) — not a bank aggregator.
 
-  PE1  Fee engine: international = 0.35 + 0.999 + 2.5; African (stablecoin) =
-       0.10 Bridge USDT + 0.90 markup = 1.00% flat (both account types).
+  PE1  Fee engine: international = 0.35 + 0.999 + 2.5; stablecoin payout =
+       $1.00 flat + 0.25% orchestration for USDC and USDT.
   PE2  Corridor router routes African → 'stablecoin' (NOT a bank aggregator).
   PE3  bridge-transfer no longer references the removed aggregator; African
        flows through the native Bridge stablecoin path.
@@ -65,10 +65,10 @@ if engine:
         failures.append("PE1 intl settlement != 0.999")
     if "BRIDGE_DEVELOPER_FEE_PERCENT.fiat" not in engine:
         failures.append("PE1 intl developer markup not sourced from schedule (2.5)")
-    if not has(engine, "STABLECOIN_BRIDGE_USDT_PERCENT", "0.10"):
-        failures.append("PE1 stablecoin Bridge USDT != 0.10")
-    if not has(engine, "STABLECOIN_APP_MARKUP_PERCENT", "0.90"):
-        failures.append("PE1 stablecoin app markup != 0.90")
+    if not has(engine, "STABLECOIN_ORCHESTRATION_PERCENT", "0.25"):
+        failures.append("PE1 stablecoin orchestration != 0.25")
+    if not has(engine, "STABLECOIN_FLAT_FEE", "1.00"):
+        failures.append("PE1 stablecoin flat fee != 1.00")
 
 # PE2 ---------------------------------------------------------------------
 if router:
@@ -85,7 +85,7 @@ if btransfer:
 
 # PE4 ---------------------------------------------------------------------
 if form:
-    for tok in ["isValidCryptoAddress", "Destination address", "Network", "tron", "polygon", "solana", "arbitrum"]:
+    for tok in ["isValidCryptoAddress", "Destination address", "Network", "tron", "base", "USDT", "USDC"]:
         if tok not in form:
             failures.append(f"PE4 crypto withdrawal form missing '{tok}'")
 
@@ -122,7 +122,7 @@ if failures:
     sys.exit(1)
 
 print("PAYOUT CORRIDOR + STABLECOIN FEE ENGINE AUDIT: PASS (7/7)")
-print("  ✓ PE1 intl 0.35+0.999+2.5; African stablecoin 0.10+0.90 = 1.00%")
+print("  ✓ PE1 intl 0.35+0.999+2.5; stablecoin $1.00 + 0.25%")
 print("  ✓ PE2 corridor router African → stablecoin (no aggregator)")
 print("  ✓ PE3 bridge-transfer free of the removed aggregator")
 print("  ✓ PE4 external crypto withdrawal form (network + validated address)")

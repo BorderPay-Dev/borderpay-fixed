@@ -12,8 +12,6 @@
  * `plan_required`, which the app turns into the activation popup.
  */
 
-import { isPaidPlanKey } from "./launch-gates.ts";
-
 export const PLAN_REQUIRED_CODE = "plan_required";
 
 export type PlanGateResult =
@@ -42,7 +40,7 @@ export async function requireActivatedPlan(
     planKey = sub?.plan_key ?? null;
   } catch { /* fail closed → treated as free */ }
 
-  if (!isPaidPlanKey(planKey)) {
+  if (!["individual_activated", "business_activated"].includes(String(planKey ?? ""))) {
     return {
       allowed: false,
       code: PLAN_REQUIRED_CODE,

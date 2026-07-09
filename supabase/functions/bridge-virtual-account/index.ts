@@ -16,7 +16,6 @@ import {
   logControlledBridgeTraffic,
   isBridgeVirtualAccountCurrencyAvailable,
 } from "../_shared/providers/bridge-country-policy.ts";
-import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import {
   loadVirtualAccountDestinationConfig,
@@ -217,17 +216,6 @@ Deno.serve(async (req) => {
         code: "kyc_not_approved",
       },
     }, 409);
-  }
-
-  // Funding gate: replace the prior activation-fee model with a minimum
-  // wallet-balance requirement. The user must hold at least $20 USD-equivalent
-  // across their BorderPay wallets — funds are NOT deducted, they stay theirs.
-  {
-    const __fund = await requireMinimumWalletBalance(supa, user.id, {
-      isBusiness,
-      bridgeCustomerId: profile.bridge_customer_id,
-    });
-    if (!__fund.allowed) return json(__fund.body, __fund.status);
   }
 
   // Existing-customer protection: one active VA per currency.

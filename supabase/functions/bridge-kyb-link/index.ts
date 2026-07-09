@@ -15,7 +15,7 @@ import {
   bridgeCountryBlockResponse,
   logControlledBridgeTraffic,
 } from "../_shared/providers/bridge-country-policy.ts";
-import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/launch-gates.ts";
+import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody, verificationGate, loadVerificationContext } from "../_shared/launch-gates.ts";
 
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
@@ -105,6 +105,12 @@ Deno.serve(async (req: Request) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+
+  {
+    const __gate = verificationGate(await loadVerificationContext(supa, user.id));
+    if (!__gate.allowed) return json(__gate.body, __gate.status);
+  }
+
   if (!user.email_confirmed_at) {
     return json({
       success: false,

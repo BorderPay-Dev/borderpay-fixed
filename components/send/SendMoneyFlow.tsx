@@ -92,7 +92,7 @@ interface Wallet {
 interface ExternalAccountOption {
   id: string;
   bridge_external_account_id: string;
-  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  account_type: 'us' | 'iban' | 'gb' | 'clabe' | 'pix';
   currency: string;
   account_owner_name: string | null;
   bank_name: string | null;
@@ -277,8 +277,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, []);
 
   // Provider-backed capability gate for external bank accounts.
-  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
-    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'>>(
+    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
   );
   const selectedExternalAccount = useMemo(
     () => externalAccounts.find((x) => x.bridge_external_account_id === selectedExternalAccountId) || null,
@@ -289,9 +289,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const fallbackNetworkFee = useMemo(() => {
     const num = parseFloat(amount);
     if (!num || num <= 0) return null;
-    // The crypto withdrawal track forces the stablecoin route (flat 1.00%),
+    // The crypto withdrawal track forces the stablecoin route,
     // bypassing any country classification. Otherwise classify by destination
-    // country (African countries also settle via stablecoin → 1.00%).
+    // country (African countries also settle via stablecoin).
     const country = SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.country;
     const corridor: 'international' | 'stablecoin' =
       method === 'stablecoin'
@@ -415,7 +415,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ? res.data.external_accounts.map((row: any, idx: number) => {
               const rawType = String(row?.account_type || '').toLowerCase();
               const accountType: ExternalAccountOption['account_type'] =
-                rawType === 'iban' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
+                rawType === 'iban' || rawType === 'gb' || rawType === 'clabe' || rawType === 'pix' ? rawType : 'us';
               const rawCurrency = String(row?.currency || '');
               const currency = rawCurrency
                 ? rawCurrency.toUpperCase()
@@ -435,7 +435,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             }).filter((x: ExternalAccountOption) => !!x.bridge_external_account_id)
           : [];
         setWallets(list);
-        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix'));
+        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix'));
         setExternalAccounts(ext);
         try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
         if (!selectedExternalAccountId && ext.length > 0) {

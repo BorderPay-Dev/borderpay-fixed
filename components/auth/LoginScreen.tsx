@@ -27,7 +27,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
 import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, isAppLocked, setAppLocked, clearAppLocked } from '../../utils/supabase/client';
-import { ENV_CONFIG } from '../../utils/config/environment';
+import { deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface LoginScreenProps {
@@ -137,12 +137,16 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
             country:      data.user.user_metadata?.country || '',
             account_type: data.user.user_metadata?.account_type || 'individual',
             kyc_status:   data.user.user_metadata?.kyc_status || 'pending',
+            bridge_kyc_status: data.user.user_metadata?.bridge_kyc_status ?? null,
+            bridge_kyb_status: data.user.user_metadata?.bridge_kyb_status ?? null,
+            bridge_account_status: data.user.user_metadata?.bridge_account_status ?? null,
             created_at:   data.user.created_at,
           };
         } else if (!userProfile.full_name || userProfile.full_name === 'User') {
           // Backend profile missing name — supplement from auth metadata
           userProfile.full_name = authName || data.user.email?.split('@')[0] || 'User';
         }
+        userProfile.derived_kyc_status = deriveKycStatus(userProfile);
 
         // Re-prime ALL biometric session state on explicit password login, so a
         // future biometric sign-in has the full context isLoginAvailable() needs:

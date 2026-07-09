@@ -56,11 +56,13 @@ export interface KycLinkResult {
 export interface VirtualAccountCreateInput {
   customer_id:    string;
   currency:       Extract<FiatCurrency, "USD" | "EUR" | "GBP">;
+  developer_fee_percent: string;
+  idempotency_key?: string;
   // REQUIRED by the provider: where incoming fiat auto-converts to. The stablecoin
-  // address + the blockchain rail it settles on. `rail` is a Bridge-canonical
+  // address + the blockchain rail it settles on. `payment_rail` is a Bridge-canonical
   // chain string (e.g. "solana", "ethereum", "polygon", "tron", "base").
   destination:    {
-    rail:            string;
+    payment_rail:   string;
     currency:        string;          // stablecoin symbol e.g. "usdc" | "usdt"
     address:         string;          // the wallet address to receive at
   };
@@ -103,11 +105,15 @@ export interface WalletResult {
 }
 
 export interface TransferCreateInput {
+  on_behalf_of?: string;
   source: {
     customer_id:    string;
     payment_rail:   "stablecoin" | "ach" | "wire" | "sepa";
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
+    from_address?:  string;
+    bridge_wallet_id?: string;
+    external_account_id?: string;
     amount:         string;            // decimal as string
   };
   destination: {
@@ -115,6 +121,9 @@ export interface TransferCreateInput {
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     address?:       string;            // crypto address
+    bridge_wallet_id?: string;
+    external_account_id?: string;
+    deposit_id?:    string;
     bank_account?:  { account_number: string; routing_number?: string; iban?: string; bic?: string };
     mobile_money?:  { provider: string; phone: string };  // future
   };

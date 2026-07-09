@@ -1,7 +1,7 @@
 // send-email — unified transactional email entrypoint.
 //
 // Single send path for every BorderPay email. Renders one of the registered
-// templates, calls Brevo SMTP API, logs the attempt to public.email_log, and retries
+// templates, calls Resend, logs the attempt to public.email_log, and retries
 // on transient failures.
 //
 // Auth model:
@@ -35,7 +35,7 @@ const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // SUPABASE_SERVICE_ROLE_KEY is used ONLY for the in-function admin DB client
 // (log_email_attempt RPC + email_log writes). It is NOT the HTTP caller password.
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const BREVO_KEY             = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("BREVO_API_KEYS") ?? "";
+const RESEND_KEY            = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL            = Deno.env.get("BORDERPAY_FROM_EMAIL") ?? "BorderPay Africa <noreply@app.borderpayafrica.com>";
 // Dedicated internal caller token. send-email is invoked server-to-server only
 // (auth-signup / auth-resend-verification / cron). The HTTP gate compares the
@@ -73,15 +73,11 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST")   return json({ success: false, error: "POST only" }, 405);
 
   // AuthN: internal server-to-server only.
-  // Primary credential: SEND_EMAIL_INTERNAL_TOKEN.
-  // Compatibility path: allow service-role bearer as an internal caller token
-  // to prevent cross-repo secret drift from blocking production email sends.
-  // (Both are high-entropy secrets; token is never logged.)
+  // Credential: SEND_EMAIL_INTERNAL_TOKEN. The service-role key is never an
+  // HTTP password; it is reserved for the admin DB client below.
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  const internalOk = INTERNAL_TOKEN ? timingSafeEqualStr(token, INTERNAL_TOKEN) : false;
-  const serviceRoleOk = SUPABASE_SERVICE_ROLE ? timingSafeEqualStr(token, SUPABASE_SERVICE_ROLE) : false;
-  if (!(internalOk || serviceRoleOk)) {
+  if (!INTERNAL_TOKEN || !timingSafeEqualStr(token, INTERNAL_TOKEN)) {
     return json({ success: false, error: "Unauthorized — internal token required" }, 401);
   }
 
@@ -128,9 +124,9 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Send with retry/backoff ────────────────────────────────────────────
-  if (!BREVO_KEY) {
-    await markFailed(logId, "BREVO_API_KEY missing");
-    return json({ success: false, error: "Email service not configured (BREVO_API_KEY missing)", log_id: logId }, 500);
+  if (!RESEND_KEY) {
+    await markFailed(logId, "RESEND_API_KEY missing");
+    return json({ success: false, error: "Email service not configured (RESEND_API_KEY missing)", log_id: logId }, 500);
   }
 
   await supabaseAdmin
@@ -144,34 +140,33 @@ Deno.serve(async (req: Request) => {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
-          "accept":        "application/json",
-          "content-type":  "application/json",
-          "api-key":       BREVO_KEY,
+          "Authorization": `Bearer ${RESEND_KEY}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sender:      parseFrom(FROM_EMAIL),
-          to:          [{ email: body.to }],
-          subject:     rendered.subject,
-          htmlContent: rendered.html,
-          textContent: rendered.text,
-          ...(body.reply_to ? { replyTo: { email: body.reply_to } } : {}),
+          from:    FROM_EMAIL,
+          to:      [body.to],
+          subject: rendered.subject,
+          html:    rendered.html,
+          text:    rendered.text,
+          ...(body.reply_to ? { reply_to: body.reply_to } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
-      const msgId = String((data as any)?.messageId || "");
+      const msgId = String((data as any)?.id || "");
       if (res.ok && msgId) {
         providerId  = msgId;
         lastError = "";
         break;
       }
-      lastError = `Brevo HTTP ${res.status}: ${(data as any)?.message || JSON.stringify(data).slice(0, 300)}`;
+      lastError = `Resend HTTP ${res.status}: ${(data as any)?.message || JSON.stringify(data).slice(0, 300)}`;
       // 4xx = don't retry (validation, missing-from, etc.); 5xx + network = retry.
       if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) break;
     } catch (e) {
-      lastError = `Brevo network: ${(e as Error).message}`;
+      lastError = `Resend network: ${(e as Error).message}`;
     }
     if (attempt < maxAttempts) {
       const backoffMs = Math.min(8000, 500 * Math.pow(2, attempt - 1));

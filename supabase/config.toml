@@ -40,6 +40,10 @@ verify_jwt = false
 [functions.webauthn-delete]
 verify_jwt = true
 
+# WebAuthn registration options — authenticated; creates caller-scoped challenge.
+[functions.webauthn-register-options]
+verify_jwt = true
+
 # Unified transactional email sender — public route; gated IN-CODE by the
 # SEND_EMAIL_INTERNAL_TOKEN bearer (NOT the service-role key, not a user JWT).
 # Writes public.email_log before every Resend call. Must be deployed BEFORE
@@ -76,6 +80,10 @@ verify_jwt = false
 # Bridge customer create — onboarding starter; self-validates JWT. Fail-closed
 # on BRIDGE_ONBOARDING_ENABLED.
 [functions.bridge-customer]
+verify_jwt = false
+
+# BorderPay ToS acceptance — required before KYC/KYB link creation.
+[functions.bridge-tos-accept]
 verify_jwt = false
 
 # Bridge KYC link — onboarding starter; self-validates JWT. Fail-closed on

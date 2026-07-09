@@ -7,8 +7,8 @@
  *   1) USDC on BASE
  *   2) USDT on TRON
  *
- * Flat developer fee:
- *   - USD 1.00 per transfer (string-formatted, 2dp).
+ * Developer fee:
+ *   - USD 1.00 flat + 0.25% of the requested destination amount.
  *
  * Dust prevention:
  *   - Bridge minimum is enforced on NET destination amount:
@@ -18,6 +18,7 @@
  */
 
 export const BRIDGE_PAYOUT_DEVELOPER_FEE_USD = "1.00";
+export const BRIDGE_PAYOUT_ORCHESTRATION_BPS = 25; // 0.25%
 
 type SupportedRoute = {
   chain: "BASE" | "TRON";
@@ -40,6 +41,7 @@ export type BridgePayoutValidationOk = {
     destination_payment_rail: "stablecoin";
     chain: "BASE" | "TRON";
     currency: "USDC" | "USDT";
+    requested_destination_amount: string; // 2dp
     gross_amount: string; // 2dp
     developer_fee: string; // 2dp
     net_destination_amount: string; // 2dp
@@ -83,6 +85,12 @@ function centsToFixed(cents: number): string {
 function parseFixedToCents(v: string): number {
   const n = Number(v);
   return Math.round(n * 100);
+}
+
+function computeDeveloperFeeCents(destinationAmountCents: number): number {
+  const flatCents = parseFixedToCents(BRIDGE_PAYOUT_DEVELOPER_FEE_USD);
+  const orchestrationCents = Math.round(destinationAmountCents * BRIDGE_PAYOUT_ORCHESTRATION_BPS / 10_000);
+  return flatCents + orchestrationCents;
 }
 
 /**
@@ -153,23 +161,24 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
     };
   }
 
-  const grossCents = parseDecimalToCents(body?.source?.amount);
-  if (grossCents == null) {
+  const requestedDestinationCents = parseDecimalToCents(body?.source?.amount);
+  if (requestedDestinationCents == null) {
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
         code: "invalid_amount",
-        error: "source.amount must be a positive decimal number.",
+        error: "source.amount must be a positive destination amount.",
       },
     };
   }
 
-  const feeCents = parseFixedToCents(BRIDGE_PAYOUT_DEVELOPER_FEE_USD);
+  const feeCents = computeDeveloperFeeCents(requestedDestinationCents);
+  const grossCents = requestedDestinationCents + feeCents;
   const grossMinCents = Math.round(route.gross_min_usd * 100);
   const netMinCents = Math.round(route.net_min_usd * 100);
-  const netCents = grossCents - feeCents;
+  const netCents = requestedDestinationCents;
 
   if (grossCents < grossMinCents) {
     return {
@@ -183,7 +192,7 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
           route: `${route.currency}:${route.chain}`,
           gross_amount: centsToFixed(grossCents),
           gross_minimum: centsToFixed(grossMinCents),
-          developer_fee: BRIDGE_PAYOUT_DEVELOPER_FEE_USD,
+          developer_fee: centsToFixed(feeCents),
         },
       },
     };
@@ -200,7 +209,7 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
         details: {
           route: `${route.currency}:${route.chain}`,
           gross_amount: centsToFixed(grossCents),
-          developer_fee: BRIDGE_PAYOUT_DEVELOPER_FEE_USD,
+          developer_fee: centsToFixed(feeCents),
           net_destination_amount: centsToFixed(netCents),
           net_minimum: centsToFixed(netMinCents),
         },
@@ -215,8 +224,9 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
       destination_payment_rail: "stablecoin",
       chain: route.chain,
       currency: route.currency,
+      requested_destination_amount: centsToFixed(requestedDestinationCents),
       gross_amount: centsToFixed(grossCents),
-      developer_fee: BRIDGE_PAYOUT_DEVELOPER_FEE_USD,
+      developer_fee: centsToFixed(feeCents),
       net_destination_amount: centsToFixed(netCents),
       gross_minimum: centsToFixed(grossMinCents),
       net_minimum: centsToFixed(netMinCents),
@@ -230,14 +240,15 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
 export function simulateBridgePayoutValidation(input: {
   chain: string;
   currency: string;
-  gross_amount: string;
+  destination_amount?: string;
+  gross_amount?: string;
 }): Record<string, unknown> {
   const body = {
     source: {
       payment_rail: "stablecoin",
       chain: input.chain,
       currency: input.currency,
-      amount: input.gross_amount,
+      amount: input.destination_amount ?? input.gross_amount,
     },
     destination: {
       payment_rail: "stablecoin",
@@ -251,4 +262,3 @@ export function simulateBridgePayoutValidation(input: {
     ? { accepted: true, ...res.enforced }
     : { accepted: false, status: res.status, ...(res.body || {}) };
 }
-

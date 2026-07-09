@@ -13,6 +13,7 @@ import { ownerOrFilter } from '../financial/ownership';
 import { deriveWalletStatus } from '../financial/walletStatus';
 import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../performance/navigationPerf';
 import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
+import { affiliateProgramUrl } from '../affiliate/config';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -486,6 +487,7 @@ export const walletAPI = {
           updated_at: nowIso,
           bridge_wallet_id: null,
           bridge_virtual_account_id: null,
+          balance_source: 'bridge_balance_ledger',
         };
         byCurrency.set(currency, row);
       }
@@ -525,11 +527,14 @@ export const walletAPI = {
       row.status = (va as any).status || row.status;
       row.updated_at = (va as any).updated_at || row.updated_at;
     }
-    // If projections lag but ledger has balance rows, still expose balances.
+    // Dashboard and wallet totals must come from bridge_balance_ledger only.
+    // bridge_virtual_account_balances is rail/projection state for VA receiving
+    // accounts; it is not used as spendable user balance.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
       const row = ensure(currency);
       if (!row) continue;
       row.balance = balance;
+      row.balance_source = 'bridge_balance_ledger';
     }
 
     const wallets = Array.from(byCurrency.values())
@@ -584,16 +589,28 @@ export const transactionAPI = {
       );
     };
 
-    const { data, error } = await supabase
-      .from('bridge_balance_ledger')
-      .select('id,event_id,entity_type,entity_id,currency,amount_minor,direction,metadata,created_at')
-      .or(ownerOrFilter(user.id))
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    const [
+      { data: ledgerRows, error: ledgerErr },
+      { data: transferRows, error: transferErr },
+    ] = await Promise.all([
+      supabase
+        .from('bridge_balance_ledger')
+        .select('id,event_id,entity_type,entity_id,currency,amount_minor,direction,metadata,created_at')
+        .or(ownerOrFilter(user.id))
+        .order('created_at', { ascending: false })
+        .range(0, offset + limit - 1),
+      supabase
+        .from('transactions')
+        .select('id,type,amount,currency,status,description,metadata,provider,bridge_transfer_id,created_at,updated_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(0, offset + limit - 1),
+    ]);
+    const error = ledgerErr || transferErr;
     if (error) {
       return { success: false, error: error.message };
     }
-    const transactions = (data || []).map((row: any) => {
+    const ledgerTransactions = (ledgerRows || []).map((row: any) => {
       const currency = String(row?.currency || '').toUpperCase();
       const direction = String(row?.direction || 'debit').toLowerCase() === 'credit' ? 'credit' : 'debit';
       const amountMajorAbs = Math.abs(minorToMajor(row?.amount_minor, currency));
@@ -609,6 +626,36 @@ export const transactionAPI = {
         metadata,
       };
     });
+    const transferTransactions = (transferRows || []).map((row: any) => {
+      const currency = String(row?.currency || '').toUpperCase();
+      const metadata = { ...(row?.metadata || {}) };
+      const status = String(row?.status || '').toLowerCase();
+      return {
+        id: row?.id || row?.bridge_transfer_id,
+        type: String(row?.type || metadata?.transaction_type || 'transfer'),
+        amount: Math.abs(Number(row?.amount || 0)),
+        currency,
+        description: String(row?.description || metadata?.reason || 'Transfer'),
+        status: status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'pending',
+        created_at: row?.created_at || row?.updated_at || new Date().toISOString(),
+        metadata: {
+          ...metadata,
+          direction: metadata?.direction || 'debit',
+          bridge_transfer_id: row?.bridge_transfer_id || metadata?.bridge_transfer_id,
+          provider: row?.provider || metadata?.provider,
+        },
+      };
+    });
+    const seen = new Set<string>();
+    const transactions = [...ledgerTransactions, ...transferTransactions]
+      .sort((a: any, b: any) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
+      .filter((row: any) => {
+        const key = String(row?.metadata?.bridge_transfer_id || row?.metadata?.bridge_event_id || row?.id || '');
+        if (key && seen.has(key)) return false;
+        if (key) seen.add(key);
+        return true;
+      })
+      .slice(offset, offset + limit);
     return { success: true, data: { transactions } };
   },
 
@@ -693,6 +740,16 @@ export const financialReadModelAPI = (() => {
   }
 
   async function fetchSnapshot(userId: string, limit: number) {
+    try {
+      await withTimeout(
+        apiCall('bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) }),
+        EXTERNAL_FETCH_TIMEOUT_MS,
+        { success: false, error: 'sync_timeout' } as any,
+      );
+    } catch {
+      // Read path remains available from the last local projection.
+    }
+
     const [profileRes, walletsRes, txRes, stableRes, vaRes, notifRes, externalListRes, externalCapsRes, externalWalletsRes] = await Promise.all([
       userAPI.getProfile(),
       walletAPI.getWallets(),
@@ -908,6 +965,16 @@ export const financialReadModelAPI = (() => {
     async getWalletRouteData() {
       const { userId, error } = await getCurrentUserId();
       if (!userId) return { success: false, error: error || 'Not signed in' };
+
+      try {
+        await withTimeout(
+          apiCall('bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) }),
+          EXTERNAL_FETCH_TIMEOUT_MS,
+          { success: false, error: 'sync_timeout' } as any,
+        );
+      } catch {
+        // Keep route usable from existing local projections.
+      }
 
       const [walletsRes, stableRes, vaRes] = await Promise.all([
         walletAPI.getWallets(),
@@ -1201,22 +1268,10 @@ export const fxAPI = {
       return fxSupportedPairsPromise;
     }
     const loader = (async () => {
-      const res: any = await apiCall<{ supported_pairs?: string[] }>('bridge-fx-supported-pairs', {
-        method: 'GET',
-      });
-      if (res?.success && Array.isArray(res?.data?.supported_pairs)) {
-        const normalized = res.data.supported_pairs
-          .map((p: string) => String(p || '').trim().toUpperCase())
-          .filter((p: string) => /^[A-Z0-9]{2,10}_[A-Z0-9]{2,10}$/.test(p));
-        if (normalized.length > 0) {
-          fxSupportedPairsCache = new Set(normalized);
-          fxSupportedPairsLoadedAt = Date.now();
-          return normalized;
-        }
-      }
       if (fxSupportedPairsCache.size === 0) {
         fxSupportedPairsCache = new Set(FX_SUPPORTED_PAIRS_FALLBACK);
       }
+      fxSupportedPairsLoadedAt = Date.now();
       return fxAPI.supportedPairs();
     })();
     fxSupportedPairsPromise = loader;
@@ -1483,7 +1538,8 @@ export const kycAPI = {
 const BRIDGE_ONLY_DISABLED = {
   success: false,
   code: 'bridge_path_required',
-  error: 'This flow is disabled. Use the Bridge-backed send/receive/external-account path.',
+  error: 'This flow is disabled. Use the active send/receive/external-account path.',
+  data: undefined as any,
 } as const;
 
 // ============================================================================
@@ -1524,7 +1580,7 @@ export const addressAPI = {
 export const stablecoinAPI = {
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
-    currency: 'USDC' | 'USDT';
+    currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB' | 'EURC';
     amount?: number;
     network?: string;
     address?: string;
@@ -1642,6 +1698,39 @@ export const notificationsAPI = {
 };
 
 // ============================================================================
+// FAIL-CLOSED LEGACY / OPS COMPATIBILITY SURFACES
+// ============================================================================
+
+export const adminAPI = {
+  async broadcast(_campaign: string, _payload: Record<string, unknown>) {
+    return {
+      success: false as const,
+      code: 'admin_broadcast_unavailable',
+      error: 'Admin broadcast is not available from this application build.',
+      data: undefined as any,
+    };
+  },
+};
+
+export const proofOfAddressAPI = {
+  async getUploadUrl(_contentType: string, _filename: string) {
+    return RAILS_FUTURE_STATE;
+  },
+  async submit(_path: string, _documentType: string) {
+    return RAILS_FUTURE_STATE;
+  },
+};
+
+export const usPaymentsAPI = {
+  async getCounterparties() {
+    return BRIDGE_ONLY_DISABLED;
+  },
+  async createCounterparty(_payload: any) {
+    return BRIDGE_ONLY_DISABLED;
+  },
+};
+
+// ============================================================================
 // ACCOUNTS
 // ============================================================================
 
@@ -1649,7 +1738,7 @@ export const notificationsAPI = {
 // `createUSDAccount` routes to Bridge VA(USD).
 // `createDynamicAccount` is future-state (African local rails).
 // Legacy account-rail/counterparty endpoints are hard-disabled.
-// Runtime send/payout execution must remain Bridge-backed only.
+// Runtime send/payout execution must remain on the active provider path only.
 export const accountsAPI = {
   async getAccounts() {
     const route = await financialReadModelAPI.getWalletRouteData();
@@ -1676,16 +1765,16 @@ export const accountsAPI = {
     return BRIDGE_ONLY_DISABLED;
   },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the active provider path only. */
   async getSupportedRails(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the active provider path only. */
   async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the active provider path only. */
   async getCounterparty(_counterPartyId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the active provider path only. */
   async getAccountCounterparties(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
   async createDynamicAccount(_accountName: string, _preferredBank: string, _amount?: string) {
@@ -1900,6 +1989,15 @@ export const businessAPI = {
 // explicit Start KYC/KYB action (it does NOT happen at signup).
 
 export const bridgeAPI = {
+  /** Durable BorderPay Terms of Service acceptance before KYC/KYB. */
+  tos: {
+    accept: async (input?: { version?: string }) =>
+      apiCall<{ tos_accepted_at: string; tos_version: string }>(
+        'bridge-tos-accept',
+        { method: 'POST', body: JSON.stringify(input || {}) },
+      ),
+  },
+
   /** Create or fetch the Bridge customer for the signed-in user. Idempotent. */
   customer: {
     createOrGet: async () =>
@@ -2130,7 +2228,7 @@ export const bridgeAPI = {
       );
     },
 
-    /** Query Bridge-backed capabilities for external-account rails. */
+    /** Query active capabilities for external-account rails. */
     capabilities: async () =>
       apiCall<{ supported_account_types: Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'> }>(
         'bridge-external-account',
@@ -2553,21 +2651,15 @@ export const payoutsAPI = {
     channel: 'bank' | 'mobile_money';
     currency: string;
     amount: number | string;
-  }) =>
-    apiCall<{
-      direction: 'payout' | 'receive';
-      channel: 'bank' | 'mobile_money';
-      currency: string;
-      amount: number;
-      product: string;
-      provider_fee: number;
-      markup_fee: number;
-      total_fee: number;
-      effective_multiplier: number;
-      hard_cap_multiplier: number | null;
-      pricing_version: string;
-      quoted_at: string;
-    }>('flutterwave-fee-quote', { method: 'POST', body: JSON.stringify(input) }),
+  }) => {
+    void input;
+    return {
+      success: false as const,
+      code: 'fee_quote_unavailable',
+      error: 'Server fee quote is not available in this application build.',
+      data: undefined as any,
+    };
+  },
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */
@@ -2662,11 +2754,14 @@ export const supportAPI = {
 };
 
 export const affiliateAPI = {
-  getSSOLink: async () =>
-    apiCall<{ url: string; correlation_id: string; ttl_seconds: number }>('affiliate-sso-link', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
+  getSSOLink: async () => ({
+    success: true as const,
+    data: {
+      url: affiliateProgramUrl('drawer'),
+      correlation_id: 'local-affiliate-link',
+      ttl_seconds: 0,
+    },
+  }),
 };
 
 export const backendAPI = {
@@ -2694,6 +2789,9 @@ export const backendAPI = {
   support:      supportAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,
+  admin:        adminAPI,
+  proofOfAddress: proofOfAddressAPI,
+  usPayments:   usPaymentsAPI,
 };
 
 export default backendAPI;

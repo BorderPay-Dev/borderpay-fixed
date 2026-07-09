@@ -53,10 +53,19 @@ function readTreasuryTx(): any[] {
   catch { return []; }
 }
 
-export function TreasuryCard({ totalUsd, wallets }: { totalUsd: number; wallets: WalletRow[] }) {
+export function TreasuryCard({
+  totalUsd,
+  wallets,
+  transactions,
+}: {
+  totalUsd: number;
+  wallets: WalletRow[];
+  transactions?: any[];
+  userId?: string;
+}) {
   const tc = useThemeClasses();
   // Seed the series from cache so the curve is stable/instant on revisit.
-  const [txs, setTxs] = useState<any[]>(() => readTreasuryTx());
+  const [txs, setTxs] = useState<any[]>(() => transactions ?? readTreasuryTx());
   const [period, setPeriod] = useState<Period>('1M');
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);

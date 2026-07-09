@@ -67,7 +67,6 @@ import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
 import {
-  BRIDGE_PAYOUT_DEVELOPER_FEE_USD,
   isCryptoToCryptoTransfer,
   validateBridgePayout,
 } from "../_shared/bridge-payout-validator.ts";
@@ -87,6 +86,37 @@ function fxLog(stage: string, detail: Record<string, unknown> = {}) {
     at: new Date().toISOString(),
     ...detail,
   }));
+}
+
+async function insertTransferNotification(input: {
+  userId: string;
+  transferId: string;
+  amount: string;
+  currency: string;
+  state: string;
+}) {
+  const { data: existing } = await supa
+    .from("notifications")
+    .select("id")
+    .eq("user_id", input.userId)
+    .eq("type", "transaction")
+    .contains("metadata", { bridge_transfer_id: input.transferId })
+    .maybeSingle();
+  if (existing?.id) return;
+
+  await supa.from("notifications").insert({
+    user_id: input.userId,
+    type: "transaction",
+    title: "Transfer submitted",
+    body: `Transfer of ${input.amount} ${input.currency} is ${input.state}.`,
+    metadata: {
+      source: "bridge",
+      bridge_transfer_id: input.transferId,
+      amount: input.amount,
+      currency: input.currency,
+      state: input.state,
+    },
+  });
 }
 
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
@@ -196,19 +226,8 @@ Deno.serve(async (req) => {
     return json({ success: false, ...identity.failure }, 409);
   }
   const profile = identity.context;
-  const { data: maintenance } = await supa
-    .from("user_profiles")
-    .select("maintenance_overdue")
-    .eq("id", user.id)
-    .maybeSingle();
   if (isBridgeBlocked(profile?.country)) {
     return json(bridgeCountryBlockResponse(profile!.country!), 403);
-  }
-  // Incident policy: do not hard-block payouts on maintenance flags.
-  // We still record this state in logs/metadata for follow-up billing flows.
-  const maintenanceDue = maintenance?.maintenance_overdue === true;
-  if (maintenanceDue) {
-    console.warn("bridge-transfer maintenance_overdue flag set; continuing payout path", { user_id: user.id });
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
@@ -217,8 +236,6 @@ Deno.serve(async (req) => {
   if (profile.verification_status !== "approved") {
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
-
-  // Product policy: no activation/funding gate. Approved users can move money.
 
   // Canonicalise: include user.id so two users can't collide on the same key.
   const clientKey = body.idempotency_key as string;
@@ -262,7 +279,8 @@ Deno.serve(async (req) => {
 
   // Crypto payout guard (BridgePayoutValidator):
   //   - only USDC/base and USDT/tron are allowed
-  //   - flat developer fee = 1.00 (string, 2dp)
+  //   - developer fee = 1.00 + 0.25% of requested destination amount
+  //   - source amount is grossed up so post-fee destination amount matches request
   //   - minimum check is post-fee (dust prevention)
   // Non-crypto rails keep their existing behavior.
   const isCryptoPayout = isCryptoToCryptoTransfer(body);
@@ -272,6 +290,7 @@ Deno.serve(async (req) => {
         destination_payment_rail: "stablecoin";
         chain: "BASE" | "TRON";
         currency: "USDC" | "USDT";
+        requested_destination_amount: string;
         gross_amount: string;
         developer_fee: string;
         net_destination_amount: string;
@@ -304,6 +323,7 @@ Deno.serve(async (req) => {
         ? {
             payout_policy: "bridge_payout_validator_v1",
             developer_fee: enforcedCryptoPayout.developer_fee,
+            requested_destination_amount: enforcedCryptoPayout.requested_destination_amount,
             net_destination_amount: enforcedCryptoPayout.net_destination_amount,
           }
         : {}),
@@ -327,8 +347,8 @@ Deno.serve(async (req) => {
         ...(transferChain ? { chain: transferChain } : {}),
       },
       developer_fee: isCryptoPayout
-        ? { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD }
-        : { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD },
+        ? { flat_amount: enforcedCryptoPayout!.developer_fee }
+        : undefined,
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.
@@ -359,6 +379,7 @@ Deno.serve(async (req) => {
         flow: "stablecoin_sandwich",
         payout_validator: enforcedCryptoPayout ? "bridge_payout_validator_v1" : null,
         developer_fee: enforcedCryptoPayout?.developer_fee ?? null,
+        requested_destination_amount: enforcedCryptoPayout?.requested_destination_amount ?? null,
         net_destination_amount: enforcedCryptoPayout?.net_destination_amount ?? null,
         provider_state:  mapped.providerState,
         provider_state_recognized: mapped.recognized,
@@ -376,6 +397,13 @@ Deno.serve(async (req) => {
         bridge_transfer_id: result.transfer_id,
       }, 500);
     }
+    await insertTransferNotification({
+      userId: user.id,
+      transferId: result.transfer_id,
+      amount: transferAmount,
+      currency: transferSourceCurrency,
+      state: mapped.transactionStatus,
+    });
     fxLog("transfer_id_stored", {
       user_id: user.id,
       transfer_id: result.transfer_id,

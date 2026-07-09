@@ -1,6 +1,6 @@
-const SW_VERSION = 'borderpay-sw-v3';
-const STATIC_CACHE = `${SW_VERSION}-static`;
-const RUNTIME_CACHE = `${SW_VERSION}-runtime`;
+const CACHE_NAME = 'borderpay-app-v2.12.0';
+const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.0';
+const STATIC_CACHE = CACHE_NAME;
 const PRECACHE_URLS = [
   '/manifest.json',
   '/favicon.ico',

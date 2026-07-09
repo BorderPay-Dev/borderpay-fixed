@@ -246,6 +246,17 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           try { localStorage.setItem(`borderpay_business_name_v1:${userId}`, profileData.company_name); } catch { /* ignore */ }
         }
 
+        if (profileData.account_type === 'business') {
+          void backendAPI.business.getProfile().then((biz: any) => {
+            const company_name = String(biz?.data?.company_name || '').trim();
+            if (!company_name) return;
+            setProfile((p) => ({ ...p, company_name }));
+            setEditedProfile((p) => ({ ...p, company_name }));
+            mergeProfileCache({ company_name, account_type: 'business' });
+            try { localStorage.setItem(`borderpay_business_name_v1:${userId}`, company_name); } catch { /* ignore */ }
+          }).catch(() => undefined);
+        }
+
         // Do not block first paint on business-profile enrichment.
         setLoading(false);
 
