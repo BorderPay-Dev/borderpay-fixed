@@ -92,6 +92,83 @@ function fxLog(stage: string, detail: Record<string, unknown> = {}) {
   }));
 }
 
+function redactPayload(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const clone = JSON.parse(JSON.stringify(value));
+  const redactKeys = new Set(["authorization", "api-key", "apikey", "idempotency-key"]);
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
+      if (redactKeys.has(key.toLowerCase())) {
+        (node as Record<string, unknown>)[key] = "[redacted]";
+      } else {
+        walk(val);
+      }
+    }
+  };
+  walk(clone);
+  return clone;
+}
+
+function transferTraceFields(body: any): Record<string, unknown> {
+  const source = body?.source ?? {};
+  const destination = body?.destination ?? {};
+  return {
+    source_payment_rail: String(source?.payment_rail ?? "bridge_wallet"),
+    destination_payment_rail: destination?.payment_rail ? String(destination.payment_rail) : null,
+    asset: String(source?.currency ?? destination?.currency ?? "").toUpperCase() || null,
+    network: String(source?.chain ?? destination?.chain ?? destination?.payment_rail ?? "").toLowerCase() || null,
+    amount: source?.amount != null ? String(source.amount) : null,
+    source_wallet_id: source?.bridge_wallet_id ? String(source.bridge_wallet_id) : null,
+    destination_bridge_wallet_id: destination?.bridge_wallet_id ? String(destination.bridge_wallet_id) : null,
+    destination_external_account_id: destination?.external_account_id ? String(destination.external_account_id) : null,
+    destination_address: (destination?.to_address || destination?.address) ? String(destination.to_address || destination.address) : null,
+  };
+}
+
+async function traceTransfer(stage: string, input: {
+  userId?: string | null;
+  bridgeCustomerId?: string | null;
+  idempotencyKey?: string | null;
+  body?: any;
+  requestPayload?: unknown;
+  responsePayload?: unknown;
+  transferId?: string | null;
+  httpStatus?: number | null;
+  bridgeRequestId?: string | null;
+  bridgeErrorCode?: string | null;
+  bridgeErrorMessage?: string | null;
+  providerStatus?: string | null;
+  notes?: string | null;
+  executionTimeMs?: number | null;
+}) {
+  try {
+    await supa.from("bridge_transfer_traces").insert({
+      correlation_id: input.idempotencyKey ?? null,
+      user_id: input.userId ?? null,
+      bridge_customer_id: input.bridgeCustomerId ?? null,
+      customer_id: input.bridgeCustomerId ?? null,
+      idempotency_key: input.idempotencyKey ?? null,
+      endpoint: "bridge-transfer",
+      method: "POST",
+      ...transferTraceFields(input.body ?? {}),
+      bridge_request_id: input.bridgeRequestId ?? null,
+      http_status: input.httpStatus ?? null,
+      bridge_error_code: input.bridgeErrorCode ?? null,
+      bridge_error_message: input.bridgeErrorMessage ?? null,
+      request_payload: redactPayload(input.requestPayload ?? input.body ?? null),
+      response_payload: redactPayload(input.responsePayload ?? null),
+      transfer_id: input.transferId ?? null,
+      stage,
+      notes: input.notes ?? null,
+      provider_status: input.providerStatus ?? null,
+      execution_time_ms: input.executionTimeMs ?? null,
+    });
+  } catch (e) {
+    fxLog("trace_insert_failed", { stage, error: (e as Error).message });
+  }
+}
+
 async function insertTransferNotification(input: {
   userId: string;
   transferId: string;
@@ -467,16 +544,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
 
-  // Hard server gate. Fail closed before any auth or Bridge call so we
-  // can't leak side effects (idempotency rows, log lines) while disabled.
-  if (!transfersEnabled()) {
-    return json({
-      success: false,
-      code:    "transfer_not_enabled",
-      error:   "Money movement is not enabled in this environment. Awaiting sandbox evidence sign-off.",
-    }, 503);
-  }
-
   const auth  = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
@@ -486,21 +553,71 @@ Deno.serve(async (req) => {
   fxLog("request_received", { user_id: user.id, method: req.method });
 
   let body: any;
-  try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
+  try { body = await req.json(); } catch {
+    await traceTransfer("invalid_json", { userId: user.id, httpStatus: 400, notes: "Invalid JSON" });
+    return json({ success: false, error: "Invalid JSON" }, 400);
+  }
+  await traceTransfer("request_received", {
+    userId: user.id,
+    body,
+    requestPayload: body,
+    httpStatus: 202,
+  });
+
+  // Hard server gate. Fail closed before any Bridge call.
+  if (!transfersEnabled()) {
+    await traceTransfer("transfer_not_enabled", {
+      userId: user.id,
+      body,
+      requestPayload: body,
+      httpStatus: 503,
+      notes: "BRIDGE_TRANSFERS_ENABLED is not true",
+    });
+    return json({
+      success: false,
+      code:    "transfer_not_enabled",
+      error:   "Money movement is not enabled in this environment. Awaiting sandbox evidence sign-off.",
+    }, 503);
+  }
   if (!body?.source?.amount || !body?.source?.currency || !body?.destination?.currency) {
+    await traceTransfer("validation_failed", {
+      userId: user.id,
+      body,
+      requestPayload: body,
+      httpStatus: 400,
+      notes: "source.amount, source.currency, destination.currency required",
+    });
     return json({ success: false, error: "source.amount, source.currency, destination.currency required" }, 400);
   }
   const amount = parsePositiveAmount(body?.source?.amount);
   if (!amount) {
+    await traceTransfer("validation_failed", {
+      userId: user.id,
+      body,
+      requestPayload: body,
+      httpStatus: 400,
+      notes: "source.amount must be a positive decimal number",
+    });
     return json({ success: false, error: "source.amount must be a positive decimal number (up to 12 dp, no exponent)" }, 400);
   }
   if (!isValidIdempotencyKey(body?.idempotency_key)) {
+    await traceTransfer("validation_failed", {
+      userId: user.id,
+      body,
+      requestPayload: body,
+      httpStatus: 400,
+      notes: "idempotency_key_required",
+    });
     return json({
       success: false,
       code:    "idempotency_key_required",
       error:   "A client-provided idempotency_key (8-128 printable ASCII chars) is required for transfers.",
     }, 400);
   }
+  // Canonicalise: include user.id so two users can't collide on the same key.
+  const clientKey = body.idempotency_key as string;
+  const idem      = `borderpay:transfer:${user.id}:${clientKey}`;
+
   // FX policy gate (wallet->wallet conversion only): only allow documented
   // supported pairs for conversion-style routes. Other transfer rails remain
   // unaffected (send/payout/onramp/offramp).
@@ -510,6 +627,14 @@ Deno.serve(async (req) => {
   const dstCcy = String(body?.destination?.currency || "").toUpperCase();
   if (srcRail === "bridge_wallet" && dstRail === "bridge_wallet" && srcCcy !== dstCcy) {
     if (!SUPPORTED_FX_PAIRS.has(`${srcCcy}_${dstCcy}`)) {
+      await traceTransfer("validation_failed", {
+        userId: user.id,
+        idempotencyKey: idem,
+        body,
+        requestPayload: body,
+        httpStatus: 400,
+        notes: `Unsupported conversion pair ${srcCcy}/${dstCcy}`,
+      });
       return json({
         success: false,
         code: "unsupported_pair",
@@ -527,23 +652,56 @@ Deno.serve(async (req) => {
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
+    await traceTransfer("identity_failed", {
+      userId: user.id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      httpStatus: 409,
+      responsePayload: identity.failure,
+      notes: String(identity.failure?.code ?? "identity_invariant_failed"),
+    });
     return json({ success: false, ...identity.failure }, 409);
   }
   const profile = identity.context;
   if (isBridgeBlocked(profile?.country)) {
-    return json(bridgeCountryBlockResponse(profile!.country!), 403);
+    const blocked = bridgeCountryBlockResponse(profile!.country!);
+    await traceTransfer("country_blocked", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      responsePayload: blocked,
+      httpStatus: 403,
+      notes: `country=${profile?.country ?? ""}`,
+    });
+    return json(blocked, 403);
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
+    await traceTransfer("identity_failed", {
+      userId: user.id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      httpStatus: 409,
+      notes: "no_customer",
+    });
     return json({ success: false, error: "Complete account setup before sending transfers", code: "no_customer" }, 409);
   }
   if (profile.verification_status !== "approved") {
+    await traceTransfer("identity_failed", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      httpStatus: 409,
+      notes: `verification_status=${profile.verification_status}`,
+    });
     return json({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
-
-  // Canonicalise: include user.id so two users can't collide on the same key.
-  const clientKey = body.idempotency_key as string;
-  const idem      = `borderpay:transfer:${user.id}:${clientKey}`;
 
   // Corridor note (#B1): African corridors settle through Bridge Wallet crypto
   // payout rails (USDT/USDC to a user-supplied address on a supported network).
@@ -566,6 +724,16 @@ Deno.serve(async (req) => {
         user_id: user.id,
         transfer_id: existing.bridge_transfer_id,
         idempotency_key: idem,
+      });
+      await traceTransfer("idempotent_replay", {
+        userId: user.id,
+        bridgeCustomerId: profile.bridge_customer_id,
+        idempotencyKey: idem,
+        body,
+        requestPayload: body,
+        transferId: existing.bridge_transfer_id,
+        httpStatus: 200,
+        providerStatus: existing.status,
       });
       return json({
         success: true,
@@ -600,7 +768,19 @@ Deno.serve(async (req) => {
 
   if (isCryptoPayout) {
     const validation = validateBridgePayout(body);
-    if (!validation.ok) return json(validation.body, validation.status);
+    if (!validation.ok) {
+      await traceTransfer("validation_failed", {
+        userId: user.id,
+        bridgeCustomerId: profile.bridge_customer_id,
+        idempotencyKey: idem,
+        body,
+        requestPayload: body,
+        responsePayload: validation.body,
+        httpStatus: validation.status,
+        notes: String(validation.body?.code ?? "crypto_payout_validation_failed"),
+      });
+      return json(validation.body, validation.status);
+    }
     enforcedCryptoPayout = validation.enforced;
   }
 
@@ -614,6 +794,15 @@ Deno.serve(async (req) => {
   const transferSourceRail = enforcedCryptoPayout?.source_payment_rail ?? sourceRail;
   const transferDestinationRail = enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail;
   if (isWalletToWallet && String(transferSourceCurrency).toUpperCase() !== String(transferDestinationCurrency).toUpperCase()) {
+    await traceTransfer("validation_failed", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      httpStatus: 400,
+      notes: "unsupported_p2p_pair",
+    });
     return json({
       success: false,
       code: "unsupported_p2p_pair",
@@ -637,7 +826,28 @@ Deno.serve(async (req) => {
       })
     : null;
   if (sourceWalletResolution && !sourceWalletResolution.ok) {
+    await traceTransfer("wallet_lookup_failed", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      responsePayload: sourceWalletResolution.body,
+      httpStatus: sourceWalletResolution.status,
+      notes: String(sourceWalletResolution.body?.code ?? "source_wallet_lookup_failed"),
+    });
     return json(sourceWalletResolution.body, sourceWalletResolution.status);
+  }
+  if (sourceWalletResolution?.ok) {
+    await traceTransfer("wallet_lookup_completed", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      httpStatus: 200,
+      notes: `source_wallet_id=${sourceWalletResolution.bridge_wallet_id}`,
+    });
   }
   const recipientWalletResolution = isWalletToWallet
     ? await resolveRecipientBridgeWallet({
@@ -649,31 +859,21 @@ Deno.serve(async (req) => {
       })
     : null;
   if (recipientWalletResolution && !recipientWalletResolution.ok) {
+    await traceTransfer("recipient_wallet_lookup_failed", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: body,
+      responsePayload: recipientWalletResolution.body,
+      httpStatus: recipientWalletResolution.status,
+      notes: String(recipientWalletResolution.body?.code ?? "recipient_wallet_lookup_failed"),
+    });
     return json(recipientWalletResolution.body, recipientWalletResolution.status);
   }
 
   try {
-    fxLog("bridge_request_sent", {
-      user_id: user.id,
-      idempotency_key: idem,
-      source_payment_rail: transferSourceRail,
-      destination_payment_rail: transferDestinationRail ?? null,
-      amount: transferAmount,
-      currency: transferSourceCurrency,
-      ...(enforcedCryptoPayout
-        ? {
-            payout_policy: "bridge_payout_validator_v1",
-            developer_fee: enforcedCryptoPayout.developer_fee,
-            bridge_amount: enforcedCryptoPayout.amount,
-          }
-        : isWalletToWallet
-        ? {
-            payout_policy: "borderpay_wallet_to_wallet_v1",
-            recipient_user_id: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_user_id : null,
-          }
-        : {}),
-    });
-    const result = await bridgeProvider.createTransfer({
+    const providerRequest = {
       on_behalf_of: profile.bridge_customer_id,
       source: {
         customer_id:  profile.bridge_customer_id,
@@ -695,11 +895,38 @@ Deno.serve(async (req) => {
       developer_fee: isCryptoPayout
         ? { flat_amount: enforcedCryptoPayout!.developer_fee }
         : undefined,
-      // Pass the same canonical key to Bridge so Bridge's own idempotency
-      // store dedupes retries too. The shared bridge-client forwards this
-      // as the HTTP `Idempotency-Key` header.
       idempotency_key: idem,
+    };
+    fxLog("bridge_request_sent", {
+      user_id: user.id,
+      idempotency_key: idem,
+      source_payment_rail: transferSourceRail,
+      destination_payment_rail: transferDestinationRail ?? null,
+      amount: transferAmount,
+      currency: transferSourceCurrency,
+      ...(enforcedCryptoPayout
+        ? {
+            payout_policy: "bridge_payout_validator_v1",
+            developer_fee: enforcedCryptoPayout.developer_fee,
+            bridge_amount: enforcedCryptoPayout.amount,
+          }
+        : isWalletToWallet
+        ? {
+            payout_policy: "borderpay_wallet_to_wallet_v1",
+            recipient_user_id: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_user_id : null,
+          }
+        : {}),
     });
+    await traceTransfer("bridge_payload_built", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: providerRequest,
+      httpStatus: 202,
+    });
+    const startedAt = Date.now();
+    const result = await bridgeProvider.createTransfer(providerRequest);
 
     // Persist via the upsert_bridge_transaction RPC. PostgREST upsert
     // cannot infer the partial unique index on bridge_transfer_id
@@ -712,6 +939,18 @@ Deno.serve(async (req) => {
       provider_state: mapped.providerState,
       internal_state: mapped.transactionStatus,
       recognized_state: mapped.recognized,
+    });
+    await traceTransfer("bridge_transfer_success", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: providerRequest,
+      responsePayload: result.raw,
+      transferId: result.transfer_id,
+      httpStatus: 200,
+      providerStatus: mapped.providerState,
+      executionTimeMs: Date.now() - startedAt,
     });
     const { error: upsertErr } = await supa.rpc("upsert_bridge_transaction", {
       p_user_id:            user.id,
@@ -737,6 +976,18 @@ Deno.serve(async (req) => {
     if (upsertErr) {
       // Bridge already accepted the transfer — surface the persistence
       // failure but with the transfer_id so the client can be reconciled.
+      await traceTransfer("transaction_upsert_failed", {
+        userId: user.id,
+        bridgeCustomerId: profile.bridge_customer_id,
+        idempotencyKey: idem,
+        body,
+        requestPayload: providerRequest,
+        responsePayload: result.raw,
+        transferId: result.transfer_id,
+        httpStatus: 500,
+        providerStatus: mapped.providerState,
+        notes: upsertErr.message,
+      });
       return json({
         success: false,
         code:    "persistence_failed",
@@ -744,12 +995,32 @@ Deno.serve(async (req) => {
         bridge_transfer_id: result.transfer_id,
       }, 500);
     }
+    await traceTransfer("transaction_upserted", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: providerRequest,
+      responsePayload: result.raw,
+      transferId: result.transfer_id,
+      httpStatus: 200,
+      providerStatus: mapped.providerState,
+    });
     await insertTransferNotification({
       userId: user.id,
       transferId: result.transfer_id,
       amount: transferAmount,
       currency: transferSourceCurrency,
       state: mapped.transactionStatus,
+    });
+    await traceTransfer("notification_upserted", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      transferId: result.transfer_id,
+      httpStatus: 200,
+      providerStatus: mapped.providerState,
     });
     await emailTransferBestEffort({
       userId: user.id,
@@ -761,6 +1032,16 @@ Deno.serve(async (req) => {
       transferId: result.transfer_id,
       providerState: mapped.providerState,
       description: isWalletToWallet ? "BorderPay wallet transfer" : "Bridge wallet payout",
+    });
+    await traceTransfer("email_dispatched", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      transferId: result.transfer_id,
+      httpStatus: 200,
+      providerStatus: mapped.providerState,
+      notes: "sender email best-effort dispatched",
     });
     if (recipientWalletResolution?.ok && recipientWalletResolution.recipient_user_id) {
       await insertRecipientTransferNotification({
@@ -786,6 +1067,16 @@ Deno.serve(async (req) => {
         transferId: result.transfer_id,
         providerState: mapped.providerState,
         description: user.email ? `BorderPay wallet transfer from ${user.email}` : "BorderPay wallet transfer",
+      });
+      await traceTransfer("recipient_email_dispatched", {
+        userId: user.id,
+        bridgeCustomerId: profile.bridge_customer_id,
+        idempotencyKey: idem,
+        body,
+        transferId: result.transfer_id,
+        httpStatus: 200,
+        providerStatus: mapped.providerState,
+        notes: `recipient_user_id=${recipientWalletResolution.recipient_user_id}`,
       });
     }
     fxLog("transfer_id_stored", {
@@ -825,6 +1116,42 @@ Deno.serve(async (req) => {
       provider_request_id: providerError?.request_id ?? null,
       bridge_code: providerError?.bridge_code ?? null,
       bridge_error: providerError?.bridge_error ?? null,
+    });
+    await traceTransfer("bridge_transfer_failed", {
+      userId: user.id,
+      bridgeCustomerId: profile.bridge_customer_id,
+      idempotencyKey: idem,
+      body,
+      requestPayload: {
+        source: {
+          payment_rail: transferSourceRail,
+          currency: transferSourceCurrency,
+          chain: transferChain,
+          bridge_wallet_id: sourceWalletResolution?.ok ? sourceWalletResolution.bridge_wallet_id : body.source.bridge_wallet_id,
+          amount: transferAmount,
+        },
+        destination: {
+          ...body.destination,
+          payment_rail: transferDestinationRail,
+          currency: transferDestinationCurrency,
+          bridge_wallet_id: recipientWalletResolution?.ok ? recipientWalletResolution.bridge_wallet_id : body.destination.bridge_wallet_id,
+          ...(transferChain ? { chain: transferChain } : {}),
+        },
+      },
+      responsePayload: providerError
+        ? {
+            status: providerError.status ?? null,
+            request_id: providerError.request_id ?? null,
+            bridge_code: providerError.bridge_code ?? null,
+            bridge_error: providerError.bridge_error ?? null,
+            raw_text: providerError.raw_text ?? null,
+          }
+        : { error: (e as Error).message },
+      httpStatus: providerStatus,
+      bridgeRequestId: providerError?.request_id ?? null,
+      bridgeErrorCode: providerError?.bridge_code ?? null,
+      bridgeErrorMessage: providerError?.bridge_error ?? (e as Error).message,
+      notes: clientCode,
     });
     return json({
       success: false,
