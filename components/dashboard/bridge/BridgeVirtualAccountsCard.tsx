@@ -42,14 +42,25 @@ interface Props {
   isBusiness?:   boolean;
 }
 
+function isVisibleVa(row: Partial<VARow> | null | undefined): boolean {
+  const inactive = ['inactive', 'deactivated', 'disabled', 'closed', 'archived', 'cancelled', 'canceled', 'rejected', 'suspended', 'blocked'];
+  const localStatus = String(row?.status || '').toLowerCase();
+  const providerStatus = String((row?.account_details as any)?.status || '').toLowerCase();
+  return ![localStatus, providerStatus].some((s) => s && inactive.includes(s));
+}
+
 export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = false }: Props) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const vaCacheKey = `borderpay_va_${isBusiness ? 'biz' : 'ind'}_v1`;
+  const vaCacheKey = `borderpay_va_${isBusiness ? 'biz' : 'ind'}_v2`;
   const cachedRows = useMemo<VARow[]>(() => {
-    try { const raw = localStorage.getItem(vaCacheKey); return raw ? JSON.parse(raw) : []; }
+    try {
+      const raw = localStorage.getItem(vaCacheKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter(isVisibleVa) : [];
+    }
     catch { return []; }
   }, [vaCacheKey]);
   const [rows, setRows]       = useState<VARow[]>(cachedRows);
@@ -73,7 +84,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     const { data } = isBusiness
       ? await q.eq('business_user_id', userId)
       : await q.eq('user_id', userId);
-    const next = (data as VARow[]) ?? [];
+    const next = ((data as VARow[]) ?? []).filter(isVisibleVa);
     setRows(next);
     try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
     setLoading(false);

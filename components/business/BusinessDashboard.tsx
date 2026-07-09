@@ -576,12 +576,12 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                       onMouseEnter={() => prefetchScreen('wallet-detail')}
                       onTouchStart={() => prefetchScreen('wallet-detail')}
                       onClick={() => openWalletForCurrency(w.currency)}
-                      className={`flex-shrink-0 w-[112px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-3 py-3.5 text-center ${tc.hoverBg} transition-colors`}
+                      className={`flex-shrink-0 w-[136px] min-h-[132px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center ${tc.hoverBg} transition-colors flex flex-col items-center justify-center`}
                     >
                       <div className="flex justify-center">
                         <BizCurrencyIcon currency={w.currency} />
                       </div>
-                      <p className={`text-[13px] ${tc.text} uppercase font-semibold mt-2`}>
+                      <p className={`text-lg ${tc.text} uppercase font-semibold mt-3`}>
                         {w.currency}
                       </p>
                     </button>
@@ -738,7 +738,7 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
   if (flag[code]) {
     return (
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[18px] leading-none"
+        className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[34px] leading-none"
         aria-hidden
       >
         {flag[code]}
@@ -748,11 +748,11 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
 
   if (iconUrl && !imgFailed) {
     return (
-      <div className="w-8 h-8 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
+      <div className="w-14 h-14 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
         <img
           src={iconUrl}
           alt=""
-          className="w-7 h-7 object-contain"
+          className="w-12 h-12 object-contain"
           onError={() => setImgFailed(true)}
           loading="lazy"
           decoding="async"
@@ -764,7 +764,7 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
 
   return (
     <div
-      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+      className="w-14 h-14 rounded-full flex items-center justify-center font-mono text-base font-bold"
       style={{ backgroundColor: `${CURRENCY_COLOR[code] || '#666666'}26`, color: CURRENCY_COLOR[code] || '#666666' }}
       aria-hidden
     >

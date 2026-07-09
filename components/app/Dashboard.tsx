@@ -296,6 +296,15 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       ]);
       const snapshotOk = snapshotRes.status === 'fulfilled' && snapshotRes.value?.success;
       const snapshotData = snapshotOk ? (snapshotRes.value as any).data : null;
+      let walletRouteData: any = null;
+      if (!Array.isArray(snapshotData?.wallets)) {
+        const walletRouteRes: any = await withTimeout(
+          backendAPI.financial.getWalletRouteData(),
+          6000,
+          { success: false, data: null, error: 'wallet_route_timeout' } as any,
+        );
+        if (walletRouteRes?.success) walletRouteData = walletRouteRes.data || null;
+      }
 
       // ── Profile ──────────────────────────────────────────────────────────
       if (snapshotData?.profile) {
@@ -319,8 +328,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // receive rails and tracked separately via snapshotData.virtual_accounts.
       {
         type Row = { currency: string; balance: number; symbol: string; color: string };
-        if (Array.isArray(snapshotData?.wallets)) {
-          const raw = snapshotData.wallets || [];
+        const walletSource = Array.isArray(snapshotData?.wallets)
+          ? snapshotData.wallets
+          : Array.isArray(walletRouteData?.wallets)
+            ? walletRouteData.wallets
+            : null;
+        if (Array.isArray(walletSource)) {
+          const raw = walletSource || [];
           const rows: Row[] = raw.map((w: any) => {
             const c = String(w?.currency || '').toUpperCase();
             return {
@@ -334,8 +348,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           setTotalBalance(usdLikeTotal(rows));
           writeJSON(dashWalletsKey, rows);
         }
-        if (Array.isArray(snapshotData?.virtual_accounts)) {
-          const hasVA = (snapshotData.virtual_accounts as any[]).some((va: any) =>
+        const vaSource = Array.isArray(snapshotData?.virtual_accounts)
+          ? snapshotData.virtual_accounts
+          : Array.isArray(walletRouteData?.virtual_accounts)
+            ? walletRouteData.virtual_accounts
+            : null;
+        if (Array.isArray(vaSource)) {
+          const hasVA = (vaSource as any[]).some((va: any) =>
             ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
           );
           setHasVirtualAccounts(hasVA);
@@ -748,12 +767,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     onMouseEnter={() => prefetchScreen('wallet-detail')}
                     onTouchStart={() => prefetchScreen('wallet-detail')}
                     onClick={() => openWalletForCurrency(w.currency)}
-                    className={`flex-shrink-0 w-[112px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-3 py-3.5 text-center ${tc.hoverBg} transition-colors`}
+                    className={`flex-shrink-0 w-[136px] min-h-[132px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center ${tc.hoverBg} transition-colors flex flex-col items-center justify-center`}
                   >
                     <div className="flex justify-center">
                       <DashboardCurrencyIcon currency={w.currency} color={w.color} />
                     </div>
-                    <p className={`text-[13px] ${tc.text} uppercase font-semibold mt-2`}>
+                    <p className={`text-lg ${tc.text} uppercase font-semibold mt-3`}>
                       {w.currency}
                     </p>
                   </button>
@@ -938,7 +957,7 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
   if (flag[code]) {
     return (
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[18px] leading-none"
+        className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[34px] leading-none"
         aria-hidden
       >
         {flag[code]}
@@ -948,11 +967,11 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
 
   if (iconUrl && !imgFailed) {
     return (
-      <div className="w-8 h-8 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
+      <div className="w-14 h-14 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
         <img
           src={iconUrl}
           alt=""
-          className="w-7 h-7 object-contain"
+          className="w-12 h-12 object-contain"
           onError={() => setImgFailed(true)}
           loading="lazy"
           decoding="async"
@@ -964,7 +983,7 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
 
   return (
     <div
-      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+      className="w-14 h-14 rounded-full flex items-center justify-center font-mono text-base font-bold"
       style={{ backgroundColor: `${color}26`, color }}
       aria-hidden
     >

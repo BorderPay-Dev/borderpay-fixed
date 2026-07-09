@@ -437,10 +437,29 @@ export function AccountDetailSheet({ open, onClose, va }: {
   const tc = useThemeClasses();
   if (!va) return <Sheet open={open} onClose={onClose}><div /></Sheet>;
   const cur = String(va.currency).toUpperCase();
+  const inactiveStatuses = ['inactive', 'deactivated', 'disabled', 'closed', 'archived', 'cancelled', 'canceled', 'rejected', 'suspended', 'blocked'];
+  const localStatus = String(va.status || '').toLowerCase();
+  const providerStatus = String(va.account_details?.status || '').toLowerCase();
+  const inactive = [localStatus, providerStatus].some((s) => s && inactiveStatuses.includes(s));
   const d = pickDeposit(va.account_details);
   const paymentInstructionsUrl = normalizeHttpsUrl(d.paymentInstructionsUrl);
   const accountLetterUrl = normalizeHttpsUrl(d.accountLetterUrl);
   const railLabel = cur === 'EUR' ? 'SEPA' : cur === 'GBP' ? 'Faster Payments' : 'ACH / Wire';
+  if (inactive) {
+    return (
+      <Sheet open={open} onClose={onClose}>
+        <SheetHeader symbol={cur} title={`${cur} account`} subtitle="Inactive rail" onClose={onClose} tc={tc} />
+        <div className="px-5 pb-6">
+          <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-4`}>
+            <p className={`text-sm font-semibold ${tc.text}`}>This account is not active.</p>
+            <p className={`text-xs ${tc.textMuted} mt-1`}>
+              Bank details are hidden because this receiving account is no longer available.
+            </p>
+          </div>
+        </div>
+      </Sheet>
+    );
+  }
   return (
     <Sheet open={open} onClose={onClose}>
       <SheetHeader symbol={cur} title={`${cur} account`} subtitle={`${railLabel} · bank transfer`} onClose={onClose} tc={tc} />

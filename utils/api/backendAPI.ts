@@ -36,9 +36,7 @@ function sanitizeError(raw: string | undefined): string {
 }
 
 function isBridgeResourceVisible(row: any): boolean {
-  const status = String(row?.status || '').trim().toLowerCase();
-  if (!status) return true;
-  return ![
+  const inactiveStatuses = [
     'inactive',
     'deactivated',
     'disabled',
@@ -49,7 +47,10 @@ function isBridgeResourceVisible(row: any): boolean {
     'rejected',
     'suspended',
     'blocked',
-  ].includes(status);
+  ];
+  const status = String(row?.status || '').trim().toLowerCase();
+  const providerStatus = String(row?.account_details?.status || '').trim().toLowerCase();
+  return ![status, providerStatus].some((s) => s && inactiveStatuses.includes(s));
 }
 
 // ── Core API caller with retry for transient network failures ────────────────
@@ -759,7 +760,7 @@ export const financialReadModelAPI = (() => {
     try {
       await withTimeout(
         apiCall('bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) }),
-        EXTERNAL_FETCH_TIMEOUT_MS,
+        1800,
         { success: false, error: 'sync_timeout' } as any,
       );
     } catch {
@@ -985,7 +986,7 @@ export const financialReadModelAPI = (() => {
       try {
         await withTimeout(
           apiCall('bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) }),
-          EXTERNAL_FETCH_TIMEOUT_MS,
+          1800,
           { success: false, error: 'sync_timeout' } as any,
         );
       } catch {
