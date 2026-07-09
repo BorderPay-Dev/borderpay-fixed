@@ -454,16 +454,11 @@ export const walletAPI = {
 
     const [
       { data: bridgeWallets, error: bridgeWalletErr },
-      { data: bridgeVas, error: bridgeVaErr },
       { data: walletBalanceLedger, error: walletBalanceLedgerErr },
     ] = await Promise.all([
       supabase
         .from('bridge_wallets')
         .select('bridge_wallet_id,currency,status,updated_at')
-        .or(ownerOrFilter(user.id)),
-      supabase
-        .from('bridge_virtual_accounts')
-        .select('bridge_virtual_account_id,currency,status,updated_at')
         .or(ownerOrFilter(user.id)),
       supabase
         .from('bridge_balance_ledger')
@@ -475,7 +470,7 @@ export const walletAPI = {
         .eq('entity_type', 'wallet'),
     ]);
 
-    const firstErr = bridgeWalletErr || bridgeVaErr || walletBalanceLedgerErr;
+    const firstErr = bridgeWalletErr || walletBalanceLedgerErr;
     if (firstErr) return { success: false, error: firstErr.message };
 
     const byCurrency = new Map<string, any>();
@@ -495,7 +490,6 @@ export const walletAPI = {
           source: 'canonical_read_model',
           updated_at: nowIso,
           bridge_wallet_id: null,
-          bridge_virtual_account_id: null,
           balance_source: 'bridge_balance_ledger',
         };
         byCurrency.set(currency, row);
@@ -534,18 +528,6 @@ export const walletAPI = {
       row.status = (w as any).status || row.status;
       row.updated_at = (w as any).updated_at || row.updated_at;
       row.balance = ledgerByCurrency.get(c) || 0;
-    }
-
-    // Keep virtual-account identifiers visible on the canonical currency rows
-    // so receive screens can attribute rail details without creating duplicate
-    // spendable balances.
-    for (const va of (bridgeVas || []).filter(isBridgeResourceVisible)) {
-      const c = String((va as any).currency || '').toUpperCase();
-      const row = ensure(c);
-      if (!row) continue;
-      row.bridge_virtual_account_id = (va as any).bridge_virtual_account_id ?? row.bridge_virtual_account_id;
-      row.status = (va as any).status || row.status;
-      row.updated_at = (va as any).updated_at || row.updated_at;
     }
     // Dashboard and wallet totals must come from wallet rows in
     // bridge_balance_ledger only. bridge_virtual_account_balances and VA ledger
