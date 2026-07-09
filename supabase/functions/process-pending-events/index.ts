@@ -70,6 +70,19 @@ function envList(name: string, fallback: string[]): string[] {
 const EMAIL_SUPPRESS_LIST    = () => envList("WEBHOOK_EMAIL_SUPPRESS_LIST", []);
 const EMAIL_SUPPRESS_DOMAINS = () => envList("WEBHOOK_EMAIL_SUPPRESS_DOMAINS", ["borderpayafrica.com"]);
 
+const CRYPTO_PAYMENT_RAILS = new Set([
+  "arbitrum",
+  "avalanche_c_chain",
+  "base",
+  "celo",
+  "ethereum",
+  "optimism",
+  "polygon",
+  "solana",
+  "stellar",
+  "tron",
+]);
+
 /**
  * Resolve the email recipient for a mapped user, applying the suppression
  * predicate entirely from DB + env (never the webhook payload). Returns null
@@ -1262,13 +1275,37 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
     }
   }
 
-  const sourceType = String(d?.source?.type ?? d?.source?.payment_rail ?? "external_bank");
-  const destType   = String(d?.destination?.type ?? d?.destination?.payment_rail ?? "external_bank");
-  const normSource = ["virtual_account","wallet","external_bank","external_wallet"].includes(sourceType) ? sourceType : "external_bank";
-  const normDest   = ["virtual_account","wallet","external_bank","external_wallet"].includes(destType)   ? destType   : "external_bank";
+  const sourceType = String(d?.source?.type ?? d?.source?.payment_rail ?? "external_bank").toLowerCase();
+  const destType   = String(d?.destination?.type ?? d?.destination?.payment_rail ?? "external_bank").toLowerCase();
+  const normSource =
+    sourceType === "bridge_wallet" || sourceType === "wallet" ? "wallet"
+    : sourceType === "virtual_account" ? "virtual_account"
+    : sourceType === "external_wallet" || CRYPTO_PAYMENT_RAILS.has(sourceType) ? "external_wallet"
+    : "external_bank";
+  const normDest =
+    destType === "bridge_wallet" || destType === "wallet" ? "wallet"
+    : destType === "virtual_account" ? "virtual_account"
+    : destType === "external_wallet" || CRYPTO_PAYMENT_RAILS.has(destType) ? "external_wallet"
+    : "external_bank";
 
+  const { data: existingTransaction } = await supabase
+    .from("transactions")
+    .select("currency,metadata")
+    .eq("provider", "bridge")
+    .eq("bridge_transfer_id", String(transferId))
+    .maybeSingle();
+  const existingMetadata =
+    existingTransaction?.metadata && typeof existingTransaction.metadata === "object" && !Array.isArray(existingTransaction.metadata)
+      ? existingTransaction.metadata as Record<string, unknown>
+      : {};
+  const sourceCurrency = d?.source?.currency ?? d?.payment_route?.source?.currency;
+  const destinationCurrency = d?.destination?.currency ?? d?.payment_route?.destination?.currency;
+  const isBridgeWalletCryptoPayout = sourceType === "bridge_wallet" && CRYPTO_PAYMENT_RAILS.has(destType);
+  const webhookCurrency = isBridgeWalletCryptoPayout
+    ? sourceCurrency ?? destinationCurrency ?? d?.currency
+    : d?.currency ?? sourceCurrency ?? destinationCurrency;
   const amount   = Number(d?.amount ?? 0);
-  const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
+  const currency = String(webhookCurrency ?? existingTransaction?.currency ?? "USD").toUpperCase();
   // 1) Bridge transfer projection + lifecycle state must flow via canonical RPC
   // (no direct runtime upsert on bridge_transfers).
   const transferState = mappedState.recognized
@@ -1323,14 +1360,16 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       p_currency:           currency,
       p_status:             mappedState.transactionStatus,
       p_metadata: {
+        ...existingMetadata,
         source:           "bridge",
-        transaction_type: "fx_conversion",
-        flow:             "bridge_wallet_crypto_payout",
+        transaction_type: existingMetadata.transaction_type ?? "fx_conversion",
+        flow:             existingMetadata.flow ?? "bridge_wallet_crypto_payout",
         account_type:     owner.account_type,
         source_type:      normSource,
         destination_type: normDest,
         bridge_state:     mappedState.providerState,
         bridge_state_recognized: mappedState.recognized,
+        webhook_currency_missing: webhookCurrency == null,
         raw:              d,
       },
     });
