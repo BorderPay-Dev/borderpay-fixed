@@ -251,17 +251,18 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Virtual accounts (USD/EUR/GBP) ────────────────────────────────────────
-  // Bridge REQUIRES `source.currency` + a `destination` { currency (stablecoin),
-  // payment_rail (blockchain), address }. Incoming fiat auto-converts to that
-  // stablecoin at that address. Sending a flat `{ currency }` (the old shape)
-  // makes Bridge reject with "resubmit the following parameters … missing/invalid".
+  // Bridge REQUIRES `source.currency` + a stablecoin `destination`. For
+  // BorderPay production VAs, destination is the customer's USDC/Base Bridge
+  // wallet id. Address remains supported only for legacy destination configs.
   async createVirtualAccount(input: VirtualAccountCreateInput): Promise<VirtualAccountResult> {
-    if (!input.destination?.address || !input.destination?.payment_rail || !input.destination?.currency) {
+    const destinationAddress = input.destination?.address;
+    const destinationBridgeWalletId = input.destination?.bridge_wallet_id;
+    if ((!destinationAddress && !destinationBridgeWalletId) || !input.destination?.payment_rail || !input.destination?.currency) {
       throw new BridgeProviderError(
         "Bridge createVirtualAccount request invalid: destination wallet fields are required",
         {
           bridge_code: "invalid_parameters",
-          bridge_error: "virtual account requires a destination stablecoin wallet (address + rail + currency)",
+          bridge_error: "virtual account requires a destination stablecoin wallet (bridge_wallet_id or address + rail + currency)",
         },
       );
     }
@@ -281,7 +282,8 @@ export class BridgeProvider implements PaymentProvider {
       destination: {
         currency:     input.destination.currency.toLowerCase(),
         payment_rail: input.destination.payment_rail.toLowerCase(),
-        address:      input.destination.address,
+        ...(destinationBridgeWalletId ? { bridge_wallet_id: destinationBridgeWalletId } : {}),
+        ...(!destinationBridgeWalletId && destinationAddress ? { address: destinationAddress } : {}),
       },
     };
     const r = await bridgeFetch({

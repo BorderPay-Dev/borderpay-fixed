@@ -3,7 +3,8 @@ export type VaCurrency = "USD" | "EUR" | "GBP";
 export type VirtualAccountDestinationConfig = {
   payment_rail: string;
   currency: string;
-  address: string;
+  address?: string;
+  bridge_wallet_id?: string;
 };
 
 const DEFAULT_VA_DEVELOPER_FEE_PERCENT = "2.5";
@@ -28,12 +29,14 @@ function normalizeDestination(value: unknown): VirtualAccountDestinationConfig |
   const paymentRail = String(raw.payment_rail ?? raw.rail ?? "").trim();
   const currency = String(raw.currency ?? "").trim().toUpperCase();
   const address = String(raw.address ?? raw.destination_address ?? "").trim();
-  if (!paymentRail || !currency || !address) return null;
+  const bridgeWalletId = String(raw.bridge_wallet_id ?? raw.wallet_id ?? "").trim();
+  if (!paymentRail || !currency || (!address && !bridgeWalletId)) return null;
 
   return {
     payment_rail: paymentRail,
     currency,
-    address,
+    ...(address ? { address } : {}),
+    ...(bridgeWalletId ? { bridge_wallet_id: bridgeWalletId } : {}),
   };
 }
 
@@ -64,6 +67,11 @@ function destinationFromEnv(currency: VaCurrency): VirtualAccountDestinationConf
     address:
       Deno.env.get(`${prefix}_ADDRESS`) ??
       Deno.env.get("BRIDGE_VA_DESTINATION_ADDRESS"),
+    bridge_wallet_id:
+      Deno.env.get(`${prefix}_BRIDGE_WALLET_ID`) ??
+      Deno.env.get(`${prefix}_WALLET_ID`) ??
+      Deno.env.get("BRIDGE_VA_DESTINATION_BRIDGE_WALLET_ID") ??
+      Deno.env.get("BRIDGE_VA_DESTINATION_WALLET_ID"),
   });
 }
 

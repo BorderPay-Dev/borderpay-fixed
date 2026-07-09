@@ -20,6 +20,7 @@ import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge
 import {
   loadVirtualAccountDeveloperFeePercent,
   loadVirtualAccountDestinationConfig,
+  type VirtualAccountDestinationConfig,
   type VaCurrency,
 } from "../_shared/providers/virtual-account-config.ts";
 
@@ -52,6 +53,45 @@ function extractDepositInstructions(details: any): Record<string, unknown> {
     return details.deposit_instructions as Record<string, unknown>;
   }
   return {};
+}
+
+async function loadCustomerUsdcBaseDestination(
+  userId: string,
+  bridgeCustomerId: string,
+): Promise<VirtualAccountDestinationConfig | null> {
+  const { data, error } = await supa
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,currency,chain,status,updated_at")
+    .or(`user_id.eq.${userId},business_user_id.eq.${userId}`)
+    .eq("bridge_customer_id", bridgeCustomerId)
+    .in("currency", ["USDC", "usdc"])
+    .in("chain", ["base", "BASE"])
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.warn(`bridge-virtual-account: USDC/Base wallet lookup failed: ${error.message}`);
+    return null;
+  }
+  const wallet = Array.isArray(data) ? data[0] : null;
+  const bridgeWalletId = String(wallet?.bridge_wallet_id || "").trim();
+  if (!bridgeWalletId) return null;
+  return {
+    currency: "USDC",
+    payment_rail: "base",
+    bridge_wallet_id: bridgeWalletId,
+  };
+}
+
+async function loadVaDestination(
+  userId: string,
+  bridgeCustomerId: string,
+  currency: VaCurrency,
+): Promise<VirtualAccountDestinationConfig> {
+  const customerWalletDestination = await loadCustomerUsdcBaseDestination(userId, bridgeCustomerId);
+  if (customerWalletDestination) return customerWalletDestination;
+  return await loadVirtualAccountDestinationConfig(supa, currency);
 }
 
 Deno.serve(async (req) => {
@@ -265,7 +305,7 @@ Deno.serve(async (req) => {
 
   try {
     const developerFeePercent = await loadVirtualAccountDeveloperFeePercent(supa);
-    const destination = await loadVirtualAccountDestinationConfig(supa, currency as VaCurrency);
+    const destination = await loadVaDestination(user.id, profile.bridge_customer_id, currency as VaCurrency);
     const result = await bridgeProvider.createVirtualAccount({
       customer_id: profile.bridge_customer_id,
       currency: currency as VaCurrency,

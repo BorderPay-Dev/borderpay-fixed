@@ -75,13 +75,13 @@ export interface VirtualAccountCreateInput {
   currency:       Extract<FiatCurrency, "USD" | "EUR" | "GBP">;
   developer_fee_percent: string;
   idempotency_key?: string;
-  // REQUIRED by the provider: where incoming fiat auto-converts to. The stablecoin
-  // address + the blockchain rail it settles on. `payment_rail` is a Bridge-canonical
-  // chain string (e.g. "solana", "ethereum", "polygon", "tron", "base").
+  // REQUIRED by the provider: where incoming fiat auto-converts to. Prefer the
+  // customer's Bridge wallet id; address is kept for legacy destination configs.
   destination:    {
     payment_rail:   string;
     currency:        string;          // stablecoin symbol e.g. "usdc" | "usdt"
-    address:         string;          // the wallet address to receive at
+    address?:        string;          // external wallet address fallback
+    bridge_wallet_id?: string;        // Bridge-hosted destination wallet
   };
 }
 
