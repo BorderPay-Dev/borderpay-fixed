@@ -640,6 +640,15 @@ export class BridgeProvider implements PaymentProvider {
         },
       );
     }
+    if (bridgeDestinationRail === "bridge_wallet" && !input.destination.bridge_wallet_id) {
+      throw new BridgeProviderError(
+        "Bridge createTransfer request invalid: bridge_wallet_id is required for bridge_wallet destination",
+        {
+          bridge_code: "invalid_parameters",
+          bridge_error: "destination.bridge_wallet_id is required when destination.payment_rail is bridge_wallet",
+        },
+      );
+    }
     const body: Record<string, unknown> = {
       amount: input.source.amount,
       ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),

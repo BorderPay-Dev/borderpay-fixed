@@ -129,7 +129,7 @@ export interface TransferCreateInput {
     amount:         string;            // decimal as string
   };
   destination: {
-    payment_rail:   "stablecoin" | BridgeBlockchainRail | "ach" | "wire" | "sepa" | "mobile_money" | "local_bank";
+    payment_rail:   "bridge_wallet" | "stablecoin" | BridgeBlockchainRail | "ach" | "wire" | "sepa" | "mobile_money" | "local_bank";
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     address?:       string;            // crypto address

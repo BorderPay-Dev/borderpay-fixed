@@ -119,6 +119,41 @@ async function insertTransferNotification(input: {
   });
 }
 
+async function insertRecipientTransferNotification(input: {
+  recipientUserId: string;
+  transferId: string;
+  amount: string;
+  currency: string;
+  senderEmail?: string | null;
+  state: string;
+}) {
+  const { data: existing } = await supa
+    .from("notifications")
+    .select("id")
+    .eq("user_id", input.recipientUserId)
+    .eq("type", "transaction")
+    .contains("metadata", { bridge_transfer_id: input.transferId, direction: "credit" })
+    .maybeSingle();
+  if (existing?.id) return;
+
+  await supa.from("notifications").insert({
+    user_id: input.recipientUserId,
+    type: "transaction",
+    title: "Payment received",
+    body: `${input.amount} ${input.currency} received${input.senderEmail ? ` from ${input.senderEmail}` : ""}.`,
+    metadata: {
+      source: "bridge",
+      direction: "credit",
+      flow: "wallet_to_wallet",
+      bridge_transfer_id: input.transferId,
+      amount: input.amount,
+      currency: input.currency,
+      sender_email: input.senderEmail ?? null,
+      state: input.state,
+    },
+  });
+}
+
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -153,7 +188,7 @@ function parsePositiveAmount(v: unknown): { raw: string; numeric: number } | nul
 async function resolveSourceBridgeWalletId(input: {
   bridgeCustomerId: string;
   currency: string;
-  chain: string;
+  chain?: string | null;
   providedWalletId?: string | null;
 }): Promise<{ ok: true; bridge_wallet_id: string } | { ok: false; status: number; body: Record<string, unknown> }> {
   const provided = String(input.providedWalletId || "").trim();
@@ -161,27 +196,27 @@ async function resolveSourceBridgeWalletId(input: {
 
   const currency = String(input.currency || "").trim().toUpperCase();
   const chain = String(input.chain || "").trim().toLowerCase();
-  if (!currency || !chain) {
+  if (!currency) {
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
         code: "source_wallet_required",
-        error: "Source wallet currency and chain are required for stablecoin payouts.",
+        error: "Source wallet currency is required.",
       },
     };
   }
 
-  const { data, error } = await supa
+  let query = supa
     .from("bridge_wallets")
     .select("bridge_wallet_id,status")
     .eq("bridge_customer_id", input.bridgeCustomerId)
     .ilike("currency", currency)
-    .ilike("chain", chain)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  if (chain) query = query.ilike("chain", chain);
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     return {
@@ -195,29 +230,106 @@ async function resolveSourceBridgeWalletId(input: {
     };
   }
   if (!data?.bridge_wallet_id) {
+    const routeLabel = chain ? `${currency} wallet on ${chain.toUpperCase()}` : `${currency} wallet`;
     return {
       ok: false,
       status: 409,
       body: {
         success: false,
         code: "source_wallet_not_found",
-        error: `${currency} wallet on ${chain.toUpperCase()} is not available for this account yet.`,
+        error: `${routeLabel} is not available for this account yet.`,
       },
     };
   }
   const status = String(data.status || "active").toLowerCase();
   if (["inactive", "disabled", "closed", "archived", "blocked", "suspended", "deactivated"].includes(status)) {
+    const routeLabel = chain ? `${currency} wallet on ${chain.toUpperCase()}` : `${currency} wallet`;
     return {
       ok: false,
       status: 409,
       body: {
         success: false,
         code: "source_wallet_inactive",
-        error: `${currency} wallet on ${chain.toUpperCase()} is not active.`,
+        error: `${routeLabel} is not active.`,
       },
     };
   }
   return { ok: true, bridge_wallet_id: String(data.bridge_wallet_id) };
+}
+
+async function resolveRecipientBridgeWallet(input: {
+  senderUserId: string;
+  recipientEmail?: string | null;
+  providedWalletId?: string | null;
+  currency: string;
+  chain?: string | null;
+}): Promise<
+  | { ok: true; recipient_user_id: string | null; recipient_email: string | null; bridge_wallet_id: string }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  const provided = String(input.providedWalletId || "").trim();
+  if (provided) {
+    return { ok: true, recipient_user_id: null, recipient_email: null, bridge_wallet_id: provided };
+  }
+
+  const email = String(input.recipientEmail || "").trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        code: "recipient_email_required",
+        error: "Enter a valid BorderPay recipient email.",
+      },
+    };
+  }
+
+  const { data: recipient, error: recipientError } = await supa
+    .from("user_profiles")
+    .select("id,email,bridge_customer_id,bridge_kyc_status,kyc_status")
+    .ilike("email", email)
+    .limit(1)
+    .maybeSingle();
+  if (recipientError) {
+    return { ok: false, status: 500, body: { success: false, code: "recipient_lookup_failed", error: "Could not verify this recipient." } };
+  }
+  if (!recipient?.id || !recipient?.bridge_customer_id) {
+    return { ok: false, status: 404, body: { success: false, code: "recipient_not_found", error: "No active BorderPay recipient was found for this email." } };
+  }
+  const status = String(recipient.bridge_kyc_status || recipient.kyc_status || "").toLowerCase();
+  if (!["approved", "verified", "active"].includes(status)) {
+    return { ok: false, status: 409, body: { success: false, code: "recipient_not_verified", error: "This recipient is not verified for BorderPay wallet transfers yet." } };
+  }
+
+  const currency = String(input.currency || "").trim().toUpperCase();
+  const chain = String(input.chain || "").trim().toLowerCase();
+  let walletQuery = supa
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,status")
+    .eq("bridge_customer_id", recipient.bridge_customer_id)
+    .ilike("currency", currency)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (chain) walletQuery = walletQuery.ilike("chain", chain);
+  const { data: wallet, error: walletError } = await walletQuery.maybeSingle();
+  if (walletError) {
+    return { ok: false, status: 500, body: { success: false, code: "recipient_wallet_lookup_failed", error: "Could not verify the recipient wallet." } };
+  }
+  if (!wallet?.bridge_wallet_id) {
+    return { ok: false, status: 409, body: { success: false, code: "recipient_wallet_not_found", error: `${currency} wallet is not available for this recipient.` } };
+  }
+  const walletStatus = String(wallet.status || "active").toLowerCase();
+  if (["inactive", "disabled", "closed", "archived", "blocked", "suspended", "deactivated"].includes(walletStatus)) {
+    return { ok: false, status: 409, body: { success: false, code: "recipient_wallet_inactive", error: `${currency} wallet is not active for this recipient.` } };
+  }
+
+  return {
+    ok: true,
+    recipient_user_id: String(recipient.id),
+    recipient_email: String(recipient.email || email),
+    bridge_wallet_id: String(wallet.bridge_wallet_id),
+  };
 }
 
 const SUPPORTED_FX_PAIRS = new Set([
@@ -376,12 +488,21 @@ Deno.serve(async (req) => {
   }
 
   const sourceRail = body.source.payment_rail || "stablecoin";
+  const requestedDestinationRail = String(body.destination.payment_rail || "").toLowerCase();
+  const isWalletToWallet = String(sourceRail || "").toLowerCase() === "bridge_wallet" && requestedDestinationRail === "bridge_wallet";
   const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
   const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
   const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
   const transferChain = enforcedCryptoPayout?.chain ?? body.source.chain ?? body.destination.chain;
   const transferSourceRail = enforcedCryptoPayout?.source_payment_rail ?? sourceRail;
   const transferDestinationRail = enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail;
+  if (isWalletToWallet && String(transferSourceCurrency).toUpperCase() !== String(transferDestinationCurrency).toUpperCase()) {
+    return json({
+      success: false,
+      code: "unsupported_p2p_pair",
+      error: "BorderPay-to-BorderPay transfers currently require the same wallet currency.",
+    }, 400);
+  }
   const sourceWalletResolution = transferSourceRail === "bridge_wallet"
     ? await resolveSourceBridgeWalletId({
         bridgeCustomerId: profile.bridge_customer_id,
@@ -392,6 +513,18 @@ Deno.serve(async (req) => {
     : null;
   if (sourceWalletResolution && !sourceWalletResolution.ok) {
     return json(sourceWalletResolution.body, sourceWalletResolution.status);
+  }
+  const recipientWalletResolution = isWalletToWallet
+    ? await resolveRecipientBridgeWallet({
+        senderUserId: user.id,
+        recipientEmail: body.destination.recipient_email,
+        providedWalletId: body.destination.bridge_wallet_id,
+        currency: transferDestinationCurrency,
+        chain: transferChain,
+      })
+    : null;
+  if (recipientWalletResolution && !recipientWalletResolution.ok) {
+    return json(recipientWalletResolution.body, recipientWalletResolution.status);
   }
 
   try {
@@ -408,6 +541,11 @@ Deno.serve(async (req) => {
             developer_fee: enforcedCryptoPayout.developer_fee,
             requested_destination_amount: enforcedCryptoPayout.requested_destination_amount,
             net_destination_amount: enforcedCryptoPayout.net_destination_amount,
+          }
+        : isWalletToWallet
+        ? {
+            payout_policy: "borderpay_wallet_to_wallet_v1",
+            recipient_user_id: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_user_id : null,
           }
         : {}),
     });
@@ -427,6 +565,7 @@ Deno.serve(async (req) => {
         ...body.destination,
         payment_rail: transferDestinationRail,
         currency: transferDestinationCurrency,
+        bridge_wallet_id: recipientWalletResolution?.ok ? recipientWalletResolution.bridge_wallet_id : body.destination.bridge_wallet_id,
         ...(transferChain ? { chain: transferChain } : {}),
       },
       developer_fee: isCryptoPayout
@@ -458,9 +597,11 @@ Deno.serve(async (req) => {
       p_status:             mapped.transactionStatus,
       p_metadata:           {
         idempotency_key: idem,
-        transaction_type: "fx_conversion",
-        flow: "stablecoin_sandwich",
+        transaction_type: isWalletToWallet ? "p2p_transfer" : "fx_conversion",
+        flow: isWalletToWallet ? "wallet_to_wallet" : "stablecoin_sandwich",
         payout_validator: enforcedCryptoPayout ? "bridge_payout_validator_v1" : null,
+        recipient_user_id: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_user_id : null,
+        recipient_email: recipientWalletResolution?.ok ? recipientWalletResolution.recipient_email : null,
         developer_fee: enforcedCryptoPayout?.developer_fee ?? null,
         requested_destination_amount: enforcedCryptoPayout?.requested_destination_amount ?? null,
         net_destination_amount: enforcedCryptoPayout?.net_destination_amount ?? null,
@@ -487,6 +628,16 @@ Deno.serve(async (req) => {
       currency: transferSourceCurrency,
       state: mapped.transactionStatus,
     });
+    if (recipientWalletResolution?.ok && recipientWalletResolution.recipient_user_id) {
+      await insertRecipientTransferNotification({
+        recipientUserId: recipientWalletResolution.recipient_user_id,
+        transferId: result.transfer_id,
+        amount: transferAmount,
+        currency: transferDestinationCurrency,
+        senderEmail: user.email ?? null,
+        state: mapped.transactionStatus,
+      });
+    }
     fxLog("transfer_id_stored", {
       user_id: user.id,
       transfer_id: result.transfer_id,

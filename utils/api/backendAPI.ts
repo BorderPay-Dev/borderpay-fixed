@@ -458,7 +458,7 @@ export const walletAPI = {
     ] = await Promise.all([
       supabase
         .from('bridge_wallets')
-        .select('bridge_wallet_id,currency,status,updated_at')
+        .select('bridge_wallet_id,currency,chain,status,updated_at')
         .or(ownerOrFilter(user.id)),
       supabase
         .from('bridge_balance_ledger')
@@ -490,6 +490,7 @@ export const walletAPI = {
           source: 'canonical_read_model',
           updated_at: nowIso,
           bridge_wallet_id: null,
+          chain: null,
           balance_source: 'bridge_balance_ledger',
         };
         byCurrency.set(currency, row);
@@ -525,6 +526,7 @@ export const walletAPI = {
       const row = ensure(c);
       if (!row) continue;
       row.bridge_wallet_id = (w as any).bridge_wallet_id ?? row.bridge_wallet_id;
+      row.chain = (w as any).chain ?? row.chain;
       row.status = (w as any).status || row.status;
       row.updated_at = (w as any).updated_at || row.updated_at;
       row.balance = ledgerByCurrency.get(c) || 0;
@@ -2124,7 +2126,7 @@ export const bridgeAPI = {
   transfer: {
     create: async (input: {
       source: { payment_rail?: string; currency: string; chain?: string; amount: string; bridge_wallet_id?: string; external_account_id?: string; from_address?: string };
-      destination: { payment_rail: string; currency: string; chain?: string; address?: string; bridge_wallet_id?: string; external_account_id?: string; deposit_id?: string; bank_account?: { account_number?: string; routing_number?: string; iban?: string; bic?: string } };
+      destination: { payment_rail: string; currency: string; chain?: string; address?: string; to_address?: string; recipient_email?: string; bridge_wallet_id?: string; external_account_id?: string; deposit_id?: string; bank_account?: { account_number?: string; routing_number?: string; iban?: string; bic?: string } };
       developer_fee?: { percentage?: number; flat_amount?: string };
       idempotency_key?: string;
     }) =>

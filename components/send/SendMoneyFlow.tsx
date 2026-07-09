@@ -2,7 +2,8 @@
  * BorderPay Africa - Send Money Flow (provider-backed payout rails)
  * Active transfer methods:
  *   1. External Bank Account (linked payout destination)
- *   2. Stablecoin Withdrawal (external wallet address)
+ *   2. BorderPay recipient (wallet-to-wallet)
+ *   3. Stablecoin Withdrawal (external wallet address)
  *
  * Flow: Choose Method → Enter Details → Amount → Review → PIN → Success
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
@@ -13,7 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Building2, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
-  Info, ArrowRight, Copy, XCircle, Shield, Coins,
+  Info, ArrowRight, Copy, XCircle, Shield, Coins, UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -39,7 +40,7 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 // Types
 // ---------------------------------------------------------------------------
 
-type TransferMethod = 'us_ach_wire' | 'stablecoin';
+type TransferMethod = 'us_ach_wire' | 'stablecoin' | 'borderpay';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
 const UI_CRYPTO_MIN_GROSS_USD = 5.0;
@@ -75,6 +76,18 @@ function mapCryptoTransferError(code: string | undefined, fallback: string | und
   return fallback || 'Transfer failed. Please review your payout route and amount.';
 }
 
+function mapBorderPayTransferError(code: string | undefined, fallback?: string): string {
+  if (code === 'recipient_email_required') return 'Enter a valid BorderPay recipient email.';
+  if (code === 'recipient_not_found') return 'No active BorderPay recipient was found for this email.';
+  if (code === 'recipient_not_verified') return 'This recipient is not verified for BorderPay wallet transfers yet.';
+  if (code === 'recipient_wallet_not_found') return 'This recipient does not have an active wallet for this currency.';
+  if (code === 'recipient_wallet_inactive') return 'This recipient wallet is not active.';
+  if (code === 'unsupported_p2p_pair') return 'BorderPay transfers must use the same source and recipient wallet currency.';
+  if (code === 'source_wallet_not_found') return 'Select an active USDC or USDT wallet before sending.';
+  if (code === 'source_wallet_inactive') return 'Your selected wallet is not active.';
+  return fallback || 'BorderPay transfer failed. Please review the recipient and wallet.';
+}
+
 interface Institution {
   code: string;
   name: string;
@@ -87,6 +100,7 @@ interface Wallet {
   balance: number;
   symbol?: string;
   bridge_wallet_id?: string | null;
+  chain?: string | null;
 }
 
 interface ExternalAccountOption {
@@ -232,6 +246,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     String(cachedExternalAccounts?.[0]?.bridge_external_account_id || ''),
   );
   const [usMemo, setUsMemo] = useState('');
+  const [borderPayRecipientEmail, setBorderPayRecipientEmail] = useState('');
 
   // External stablecoin withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'base', token: 'USDC', address: '' });
@@ -293,6 +308,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     // bypassing any country classification. Otherwise classify by destination
     // country (African countries also settle via stablecoin).
     const country = SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.country;
+    if (method === 'borderpay') return null;
     const corridor: 'international' | 'stablecoin' =
       method === 'stablecoin'
         ? 'stablecoin'
@@ -407,6 +423,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           balance: parseFloat(w.balance) || 0,
           symbol: getCurrencySymbol(w.currency),
           bridge_wallet_id: w.bridge_wallet_id ?? null,
+          chain: w.chain ?? null,
         }));
         const types = Array.isArray(res?.data?.external_account_capabilities)
           ? res.data.external_account_capabilities
@@ -492,7 +509,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     // Keep route first-paint instant: only fetch rails once the user actually
     // enters details, not while still on method selection.
     if (step === 'method') return;
-    if (method === 'us_ach_wire' || method === 'stablecoin') return;
+    if (method === 'us_ach_wire' || method === 'stablecoin' || method === 'borderpay') return;
     loadInstitutions();
   }, [step, method, selectedCurrency]);
 
@@ -563,7 +580,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Validate transfer limits whenever amount/currency/method changes
   useEffect(() => {
     const num = parseFloat(amount);
-    if (!num || method === 'us_ach_wire' || method === 'stablecoin') {
+    if (!num || method === 'us_ach_wire' || method === 'stablecoin' || method === 'borderpay') {
       setLimitError(null);
       return;
     }
@@ -601,6 +618,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const canProceedDetails = () => {
     if (method === 'us_ach_wire') return !!selectedExternalAccount;
+    if (method === 'borderpay') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(borderPayRecipientEmail.trim());
     if (method === 'stablecoin') return isValidCryptoAddress(crypto.network, crypto.address);
     return false;
   };
@@ -613,6 +631,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
     if (method === 'stablecoin') {
       return num > 0 && selectedWallet && num <= selectedWallet.balance && reason.trim().length > 0;
+    }
+    if (method === 'borderpay') {
+      return num > 0 && selectedWallet && !!selectedWallet.bridge_wallet_id && num <= selectedWallet.balance && reason.trim().length > 0;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
@@ -645,6 +666,25 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           // means a network retry of the same Confirm tap returns the
           // original transfer_id (server-side replay), not a duplicate.
           idempotency_key: transferIdempotencyKey,
+        });
+      } else if (method === 'borderpay') {
+        if (!selectedWallet?.bridge_wallet_id) {
+          throw new Error('Select an active BorderPay wallet');
+        }
+        result = await backendAPI.bridge.transfer.create({
+          idempotency_key: transferIdempotencyKey,
+          source: {
+            payment_rail: 'bridge_wallet',
+            currency: selectedCurrency,
+            amount: String(parseFloat(amount)),
+            bridge_wallet_id: selectedWallet.bridge_wallet_id,
+            ...(selectedWallet.chain ? { chain: selectedWallet.chain } : {}),
+          },
+          destination: {
+            payment_rail: 'bridge_wallet',
+            currency: selectedCurrency,
+            recipient_email: borderPayRecipientEmail.trim().toLowerCase(),
+          },
         });
       } else if (method === 'us_ach_wire') {
         if (!selectedExternalAccount) {
@@ -689,6 +729,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
         : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the stablecoin path for now.'
         : method === 'stablecoin'         ? mapCryptoTransferError(code, result.error, crypto)
+        : method === 'borderpay'          ? mapBorderPayTransferError(code, result.error)
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
         : code === 'no_customer'          ? 'Finish account setup before sending funds.'
         : (result.error || t('send.txFailed'));
@@ -701,7 +742,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       const fallback = error?.message || t('send.txFailed');
       const friendly = method === 'stablecoin'
         ? mapCryptoTransferError(undefined, fallback, crypto)
-        : fallback;
+        : method === 'borderpay'
+          ? mapBorderPayTransferError(undefined, fallback)
+          : fallback;
       setErrorMessage(friendly);
       setStep('error');
       toast.error(friendlyError(friendly, t('send.txFailed')));
@@ -741,7 +784,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const getStepTitle = () => {
     switch (step) {
       case 'method': return t('send.title');
-      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Stablecoin Transfer' : t('send.borderPayDetails');
+      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Stablecoin Transfer' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayDetails');
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
@@ -808,6 +851,42 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 fee engine (flat 1.00%), and address validation are fully wired
                 behind this gate. */}
             <div className="space-y-3">
+              {TRANSFERS_LIVE ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const p2pWallet = wallets.find((w) => ['USDC', 'USDT'].includes(String(w.currency || '').toUpperCase()) && w.bridge_wallet_id);
+                    setMethod('borderpay');
+                    if (p2pWallet?.currency) setSelectedCurrency(String(p2pWallet.currency).toUpperCase());
+                    setStep('details');
+                  }}
+                  className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-colors`}
+                >
+                  <div className="w-12 h-12 rounded-full bg-[#C7FF00]/15 flex items-center justify-center flex-shrink-0">
+                    <UserRound size={22} className="text-[#C7FF00]" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${tc.text}`}>BorderPay recipient</p>
+                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>Send instantly to another verified BorderPay wallet.</p>
+                  </div>
+                  <ArrowRight size={18} className={tc.textMuted} />
+                </button>
+              ) : (
+                <div
+                  className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 opacity-60 cursor-not-allowed`}
+                  aria-disabled="true"
+                >
+                  <div className="w-12 h-12 rounded-full bg-[#C7FF00]/15 flex items-center justify-center flex-shrink-0">
+                    <UserRound size={22} className="text-[#C7FF00]" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${tc.text}`}>BorderPay recipient</p>
+                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>Instant wallet-to-wallet transfers — pending sign-off</p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Pending evidence</span>
+                </div>
+              )}
+
               {TRANSFERS_LIVE ? (
                 <button
                   type="button"
@@ -919,7 +998,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             className="px-5 py-6"
           >
             {/* Currency Picker (Africa only — not for P2P, US, or Stablecoin) */}
-            {method !== 'us_ach_wire' && method !== 'stablecoin' && (() => {
+            {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && (() => {
               const availableCurrencies = method === 'bank'
                 ? SUPPORTED_CURRENCIES.filter(c => BANK_TRANSFER_CURRENCIES.includes(c.code))
                 : SUPPORTED_CURRENCIES.filter(c => MOMO_CURRENCIES.includes(c.code));
@@ -991,7 +1070,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             })()}
 
             {/* Bank / MoMo Selection (Africa only) */}
-            {method !== 'us_ach_wire' && method !== 'stablecoin' && (
+            {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && (
               <>
                 <div className="mb-4">
                   <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>
@@ -1102,6 +1181,49 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </>
             )}
 
+            {/* BorderPay recipient details */}
+            {method === 'borderpay' && (
+              <div className="space-y-4">
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Recipient email</label>
+                  <input
+                    type="email"
+                    value={borderPayRecipientEmail}
+                    onChange={(e) => setBorderPayRecipientEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Funding wallet</label>
+                  <div className="space-y-2">
+                    {wallets.filter((w) => ['USDC', 'USDT'].includes(String(w.currency || '').toUpperCase())).map((w) => {
+                      const cur = String(w.currency || '').toUpperCase();
+                      return (
+                        <button
+                          key={w.bridge_wallet_id || w.id || cur}
+                          type="button"
+                          onClick={() => setSelectedCurrency(cur)}
+                          className={`w-full text-left ${tc.card} border rounded-2xl p-3.5 transition-colors ${
+                            selectedCurrency === cur ? 'border-[#C7FF00]/60 bg-[#C7FF00]/10' : tc.cardBorder
+                          }`}
+                        >
+                          <p className={`text-sm font-semibold ${tc.text}`}>{cur} Wallet</p>
+                          <p className={`text-xs ${tc.textMuted} mt-1`}>
+                            Balance {getCurrencySymbol(cur)}{Number(w.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </p>
+                        </button>
+                      );
+                    })}
+                    {wallets.filter((w) => ['USDC', 'USDT'].includes(String(w.currency || '').toUpperCase())).length === 0 && (
+                      <p className="text-xs text-red-400">No active USDC or USDT wallet available.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Stablecoin Transfer Details */}
             {method === 'stablecoin' && (
               <>
@@ -1207,6 +1329,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       {crypto.network}
                     </span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-400">{crypto.token}</span>
+                  </div>
+                </>
+              ) : method === 'borderpay' ? (
+                <>
+                  <p className={`text-sm font-semibold ${tc.text}`}>{borderPayRecipientEmail.trim().toLowerCase()}</p>
+                  <p className={`text-xs ${tc.textMuted}`}>BorderPay wallet recipient</p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#C7FF00]/15 text-[#C7FF00] uppercase">
+                      {selectedCurrency}
+                    </span>
                   </div>
                 </>
               ) : method === 'us_ach_wire' ? (
@@ -1340,11 +1472,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.method')}</span>
                   <span className={`text-sm font-medium ${tc.text}`}>
-                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : t('send.borderPayPay')}
+                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Stablecoin' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayPay')}
                   </span>
                 </div>
 
-                {method !== 'us_ach_wire' && method !== 'stablecoin' && (
+                {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && (
                   <>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>{method === 'bank' ? t('send.bankName') : t('send.provider')}</span>
@@ -1387,6 +1519,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         <span className={`text-sm ${tc.text}`}>{usMemo}</span>
                       </div>
                     )}
+                  </>
+                )}
+
+                {method === 'borderpay' && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Recipient</span>
+                      <span className={`text-sm font-medium ${tc.text} text-right max-w-[200px] truncate`}>{borderPayRecipientEmail.trim().toLowerCase()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Funding Source</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{selectedCurrency} Wallet</span>
+                    </div>
                   </>
                 )}
 
@@ -1502,7 +1647,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
               <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
               <p className={`text-sm ${tc.textSecondary}`}>
-                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : (selectedExternalAccount?.account_owner_name || 'External account')}
+                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'borderpay' ? (borderPayRecipientEmail.trim().toLowerCase() || 'BorderPay recipient') : (selectedExternalAccount?.account_owner_name || 'External account')}
               </p>
             </div>
 
@@ -1594,7 +1739,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
             <p className={`text-sm ${tc.textMuted} mb-6`}>
-              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : (selectedExternalAccount?.account_owner_name || 'External account')}
+              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'borderpay' ? (borderPayRecipientEmail.trim().toLowerCase() || 'BorderPay recipient') : (selectedExternalAccount?.account_owner_name || 'External account')}
             </p>
 
             {/* Transaction details */}
