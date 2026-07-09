@@ -66,7 +66,7 @@ function readCachedProfile(): any {
 
 // Lightweight JSON cache so balance + recent activity paint instantly on every
 // open (native-app feel), then refresh in the background. Keys are versioned.
-const DASH_WALLETS_KEY = 'borderpay_dash_wallets_v1';
+const DASH_WALLETS_KEY = 'borderpay_dash_wallets_v2';
 const DASH_RECENT_KEY  = 'borderpay_dash_recent_tx_v1';
 function readJSON<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : fallback; }
@@ -114,17 +114,6 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
   GBP:  { symbol: '£',  color: '#8B5CF6' },
   USDT: { symbol: '₮',  color: '#26A17B' },
   USDC: { symbol: '$',  color: '#2775CA' },
-};
-
-const CURRENCY_LABEL: Record<string, string> = {
-  USD: 'US Dollar',
-  EUR: 'Euro',
-  GBP: 'British Pound',
-  USDT: 'Tether USD',
-  USDC: 'USD Coin',
-  PYUSD: 'PayPal USD',
-  USDB: 'USDB',
-  EURC: 'Euro Coin',
 };
 
 const STABLE_ICON_URL: Record<string, string> = {
@@ -192,7 +181,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const dashWalletsKey = useMemo(() => financialCacheKey(DASH_WALLETS_KEY, { userId }), [userId]);
   const dashRecentKey = useMemo(() => financialCacheKey(DASH_RECENT_KEY, { userId }), [userId]);
   const dashRefreshTsKey = useMemo(
-    () => financialCacheKey('borderpay_dashboard_refresh_ts_v1', { userId }),
+    () => financialCacheKey('borderpay_dashboard_refresh_ts_v2', { userId }),
     [userId],
   );
   const cachedWallets = useMemo(
@@ -201,7 +190,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   );
   const cachedRecent = useMemo(() => readJSON<any[]>(dashRecentKey, []), [dashRecentKey]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
-    ws.reduce((s, w) => s + Number(w.balance || 0), 0);
+    ws
+      .filter((w) => ['USDC', 'USDT'].includes(String(w.currency || '').toUpperCase()))
+      .reduce((s, w) => s + Number(w.balance || 0), 0);
   const [wallets, setWallets]             = useState(cachedWallets);
   const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
   const [walletsLoaded, setWalletsLoaded] = useState<boolean>(cachedWallets.length > 0);
@@ -757,14 +748,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     onMouseEnter={() => prefetchScreen('wallet-detail')}
                     onTouchStart={() => prefetchScreen('wallet-detail')}
                     onClick={() => openWalletForCurrency(w.currency)}
-                    className={`flex-shrink-0 w-[160px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
+                    className={`flex-shrink-0 w-[112px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-3 py-3.5 text-center ${tc.hoverBg} transition-colors`}
                   >
-                    <DashboardCurrencyIcon currency={w.currency} color={w.color} />
-                    <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold mt-2`}>
+                    <div className="flex justify-center">
+                      <DashboardCurrencyIcon currency={w.currency} color={w.color} />
+                    </div>
+                    <p className={`text-[13px] ${tc.text} uppercase font-semibold mt-2`}>
                       {w.currency}
-                    </p>
-                    <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
-                      {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
                     </p>
                   </button>
                 ))}

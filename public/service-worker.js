@@ -1,5 +1,5 @@
-const CACHE_NAME = 'borderpay-app-v2.12.0';
-const RUNTIME_CACHE = 'borderpay-app-runtime-v2.12.0';
+const CACHE_NAME = 'borderpay-app-v2.13.0';
+const RUNTIME_CACHE = 'borderpay-app-runtime-v2.13.0';
 const STATIC_CACHE = CACHE_NAME;
 const PRECACHE_URLS = [
   '/manifest.json',
@@ -33,6 +33,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname === '/service-worker.js') return;
 
   const isStaticAsset =
     req.destination === 'style' ||

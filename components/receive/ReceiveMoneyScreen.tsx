@@ -67,11 +67,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
 
   const stableWalletsCacheKey = useMemo(
-    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    () => financialCacheKey('borderpay_wallets_v2', { userId }),
     [userId],
   );
   const vaCacheKey = useMemo(
-    () => financialCacheKey('borderpay_va_v1', { userId }),
+    () => financialCacheKey('borderpay_va_v2', { userId }),
     [userId],
   );
   const receiveRefreshTsKey = useMemo(

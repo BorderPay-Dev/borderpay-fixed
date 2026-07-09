@@ -18,7 +18,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Shield, RefreshCw, ChevronRight,
+  Shield, RefreshCw, ChevronRight, Plus,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
@@ -71,11 +71,11 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
   const stableWalletsCacheKey = useMemo(
-    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    () => financialCacheKey('borderpay_wallets_v2', { userId }),
     [userId],
   );
   const vaCacheKey = useMemo(
-    () => financialCacheKey('borderpay_va_v1', { userId }),
+    () => financialCacheKey('borderpay_va_v2', { userId }),
     [userId],
   );
   useEffect(() => {
@@ -94,7 +94,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     navPerfTrackCache('wallet-detail', hasStable || hasVa);
   }, [stableWalletsCacheKey, vaCacheKey]);
   const walletRefreshTsKey = useMemo(
-    () => financialCacheKey('borderpay_wallet_refresh_ts_v1', { userId }),
+    () => financialCacheKey('borderpay_wallet_refresh_ts_v2', { userId }),
     [userId],
   );
 
@@ -115,10 +115,10 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const vasRef = useRef<VaRow[]>(vas);
   const hasCachedWalletRows = stables.length > 0 || vas.length > 0;
   const [totalUsd, setTotalUsd] = useState<number>(() => {
-    try { const r = localStorage.getItem(`borderpay_wallet_total_${userId}`); return r ? Number(r) : 0; } catch { return 0; }
+    try { const r = localStorage.getItem(`borderpay_wallet_total_v2_${userId}`); return r ? Number(r) : 0; } catch { return 0; }
   });
   const [balanceByCurrency, setBalanceByCurrency] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_${userId}`) || '{}'); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_v2_${userId}`) || '{}'); } catch { return {}; }
   });
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -206,10 +206,12 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           return acc;
         }, {});
         setBalanceByCurrency(mapped);
-        try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
-        const tot = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+        try { localStorage.setItem(`borderpay_wallet_balances_v2_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
+        const tot = rows
+          .filter((w: any) => ['USDC', 'USDT'].includes(String(w?.currency || '').toUpperCase()))
+          .reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
         setTotalUsd(tot);
-        try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(tot)); } catch { /* noop */ }
+        try { localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(tot)); } catch { /* noop */ }
       }
       // Provider provisioning/sync is background-only; never block first paint.
       if (shouldRunProviderSync()) {
@@ -233,10 +235,12 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                 return acc;
               }, {});
               setBalanceByCurrency(mapped);
-              try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
-              const nextTot = nextRows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+              try { localStorage.setItem(`borderpay_wallet_balances_v2_${userId}`, JSON.stringify(mapped)); } catch { /* noop */ }
+              const nextTot = nextRows
+                .filter((w: any) => ['USDC', 'USDT'].includes(String(w?.currency || '').toUpperCase()))
+                .reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
               setTotalUsd(nextTot);
-              try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(nextTot)); } catch { /* noop */ }
+              try { localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(nextTot)); } catch { /* noop */ }
             }
           } catch {
             // keep first snapshot
@@ -326,10 +330,16 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>
             {tt('wallet.title', 'Accounts & Wallets')}
           </p>
-          <button onClick={() => refresh(true)} aria-label="Refresh"
-            className={`p-2 rounded-full ${tc.hoverBg} ${refreshing ? 'opacity-60' : ''}`}>
-            <RefreshCw className={`w-4 h-4 ${tc.textMuted} ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => onNavigate?.('add-wallet')} aria-label="Add account"
+              className={`p-2 rounded-full ${tc.hoverBg}`}>
+              <Plus className={`w-4 h-4 ${tc.textMuted}`} />
+            </button>
+            <button onClick={() => refresh(true)} aria-label="Refresh"
+              className={`p-2 rounded-full ${tc.hoverBg} ${refreshing ? 'opacity-60' : ''}`}>
+              <RefreshCw className={`w-4 h-4 ${tc.textMuted} ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
 {/* Balance hero + quick actions live on the dashboard — the Wallet tab is
@@ -348,8 +358,14 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           ) : vas.length === 0 && stables.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <p className={`text-sm ${tc.textMuted}`}>
-                No accounts yet — open one below.
+                No accounts yet.
               </p>
+              <button
+                onClick={() => onNavigate?.('add-wallet')}
+                className="mt-4 h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold"
+              >
+                Add account
+              </button>
             </div>
           ) : (
             <>

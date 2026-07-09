@@ -464,10 +464,10 @@ export const walletAPI = {
         .from('bridge_balance_ledger')
         .select('event_id,currency,amount_minor,direction,entity_type,entity_id,created_at')
         .or(ownerOrFilter(user.id))
-        // Receive-money credits are posted as virtual_account ledger entries
-        // first. Include both wallet + virtual_account so dashboard balances
-        // reflect incoming funds instantly for individual and business users.
-        .in('entity_type', ['wallet', 'virtual_account']),
+        // Spendable balances are wallet-settled only. Virtual accounts are
+        // receive rails; Bridge orchestration settles spendable value into
+        // stablecoin wallets.
+        .eq('entity_type', 'wallet'),
     ]);
 
     const firstErr = bridgeWalletErr || bridgeVaErr || walletBalanceLedgerErr;
@@ -498,9 +498,8 @@ export const walletAPI = {
       return row;
     };
 
-    // Canonical spendable balances come from credited bridge ledger entries for
-    // wallet and virtual_account entities. We aggregate by currency to keep one
-    // unified wallet row per currency in the dashboard.
+    // Canonical spendable balances come from wallet ledger entries only. We
+    // aggregate by currency to keep one unified wallet row per currency.
     const ledgerByCurrency = new Map<string, number>();
     const seenLedgerEvents = new Set<string>();
     for (const r of (walletBalanceLedger || [])) {
@@ -543,9 +542,10 @@ export const walletAPI = {
       row.status = (va as any).status || row.status;
       row.updated_at = (va as any).updated_at || row.updated_at;
     }
-    // Dashboard and wallet totals must come from bridge_balance_ledger only.
-    // bridge_virtual_account_balances is rail/projection state for VA receiving
-    // accounts; it is not used as spendable user balance.
+    // Dashboard and wallet totals must come from wallet rows in
+    // bridge_balance_ledger only. bridge_virtual_account_balances and VA ledger
+    // rows are rail/projection state for receiving accounts; they are not
+    // spendable user balance.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
       const row = ensure(currency);
       if (!row) continue;
@@ -725,7 +725,7 @@ export const financialReadModelAPI = (() => {
   }
 
   function persistKey(userId: string): string {
-    return `borderpay_snapshot_cache_v1:${userId}`;
+    return `borderpay_snapshot_cache_v2:${userId}`;
   }
 
   function loadPersistedSnapshot(userId: string): { snapshot: any; at: number } | null {

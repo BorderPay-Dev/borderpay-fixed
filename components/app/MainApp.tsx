@@ -793,9 +793,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // Wallet / Receive / Transactions / External Accounts render from cache.
   React.useEffect(() => {
     let cancelled = false;
-    const warmTsKey = financialCacheKey('borderpay_financial_warm_ts_v1', { userId });
-    const walletsKey = financialCacheKey('borderpay_wallets_v1', { userId });
-    const vaKey = financialCacheKey('borderpay_va_v1', { userId });
+    const warmTsKey = financialCacheKey('borderpay_financial_warm_ts_v2', { userId });
+    const walletsKey = financialCacheKey('borderpay_wallets_v2', { userId });
+    const vaKey = financialCacheKey('borderpay_va_v2', { userId });
     const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
     const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
     const warm = async () => {
@@ -826,10 +826,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 acc[c] = Number(w?.balance || 0);
                 return acc;
               }, {});
-              try { localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(mapped)); } catch {}
+              try { localStorage.setItem(`borderpay_wallet_balances_v2_${userId}`, JSON.stringify(mapped)); } catch {}
               try {
-                const total = rows.reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
-                localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total));
+                const total = rows
+                  .filter((w: any) => ['USDC', 'USDT'].includes(String(w?.currency || '').toUpperCase()))
+                  .reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+                localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(total));
               } catch {}
             }
           }

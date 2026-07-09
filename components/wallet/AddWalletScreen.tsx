@@ -73,11 +73,11 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   });
 
   const walletCacheKey = useMemo(
-    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    () => financialCacheKey('borderpay_wallets_v2', { userId }),
     [userId],
   );
   const vaCacheKey = useMemo(
-    () => financialCacheKey('borderpay_va_v1', { userId }),
+    () => financialCacheKey('borderpay_va_v2', { userId }),
     [userId],
   );
   const [stableRows, setStableRows] = useState<StableRow[]>(() => {
@@ -113,8 +113,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
 
-      const total = wallets.reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
-      try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total)); } catch { /* noop */ }
+      const total = wallets
+        .filter((row: any) => ['USDC', 'USDT'].includes(String(row?.currency || '').toUpperCase()))
+        .reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
+      try { localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(total)); } catch { /* noop */ }
 
       try {
         const [vaCaps, walletCaps] = await Promise.all([

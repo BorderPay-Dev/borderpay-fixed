@@ -30,11 +30,11 @@ import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlag
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
-const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
+const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v2';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
-const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v1';
-const VA_LIST_CACHE_KEY = 'borderpay_va_v1';
+const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v2';
+const VA_LIST_CACHE_KEY = 'borderpay_va_v2';
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -74,13 +74,6 @@ interface WalletRow {
   balance:  number;
 }
 
-const CURRENCY_LABEL: Record<string, string> = {
-  USD: 'US Dollar',
-  EUR: 'Euro',
-  GBP: 'British Pound',
-  USDT: 'Tether USD',
-  USDC: 'USD Coin',
-};
 const CURRENCY_COLOR: Record<string, string> = {
   USD: '#60A5FA',
   EUR: '#A78BFA',
@@ -194,7 +187,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   }, [wallets]);
 
   const usdLikeTotal = useMemo(
-    () => wallets.filter(w => ['USD', 'USDT', 'USDC'].includes(w.currency))
+    () => wallets.filter(w => ['USDT', 'USDC'].includes(String(w.currency || '').toUpperCase()))
                  .reduce((s, w) => s + (w.balance || 0), 0),
     [wallets],
   );
@@ -583,14 +576,13 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                       onMouseEnter={() => prefetchScreen('wallet-detail')}
                       onTouchStart={() => prefetchScreen('wallet-detail')}
                       onClick={() => openWalletForCurrency(w.currency)}
-                      className={`flex-shrink-0 w-[160px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
+                      className={`flex-shrink-0 w-[112px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-3 py-3.5 text-center ${tc.hoverBg} transition-colors`}
                     >
-                      <BizCurrencyIcon currency={w.currency} />
-                      <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold mt-2`}>
+                      <div className="flex justify-center">
+                        <BizCurrencyIcon currency={w.currency} />
+                      </div>
+                      <p className={`text-[13px] ${tc.text} uppercase font-semibold mt-2`}>
                         {w.currency}
-                      </p>
-                      <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
-                        {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
                       </p>
                     </button>
                   ))}
