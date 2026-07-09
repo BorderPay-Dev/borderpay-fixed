@@ -43,7 +43,10 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 type TransferMethod = 'us_ach_wire' | 'stablecoin' | 'borderpay';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
-const UI_CRYPTO_MIN_GROSS_USD = 5.0;
+const UI_CRYPTO_MIN_GROSS_USD_BY_ROUTE: Record<string, number> = {
+  'base:USDC': 1.0,
+  'tron:USDT': 5.0,
+};
 
 function normalizeCryptoRoute(network?: string, token?: string): CryptoWithdrawalValues {
   const n = String(network || '').toLowerCase();
@@ -59,15 +62,19 @@ function cryptoRouteLabel(values: CryptoWithdrawalValues): string {
   return 'USDC on Base';
 }
 
+function cryptoRouteMinimum(values: CryptoWithdrawalValues): number {
+  return UI_CRYPTO_MIN_GROSS_USD_BY_ROUTE[`${values.network}:${values.token}`] ?? 5.0;
+}
+
 function cryptoMinimumMessage(values: CryptoWithdrawalValues): string {
-  return `Minimum gross payout in app is $${UI_CRYPTO_MIN_GROSS_USD.toFixed(2)} (${cryptoRouteLabel(values)}).`;
+  return `Minimum gross payout in app is $${cryptoRouteMinimum(values).toFixed(2)} (${cryptoRouteLabel(values)}).`;
 }
 
 function mapCryptoTransferError(code: string | undefined, fallback: string | undefined, crypto: CryptoWithdrawalValues): string {
   if (code === 'unsupported_crypto_route') {
     return 'Only USDC on Base and USDT on TRON are supported right now.';
   }
-  if (code === 'gross_below_minimum' || code === 'dust_minimum_not_met') {
+  if (code === 'gross_below_minimum' || code === 'dust_minimum_not_met' || code === 'amount_below_minimum') {
     return cryptoMinimumMessage(crypto);
   }
   if (code === 'chain_mismatch' || code === 'currency_mismatch') {
@@ -482,11 +489,25 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     };
   }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey]);
 
-  // Select wallet when currency changes
+  // Select the exact Bridge Wallet source for the active route. Currency-only
+  // selection is not enough because Bridge wallet ids are rail-specific.
   useEffect(() => {
-    const w = wallets.find(w => w.currency === selectedCurrency);
+    const desiredCurrency = method === 'stablecoin'
+      ? String(crypto.token || selectedCurrency).toUpperCase()
+      : selectedCurrency;
+    const desiredChain = method === 'stablecoin'
+      ? String(crypto.network || '').toLowerCase()
+      : '';
+    const exact = wallets.find((wallet) => {
+      const walletCurrency = String(wallet.currency || '').toUpperCase();
+      const walletChain = String(wallet.chain || '').toLowerCase();
+      return walletCurrency === desiredCurrency && (!desiredChain || walletChain === desiredChain);
+    });
+    const w = exact || (method === 'stablecoin'
+      ? null
+      : wallets.find(w => String(w.currency || '').toUpperCase() === desiredCurrency));
     setSelectedWallet(w || null);
-  }, [selectedCurrency, wallets]);
+  }, [selectedCurrency, wallets, method, crypto.token, crypto.network]);
 
   useEffect(() => {
     if (method !== 'us_ach_wire') return;
@@ -594,7 +615,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (method !== 'stablecoin') return null;
     const num = parseFloat(amount);
     if (!Number.isFinite(num) || num <= 0) return null;
-    if (num < UI_CRYPTO_MIN_GROSS_USD) return cryptoMinimumMessage(crypto);
+    if (num < cryptoRouteMinimum(crypto)) return cryptoMinimumMessage(crypto);
     return null;
   }, [amount, method, crypto]);
 

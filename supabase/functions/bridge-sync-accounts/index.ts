@@ -42,20 +42,31 @@ Deno.serve(async (req) => {
     .select("account_type, bridge_customer_id")
     .eq("id", user.id)
     .maybeSingle();
-  const isBusiness = profile?.account_type === "business";
-  const customerId = profile?.bridge_customer_id;
+  const { data: businessProfile } = await supa
+    .from("business_profiles")
+    .select("bridge_customer_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const isBusiness = profile?.account_type === "business" || Boolean(businessProfile?.bridge_customer_id);
+  const customerId = isBusiness
+    ? (businessProfile?.bridge_customer_id || profile?.bridge_customer_id)
+    : profile?.bridge_customer_id;
   if (!customerId) {
     // Nothing to sync yet — not an error.
     return json({ success: true, data: { wallets: [], virtual_accounts: [] } });
   }
 
   const ownerCols = isBusiness
-    ? { user_id: user.id, business_user_id: user.id }
+    ? { user_id: null, business_user_id: user.id }
     : { user_id: user.id, business_user_id: null };
+  const syncErrors: string[] = [];
+  let providerWalletCount = 0;
+  let providerVirtualAccountCount = 0;
 
   // ── Wallets ───────────────────────────────────────────────────────────────
   try {
     const bw = await bridgeProvider.listWallets(customerId);
+    providerWalletCount = bw.length;
     for (const w of bw) {
       if (!w.wallet_id) continue;
       const { data: existing } = await supa.from("bridge_wallets")
@@ -80,13 +91,15 @@ Deno.serve(async (req) => {
       else              await supa.from("bridge_wallets").insert(row);
     }
   } catch (e) {
-    // Non-fatal: still try VAs, surface a soft note.
-    console.warn(`bridge-sync-accounts wallets: ${(e as Error).message}`);
+    const msg = `wallets: ${(e as Error).message}`;
+    syncErrors.push(msg);
+    console.warn(`bridge-sync-accounts ${msg}`);
   }
 
   // ── Virtual accounts ───────────────────────────────────────────────────────
   try {
     const bva = await bridgeProvider.listVirtualAccounts(customerId);
+    providerVirtualAccountCount = bva.length;
     for (const v of bva) {
       if (!v.virtual_account_id) continue;
       const { data: existing } = await supa.from("bridge_virtual_accounts")
@@ -102,21 +115,32 @@ Deno.serve(async (req) => {
         ...(existingDetails.borderpay_user_requested ? { borderpay_user_requested: existingDetails.borderpay_user_requested } : {}),
         ...(existingDetails.borderpay_user_requested_at ? { borderpay_user_requested_at: existingDetails.borderpay_user_requested_at } : {}),
       };
+      const currency = String(v.currency || "").trim().toUpperCase();
+      if (!currency) {
+        syncErrors.push(`virtual_accounts: provider row ${v.virtual_account_id} missing currency`);
+        continue;
+      }
       const row: Record<string, unknown> = {
         ...ownerCols,
         bridge_customer_id:        customerId,
         bridge_virtual_account_id: v.virtual_account_id,
-        currency:                  v.currency,
+        currency,
         rail:                      v.rail ?? null,
-        status:                    v.status ?? "active",
+        status:                    String(v.status ?? "active").toLowerCase(),
         account_details:           accountDetails,
         updated_at:                new Date().toISOString(),
       };
-      if (existing?.id) await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id);
-      else              await supa.from("bridge_virtual_accounts").insert(row);
+      const { error: writeErr } = existing?.id
+        ? await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id)
+        : await supa.from("bridge_virtual_accounts").insert(row);
+      if (writeErr) {
+        syncErrors.push(`virtual_accounts: ${v.virtual_account_id} write failed: ${writeErr.message}`);
+      }
     }
   } catch (e) {
-    console.warn(`bridge-sync-accounts virtual_accounts: ${(e as Error).message}`);
+    const msg = `virtual_accounts: ${(e as Error).message}`;
+    syncErrors.push(msg);
+    console.warn(`bridge-sync-accounts ${msg}`);
   }
 
   // Return internal normalized state (not provider payload) so UI/product
@@ -140,7 +164,16 @@ Deno.serve(async (req) => {
       ]);
 
   return json({
-    success: true,
-    data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [] },
+    success: syncErrors.length === 0,
+    error: syncErrors.length ? syncErrors.join("; ") : undefined,
+    data: {
+      wallets: wallets ?? [],
+      virtual_accounts: virtualAccounts ?? [],
+      provider_counts: {
+        wallets: providerWalletCount,
+        virtual_accounts: providerVirtualAccountCount,
+      },
+      sync_errors: syncErrors,
+    },
   });
 });

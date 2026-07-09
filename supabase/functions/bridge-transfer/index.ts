@@ -72,6 +72,9 @@ import {
   validateBridgePayout,
 } from "../_shared/bridge-payout-validator.ts";
 
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
+
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -155,7 +158,91 @@ async function insertRecipientTransferNotification(input: {
   });
 }
 
-const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+async function emailTransferBestEffort(input: {
+  userId: string;
+  accountType: "individual" | "business";
+  email?: string | null;
+  direction: "credit" | "debit";
+  amount: string;
+  currency: string;
+  transferId: string;
+  providerState: string;
+  description: string;
+}) {
+  try {
+    if (!SEND_EMAIL_TOKEN || !input.email) return;
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+
+    let template = "individual.transaction_notification";
+    let props: Record<string, unknown> = {
+      full_name: null,
+      direction: input.direction,
+      amount,
+      currency: input.currency,
+      reference: input.transferId,
+      description: input.description,
+      occurred_at: new Date().toISOString(),
+    };
+
+    if (input.accountType === "business") {
+      const { data: biz } = await supa
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", input.userId)
+        .maybeSingle();
+      template = "business.transaction_notification";
+      props = {
+        company_name: biz?.company_name ?? "your business",
+        direction: input.direction,
+        amount,
+        currency: input.currency,
+        reference: input.transferId,
+        description: input.description,
+        occurred_at: new Date().toISOString(),
+      };
+    } else {
+      const { data: prof } = await supa
+        .from("user_profiles")
+        .select("full_name")
+        .eq("id", input.userId)
+        .maybeSingle();
+      props.full_name = prof?.full_name ?? null;
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: input.email,
+        user_id: input.userId,
+        idempotency_key: `wh:transfer:${input.userId}:${input.transferId}:${input.providerState}`,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      fxLog("transfer_email_failed", {
+        user_id: input.userId,
+        transfer_id: input.transferId,
+        status: res.status,
+        error: text.slice(0, 240),
+      });
+    }
+  } catch (e) {
+    fxLog("transfer_email_failed", {
+      user_id: input.userId,
+      transfer_id: input.transferId,
+      error: (e as Error).message,
+    });
+  }
+}
+
+const supa = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
@@ -664,6 +751,17 @@ Deno.serve(async (req) => {
       currency: transferSourceCurrency,
       state: mapped.transactionStatus,
     });
+    await emailTransferBestEffort({
+      userId: user.id,
+      accountType: profile.account_type,
+      email: user.email ?? null,
+      direction: "debit",
+      amount: transferAmount,
+      currency: transferSourceCurrency,
+      transferId: result.transfer_id,
+      providerState: mapped.providerState,
+      description: isWalletToWallet ? "BorderPay wallet transfer" : "Bridge wallet payout",
+    });
     if (recipientWalletResolution?.ok && recipientWalletResolution.recipient_user_id) {
       await insertRecipientTransferNotification({
         recipientUserId: recipientWalletResolution.recipient_user_id,
@@ -672,6 +770,22 @@ Deno.serve(async (req) => {
         currency: transferDestinationCurrency,
         senderEmail: user.email ?? null,
         state: mapped.transactionStatus,
+      });
+      const { data: recipientProfile } = await supa
+        .from("user_profiles")
+        .select("email, account_type")
+        .eq("id", recipientWalletResolution.recipient_user_id)
+        .maybeSingle();
+      await emailTransferBestEffort({
+        userId: recipientWalletResolution.recipient_user_id,
+        accountType: recipientProfile?.account_type === "business" ? "business" : "individual",
+        email: recipientProfile?.email ?? null,
+        direction: "credit",
+        amount: transferAmount,
+        currency: transferDestinationCurrency,
+        transferId: result.transfer_id,
+        providerState: mapped.providerState,
+        description: user.email ? `BorderPay wallet transfer from ${user.email}` : "BorderPay wallet transfer",
       });
     }
     fxLog("transfer_id_stored", {

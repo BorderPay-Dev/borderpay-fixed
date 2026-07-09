@@ -651,11 +651,18 @@ export const transactionAPI = {
         },
       };
     });
+    const normalizeBridgeEventId = (value: unknown) => String(value || '').replace(/^bridge:/i, '');
     const seen = new Set<string>();
     const transactions = [...ledgerTransactions, ...transferTransactions]
       .sort((a: any, b: any) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
       .filter((row: any) => {
-        const key = String(row?.metadata?.bridge_transfer_id || row?.metadata?.bridge_event_id || row?.id || '');
+        const key = String(
+          row?.metadata?.bridge_transfer_id ||
+          normalizeBridgeEventId(row?.metadata?.bridge_event_id) ||
+          normalizeBridgeEventId(row?.metadata?.event_id) ||
+          row?.id ||
+          ''
+        );
         if (key && seen.has(key)) return false;
         if (key) seen.add(key);
         return true;
@@ -691,9 +698,9 @@ export const financialReadModelAPI = (() => {
   // Route-performance model:
   // - Revalidate cadence keeps data fresh in background.
   // - Stale window keeps navigation instant across business routes.
-  const REVALIDATE_MS = 5000;
-  const STALE_MAX_MS = 5 * 60 * 1000;
-  const PERSIST_STALE_MAX_MS = 30 * 60 * 1000;
+  const REVALIDATE_MS = 3000;
+  const STALE_MAX_MS = 15 * 1000;
+  const PERSIST_STALE_MAX_MS = 60 * 1000;
   let inFlight: Promise<any> | null = null;
   let inFlightKey = '';
   let lastSnapshot: any = null;
@@ -748,7 +755,7 @@ export const financialReadModelAPI = (() => {
     try {
       await withTimeout(
         apiCall('bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) }),
-        1800,
+        8000,
         { success: false, error: 'sync_timeout' } as any,
       );
     } catch {
@@ -978,7 +985,7 @@ export const financialReadModelAPI = (() => {
       try {
         await withTimeout(
           apiCall('bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) }),
-          1800,
+          8000,
           { success: false, error: 'sync_timeout' } as any,
         );
       } catch {
