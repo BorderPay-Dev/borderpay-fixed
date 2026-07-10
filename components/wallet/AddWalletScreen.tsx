@@ -284,7 +284,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                       />
                     </div>
                   ) : (
-                    <AssetBadge symbol={displayCode} size={44} />
+                    <AssetBadge symbol={displayCode} size={44} flagOverride={displayAsLocal ? localRail.flag : undefined} />
                   )}
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{displayCode} <span className={`text-xs font-medium ${tc.textMuted}`}>· {displayTitle}</span></div>

@@ -1062,9 +1062,6 @@ function DashboardCurrencyIcon({ currency, color, flagOverride }: { currency: st
   const code = String(currency || '').toUpperCase();
   const flag: Record<string, string> = {
     USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧',
-    BWP: '🇧🇼', CDF: '🇨🇩', EGP: '🇪🇬', GHS: '🇬🇭', KES: '🇰🇪',
-    MWK: '🇲🇼', NGN: '🇳🇬', RWF: '🇷🇼', TZS: '🇹🇿', UGX: '🇺🇬',
-    XAF: '🇨🇲', XOF: '🇧🇯', ZAR: '🇿🇦', ZMW: '🇿🇲',
   };
   const [imgFailed, setImgFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[code];

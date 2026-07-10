@@ -116,13 +116,11 @@ export function ChainChip({ chain, size = 20 }: { chain: string; size?: number }
   );
 }
 
-// Fiat currencies render a flag (mobile renders these crisply); stablecoins use
-// the brand-coloured coin glyph.
+// Fiat currencies render a flag when the symbol is unambiguous. Local African
+// rail displays pass the corridor flag explicitly because XAF/XOF are shared
+// by multiple countries.
 const FLAG: Record<string, string> = {
   USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧',
-  BWP: '🇧🇼', CDF: '🇨🇩', EGP: '🇪🇬', GHS: '🇬🇭', KES: '🇰🇪',
-  MWK: '🇲🇼', NGN: '🇳🇬', RWF: '🇷🇼', TZS: '🇹🇿', UGX: '🇺🇬',
-  XAF: '🇨🇲', XOF: '🇧🇯', ZAR: '🇿🇦', ZMW: '🇿🇲',
 };
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
@@ -132,11 +130,22 @@ const STABLE_ICON_URL: Record<string, string> = {
   USDB: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdb.png',
 };
 
-export function AssetBadge({ symbol, size = 40 }: { symbol: string; size?: number }) {
+export function AssetBadge({ symbol, size = 40, flagOverride }: { symbol: string; size?: number; flagOverride?: string }) {
   const sym = String(symbol || '').toUpperCase();
   const flag = FLAG[sym];
   const [iconFailed, setIconFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[sym];
+  if (flagOverride) {
+    return (
+      <div
+        style={{ width: size, height: size, fontSize: size * 0.62, lineHeight: 1 }}
+        className="rounded-full flex items-center justify-center flex-shrink-0 bg-white/10 overflow-hidden"
+        aria-hidden
+      >
+        {flagOverride}
+      </div>
+    );
+  }
   if (flag) {
     return (
       <div

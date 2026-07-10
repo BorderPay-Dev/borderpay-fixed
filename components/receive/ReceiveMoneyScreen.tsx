@@ -20,7 +20,7 @@ import {
 } from '../dashboard/bridge/WalletVisuals';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
-import { localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
+import { currencyLabelForCode, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 import {
   africaCommercialRoutesForCountry,
   type AfricaRail,
@@ -300,7 +300,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <div className="px-4 py-3.5 border-b border-white/[0.06]">
               <p className={`text-sm font-semibold ${tc.text}`}>Africa receive</p>
               <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
-                {localRail.flag} {localRail.country} · {localRail.currency}
+                {localRail.flag} {localRail.country} · {localRail.countryIso3} · {currencyLabelForCode(localRail.currency)}
               </p>
             </div>
             {africaCollectionRoutes.map((route, index) => (
@@ -372,7 +372,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
-                    <AssetBadge symbol={displayCurrency} size={44} />
+                    <AssetBadge symbol={displayCurrency} size={44} flagOverride={displayAsLocal ? localRail.flag : undefined} />
                     <div className="flex-1 min-w-0">
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
                         {displayCurrency} <span className={`text-xs font-medium ${tc.textMuted}`}>· {displayName}</span>

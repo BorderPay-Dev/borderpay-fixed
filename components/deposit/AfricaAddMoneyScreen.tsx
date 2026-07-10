@@ -3,7 +3,7 @@ import { ArrowDownLeft, CheckCircle, Landmark, Loader2, Smartphone } from 'lucid
 import { toast } from 'sonner';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
+import { currencyLabelForCode, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 import {
   africaCommercialRoutesForCountry,
   type AfricaRail,
@@ -69,7 +69,7 @@ export function AfricaAddMoneyScreen({ onBack }: AfricaAddMoneyScreenProps) {
                 </div>
                 <div>
                   <p className={`text-sm font-semibold ${tc.text}`}>{localRail.country}</p>
-                  <p className={`text-xs ${tc.textMuted}`}>{localRail.currency} collection rails</p>
+                  <p className={`text-xs ${tc.textMuted}`}>{localRail.countryIso3} · {currencyLabelForCode(localRail.currency)} collection rails</p>
                 </div>
               </div>
 
@@ -107,7 +107,7 @@ export function AfricaAddMoneyScreen({ onBack }: AfricaAddMoneyScreenProps) {
                   <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Amount to collect</label>
                   <div className="relative">
                     <span className={`absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold ${tc.textMuted}`}>
-                      {localRail.currency}
+                      {localRail.symbol}
                     </span>
                     <input
                       type="number"
@@ -156,7 +156,7 @@ export function AfricaAddMoneyScreen({ onBack }: AfricaAddMoneyScreenProps) {
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between">
                     <span className={tc.textMuted}>Payer sends</span>
-                    <span className={tc.text}>{amount || '0'} {localRail.currency}</span>
+                    <span className={tc.text}>{localRail.symbol} {amount || '0'} · {localRail.currency}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={tc.textMuted}>BorderPay fee</span>

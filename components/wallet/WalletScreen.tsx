@@ -433,7 +433,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
-                    <AssetBadge symbol={displayCurrency} size={44} />
+                    <AssetBadge symbol={displayCurrency} size={44} flagOverride={displayAsLocal ? localRail.flag : undefined} />
                     <div className="flex-1 min-w-0">
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
                         {displayCurrency} <span className={`text-xs font-medium ${tc.textMuted}`}>· {displayName}</span>

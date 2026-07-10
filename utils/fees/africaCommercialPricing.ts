@@ -15,6 +15,7 @@ export type FeeShape = 'percent_only' | 'fixed_only' | 'percent_plus_fixed' | 'p
 export interface AfricaCommercialRoute {
   country: string;
   iso2: string;
+  iso3: string;
   currency: string;
   direction: AfricaDirection;
   rail: AfricaRail;
@@ -25,6 +26,37 @@ export interface AfricaCommercialRoute {
   enabled: boolean;
   notes?: string;
 }
+
+const ISO2_TO_ISO3: Record<string, string> = {
+  BJ: 'BEN',
+  BW: 'BWA',
+  BF: 'BFA',
+  CM: 'CMR',
+  CF: 'CAF',
+  TD: 'TCD',
+  CG: 'COG',
+  CD: 'COD',
+  EG: 'EGY',
+  ET: 'ETH',
+  GA: 'GAB',
+  GH: 'GHA',
+  CI: 'CIV',
+  KE: 'KEN',
+  MW: 'MWI',
+  ML: 'MLI',
+  NG: 'NGA',
+  RW: 'RWA',
+  SN: 'SEN',
+  ZA: 'ZAF',
+  TZ: 'TZA',
+  TG: 'TGO',
+  UG: 'UGA',
+  ZM: 'ZMB',
+};
+
+const ISO3_TO_ISO2 = Object.fromEntries(
+  Object.entries(ISO2_TO_ISO3).map(([iso2, iso3]) => [iso3, iso2]),
+) as Record<string, string>;
 
 const ROUTES = [
   ['Benin', 'BJ', 'XOF', 'collection', 'mobile_money', 'yellow_card', '2.22%', '3.50%', 'percent_only'],
@@ -99,6 +131,7 @@ const ROUTES = [
 export const AFRICA_COMMERCIAL_FEE_ROUTES: AfricaCommercialRoute[] = ROUTES.map((row) => ({
   country: row[0],
   iso2: row[1],
+  iso3: ISO2_TO_ISO3[row[1]] || row[1],
   currency: row[2],
   direction: row[3] as AfricaDirection,
   rail: row[4] as AfricaRail,
@@ -109,6 +142,17 @@ export const AFRICA_COMMERCIAL_FEE_ROUTES: AfricaCommercialRoute[] = ROUTES.map(
   enabled: typeof row[9] === 'boolean' ? row[9] : true,
   notes: typeof row[10] === 'string' ? row[10] : undefined,
 }));
+
+export function africaIso2FromCountryCode(code: string): string {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(normalized)) return ISO3_TO_ISO2[normalized] || normalized;
+  return normalized;
+}
+
+export function africaIso3FromCountryCode(code: string): string {
+  const iso2 = africaIso2FromCountryCode(code);
+  return ISO2_TO_ISO3[iso2] || String(code || '').trim().toUpperCase();
+}
 
 function feeLooksFixed(fee: string): boolean {
   return /\b(?:XAF|XOF|KES|NGN|GHS|RWF|TZS|UGX|ZAR|EGP|ZMW|MWK|BWP|USD|CDF)\b/i.test(fee);
@@ -152,30 +196,31 @@ export function africaCommercialRoutesFor(
 
 export function africaCommercialRoutesForCountry(
   direction: AfricaDirection,
-  iso2: string,
+  countryCode: string,
   enabledOnly = true,
 ): AfricaCommercialRoute[] {
-  const code = String(iso2 || '').toUpperCase();
+  const code = africaIso2FromCountryCode(countryCode);
   return africaCommercialRoutesFor(direction, enabledOnly).filter((route) => route.iso2 === code);
 }
 
 export function africaCommercialRouteForRail(
   direction: AfricaDirection,
-  iso2: string,
+  countryCode: string,
   rail: AfricaRail,
   enabledOnly = true,
 ): AfricaCommercialRoute | null {
-  return africaCommercialRoutesForCountry(direction, iso2, enabledOnly)
+  return africaCommercialRoutesForCountry(direction, countryCode, enabledOnly)
     .find((route) => route.rail === rail) || null;
 }
 
 export function africaCommercialCountries(direction: AfricaDirection, enabledOnly = true) {
-  const byIso = new Map<string, { country: string; iso2: string; currency: string }>();
+  const byIso = new Map<string, { country: string; iso2: string; iso3: string; currency: string }>();
   for (const route of africaCommercialRoutesFor(direction, enabledOnly)) {
     if (!byIso.has(route.iso2)) {
       byIso.set(route.iso2, {
         country: route.country,
         iso2: route.iso2,
+        iso3: route.iso3,
         currency: route.currency,
       });
     }

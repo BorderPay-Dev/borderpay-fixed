@@ -42,6 +42,7 @@ import {
   type AfricaRail,
   type AfricaCommercialRoute,
 } from '../../utils/fees/africaCommercialPricing';
+import { currencyLabelForCode, flagForCountryCode } from '../../utils/presentation/africanRailDisplay';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -176,13 +177,6 @@ const SEND_CAPS_CACHE_KEY = 'borderpay_send_caps_v1';
 const EXTERNAL_ACCOUNTS_CACHE_KEY = 'borderpay_payout_accounts_v1';
 const SEND_ROUTE_REFRESH_TS_KEY = 'borderpay_send_refresh_ts_v1';
 
-const COUNTRY_FLAG: Record<string, string> = {
-  BJ: '🇧🇯', BW: '🇧🇼', BF: '🇧🇫', CM: '🇨🇲', CF: '🇨🇫', TD: '🇹🇩',
-  CG: '🇨🇬', CD: '🇨🇩', EG: '🇪🇬', ET: '🇪🇹', GA: '🇬🇦', GH: '🇬🇭',
-  CI: '🇨🇮', KE: '🇰🇪', MW: '🇲🇼', ML: '🇲🇱', NG: '🇳🇬', RW: '🇷🇼',
-  SN: '🇸🇳', ZA: '🇿🇦', TZ: '🇹🇿', TG: '🇹🇬', UG: '🇺🇬', ZM: '🇿🇲',
-};
-
 function railLabel(rail: AfricaRail): string {
   return rail === 'mobile_money' ? 'Mobile Money' : 'Local bank account';
 }
@@ -285,14 +279,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // External Bridge Wallet withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'base', token: 'USDC', address: '' });
   const africaPayoutCountries = useMemo(() => africaCommercialCountries('payout', true), []);
-  const defaultAfricaCountry = africaPayoutCountries.find((country) => country.iso2 === 'KE') || africaPayoutCountries[0];
-  const [africaCountryIso, setAfricaCountryIso] = useState(defaultAfricaCountry?.iso2 || '');
+  const defaultAfricaCountry = africaPayoutCountries.find((country) => country.iso3 === 'KEN') || africaPayoutCountries[0];
+  const [africaCountryIso, setAfricaCountryIso] = useState(defaultAfricaCountry?.iso3 || '');
   const africaRoutes = useMemo(
     () => africaCommercialRoutesForCountry('payout', africaCountryIso, true),
     [africaCountryIso],
   );
   const [africaRail, setAfricaRail] = useState<AfricaRail>(() =>
-    firstAfricaRoute(africaCommercialRoutesForCountry('payout', defaultAfricaCountry?.iso2 || '', true))?.rail || 'mobile_money',
+    firstAfricaRoute(africaCommercialRoutesForCountry('payout', defaultAfricaCountry?.iso3 || '', true))?.rail || 'mobile_money',
   );
   const selectedAfricaRoute = useMemo(() => {
     const exact = africaCommercialRouteForRail('payout', africaCountryIso, africaRail, true);
@@ -1219,8 +1213,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
                   >
                     {africaPayoutCountries.map((country) => (
-                      <option key={country.iso2} value={country.iso2}>
-                        {COUNTRY_FLAG[country.iso2] || ''} {country.country} · {country.currency}
+                      <option key={country.iso3} value={country.iso3}>
+                        {flagForCountryCode(country.iso2)} {country.country} · {country.iso3} · {currencyLabelForCode(country.currency)}
                       </option>
                     ))}
                   </select>
@@ -1652,11 +1646,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <>
                   <p className={`text-sm font-semibold ${tc.text}`}>{africaRecipientName || 'Recipient'}</p>
                   <p className={`text-xs ${tc.textMuted}`}>
-                    {COUNTRY_FLAG[selectedAfricaRoute?.iso2 || ''] || ''} {selectedAfricaRoute?.country || 'Africa'} · {selectedAfricaRoute ? railLabel(selectedAfricaRoute.rail) : 'Local rail'}
+                    {flagForCountryCode(selectedAfricaRoute?.iso2 || '')} {selectedAfricaRoute?.country || 'Africa'} · {selectedAfricaRoute?.iso3 || ''} · {selectedAfricaRoute ? railLabel(selectedAfricaRoute.rail) : 'Local rail'}
                   </p>
                   <div className="flex items-center gap-1.5 mt-1.5">
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#C7FF00]/15 text-[#C7FF00] uppercase">
-                      {selectedAfricaRoute?.currency || ''}
+                      {currencyLabelForCode(selectedAfricaRoute?.currency || '')}
                     </span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-white/[0.06] text-white/70">USDC source</span>
                   </div>
@@ -1787,7 +1781,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Country</span>
-                      <span className={`text-sm font-medium ${tc.text}`}>{COUNTRY_FLAG[selectedAfricaRoute.iso2] || ''} {selectedAfricaRoute.country}</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{flagForCountryCode(selectedAfricaRoute.iso2)} {selectedAfricaRoute.country} · {selectedAfricaRoute.iso3}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Delivery rail</span>
@@ -1961,7 +1955,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>Payout currency</span>
-                    <span className={tc.text}>{selectedAfricaRoute.currency}</span>
+                    <span className={tc.text}>{currencyLabelForCode(selectedAfricaRoute.currency)}</span>
                   </div>
                   <div className={`h-px ${tc.border} my-1`} />
                   <div className="flex justify-between text-sm font-bold">
