@@ -482,7 +482,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         email: data.user.email,
                         full_name: formData.fullName,
                         ...(formData.accountType === 'business' ? { company_name: formData.companyName } : {}),
-                        kyc_status: 'pending',
+                        kyc_status: 'unverified',
                         account_type: formData.accountType,
                       }));
                       if (data.session?.access_token) {

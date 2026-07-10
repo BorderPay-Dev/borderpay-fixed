@@ -108,7 +108,7 @@ serve(async (req) => {
         phone:            profile.phone || '',
         country:          profile.country || '',
         account_type:     profile.account_type || 'individual',
-        kyc_status:       profile.kyc_status || 'pending',
+        kyc_status:       profile.kyc_status || 'unverified',
         kyc_level:        profile.kyc_level || 0,
         kyc_verified_at:  profile.kyc_verified_at || null,
         account_status:   profile.account_status || 'pending_kyc',

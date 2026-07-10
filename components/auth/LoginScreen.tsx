@@ -136,7 +136,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
             phone:        data.user.user_metadata?.phone || data.user.phone || '',
             country:      data.user.user_metadata?.country || '',
             account_type: data.user.user_metadata?.account_type || 'individual',
-            kyc_status:   data.user.user_metadata?.kyc_status || 'pending',
+            kyc_status:   data.user.user_metadata?.kyc_status || 'unverified',
             bridge_kyc_status: data.user.user_metadata?.bridge_kyc_status ?? null,
             bridge_kyb_status: data.user.user_metadata?.bridge_kyb_status ?? null,
             bridge_account_status: data.user.user_metadata?.bridge_account_status ?? null,

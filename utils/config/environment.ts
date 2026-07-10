@@ -91,7 +91,7 @@ export interface KycProfileLike {
  *   1. Bridge terminal REJECT  -> 'rejected'   (bridge_kyc/kyb or account)
  *   2. Bridge terminal APPROVE -> 'verified'   (bridge_kyc/kyb === approved)
  *   3. legacy terminal         -> 'rejected' | 'verified'
- *   4. most-informative in-progress state (prefer Bridge's) -> under_review/pending
+ *   4. Bridge in-progress state -> under_review/pending
  *   5. otherwise               -> 'not_started'
  *
  * NOTE: bridge_account_status is used only as a REJECT signal here; marking a user
@@ -122,9 +122,11 @@ export function deriveKycStatus(profile: KycProfileLike | null | undefined): Der
   //    non-terminal/absent).
   if (legacy === 'rejected' || legacy === 'failed') return 'rejected';
   if (isFullEnrollment(legacy)) return 'verified';
-  // 4. In-progress — prefer the more specific Bridge state for display.
+  // 4. In-progress — Bridge only. Legacy/local `kyc_status='pending'` has
+  // historically been used as a signup/default value, so it cannot prove that
+  // the user submitted documents to Bridge.
   if (bridgeKyc === 'under_review' || bridgeKyb === 'under_review') return 'under_review';
-  if (bridgeKyc === 'pending' || bridgeKyb === 'pending' || legacy === 'pending') return 'pending';
+  if (bridgeKyc === 'pending' || bridgeKyb === 'pending') return 'pending';
   // 5. Nothing started.
   return 'not_started';
 }

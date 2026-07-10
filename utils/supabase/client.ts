@@ -326,7 +326,7 @@ export const authAPI = {
           full_name: data.user.user_metadata?.full_name || '',
           country:   data.user.user_metadata?.country   || 'UNKNOWN',
           phone:     data.user.phone || data.user.user_metadata?.phone || '',
-          kyc_status: data.user.user_metadata?.kyc_status || 'pending',
+          kyc_status: data.user.user_metadata?.kyc_status || 'unverified',
         };
         storeUserProfile(fallback);
         return { success: true, data: { user: fallback, access_token: data.session.access_token } };
