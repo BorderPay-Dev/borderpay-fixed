@@ -4,6 +4,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { AssetBadge } from '../dashboard/bridge/WalletVisuals';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { SkeletonRows } from '../common/Skeleton';
 
 interface AddWalletScreenProps {
   userId: string;
@@ -54,6 +55,18 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     () => financialCacheKey('borderpay_va_v3', { userId }),
     [userId],
   );
+  const walletRefreshTsKey = useMemo(
+    () => financialCacheKey('borderpay_wallet_refresh_ts_v3', { userId }),
+    [userId],
+  );
+  const hasFreshWalletCache = useMemo(() => {
+    try {
+      const last = Number(localStorage.getItem(walletRefreshTsKey) || '0');
+      return Number.isFinite(last) && Date.now() - last < 60_000;
+    } catch {
+      return false;
+    }
+  }, [walletRefreshTsKey]);
   const [stableRows, setStableRows] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(walletCacheKey) || '[]');
@@ -73,6 +86,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const [requesting, setRequesting] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<Set<string>>(new Set());
+  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshWalletCache);
   const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
@@ -105,6 +119,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         .reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
       try { localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(total)); } catch { /* noop */ }
     } finally {
+      setInitialRefreshDone(true);
       refreshInFlightRef.current = false;
     }
   };
@@ -230,7 +245,11 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         )}
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {visibleCards.length === 0 ? (
+          {!initialRefreshDone ? (
+            <div className="px-4 py-4">
+              <SkeletonRows count={5} />
+            </div>
+          ) : visibleCards.length === 0 ? (
             <div className="px-4 py-6">
               <p className={`text-sm font-medium ${tc.text}`}>No wallets available</p>
               <p className={`text-xs ${tc.textMuted} mt-1`}>

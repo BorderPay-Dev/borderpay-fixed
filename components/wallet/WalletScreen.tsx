@@ -110,6 +110,14 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => financialCacheKey('borderpay_wallet_refresh_ts_v3', { userId }),
     [userId],
   );
+  const hasFreshWalletCache = useMemo(() => {
+    try {
+      const last = Number(localStorage.getItem(walletRefreshTsKey) || '0');
+      return Number.isFinite(last) && Date.now() - last < 60_000;
+    } catch {
+      return false;
+    }
+  }, [walletRefreshTsKey]);
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const [stables, setStables] = useState<StableRow[]>(() => {
@@ -133,7 +141,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [balanceByCurrency, setBalanceByCurrency] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_v2_${userId}`) || '{}'); } catch { return {}; }
   });
-  const [loading, setLoading] = useState(false);
+  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshWalletCache);
+  const [loading, setLoading] = useState(!hasFreshWalletCache);
   const [refreshing, setRefreshing] = useState(false);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
@@ -263,6 +272,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     } catch {
       // Keep cached data visible; refresh is best-effort.
     } finally {
+      setInitialRefreshDone(true);
       setLoading(false);
       setRefreshing(false);
       refreshInFlightRef.current = false;
@@ -289,7 +299,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       }
     } catch { /* noop */ }
 
-    if (isVerified) refresh();
+    if (isVerified) refresh(!hasFreshWalletCache);
     const onFocus = () => { if (isVerified) void refresh(); };
     const onVisibility = () => {
       if (document.visibilityState === 'visible' && isVerified) void refresh();
@@ -300,7 +310,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
+  /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey, hasFreshWalletCache]);
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {
@@ -364,7 +374,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         </h2>
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-          {loading ? (
+          {loading || !initialRefreshDone ? (
             <div className="px-4 py-4">
               <SkeletonRows count={4} />
             </div>

@@ -796,6 +796,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const warmTsKey = financialCacheKey('borderpay_financial_warm_ts_v3', { userId });
     const walletsKey = financialCacheKey('borderpay_wallets_v3', { userId });
     const vaKey = financialCacheKey('borderpay_va_v3', { userId });
+    const walletRefreshTsKey = financialCacheKey('borderpay_wallet_refresh_ts_v3', { userId });
     const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
     const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
     const warm = async () => {
@@ -807,33 +808,27 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       } catch { /* noop */ }
 
       try {
-        const hasWalletCache = (() => {
-          try {
-            return !!localStorage.getItem(walletsKey) || !!localStorage.getItem(vaKey);
-          } catch { return false; }
-        })();
-        if (!hasWalletCache) {
-          const walletRoute: any = await backendAPI.financial.getWalletRouteData();
-          if (!cancelled && walletRoute?.success) {
-            const data = walletRoute?.data || {};
-            try { localStorage.setItem(walletsKey, JSON.stringify(Array.isArray(data?.stablecoin_wallets) ? data.stablecoin_wallets : [])); } catch {}
-            try { localStorage.setItem(vaKey, JSON.stringify(Array.isArray(data?.virtual_accounts) ? data.virtual_accounts : [])); } catch {}
-            const rows: any[] = Array.isArray(data?.wallets) ? data.wallets : [];
-            if (rows.length > 0) {
-              const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
-                const c = String(w?.currency || '').toUpperCase();
-                if (!c) return acc;
-                acc[c] = Number(w?.balance || 0);
-                return acc;
-              }, {});
-              try { localStorage.setItem(`borderpay_wallet_balances_v2_${userId}`, JSON.stringify(mapped)); } catch {}
-              try {
-                const total = rows
-                  .filter((w: any) => ['USDC', 'USDT'].includes(String(w?.currency || '').toUpperCase()))
-                  .reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
-                localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(total));
-              } catch {}
-            }
+        const walletRoute: any = await backendAPI.financial.getWalletRouteData();
+        if (!cancelled && walletRoute?.success) {
+          const data = walletRoute?.data || {};
+          try { localStorage.setItem(walletsKey, JSON.stringify(Array.isArray(data?.stablecoin_wallets) ? data.stablecoin_wallets : [])); } catch {}
+          try { localStorage.setItem(vaKey, JSON.stringify(Array.isArray(data?.virtual_accounts) ? data.virtual_accounts : [])); } catch {}
+          try { localStorage.setItem(walletRefreshTsKey, String(Date.now())); } catch {}
+          const rows: any[] = Array.isArray(data?.wallets) ? data.wallets : [];
+          if (rows.length > 0) {
+            const mapped = rows.reduce((acc: Record<string, number>, w: any) => {
+              const c = String(w?.currency || '').toUpperCase();
+              if (!c) return acc;
+              acc[c] = Number(w?.balance || 0);
+              return acc;
+            }, {});
+            try { localStorage.setItem(`borderpay_wallet_balances_v2_${userId}`, JSON.stringify(mapped)); } catch {}
+            try {
+              const total = rows
+                .filter((w: any) => ['USDC', 'USDT'].includes(String(w?.currency || '').toUpperCase()))
+                .reduce((s: number, w: any) => s + Number(w?.balance || 0), 0);
+              localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(total));
+            } catch {}
           }
         }
       } catch {}
