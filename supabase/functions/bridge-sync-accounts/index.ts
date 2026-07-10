@@ -27,6 +27,22 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+const DB_VA_RAILS = new Set(["ach_push", "ach_pull", "wire", "sepa", "faster_payments"]);
+const DB_VA_STATUSES = new Set(["active", "suspended", "closed"]);
+const CLOSED_PROVIDER_STATUSES = new Set(["inactive", "deactivated", "disabled", "closed", "archived", "cancelled", "canceled", "rejected", "blocked"]);
+
+function normalizeVaRail(value: unknown): string | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return DB_VA_RAILS.has(raw) ? raw : null;
+}
+
+function normalizeVaStatus(value: unknown): "active" | "suspended" | "closed" {
+  const raw = String(value ?? "active").trim().toLowerCase();
+  if (DB_VA_STATUSES.has(raw)) return raw as "active" | "suspended" | "closed";
+  if (CLOSED_PROVIDER_STATUSES.has(raw)) return "closed";
+  return "active";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -125,8 +141,8 @@ Deno.serve(async (req) => {
         bridge_customer_id:        customerId,
         bridge_virtual_account_id: v.virtual_account_id,
         currency,
-        rail:                      v.rail ?? null,
-        status:                    String(v.status ?? "active").toLowerCase(),
+        rail:                      normalizeVaRail(v.rail),
+        status:                    normalizeVaStatus(v.status),
         account_details:           accountDetails,
         updated_at:                new Date().toISOString(),
       };

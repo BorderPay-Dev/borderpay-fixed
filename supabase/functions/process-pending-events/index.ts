@@ -83,6 +83,22 @@ const CRYPTO_PAYMENT_RAILS = new Set([
   "tron",
 ]);
 
+const DB_VA_RAILS = new Set(["ach_push", "ach_pull", "wire", "sepa", "faster_payments"]);
+const DB_VA_STATUSES = new Set(["active", "suspended", "closed"]);
+const CLOSED_VA_PROVIDER_STATUSES = new Set(["inactive", "deactivated", "disabled", "closed", "archived", "cancelled", "canceled", "rejected", "blocked"]);
+
+function normalizeDbVirtualAccountRail(value: unknown): string | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return DB_VA_RAILS.has(raw) ? raw : null;
+}
+
+function normalizeDbVirtualAccountStatus(value: unknown): "active" | "suspended" | "closed" {
+  const raw = String(value ?? "active").trim().toLowerCase();
+  if (DB_VA_STATUSES.has(raw)) return raw as "active" | "suspended" | "closed";
+  if (CLOSED_VA_PROVIDER_STATUSES.has(raw)) return "closed";
+  return "active";
+}
+
 /**
  * Resolve the email recipient for a mapped user, applying the suppression
  * predicate entirely from DB + env (never the webhook payload). Returns null
@@ -815,7 +831,16 @@ async function upsertBridgeVirtualAccountProjection(params: {
     payloadFee ??
     normalizeDeveloperFeePercent(params.existingFeePercent) ??
     canonicalFee;
-  const incomingDetails = params.payload?.source_deposit_instructions ?? params.payload?.account_details ?? {};
+  const sourceDepositInstructions =
+    params.payload?.source_deposit_instructions && typeof params.payload.source_deposit_instructions === "object"
+      ? params.payload.source_deposit_instructions
+      : {};
+  const incomingDetails = params.payload && typeof params.payload === "object"
+    ? {
+        ...params.payload,
+        source_deposit_instructions: Object.keys(sourceDepositInstructions).length ? sourceDepositInstructions : null,
+      }
+    : {};
   const { data: existingDetailsRow } = await supabase
     .from("bridge_virtual_accounts")
     .select("account_details")
@@ -836,9 +861,14 @@ async function upsertBridgeVirtualAccountProjection(params: {
     user_id:                   account_type === "individual" ? resolved : null,
     business_user_id:          account_type === "business"   ? resolved : null,
     currency:                  params.currency,
-    rail:                      params.payload?.rail ?? params.payload?.payment_rail ?? null,
+    rail:                      normalizeDbVirtualAccountRail(
+      params.payload?.rail ??
+      params.payload?.payment_rail ??
+      sourceDepositInstructions?.payment_rail ??
+      (Array.isArray(sourceDepositInstructions?.payment_rails) ? sourceDepositInstructions.payment_rails[0] : null),
+    ),
     account_details:           accountDetails,
-    status:                    String(params.payload?.status ?? "active").toLowerCase(),
+    status:                    normalizeDbVirtualAccountStatus(params.payload?.status),
     developer_fee_percent:     effectiveFee,
     updated_at:                new Date().toISOString(),
   }, { onConflict: "bridge_virtual_account_id" });
@@ -863,7 +893,12 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
 
   const t = ev.event_type.toLowerCase();
   const isActivity = t.includes("activity") || t.includes("deposit") || t.includes("credit");
-  const currency   = String(d?.currency ?? "USD").toUpperCase();
+  const currency   = String(
+    d?.source_deposit_instructions?.currency ??
+    d?.source?.currency ??
+    d?.currency ??
+    "USD",
+  ).toUpperCase();
   const owner = await upsertBridgeVirtualAccountProjection({
     vaId: String(vaId),
     customer: String(customer),

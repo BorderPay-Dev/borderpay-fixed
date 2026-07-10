@@ -487,25 +487,30 @@ export class BridgeProvider implements PaymentProvider {
       path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts`,
       context: "listVirtualAccounts",
     });
-    return (Array.isArray(rows) ? rows : []).map((v: any) => ({
-      virtual_account_id: String(v?.id),
-      currency:  String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
-      rail:      v?.source_deposit_instructions?.payment_rail || v?.rail,
-      status:    v?.status,
-      developer_fee_percent:
-        v?.developer_fee_percent != null && Number.isFinite(Number(v.developer_fee_percent))
-          ? Number(v.developer_fee_percent)
-          : undefined,
-      // Keep full provider payload + normalized deposit instructions so
-      // downstream UI can render payment-instruction and account-letter URLs.
-      account_details: {
-        ...(v && typeof v === "object" ? v : {}),
-        source_deposit_instructions:
-          (v?.source_deposit_instructions && typeof v.source_deposit_instructions === "object")
-            ? v.source_deposit_instructions
-            : null,
-      },
-    }));
+    return (Array.isArray(rows) ? rows : []).map((v: any) => {
+      const source = v?.source && typeof v.source === "object" ? v.source : {};
+      const sdi = v?.source_deposit_instructions && typeof v.source_deposit_instructions === "object"
+        ? v.source_deposit_instructions
+        : {};
+      const paymentRails = Array.isArray(sdi?.payment_rails) ? sdi.payment_rails : [];
+      return {
+        virtual_account_id: String(v?.id || v?.virtual_account_id || ""),
+        currency:  String(sdi?.currency || source?.currency || v?.currency || "").toUpperCase(),
+        rail:      sdi?.payment_rail || paymentRails[0] || v?.rail,
+        status:    v?.status,
+        developer_fee_percent:
+          v?.developer_fee_percent != null && Number.isFinite(Number(v.developer_fee_percent))
+            ? Number(v.developer_fee_percent)
+            : undefined,
+        // Keep full provider payload + normalized deposit instructions so
+        // downstream UI can render payment-instruction and account-letter URLs.
+        account_details: {
+          ...(v && typeof v === "object" ? v : {}),
+          source: source && typeof source === "object" ? source : null,
+          source_deposit_instructions: Object.keys(sdi).length ? sdi : null,
+        },
+      };
+    });
   }
 
   private async fetchBridgeListPaginated<T>(params: { path: string; context: string; pageSize?: number; maxPages?: number }): Promise<T[]> {

@@ -39,6 +39,9 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
 const ACTIVE_STATUSES = new Set(["active", "activated"]);
 const DEACTIVATED_STATUSES = new Set(["inactive", "deactivated", "disabled", "closed", "archived", "cancelled", "canceled", "rejected", "suspended", "blocked"]);
+const DB_VA_RAILS = new Set(["ach_push", "ach_pull", "wire", "sepa", "faster_payments"]);
+const DB_VA_STATUSES = new Set(["active", "suspended", "closed"]);
+const CLOSED_PROVIDER_STATUSES = new Set(["inactive", "deactivated", "disabled", "closed", "archived", "cancelled", "canceled", "rejected", "blocked"]);
 
 function normalizeVaStatus(row: any): string {
   return String(row?.account_details?.status || row?.status || "").trim().toLowerCase();
@@ -53,6 +56,18 @@ function extractDepositInstructions(details: any): Record<string, unknown> {
     return details.deposit_instructions as Record<string, unknown>;
   }
   return {};
+}
+
+function normalizeDbVaRail(value: unknown): string | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return DB_VA_RAILS.has(raw) ? raw : null;
+}
+
+function normalizeDbVaStatus(value: unknown): "active" | "suspended" | "closed" {
+  const raw = String(value ?? "active").trim().toLowerCase();
+  if (DB_VA_STATUSES.has(raw)) return raw as "active" | "suspended" | "closed";
+  if (CLOSED_PROVIDER_STATUSES.has(raw)) return "closed";
+  return "active";
 }
 
 async function upsertProviderVirtualAccount(input: {
@@ -91,8 +106,8 @@ async function upsertProviderVirtualAccount(input: {
     bridge_customer_id: input.bridgeCustomerId,
     bridge_virtual_account_id: input.account.virtual_account_id,
     currency: String(input.account.currency || "").toUpperCase(),
-    rail: input.account.rail ?? null,
-    status: String(input.account.status || "active").toLowerCase(),
+    rail: normalizeDbVaRail(input.account.rail),
+    status: normalizeDbVaStatus(input.account.status),
     developer_fee_percent: input.account.developer_fee_percent ?? null,
     account_details: accountDetails,
     updated_at: new Date().toISOString(),
@@ -438,9 +453,9 @@ Deno.serve(async (req) => {
       bridge_virtual_account_id: result.virtual_account_id,
       currency,
       rail: result.raw && typeof result.raw === "object"
-        ? ((dep.payment_rail as string | undefined) ?? (Array.isArray(dep.payment_rails) ? String(dep.payment_rails[0] || "") : null))
+        ? normalizeDbVaRail((dep.payment_rail as string | undefined) ?? (Array.isArray(dep.payment_rails) ? String(dep.payment_rails[0] || "") : null))
         : null,
-      status,
+      status: normalizeDbVaStatus(status),
       developer_fee_percent: Number(developerFeePercent),
       account_details: details,
       updated_at: new Date().toISOString(),
