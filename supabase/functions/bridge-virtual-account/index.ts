@@ -100,7 +100,7 @@ async function upsertProviderVirtualAccount(input: {
     ...(existingDetails.borderpay_user_requested_at ? { borderpay_user_requested_at: existingDetails.borderpay_user_requested_at } : {}),
   };
 
-  await supa.from("bridge_virtual_accounts").upsert({
+  const { error: upsertErr } = await supa.from("bridge_virtual_accounts").upsert({
     user_id: input.isBusiness ? null : input.userId,
     business_user_id: input.isBusiness ? input.userId : null,
     bridge_customer_id: input.bridgeCustomerId,
@@ -112,6 +112,7 @@ async function upsertProviderVirtualAccount(input: {
     account_details: accountDetails,
     updated_at: new Date().toISOString(),
   }, { onConflict: "bridge_virtual_account_id" });
+  if (upsertErr) throw upsertErr;
 }
 
 function vaResponseDataFromProvider(account: {
@@ -373,6 +374,15 @@ Deno.serve(async (req) => {
     }
   } catch (e) {
     console.warn(`bridge-virtual-account source-of-truth preflight failed: ${(e as Error).message}`);
+    return json({
+      success: false,
+      code: "bridge_virtual_account_preflight_failed",
+      error: "Could not verify existing Bridge virtual accounts. Please try again before requesting a new account.",
+      summary: {
+        code: "bridge_virtual_account_preflight_failed",
+        currency,
+      },
+    }, 502);
   }
 
   // Existing-customer protection: one activated VA per currency. Deactivated
@@ -446,7 +456,20 @@ Deno.serve(async (req) => {
     const dep = extractDepositInstructions(details);
     const status = String((details as any)?.status || "activated").toLowerCase();
 
-    await supa.from("bridge_virtual_accounts").upsert({
+    if (!result.virtual_account_id || result.virtual_account_id === "undefined") {
+      return json({
+        success: false,
+        code: "bridge_virtual_account_missing_id",
+        error: "Bridge created a virtual account response without a usable account id.",
+        provider_request_id: (result.raw as any)?.request_id ?? null,
+        summary: {
+          code: "bridge_virtual_account_missing_id",
+          currency,
+        },
+      }, 502);
+    }
+
+    const { error: persistErr } = await supa.from("bridge_virtual_accounts").upsert({
       user_id: isBusiness ? null : user.id,
       business_user_id: isBusiness ? user.id : null,
       bridge_customer_id: profile.bridge_customer_id,
@@ -460,6 +483,21 @@ Deno.serve(async (req) => {
       account_details: details,
       updated_at: new Date().toISOString(),
     }, { onConflict: "bridge_virtual_account_id" });
+    if (persistErr) {
+      return json({
+        success: false,
+        code: "bridge_virtual_account_persistence_failed",
+        error: "Bridge created the virtual account, but BorderPay could not save it locally. Contact support before retrying.",
+        bridge_virtual_account_id: result.virtual_account_id,
+        currency,
+        persistence_error: persistErr.message,
+        summary: {
+          code: "bridge_virtual_account_persistence_failed",
+          currency,
+          virtual_account_id: result.virtual_account_id,
+        },
+      }, 500);
+    }
 
     return json({
       success: true,

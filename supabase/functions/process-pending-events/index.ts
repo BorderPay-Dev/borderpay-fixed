@@ -855,7 +855,7 @@ async function upsertBridgeVirtualAccountProjection(params: {
     ...(existingDetails.borderpay_user_requested_at ? { borderpay_user_requested_at: existingDetails.borderpay_user_requested_at } : {}),
   };
 
-  await supabase.from("bridge_virtual_accounts").upsert({
+  const { error: upsertErr } = await supabase.from("bridge_virtual_accounts").upsert({
     bridge_virtual_account_id: String(params.vaId),
     bridge_customer_id:        String(params.customer),
     user_id:                   account_type === "individual" ? resolved : null,
@@ -872,6 +872,9 @@ async function upsertBridgeVirtualAccountProjection(params: {
     developer_fee_percent:     effectiveFee,
     updated_at:                new Date().toISOString(),
   }, { onConflict: "bridge_virtual_account_id" });
+  if (upsertErr) {
+    throw new Error(`bridge_virtual_accounts upsert failed: ${upsertErr.message}`);
+  }
 
   return { resolved, account_type, developer_fee_percent: effectiveFee };
 }

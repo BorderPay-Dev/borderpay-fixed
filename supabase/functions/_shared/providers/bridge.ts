@@ -317,9 +317,10 @@ export class BridgeProvider implements PaymentProvider {
     }
     const data = (r.data as any)?.data ?? r.data;
     const sdi = data?.source_deposit_instructions ?? {};
+    const virtualAccountId = data?.id ?? data?.virtual_account_id;
     return {
       provider:           this.name,
-      virtual_account_id: String(data?.id),
+      virtual_account_id: String(virtualAccountId || ""),
       account_number:     sdi?.bank_account_number,
       routing_number:     sdi?.bank_routing_number,
       iban:               sdi?.iban,
