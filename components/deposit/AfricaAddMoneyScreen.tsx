@@ -3,7 +3,7 @@ import { ArrowDownLeft, CheckCircle, Landmark, Loader2, Smartphone } from 'lucid
 import { toast } from 'sonner';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { currencyLabelForCode, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
+import { localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 import {
   africaCommercialRoutesForCountry,
   type AfricaRail,
@@ -69,7 +69,7 @@ export function AfricaAddMoneyScreen({ onBack }: AfricaAddMoneyScreenProps) {
                 </div>
                 <div>
                   <p className={`text-sm font-semibold ${tc.text}`}>{localRail.country}</p>
-                  <p className={`text-xs ${tc.textMuted}`}>{localRail.countryIso3} · {currencyLabelForCode(localRail.currency)} collection rails</p>
+                  <p className={`text-xs ${tc.textMuted}`}>Local collection rails</p>
                 </div>
               </div>
 

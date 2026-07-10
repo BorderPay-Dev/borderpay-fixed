@@ -1214,7 +1214,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   >
                     {africaPayoutCountries.map((country) => (
                       <option key={country.iso3} value={country.iso3}>
-                        {flagForCountryCode(country.iso2)} {country.country} · {country.iso3} · {currencyLabelForCode(country.currency)}
+                        {flagForCountryCode(country.iso2)} {country.country}
                       </option>
                     ))}
                   </select>

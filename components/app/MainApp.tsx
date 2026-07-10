@@ -174,6 +174,7 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
     case 'cards':
     case 'send-money':
     case 'receive-money':
+    case 'add-money-africa':
     case 'exchange':
     case 'transactions':
     case 'wallet-detail':
