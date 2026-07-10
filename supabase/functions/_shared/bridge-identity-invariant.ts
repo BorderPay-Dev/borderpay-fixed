@@ -85,7 +85,8 @@ export async function loadAndAssertBridgeIdentityInvariant(
 
     const bizOwners = Array.isArray(bizRows) ? bizRows.map((r: any) => String(r.user_id)) : [];
     const userOwners = Array.isArray(userRows) ? userRows.map((r: any) => String(r.id)) : [];
-    const owners = [...bizOwners, ...userOwners];
+    const ownerRows = [...bizOwners, ...userOwners];
+    const owners = Array.from(new Set(ownerRows));
 
     if (owners.length === 0) {
       return {
@@ -103,7 +104,7 @@ export async function loadAndAssertBridgeIdentityInvariant(
         failure: fail(
           "customer_id_ambiguous",
           "bridge_customer_id maps to multiple local owners.",
-          { bridge_customer_id: bridge_customer_id, owners },
+          { bridge_customer_id: bridge_customer_id, owners, owner_rows: ownerRows },
         ),
       };
     }
@@ -124,4 +125,3 @@ export async function loadAndAssertBridgeIdentityInvariant(
     context: { account_type, country, bridge_customer_id, verification_status },
   };
 }
-

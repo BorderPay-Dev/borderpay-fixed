@@ -61,23 +61,44 @@ Deno.serve(async (req) => {
   }
   logControlledBridgeTraffic("bridge-customer", profile.country, user.id);
 
-  // Idempotent: return existing if any (only reachable for non-blocked
-  // countries, per the gate above).
-  if (profile.bridge_customer_id) {
-    return json({ success: true, data: { bridge_customer_id: profile.bridge_customer_id, account_type: profile.account_type, already_exists: true } });
-  }
-
-  // For business: pull company_name from business_profiles
+  // For business: pull company_name and canonical business customer id from
+  // business_profiles. Business ownership is KYB-scoped, but legacy rows may
+  // have the same customer id only on user_profiles.
   let companyName: string | undefined;
   let regNumber:  string | undefined;
+  let businessBridgeCustomerId: string | null = null;
   if (profile.account_type === "business") {
     const { data: biz } = await supa
       .from("business_profiles")
-      .select("company_name, registration_number")
+      .select("company_name, registration_number, bridge_customer_id")
       .eq("user_id", user.id)
       .maybeSingle();
     companyName = biz?.company_name;
     regNumber   = biz?.registration_number ?? undefined;
+    businessBridgeCustomerId = biz?.bridge_customer_id ?? null;
+  }
+
+  // Idempotent: return existing if any (only reachable for non-blocked
+  // countries, per the gate above). For business, keep both owner tables
+  // mirrored so KYB, VA, wallet sync, payroll, and bulk payout all resolve the
+  // same Bridge customer.
+  const existingCustomerId = profile.account_type === "business"
+    ? (businessBridgeCustomerId || profile.bridge_customer_id)
+    : profile.bridge_customer_id;
+  if (existingCustomerId) {
+    if (profile.bridge_customer_id !== existingCustomerId) {
+      await supa.from("user_profiles").update({
+        bridge_customer_id: existingCustomerId,
+        updated_at: new Date().toISOString(),
+      }).eq("id", user.id);
+    }
+    if (profile.account_type === "business" && businessBridgeCustomerId !== existingCustomerId) {
+      await supa.from("business_profiles").update({
+        bridge_customer_id: existingCustomerId,
+        updated_at: new Date().toISOString(),
+      }).eq("user_id", user.id);
+    }
+    return json({ success: true, data: { bridge_customer_id: existingCustomerId, account_type: profile.account_type, already_exists: true } });
   }
 
   try {
@@ -97,6 +118,12 @@ Deno.serve(async (req) => {
       bridge_kyc_status:  "not_started",
       updated_at:         new Date().toISOString(),
     }).eq("id", user.id);
+    if (profile.account_type === "business") {
+      await supa.from("business_profiles").update({
+        bridge_customer_id: result.provider_id,
+        updated_at:         new Date().toISOString(),
+      }).eq("user_id", user.id);
+    }
 
     return json({ success: true, data: { bridge_customer_id: result.provider_id, account_type: profile.account_type } });
   } catch (e) {
