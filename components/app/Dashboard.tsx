@@ -45,7 +45,6 @@ import { usePreferences } from '../../utils/hooks/usePreferences';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
-import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { Skeleton } from '../common/Skeleton';
@@ -104,9 +103,6 @@ interface DashboardProps {
   onLogout: () => void;
   onNavigate?: (screen: string) => void;
   currentScreen?: string;
-  /** Hydrated by MainApp from `subscription-current`. null while loading. */
-  planKey?: import('../../utils/subscriptions/plans').PlanKey | null;
-  /** Opens the UpgradeModal at MainApp level for the appropriate paid tier. */
   onUpgrade?: () => void;
 }
 
@@ -132,7 +128,7 @@ const STABLE_ICON_URL: Record<string, string> = {
   EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
-export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {
+export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen }: DashboardProps) {
   // Synchronous read — no flicker between "unconfirmed/starter" and the real
   // status. If we have a cached profile, derive everything at first render.
   const cachedProfile = useMemo(() => readCachedProfile(), []);
@@ -710,18 +706,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
             />
           </div>
         </div>
-      </section>
-
-      {/* ── 4. Plan status card ────────────────────────────────────── */}
-      <section className="px-5 sm:px-6 mt-6">
-        <PlanStatusCard
-          planKey={planKey ?? null}
-          accountType="individual"
-          userId={userId}
-          onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
-          onUpgrade={onUpgrade}
-          hasVirtualAccounts={hasVirtualAccounts}
-        />
       </section>
 
       {/* ── 5. Setup checklist (compact, dismissible) ──────────────── */}

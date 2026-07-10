@@ -37,11 +37,7 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const PLAN_MAX_SEATS: Record<string, number | null> = {
-  // Flat business team-seat default (no Growth/Enterprise tiers).
-  business_starter:    10,
-  business_activated:  10,
-};
+const BUSINESS_TEAM_SEAT_CAP = 10;
 
 const VALID_ROLES = new Set(["admin", "member", "viewer"]);
 
@@ -98,15 +94,10 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Only owners and admins can invite team members", code: "forbidden_role" }, 403);
   }
 
-  // Plan + seat enforcement
-  const { data: sub } = await supa
-    .from("user_subscriptions")
-    .select("plan_key, status")
-    .eq("business_user_id", businessUserId)
-    .in("status", ["active", "trialing"])
-    .maybeSingle();
-  const planKey = sub?.plan_key ?? "business_starter";
-  const cap     = PLAN_MAX_SEATS[planKey];   // undefined for individual plans
+  // Flat business seat enforcement. Production no longer uses subscription
+  // rows, paid tiers, or first-fund activation to control team access.
+  const planKey = "business";
+  const cap     = BUSINESS_TEAM_SEAT_CAP;
 
   // Idempotent re-invite: existing row wins.
   const { data: existing } = await supa

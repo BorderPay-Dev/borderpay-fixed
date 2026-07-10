@@ -43,8 +43,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../common/ErrorBoundary';
-import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
-import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
+import { AppShell, type AppRoute } from '../shell/AppShell';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import {
   TRANSFERS_LIVE,
@@ -459,16 +458,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { sessionStorage.removeItem('borderpay_module_reload_once_v1'); } catch { /* noop */ }
   }, []);
 
-  // ─── Subscription state ────────────────────────────────────────────────
-  // Loaded once on mount; refreshed after a successful upgrade. Determines
-  // which paid features (EUR/GBP virtual accounts, team seats, future cards)
-  // are enabled in the UI.
-  const [currentPlanKey, setCurrentPlanKey] = useState<PlanKey | null>(null);
-
-  // ─── Upgrade paywall ──────────────────────────────────────────────────
-  // `upgradeTarget` holds the plan_key the user is being asked to upgrade to.
-  // null = modal closed. Triggered by manual upgrade CTAs only.
-  
   // ─── Shell display props (avatar / name / unread bell badge) ───────────
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
@@ -639,29 +628,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [userId, accountType, refreshKey, updateUnreadCount]);
-
-  // ─── Load subscription row once per session ────────────────────────────
-  // Reads user_subscriptions via the subscription-current edge function. If
-  // the user has no row (shouldn't happen post-Day-2 since auth-signup seeds
-  // a starter row), we fall back to the account-type default.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await backendAPI.subscription.current();
-        if (cancelled) return;
-        const planKey = r?.success && r.data?.subscription?.plan_key
-          ? (r.data.subscription.plan_key as PlanKey)
-          : getDefaultPlanFor(accountType).key;
-        setCurrentPlanKey(planKey);
-        // Cache for synchronous activation checks in standalone screens.
-        try { localStorage.setItem('borderpay_plan_key', planKey); } catch { /* noop */ }
-      } catch {
-        setCurrentPlanKey(getDefaultPlanFor(accountType).key);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [userId, accountType, refreshKey]);
 
   // Legacy helpers retained as no-ops for older CTAs.
   useEffect(() => {
@@ -1122,7 +1088,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
               userId={userId}
               onLogout={onLogout}
               onNavigate={navigateTo as (s: string) => void}
-              planKey={currentPlanKey}
               onUpgrade={() => {}}
             />
           );
@@ -1133,7 +1098,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onLogout={onLogout}
             onNavigate={navigateTo}
             currentScreen={currentScreen}
-            planKey={currentPlanKey}
             onUpgrade={() => {}}
           />
         );
@@ -1155,11 +1119,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 userName={shellUserName}
                 avatarUrl={shellAvatarUrl}
                 unreadCount={unreadCount}
-                subscription={currentPlanKey ? ({
-                  plan_key:     currentPlanKey,
-                  display_name: getPlan(currentPlanKey).display_name,
-                  is_paid:      getPlan(currentPlanKey).is_activated,
-                } as ShellSubscription) : null}
+                subscription={null}
                 isBusinessAccount={accountType === 'business' || hasBusinessAccountCached()}
                 onSignOut={onLogout}
                 onLock={onLock}

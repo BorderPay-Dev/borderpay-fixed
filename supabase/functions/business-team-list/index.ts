@@ -42,16 +42,7 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// Plan → seat-cap mirror of utils/subscriptions/plans.ts. Kept in sync
-// manually; if you change one, change the other.
-const PLAN_MAX_SEATS: Record<string, number | null> = {
-  // Flat business team-seat default (no Growth/Enterprise tiers).
-  business_starter:    10,
-  business_activated:  10,
-  // Individual plans never reach this surface.
-  individual_starter:   null,
-  individual_activated: null,
-};
+const BUSINESS_TEAM_SEAT_CAP = 10;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -96,15 +87,9 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Not part of any business team", code: "no_business" }, 404);
   }
 
-  // Plan + seat cap
-  const { data: sub } = await supa
-    .from("user_subscriptions")
-    .select("plan_key, status")
-    .eq("business_user_id", businessUserId)
-    .in("status", ["active", "trialing"])
-    .maybeSingle();
-  const planKey = sub?.plan_key ?? "business_starter";
-  const cap     = PLAN_MAX_SEATS[planKey] ?? null;
+  // Flat team cap. Production no longer uses subscription rows or plan tiers.
+  const planKey = "business";
+  const cap     = BUSINESS_TEAM_SEAT_CAP;
 
   // Members roster (exclude soft-deleted rows by default)
   const { data: members, error: membersErr } = await supa

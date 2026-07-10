@@ -270,11 +270,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     return { accountType: currentAccountType, emailConfirmed, hasAcceptedTos };
   }, [accountType, persistTosAccepted, tosAccepted]);
 
-  const requestHostedLink = useCallback(async (currentAccountType: AccountType) => {
+  const requestHostedLink = useCallback(async (currentAccountType: AccountType, forceNew = false) => {
     const redirect_url = `${window.location.origin}/?screen=kyc`;
     return currentAccountType === 'business'
-      ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
-      : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
+      ? await backendAPI.bridge.kyb.startBusiness({ redirect_url, force_new: forceNew })
+      : await backendAPI.bridge.kyc.startIndividual({ redirect_url, force_new: forceNew });
   }, []);
 
   const autoResumeVerificationAfterTos = useCallback(async () => {
@@ -477,6 +477,49 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     }
   };
 
+  const restartVerification = async () => {
+    try {
+      const ctx = await resolveVerificationContext();
+      if (!ctx.emailConfirmed) {
+        toast.error('Verify your email first, then retry verification.');
+        return;
+      }
+      if (!ctx.hasAcceptedTos) {
+        persistTosAccepted(false);
+        setShowTosWebview(true);
+        return;
+      }
+      const r: any = await requestHostedLink(ctx.accountType, true);
+      if (r?.success && r.data?.link_url) {
+        const now = Date.now();
+        setLastHostedUrl(r.data.link_url);
+        setLastHostedUrlTs(now);
+        setTosLinkUrl(null);
+        setTosLinkUrlTs(0);
+        try {
+          localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
+          localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
+          localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
+          localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
+        } catch { /* noop */ }
+        openHostedVerificationUrl(r.data.link_url, { title: 'Restart verification', returnEnabled: true });
+        return;
+      }
+      if (r?.success && r.data?.tos_link_url) {
+        setTosLinkUrl(r.data.tos_link_url);
+        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
+        return;
+      }
+      if (r?.success && r.data?.already_approved) {
+        await refresh();
+        return;
+      }
+      toast.error(friendlyError(r?.error || 'Could not restart verification.', 'Could not restart verification.'));
+    } catch (e) {
+      toast.error(friendlyError(e, 'Could not restart verification.'));
+    }
+  };
+
   const continueFromEmbeddedTos = async () => {
     try {
       // User is already explicitly continuing from the embedded ToS step.
@@ -643,6 +686,14 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
                 {tt('kyc.pendingNote', 'We’ll update this automatically once your verification is processed.')}
               </p>
             </div>
+          )}
+          {(status === 'pending' || status === 'under_review') && (
+            <button
+              onClick={() => { void restartVerification(); }}
+              className={`mt-3 w-full inline-flex items-center justify-center gap-2 py-3 rounded-full border ${tc.cardBorder} ${tc.text} text-sm font-semibold ${tc.hoverBg} transition`}
+            >
+              Start verification again <ArrowRight className="w-4 h-4" />
+            </button>
           )}
           {/* Support entry for the failed state (no developer reasons shown) */}
           {status === 'rejected' && (

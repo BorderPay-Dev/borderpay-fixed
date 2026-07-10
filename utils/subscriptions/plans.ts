@@ -1,16 +1,9 @@
 /**
- * BorderPay Africa — activation catalogue (funding-threshold model).
+ * BorderPay Africa — retired plan catalogue.
  *
- * There are no monthly subscriptions and no activation charges.
- * Each account type has two states:
- *   • a free, view-only DEFAULT state (…_starter) assigned at signup, and
- *   • an ACTIVATED state (…_activated) unlocked when the account keeps the
- *     minimum required wallet balance.
- *
- *   • individual_starter    Free (view-only)
- *   • individual_activated  Minimum balance $20
- *   • business_starter      Free (view-only)
- *   • business_activated    Minimum balance $50
+ * Production no longer uses paid plans, first-fund gates, activation charges,
+ * or subscription tiers. This file remains only for stale imports and type
+ * compatibility.
  */
 
 export type PlanKey =
@@ -40,14 +33,14 @@ export interface PlanDef {
   account_type:      AccountType;
   display_name:      string;
   tagline:           string;
-  /** Minimum required wallet balance in USD cents. 0 = starter/free tier. */
+  /** Retired compatibility field. Always 0 in production. */
   activation_fee_usd: number;
   limits:            PlanLimits;
   features:          readonly PlanFeature[];
   cta_label:         string;
   /** Marks the free tier auto-assigned at signup. */
   is_default:        boolean;
-  /** True for the paid, activated state. */
+  /** Retired compatibility flag. */
   is_activated:      boolean;
 }
 
@@ -59,13 +52,13 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'individual_starter',
     account_type:       'individual',
     display_name:       'Starter',
-    tagline:            'View-only. Fund wallet to unlock money movement.',
+    tagline:            'BorderPay account access.',
     activation_fee_usd: 0,
     limits: { va_currencies: [], max_team_members: null, cards_enabled: false },
     features: [
       { title: 'Browse the app' },
       { title: 'Live exchange rates' },
-      { title: 'Fund at least $20 to unlock USD / EUR / GBP accounts' },
+      { title: 'Bridge-backed wallet and account access' },
     ],
     cta_label:          'Get started',
     is_default:         true,
@@ -76,8 +69,8 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'individual_activated',
     account_type:       'individual',
     display_name:       'Activated',
-    tagline:            'Minimum balance met. Multi-currency accounts unlocked.',
-    activation_fee_usd: 999,
+    tagline:            'Multi-currency accounts unlocked by provider approval.',
+    activation_fee_usd: 0,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: null, cards_enabled: false },
     features: [
       { title: 'USD virtual account (ACH)',             highlight: true },
@@ -86,7 +79,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
       { title: 'All stablecoin wallets' },
       { title: 'Identity verification included' },
     ],
-    cta_label:          'Requires minimum $20 balance',
+    cta_label:          'Available after verification',
     is_default:         false,
     is_activated:       true,
   },
@@ -95,13 +88,13 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'business_starter',
     account_type:       'business',
     display_name:       'Starter',
-    tagline:            'View-only. Fund wallet to unlock business rails.',
+    tagline:            'Business account access.',
     activation_fee_usd: 0,
     limits: { va_currencies: [], max_team_members: BUSINESS_TEAM_SEATS, cards_enabled: false },
     features: [
       { title: 'Browse the app' },
       { title: 'Live exchange rates' },
-      { title: 'Fund at least $50 to unlock business wallets + team' },
+      { title: 'Business wallets and team tools' },
     ],
     cta_label:          'Get started',
     is_default:         true,
@@ -112,8 +105,8 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
     key:                'business_activated',
     account_type:       'business',
     display_name:       'Activated',
-    tagline:            'Minimum balance met. Corporate wallets unlocked.',
-    activation_fee_usd: 2999,
+    tagline:            'Corporate wallets unlocked by provider approval.',
+    activation_fee_usd: 0,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: BUSINESS_TEAM_SEATS, cards_enabled: false },
     features: [
       { title: 'USD / EUR / GBP business virtual accounts', highlight: true },
@@ -122,7 +115,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
       { title: 'Business verification (KYB) included' },
       { title: 'Cross-border payments' },
     ],
-    cta_label:          'Requires minimum $50 balance',
+    cta_label:          'Available after verification',
     is_default:         false,
     is_activated:       true,
   },

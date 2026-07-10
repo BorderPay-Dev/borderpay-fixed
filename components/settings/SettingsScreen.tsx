@@ -160,9 +160,8 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       title: t('settings.account'),
       items: [
         { icon: User, label: isBusinessAccount ? 'Business information' : t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
-        // Plans & pricing removed: there are no plans/prices in-app (Wise model).
-        // Activation ("Upgrade to Global Wallet") is surfaced on the dashboard
-        // and the Send/Receive popup, and disappears once the user is activated.
+        // Plans & pricing removed: there are no plans, paid upgrades, or
+        // first-fund activation requirements in-app.
         // Payment Methods option removed per product decision.
         // KYC documents and Proof of Address are deliberately not surfaced
         // from Settings: identity verification is owned end-to-end by the

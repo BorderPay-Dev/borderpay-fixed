@@ -60,7 +60,7 @@ export function virtualAccountMonthlyCostUsd(currency: string | null | undefined
   return PROVIDER_COST.virtual_account_usd[c] ?? PROVIDER_COST.virtual_account_usd.USD;
 }
 
-/** One-time onboarding identity cost we must clear from the activation fee. */
+/** Provider identity verification cost used for internal cost accounting. */
 export function onboardingIdentityCostUsd(accountType: string | null | undefined): number {
   return String(accountType ?? "").toLowerCase() === "business"
     ? PROVIDER_COST.identity_usd.kyb

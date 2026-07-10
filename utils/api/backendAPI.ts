@@ -2111,6 +2111,7 @@ export const bridgeAPI = {
   kyc: {
     startIndividual: async (opts?: {
       redirect_url?: string;
+      force_new?: boolean;
       endorsements?: ('base'|'sepa'|'spei'|'crypto')[];
       precheck?: {
         employment_status?: string;
@@ -2128,6 +2129,7 @@ export const bridgeAPI = {
   kyb: {
     startBusiness: async (opts?: {
       redirect_url?: string;
+      force_new?: boolean;
       endorsements?: ('base'|'sepa'|'spei'|'crypto')[];
       precheck?: {
         employment_status?: string;
@@ -2470,9 +2472,15 @@ export const webauthnAPI = {
 };
 
 export const subscriptionAPI = {
-  /** Fetch the caller's active subscription row + recent invoices. */
+  /** Retired compatibility method: subscriptions no longer exist in production. */
   current: async () =>
-    apiCall<{
+    Promise.resolve({
+      success: true as const,
+      data: {
+        subscription: null,
+        recent_invoices: [],
+      },
+    } as APIResponse<{
       subscription: {
         id: string;
         plan_key: string;
@@ -2489,15 +2497,17 @@ export const subscriptionAPI = {
         paid_at: string | null;
         created_at: string;
       }>;
-    }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),
+    }>),
 
-  /**
-   * Upgrade to a paid plan by debiting a USD virtual account.
-   * Server creates the invoice and charges atomically; no client-supplied
-   * prices are honoured.
-   */
+  /** Retired compatibility method: paid-plan upgrades are disabled. */
   upgrade: async (input: { plan_key: 'individual_activated' | 'business_activated'; bridge_va_id: string }) =>
-    apiCall<{
+    {
+      void input;
+      return Promise.resolve({
+        success: false as const,
+        error: 'BorderPay no longer uses paid plans, activation fees, or subscription upgrades.',
+        code: 'subscriptions_retired',
+      } as APIResponse<{
       invoice_id: string;
       subscription_id: string;
       previous_plan_key: string;
@@ -2506,7 +2516,8 @@ export const subscriptionAPI = {
       period_end: string;
       amount_usd_cents: number;
       new_balance_minor: number;
-    }>('subscription-upgrade', { method: 'POST', body: JSON.stringify(input) }),
+    }>);
+    },
 
 };
 

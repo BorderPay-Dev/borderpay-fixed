@@ -18,7 +18,7 @@
  *
  *  2. AFRICAN PAYOUT MARKUP — BorderPay's fixed markup added on top of
  *     whatever African payout partner we route the local-currency leg
- *     through, tiered by subscription plan. Separate from the Bridge
+ *     through, plan-independent in current production. Separate from the Bridge
  *     developer fee above.
  *
  *     NOTE: African-currency payout EXECUTION is still gated behind a partner
@@ -79,7 +79,7 @@ export function bridgeDeveloperFeePercent(
 }
 
 /**
- * BorderPay African payout markup percent for a subscription plan. Falls back
+ * Legacy compatibility: BorderPay African payout markup percent for an old plan key. Falls back
  * to the lowest tier (0.5%) for unknown / missing plan keys — fail-cheap, we
  * never accidentally over-charge by defaulting high.
  */

@@ -1,13 +1,9 @@
-// auth-signup v90 — provider-neutral signup with subscription scaffold.
+// auth-signup v91 — provider-neutral signup without subscription scaffolding.
 //
 // Differences vs v89:
-//   • After core rows persist, calls `ensure_starter_subscription(userId,
-//     account_type)` to seed a free-tier `user_subscriptions` row
-//     (individual_starter / business_starter). Business signups also get a
-//     seed row in `business_team_members` with role='owner', status='active'.
-//   • All other behaviour identical to v89: no Bridge customer creation,
-//     no legacy provider customer creation, verification email + token
-//     semantics unchanged.
+//   • No Bridge customer creation, no legacy provider customer creation.
+//   • No paid-plan, activation, first-fund, or subscription scaffold.
+//   • Verification email + token semantics unchanged.
 //
 // Deploy:
 //   supabase functions deploy auth-signup --project-ref orwrcpwsffjlvzuraxjc
@@ -225,20 +221,6 @@ Deno.serve(async (req: Request) => {
         { onConflict: "user_id" },
       );
       if (bizErr) return rollbackAuthUser(`business_profiles create failed: ${bizErr.message}`);
-    }
-
-    // ── Seed the free-tier subscription + owner team-membership ────────
-    // Failure here is non-fatal for signup itself — the user gets a verified
-    // account but lands with no subscription row. We log and continue; a
-    // background reaper / admin tool can backfill.
-    try {
-      await supabaseAdmin.rpc("ensure_starter_subscription", {
-        p_user_id:      userId,
-        p_account_type: normalizedAccountType,
-      });
-    } catch (e) {
-      // Best-effort log; do not roll back the user for a subscription seed failure.
-      console.warn(`ensure_starter_subscription failed for ${userId}: ${(e as Error).message}`);
     }
 
     // ── Issue a verification token ────────────────────────────────────────

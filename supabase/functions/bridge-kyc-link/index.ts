@@ -276,8 +276,9 @@ Deno.serve(async (req: Request) => {
     elapsedMs: elapsed(),
   });
 
-  let body: { redirect_url?: string; endorsements?: string[] } = {};
+  let body: { redirect_url?: string; endorsements?: string[]; force_new?: boolean } = {};
   try { body = await req.json(); } catch { /* tolerant */ }
+  const forceNewLink = Boolean(body.force_new);
 
   let { data: profile } = await supa
     .from("user_profiles")
@@ -381,7 +382,9 @@ Deno.serve(async (req: Request) => {
   let r = await bridgePost(
     "/v0/kyc_links",
     reqBody,
-    `borderpay:kyc:individual:${idemSource}`,
+    forceNewLink
+      ? `borderpay:kyc:individual:restart:${idemSource}:${crypto.randomUUID()}`
+      : `borderpay:kyc:individual:${idemSource}`,
     correlationId,
   );
 

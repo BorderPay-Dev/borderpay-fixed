@@ -19,12 +19,10 @@ import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
-import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { TreasuryCard } from './TreasuryCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
@@ -64,9 +62,6 @@ interface BusinessDashboardProps {
   userId:    string;
   onLogout:  () => void;
   onNavigate: (screen: string) => void;
-  /** Hydrated by MainApp from `subscription-current`. null while loading. */
-  planKey?:  PlanKey | null;
-  /** Opens the UpgradeModal at MainApp level for the appropriate paid tier. */
   onUpgrade?: () => void;
 }
 
@@ -101,7 +96,7 @@ function prefetchScreen(screen: string): void {
   try { (window as any).__borderpay_prefetch?.(screen); } catch { /* noop */ }
 }
 
-export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpgrade }: BusinessDashboardProps) {
+export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDashboardProps) {
   const tc = useThemeClasses();
   const navigate = React.useCallback((screen: string) => {
     try {
@@ -677,18 +672,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
             </div>
           </section>
         )}
-
-        {/* ── 5. Plan + seats ──────────────────────────────────────── */}
-        <section className="px-5 sm:px-6">
-          <PlanStatusCard
-            planKey={planKey ?? null}
-            accountType="business"
-            userId={userId}
-            hasVirtualAccounts={hasVirtualAccounts}
-            onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
-            onUpgrade={onUpgrade}
-          />
-        </section>
 
         {/* ── 6. BorderPay infrastructure ──────────────────────────── */}
         <section className="px-5 sm:px-6 space-y-2.5">

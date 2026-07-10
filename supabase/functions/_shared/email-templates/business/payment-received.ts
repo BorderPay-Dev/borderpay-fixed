@@ -1,12 +1,6 @@
 import { htmlLayout, textLayout, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
-/**
- * Sent right after a successful one-time business activation payment. Embeds the
- * secure hosted business-verification (KYB) link so the user can verify straight
- * from the email — the in-app KYC/KYB screen is read-only status. Fired
- * best-effort by the subscription-upgrade function via the logged send-email
- * path. White-label: never names the underlying verification provider.
- */
+/** Legacy business verification email template. Never mention activation or paid plans. */
 export interface BusinessPaymentReceivedProps {
   company_name?: string;
   kyc_url:       string;
@@ -15,10 +9,10 @@ export interface BusinessPaymentReceivedProps {
 export function render(p: BusinessPaymentReceivedProps): RenderedEmail {
   const name = p.company_name || "there";
   const url = p.kyc_url || BORDERPAY_BRAND.appUrl;
-  const subject = "Payment received — verify your business";
-  const heading = "Payment received";
-  const introText = `Thanks! The activation payment for ${name} was received.`;
-  const closing = "One last step: complete business verification to finish setting up your account. Tap the button below to start your secure verification.";
+  const subject = "Verify your business";
+  const heading = "Verify your business";
+  const introText = `Hi ${name}, your business verification link is ready.`;
+  const closing = "Tap the button below to continue your secure business verification.";
 
   return {
     subject,

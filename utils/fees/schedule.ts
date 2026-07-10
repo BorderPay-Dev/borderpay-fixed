@@ -38,8 +38,8 @@ export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> =
 export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
 
 /**
- * African payout markup by ACCOUNT TYPE (current model — flat, plan-independent,
- * since monthly plans are being replaced by a one-time activation fee):
+ * African payout markup by ACCOUNT TYPE (current model — flat and
+ * plan-independent):
  *   • Individual: 0.75%
  *   • Business:   0.50%
  * Stacked on the raw local-currency settlement (pass-through) cost.
@@ -72,7 +72,7 @@ export function bridgeDeveloperFeePercent(
     : BRIDGE_DEVELOPER_FEE_PERCENT.fiat;
 }
 
-/** BorderPay African payout markup percent for a subscription plan. */
+/** Legacy compatibility: African payout markup percent for an old plan key. */
 export function africanPayoutMarkupPercent(planKey: string | null | undefined): number {
   const k = String(planKey ?? '') as FeePlanKey;
   return AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN[k] ?? AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT;
