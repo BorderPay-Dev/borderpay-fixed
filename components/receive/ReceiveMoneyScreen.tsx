@@ -39,13 +39,6 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
-const COUNTRY_FLAG: Record<string, string> = {
-  BJ: '🇧🇯', BW: '🇧🇼', BF: '🇧🇫', CM: '🇨🇲', TD: '🇹🇩', CG: '🇨🇬',
-  EG: '🇪🇬', GA: '🇬🇦', GH: '🇬🇭', CI: '🇨🇮', KE: '🇰🇪', MW: '🇲🇼',
-  ML: '🇲🇱', NG: '🇳🇬', RW: '🇷🇼', SN: '🇸🇳', ZA: '🇿🇦', TZ: '🇹🇿',
-  TG: '🇹🇬', UG: '🇺🇬', ZM: '🇿🇲',
-};
-
 function railLabel(rail: AfricaRail): string {
   return rail === 'mobile_money' ? 'Mobile Money' : 'Local bank account';
 }
@@ -307,7 +300,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <div className="px-4 py-3.5 border-b border-white/[0.06]">
               <p className={`text-sm font-semibold ${tc.text}`}>Africa receive</p>
               <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
-                {COUNTRY_FLAG[localRail.countryCode] || localRail.flag} {localRail.country} · {localRail.currency}
+                {localRail.flag} {localRail.country} · {localRail.currency}
               </p>
             </div>
             {africaCollectionRoutes.map((route, index) => (
@@ -316,7 +309,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 className={`px-4 py-3.5 flex items-center gap-3 ${index > 0 ? `border-t ${tc.borderLight}` : ''}`}
               >
                 <div className="w-11 h-11 rounded-full bg-[#C7FF00]/10 flex items-center justify-center text-lg">
-                  {COUNTRY_FLAG[route.iso2] || localRail.flag}
+                  {localRail.flag}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={`text-[15px] font-semibold ${tc.text}`}>{railLabel(route.rail)}</p>

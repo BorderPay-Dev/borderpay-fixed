@@ -47,7 +47,7 @@ const ROUTES = [
   ['DR Congo', 'CD', 'CDF', 'payout', 'mobile_money', 'yellow_card', '0.75%, min 1 CDF', '2.50%, min 1 CDF', 'percent_with_minmax', false, 'Payout-only corridor; no customer onboarding/collection.'],
   ['Egypt', 'EG', 'EGP', 'collection', 'local_bank', 'flutterwave', '2.00% + 2.50 EGP', '3.50% + 5.00 EGP', 'percent_plus_fixed'],
   ['Egypt', 'EG', 'EGP', 'payout', 'local_bank', 'flutterwave', '1.00%, min 20 EGP, cap 25 EGP', '2.50%, min 25 EGP, cap 35 EGP', 'percent_with_minmax'],
-  ['Ethiopia', 'ET', 'USD', 'payout', 'local_bank', 'yellow_card', '0.25%, min 20 USD', '2.00%, min 20 USD', 'percent_with_minmax', false, 'USD bank payout only.'],
+  ['Ethiopia', 'ET', 'USD', 'payout', 'local_bank', 'yellow_card', '0.25%, min 20 USD', '2.00%, min 20 USD', 'percent_with_minmax', true, 'USD bank payout only.'],
   ['Gabon', 'GA', 'XAF', 'collection', 'local_bank', 'yellow_card', '2.00% or 1,000 XAF tier', '3.25% or 1,500 XAF tier', 'tiered'],
   ['Gabon', 'GA', 'XAF', 'collection', 'mobile_money', 'yellow_card', '3.22%', '4.50%', 'percent_only'],
   ['Gabon', 'GA', 'XAF', 'payout', 'local_bank', 'flutterwave', '1,500 XAF', '2,500 XAF', 'fixed_only'],

@@ -112,6 +112,7 @@ const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m =>
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
+const AfricaAddMoneyScreen = lazyImport(() => import('../deposit/AfricaAddMoneyScreen').then(m => ({ default: m.AfricaAddMoneyScreen })));
 const eagerPreload = () => Promise.resolve();
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
@@ -120,6 +121,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   cards: eagerPreload,
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
+  'add-money-africa': (AfricaAddMoneyScreen as any).preload,
   exchange: eagerPreload,
   'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
@@ -342,6 +344,7 @@ export type AppScreen =
   | 'cards'
   | 'send-money'
   | 'receive-money'
+  | 'add-money-africa'
   | 'exchange'
   | 'transactions'
   | 'wallet-detail'
@@ -951,6 +954,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'receive-money':
       case 'ramps':
         return <ReceiveMoneyScreen onBack={navigateBack} />;
+
+      case 'add-money-africa':
+        return <AfricaAddMoneyScreen onBack={navigateBack} />;
 
       case 'external-accounts':
         if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }

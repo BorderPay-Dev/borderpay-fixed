@@ -29,6 +29,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { formatLocalRailAmount, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v2';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
@@ -177,6 +178,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [setupBannerDismissed, setSetupBannerDismissed] = useState<boolean>(() => {
     try { return sessionStorage.getItem(setupBannerDismissKey) === '1'; } catch { return false; }
   });
+  const localRail = useMemo(() => localRailForStoredUser(), []);
 
   useEffect(() => {
     navPerfTrackCache('dashboard', cachedBizWallets.length > 0 || cachedBizTransactions.length > 0);
@@ -569,23 +571,43 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
                 </button>
               ) : (
                 <>
-                  {wallets.map((w) => (
-                    <button
-                      key={w.currency}
-                      onPointerDown={() => prefetchScreen('wallet-detail')}
-                      onMouseEnter={() => prefetchScreen('wallet-detail')}
-                      onTouchStart={() => prefetchScreen('wallet-detail')}
-                      onClick={() => openWalletForCurrency(w.currency)}
-                      className={`flex-shrink-0 w-[136px] min-h-[132px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center ${tc.hoverBg} transition-colors flex flex-col items-center justify-center`}
-                    >
-                      <div className="flex justify-center">
-                        <BizCurrencyIcon currency={w.currency} />
-                      </div>
-                      <p className={`text-lg ${tc.text} uppercase font-semibold mt-3`}>
-                        {w.currency}
-                      </p>
-                    </button>
-                  ))}
+                  {wallets.map((w) => {
+                    const rawCurrency = String(w.currency || '').toUpperCase();
+                    const isSpendable = rawCurrency === 'USDC' || rawCurrency === 'USDT';
+                    const displayCurrency = rawCurrency === 'USDC' && localRail ? localRail.currency : rawCurrency;
+                    const displayFlag = rawCurrency === 'USDC' && localRail ? localRail.flag : undefined;
+                    const balanceLabel = rawCurrency === 'USDC' && localRail
+                      ? formatLocalRailAmount(Number(w.balance || 0), localRail)
+                      : `$${Number(w.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    return (
+                      <button
+                        key={w.currency}
+                        onPointerDown={() => prefetchScreen('wallet-detail')}
+                        onMouseEnter={() => prefetchScreen('wallet-detail')}
+                        onTouchStart={() => prefetchScreen('wallet-detail')}
+                        onClick={() => openWalletForCurrency(w.currency)}
+                        className={`flex-shrink-0 w-[136px] min-h-[132px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center ${tc.hoverBg} transition-colors flex flex-col items-center justify-center`}
+                      >
+                        <div className="flex justify-center">
+                          <BizCurrencyIcon currency={displayCurrency} flagOverride={displayFlag} />
+                        </div>
+                        {isSpendable ? (
+                          <>
+                            <p className={`text-[17px] ${tc.text} font-semibold mt-3 leading-tight`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {balanceLabel}
+                            </p>
+                            <p className={`text-[10px] ${tc.textMuted} uppercase font-semibold mt-1`}>
+                              {displayCurrency}
+                            </p>
+                          </>
+                        ) : (
+                          <p className={`text-lg ${tc.text} uppercase font-semibold mt-3`}>
+                            {displayCurrency}
+                          </p>
+                        )}
+                      </button>
+                    );
+                  })}
                   <button
                     onPointerDown={() => prefetchScreen('add-wallet')}
                     onMouseEnter={() => prefetchScreen('add-wallet')}
@@ -729,11 +751,27 @@ function BizChip({
   );
 }
 
-function BizCurrencyIcon({ currency }: { currency: string }) {
+function BizCurrencyIcon({ currency, flagOverride }: { currency: string; flagOverride?: string }) {
   const code = String(currency || '').toUpperCase();
-  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+  const flag: Record<string, string> = {
+    USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧',
+    BWP: '🇧🇼', CDF: '🇨🇩', EGP: '🇪🇬', GHS: '🇬🇭', KES: '🇰🇪',
+    MWK: '🇲🇼', NGN: '🇳🇬', RWF: '🇷🇼', TZS: '🇹🇿', UGX: '🇺🇬',
+    XAF: '🇨🇲', XOF: '🇧🇯', ZAR: '🇿🇦', ZMW: '🇿🇲',
+  };
   const [imgFailed, setImgFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[code];
+
+  if (flagOverride) {
+    return (
+      <div
+        className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[34px] leading-none"
+        aria-hidden
+      >
+        {flagOverride}
+      </div>
+    );
+  }
 
   if (flag[code]) {
     return (

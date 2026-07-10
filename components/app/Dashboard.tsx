@@ -53,6 +53,7 @@ import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { formatLocalRailAmount, localRailForCountry, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
+import { africaCommercialRoutesForCountry } from '../../utils/fees/africaCommercialPricing';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED } from '../../utils/featureFlags';
 
@@ -213,6 +214,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     color: string;
     displayCurrency?: string;
     displayBalanceLabel?: string;
+    displayFlag?: string;
     backingCurrency?: string;
   };
   const cachedWallets = useMemo(
@@ -295,11 +297,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       ...row,
       displayCurrency: localRail.currency,
       displayBalanceLabel: formatLocalRailAmount(Number(row.balance || 0), localRail),
+      displayFlag: localRail.flag,
       backingCurrency: 'USDC',
       symbol: localRail.symbol,
       color: '#C7FF00',
     };
   }, [cachedIdentity.country]);
+  const addMoneyRail = useMemo(() => localRailForCountry(cachedIdentity.country) || localRailForStoredUser(), [cachedIdentity.country]);
+  const canShowAfricaAddMoney = useMemo(
+    () => !!addMoneyRail && africaCommercialRoutesForCountry('collection', addMoneyRail.countryCode, true).length > 0,
+    [addMoneyRail],
+  );
 
   // ─── data loading ─────────────────────────────────────────────────────────
   const loadDashboardData = useCallback(async () => {
@@ -666,7 +674,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </div>
 
           {/* Circular action buttons (Revolut idiom) */}
-          <div className="relative mt-6 grid grid-cols-4 gap-1">
+          <div className={`relative mt-6 grid ${canShowAfricaAddMoney ? 'grid-cols-5' : 'grid-cols-4'} gap-1`}>
             <HeroAction
               label={tt('nav.cards', 'Cards')}
               Icon={CreditCard}
@@ -674,6 +682,14 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               onClick={() => handleNavigate('cards')}
               onHover={() => prefetchScreen('cards')}
             />
+            {canShowAfricaAddMoney && (
+              <HeroAction
+                label={tt('action.addMoney', 'Add')}
+                Icon={Plus}
+                onClick={() => handleNavigate('add-money-africa')}
+                onHover={() => prefetchScreen('add-money-africa')}
+              />
+            )}
             <HeroAction
               label={tt('action.send', 'Send')}
               Icon={ArrowUpRight}
@@ -839,6 +855,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               <>
                 {wallets.map((w) => {
                   const displayCurrency = String(w.displayCurrency || w.currency).toUpperCase();
+                  const rawCurrency = String(w.currency || '').toUpperCase();
+                  const isSpendable = rawCurrency === 'USDC' || rawCurrency === 'USDT';
+                  const balanceLabel = w.displayBalanceLabel ||
+                    `$${Number(w.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                   return (
                   <button
                     key={w.currency}
@@ -849,14 +869,20 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     className={`flex-shrink-0 w-[136px] min-h-[132px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center ${tc.hoverBg} transition-colors flex flex-col items-center justify-center`}
                   >
                     <div className="flex justify-center">
-                      <DashboardCurrencyIcon currency={displayCurrency} color={w.color} />
+                      <DashboardCurrencyIcon currency={displayCurrency} color={w.color} flagOverride={w.displayFlag} />
                     </div>
-                    <p className={`text-lg ${tc.text} uppercase font-semibold mt-3`}>
-                      {displayCurrency}
-                    </p>
-                    {w.displayBalanceLabel && (
-                      <p className={`text-[11px] ${tc.textMuted} mt-1`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {balanceHidden ? '••••' : w.displayBalanceLabel}
+                    {isSpendable ? (
+                      <>
+                        <p className={`text-[17px] ${tc.text} font-semibold mt-3 leading-tight`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {balanceHidden ? '••••' : balanceLabel}
+                        </p>
+                        <p className={`text-[10px] ${tc.textMuted} uppercase font-semibold mt-1`}>
+                          {displayCurrency}
+                        </p>
+                      </>
+                    ) : (
+                      <p className={`text-lg ${tc.text} uppercase font-semibold mt-3`}>
+                        {displayCurrency}
                       </p>
                     )}
                   </button>
@@ -1032,7 +1058,7 @@ type RatePair = {
   vol: number;    // sparkline volatility, scaled to the pair's magnitude
 };
 
-function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
+function DashboardCurrencyIcon({ currency, color, flagOverride }: { currency: string; color: string; flagOverride?: string }) {
   const code = String(currency || '').toUpperCase();
   const flag: Record<string, string> = {
     USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧',
@@ -1042,6 +1068,17 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
   };
   const [imgFailed, setImgFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[code];
+
+  if (flagOverride) {
+    return (
+      <div
+        className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[34px] leading-none"
+        aria-hidden
+      >
+        {flagOverride}
+      </div>
+    );
+  }
 
   if (flag[code]) {
     return (
