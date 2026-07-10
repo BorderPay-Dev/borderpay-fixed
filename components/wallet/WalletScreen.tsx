@@ -142,8 +142,9 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [balanceByCurrency, setBalanceByCurrency] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(`borderpay_wallet_balances_v2_${userId}`) || '{}'); } catch { return {}; }
   });
-  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshWalletCache);
-  const [loading, setLoading] = useState(!hasFreshWalletCache);
+  const canPaintCachedWalletRows = hasFreshWalletCache || hasCachedWalletRows;
+  const [initialRefreshDone, setInitialRefreshDone] = useState(canPaintCachedWalletRows);
+  const [loading, setLoading] = useState(!canPaintCachedWalletRows);
   const [refreshing, setRefreshing] = useState(false);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);

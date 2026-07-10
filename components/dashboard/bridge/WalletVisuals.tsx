@@ -13,6 +13,7 @@ import { X, Copy, Check, Info, ArrowDownLeft, ChevronDown, ChevronUp } from 'luc
 import { QRCodeSVG } from 'qrcode.react';
 import { useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
+import { localRailForStoredUser } from '../../../utils/presentation/africanRailDisplay';
 
 // ── Brand palette ───────────────────────────────────────────────────────────
 type Brand = { bg: string; fg: string; glyph: string; name: string };
@@ -254,13 +255,16 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
   const sym  = String(wallet.currency).toUpperCase();
   const chn  = String(wallet.chain || '').toLowerCase();
   const addr = String(wallet.address || '');
+  const localRail = sym === 'USDC' ? localRailForStoredUser() : null;
+  const headerSymbol = localRail ? localRail.currency : sym;
+  const headerTitle = localRail ? `${localRail.currency} · ${localRail.country}` : `${sym} · ${assetName(sym)}`;
   const copyAll = async () => {
     try { await navigator.clipboard.writeText(addr); setDone(true); setTimeout(() => setDone(false), 1400); showToast.success('Address copied'); }
     catch { /* noop */ }
   };
   return (
     <Sheet open={open} onClose={onClose}>
-      <SheetHeader symbol={sym} title={`${sym} · ${assetName(sym)}`} subtitle="Stablecoin deposit address" onClose={onClose} tc={tc} />
+      <SheetHeader symbol={headerSymbol} title={headerTitle} subtitle="Stablecoin deposit address" onClose={onClose} tc={tc} />
 
       <div className="px-5 pb-6">
         {/* Network row — coloured chain chip, always visible */}

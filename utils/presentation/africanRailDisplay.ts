@@ -38,12 +38,47 @@ export function localRailForCountry(country?: string | null): AfricanRailDisplay
   return AFRICAN_RAIL_DISPLAY[code] || null;
 }
 
+function firstCountryCodeFrom(value: any): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidates = [
+    value.country,
+    value.country_code,
+    value.countryCode,
+    value.address?.country,
+    value.address?.country_code,
+    value.profile?.country,
+    value.profile?.country_code,
+    value.profile?.countryCode,
+    value.user_metadata?.country,
+    value.user_metadata?.country_code,
+    value.user_metadata?.countryCode,
+    value.app_metadata?.country,
+    value.app_metadata?.country_code,
+    value.app_metadata?.countryCode,
+  ];
+  for (const candidate of candidates) {
+    const code = String(candidate || '').trim();
+    if (code) return code;
+  }
+  return null;
+}
+
 export function localRailForStoredUser(): AfricanRailDisplay | null {
   try {
-    const raw = localStorage.getItem('borderpay_user');
-    const stored = raw ? JSON.parse(raw) : null;
-    const country = stored?.country || stored?.user_metadata?.country || stored?.profile?.country;
-    return localRailForCountry(country);
+    const keys = [
+      'borderpay_user',
+      'borderpay_cached_profile',
+      'borderpay_profile',
+      'borderpay_identity',
+    ];
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const stored = JSON.parse(raw);
+      const rail = localRailForCountry(firstCountryCodeFrom(stored));
+      if (rail) return rail;
+    }
+    return null;
   } catch {
     return null;
   }
