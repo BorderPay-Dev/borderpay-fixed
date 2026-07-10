@@ -132,7 +132,7 @@ async function emailVerificationLink(userId: string, accountType: "individual" |
         if (!link) return;
         link_url = link.link_url;
         await supa.from("business_profiles").update({
-          bridge_kyb_link_id: link.link_id, bridge_kyb_link_url: link.link_url, bridge_kyb_status: "pending",
+          bridge_kyb_link_id: link.link_id, bridge_kyb_link_url: link.link_url,
           ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}), updated_at: new Date().toISOString(),
         }).eq("user_id", userId);
       }
@@ -156,7 +156,7 @@ async function emailVerificationLink(userId: string, accountType: "individual" |
       if (!link) return;
       link_url = link.link_url;
       await supa.from("user_profiles").update({
-        bridge_kyc_link_id: link.link_id, bridge_kyc_link_url: link.link_url, bridge_kyc_status: "pending",
+        bridge_kyc_link_id: link.link_id, bridge_kyc_link_url: link.link_url,
         ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}), updated_at: new Date().toISOString(),
       }).eq("id", userId);
     }
@@ -209,11 +209,10 @@ Deno.serve(async (req) => {
   const subQuery = supa
     .from("user_subscriptions")
     .select("id, plan_key, status")
-    .in("status", ["active", "trialing", "past_due", "incomplete"])
-    .maybeSingle();
+    .in("status", ["active", "trialing", "past_due", "incomplete"]);
   const { data: sub } = profile.account_type === "business"
-    ? await subQuery.eq("business_user_id", user.id)
-    : await subQuery.eq("user_id", user.id);
+    ? await subQuery.eq("business_user_id", user.id).maybeSingle()
+    : await subQuery.eq("user_id", user.id).maybeSingle();
   if (!sub?.id) {
     return json({ success: false, error: "No active subscription row. Please contact support.", code: "no_active_subscription" }, 409);
   }

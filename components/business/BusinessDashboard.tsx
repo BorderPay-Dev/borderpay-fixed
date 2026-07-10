@@ -137,14 +137,14 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [registrationNumber, setRegistrationNumber] = useState<string | null>(null);
   const [country, setCountry]                       = useState<string | null>(initialCountry);
   const [profileError, setProfileError]             = useState<string | null>(null);
-  const [affiliateKycStatus, setAffiliateKycStatus] = useState<'verified' | 'pending'>(() => {
+  const [affiliateKycStatus, setAffiliateKycStatus] = useState<'verified' | 'not_started'>(() => {
     const raw = String(
       stored?.bridge_kyb_status ||
       stored?.bridge_verification_status ||
       stored?.verification_status ||
       '',
     ).toLowerCase();
-    return (raw === 'approved' || raw === 'verified' || raw === 'active') ? 'verified' : 'pending';
+    return (raw === 'approved' || raw === 'verified' || raw === 'active') ? 'verified' : 'not_started';
   });
 
   // Seed wallets from cache so the balance + treasury paint instantly.
@@ -326,7 +326,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           setAffiliateKycStatus(
             (kybState === 'approved' || kybState === 'verified' || kybState === 'active')
               ? 'verified'
-              : 'pending',
+              : 'not_started',
           );
           setProfileError(null);
           try {
