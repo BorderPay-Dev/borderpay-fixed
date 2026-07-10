@@ -2,7 +2,10 @@ import { AFRICA_COMMERCIAL_FEE_ROUTES, africaIso2FromCountryCode } from '../fees
 import { ALL_COUNTRIES } from '../countries/allCountries';
 
 export type AfricanRailDisplay = {
+  /** Bridge/local-rail country code. Use ISO-3 here, e.g. KEN, NGA, GHA. */
   countryCode: string;
+  /** ISO-2 is only for flag rendering and legacy browser profile values. */
+  countryIso2: string;
   countryIso3: string;
   currency: string;
   country: string;
@@ -61,7 +64,7 @@ function isoFlag(code: string): string {
 }
 
 export function flagForCountryCode(code: string): string {
-  const iso = String(code || '').trim().toUpperCase();
+  const iso = africaIso2FromCountryCode(code);
   return ALL_COUNTRIES.find((country) => country.code === iso)?.flag || isoFlag(iso);
 }
 
@@ -95,7 +98,8 @@ export function localRailForCountry(country?: string | null): AfricanRailDisplay
   const currency = String(route.currency || '').toUpperCase();
   const display = CURRENCY_DISPLAY[currency] || { symbol: currency, usdRate: 1 };
   return {
-    countryCode: route.iso2,
+    countryCode: route.iso3,
+    countryIso2: route.iso2,
     countryIso3: route.iso3,
     country: route.country,
     currency,
