@@ -5,6 +5,7 @@ import { AssetBadge } from '../dashboard/bridge/WalletVisuals';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { SkeletonRows } from '../common/Skeleton';
+import { localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 
 interface AddWalletScreenProps {
   userId: string;
@@ -88,6 +89,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<Set<string>>(new Set());
   const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshWalletCache);
   const refreshInFlightRef = useRef(false);
+  const localRail = useMemo(() => localRailForStoredUser(), []);
 
   const refresh = async () => {
     if (refreshInFlightRef.current) return;
@@ -234,7 +236,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           </p>
           <h1 className={`text-lg font-semibold ${tc.text} mt-1`}>Available wallets</h1>
           <p className={`text-xs ${tc.textMuted} mt-1`}>
-            Accounts loaded from your Bridge profile. Unsupported rails stay hidden.
+            Accounts loaded from your BorderPay profile. Unsupported rails stay hidden.
           </p>
         </div>
 
@@ -257,6 +259,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
               </p>
             </div>
           ) : visibleCards.map((card, idx) => {
+              const displayAsLocal = card.code === 'USDC' && !!localRail;
+              const displayCode = displayAsLocal ? localRail.currency : card.code;
+              const displayTitle = displayAsLocal ? localRail.country : card.title;
+              const displaySubtitle = displayAsLocal ? 'Backed by USDC' : card.subtitle;
               const exists = card.type === 'virtual_account'
                 ? existingVa.has(card.code)
                 : existingStable.has(card.code);
@@ -268,7 +274,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   key={card.code}
                   className={`px-4 py-3.5 flex items-center gap-3 ${idx > 0 ? `border-t ${tc.borderLight}` : ''}`}
                 >
-                  {card.type === 'stablecoin' && STABLE_ICON_URL[card.code] ? (
+                  {card.type === 'stablecoin' && STABLE_ICON_URL[card.code] && !displayAsLocal ? (
                     <div className="w-11 h-11 rounded-full bg-white/10 overflow-hidden flex items-center justify-center">
                       <img
                         src={STABLE_ICON_URL[card.code]}
@@ -278,12 +284,12 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                       />
                     </div>
                   ) : (
-                    <AssetBadge symbol={card.code} size={44} />
+                    <AssetBadge symbol={displayCode} size={44} />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
+                    <div className={`text-[15px] font-semibold ${tc.text}`}>{displayCode} <span className={`text-xs font-medium ${tc.textMuted}`}>· {displayTitle}</span></div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {exists ? `${card.subtitle} · ${inactive ? vaStatus : active ? 'active' : 'pending'}` : `${card.subtitle} · request available`}
+                      {exists ? `${displaySubtitle} · ${inactive ? vaStatus : active ? 'active' : 'pending'}` : `${displaySubtitle} · request available`}
                     </div>
                   </div>
                   {renderAction(card)}

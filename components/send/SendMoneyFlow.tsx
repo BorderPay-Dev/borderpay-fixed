@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Building2, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
-  Info, ArrowRight, Copy, XCircle, Shield, Coins, UserRound,
+  Info, ArrowRight, Copy, XCircle, Shield, Coins, UserRound, Smartphone, Landmark,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -35,12 +35,19 @@ import { ExternalCryptoWithdrawalFields, isValidCryptoAddress, type CryptoWithdr
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import {
+  africaCommercialCountries,
+  africaCommercialRouteForRail,
+  africaCommercialRoutesForCountry,
+  type AfricaRail,
+  type AfricaCommercialRoute,
+} from '../../utils/fees/africaCommercialPricing';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type TransferMethod = 'us_ach_wire' | 'stablecoin' | 'borderpay';
+type TransferMethod = 'us_ach_wire' | 'stablecoin' | 'borderpay' | 'africa';
 type Step = 'method' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
 
 const UI_CRYPTO_MIN_GROSS_USD_BY_ROUTE: Record<string, number> = {
@@ -155,7 +162,8 @@ const MOMO_CURRENCIES = ['XAF', 'KES', 'NGN', 'XOF', 'TZS', 'UGX', 'GHS', 'SLE',
 const CURRENCY_SYMBOLS: Record<string, string> = {
   NGN: '₦', KES: 'KSh', GHS: '₵', UGX: 'USh',
   XAF: 'FCFA', XOF: 'FCFA', TZS: 'TSh', USD: '$',
-  SLE: 'Le', MZN: 'MT', MWK: 'MK',
+  SLE: 'Le', MZN: 'MT', MWK: 'MK', BWP: 'P', CDF: 'FC', EGP: 'E£',
+  RWF: 'FRw', ZAR: 'R', ZMW: 'ZK',
   USDT: '$', USDC: '$', PYUSD: '$',
 };
 
@@ -167,6 +175,25 @@ const SEND_WALLETS_CACHE_KEY = 'borderpay_send_wallets_v1';
 const SEND_CAPS_CACHE_KEY = 'borderpay_send_caps_v1';
 const EXTERNAL_ACCOUNTS_CACHE_KEY = 'borderpay_payout_accounts_v1';
 const SEND_ROUTE_REFRESH_TS_KEY = 'borderpay_send_refresh_ts_v1';
+
+const COUNTRY_FLAG: Record<string, string> = {
+  BJ: '🇧🇯', BW: '🇧🇼', BF: '🇧🇫', CM: '🇨🇲', CF: '🇨🇫', TD: '🇹🇩',
+  CG: '🇨🇬', CD: '🇨🇩', EG: '🇪🇬', ET: '🇪🇹', GA: '🇬🇦', GH: '🇬🇭',
+  CI: '🇨🇮', KE: '🇰🇪', MW: '🇲🇼', ML: '🇲🇱', NG: '🇳🇬', RW: '🇷🇼',
+  SN: '🇸🇳', ZA: '🇿🇦', TZ: '🇹🇿', TG: '🇹🇬', UG: '🇺🇬', ZM: '🇿🇲',
+};
+
+function railLabel(rail: AfricaRail): string {
+  return rail === 'mobile_money' ? 'Mobile Money' : 'Local bank account';
+}
+
+function railIcon(rail: AfricaRail) {
+  return rail === 'mobile_money' ? Smartphone : Landmark;
+}
+
+function firstAfricaRoute(routes: AfricaCommercialRoute[]): AfricaCommercialRoute | null {
+  return routes[0] || null;
+}
 
 
 // ---------------------------------------------------------------------------
@@ -257,6 +284,22 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // External Bridge Wallet withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'base', token: 'USDC', address: '' });
+  const africaPayoutCountries = useMemo(() => africaCommercialCountries('payout', true), []);
+  const defaultAfricaCountry = africaPayoutCountries.find((country) => country.iso2 === 'KE') || africaPayoutCountries[0];
+  const [africaCountryIso, setAfricaCountryIso] = useState(defaultAfricaCountry?.iso2 || '');
+  const africaRoutes = useMemo(
+    () => africaCommercialRoutesForCountry('payout', africaCountryIso, true),
+    [africaCountryIso],
+  );
+  const [africaRail, setAfricaRail] = useState<AfricaRail>(() =>
+    firstAfricaRoute(africaCommercialRoutesForCountry('payout', defaultAfricaCountry?.iso2 || '', true))?.rail || 'mobile_money',
+  );
+  const selectedAfricaRoute = useMemo(() => {
+    const exact = africaCommercialRouteForRail('payout', africaCountryIso, africaRail, true);
+    return exact || firstAfricaRoute(africaRoutes);
+  }, [africaCountryIso, africaRail, africaRoutes]);
+  const [africaRecipientName, setAfricaRecipientName] = useState('');
+  const [africaRecipientAccount, setAfricaRecipientAccount] = useState('');
 
   // Withdraw-to-saved-wallet handoff: ExternalWalletsScreen stores the chosen
   // destination, then routes here. Prefill the Bridge Wallet withdrawal flow and jump in.
@@ -311,6 +354,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const fallbackNetworkFee = useMemo(() => {
     const num = parseFloat(amount);
     if (!num || num <= 0) return null;
+    if (method === 'africa') return null;
     // The crypto withdrawal track forces the Bridge Wallet route,
     // bypassing any country classification. Otherwise classify by destination
     // country (African countries also settle through Bridge Wallet crypto rails).
@@ -523,6 +567,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (tokenCurrency !== selectedCurrency) setSelectedCurrency(tokenCurrency);
   }, [method, crypto.token, selectedCurrency]);
 
+  useEffect(() => {
+    if (method !== 'africa') return;
+    if (selectedCurrency !== 'USDC') setSelectedCurrency('USDC');
+  }, [method, selectedCurrency]);
+
+  useEffect(() => {
+    if (method !== 'africa') return;
+    if (!selectedAfricaRoute) return;
+    if (selectedAfricaRoute.rail !== africaRail) setAfricaRail(selectedAfricaRoute.rail);
+  }, [method, selectedAfricaRoute, africaRail]);
+
   // ---------------------------------------------------------------------------
   // Load institutions when method/currency changes
   // ---------------------------------------------------------------------------
@@ -641,6 +696,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (method === 'us_ach_wire') return !!selectedExternalAccount;
     if (method === 'borderpay') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(borderPayRecipientEmail.trim());
     if (method === 'stablecoin') return isValidCryptoAddress(crypto.network, crypto.address);
+    if (method === 'africa') {
+      return !!selectedAfricaRoute && africaRecipientName.trim().length >= 2 && africaRecipientAccount.trim().length >= 6;
+    }
     return false;
   };
 
@@ -655,6 +713,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
     if (method === 'borderpay') {
       return num > 0 && selectedWallet && !!selectedWallet.bridge_wallet_id && num <= selectedWallet.balance && reason.trim().length > 0;
+    }
+    if (method === 'africa') {
+      return num > 0 && selectedWallet && String(selectedWallet.currency || '').toUpperCase() === 'USDC' && num <= selectedWallet.balance && reason.trim().length > 0;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
@@ -801,6 +862,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             external_account_id: selectedExternalAccount.bridge_external_account_id,
           },
         });
+      } else if (method === 'africa') {
+        traceSend('blocked_before_africa_provider_execution', {
+          code: 'africa_provider_credentials_pending',
+          notes: 'Africa rail UI review is enabled; live execution waits for provider credentials.',
+        });
+        setErrorMessage('Africa payouts are ready for review and will unlock after provider credentials are configured.');
+        setStep('error');
+        toast.error('Africa payouts are pending provider credentials.');
+        return;
       } else {
         traceSend('blocked_before_bridge_transfer', {
           code: 'unsupported_method',
@@ -837,7 +907,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const friendly =
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
-        : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the Bridge Wallet withdrawal path for now.'
+        : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the external wallet withdrawal path for now.'
         : method === 'stablecoin'         ? mapCryptoTransferError(code, result.error, crypto)
         : method === 'borderpay'          ? mapBorderPayTransferError(code, result.error)
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
@@ -898,7 +968,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const getStepTitle = () => {
     switch (step) {
       case 'method': return t('send.title');
-      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Bridge Wallet Withdrawal' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayDetails');
+      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'BorderPay wallet withdrawal' : method === 'borderpay' ? 'BorderPay recipient' : method === 'africa' ? 'Africa payout' : t('send.borderPayDetails');
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
@@ -1001,6 +1071,29 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
               )}
 
+              {africaPayoutCountries.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const usdcWallet = wallets.find((w) => String(w.currency || '').toUpperCase() === 'USDC' && w.bridge_wallet_id);
+                    setMethod('africa');
+                    setSelectedCurrency('USDC');
+                    if (usdcWallet) setSelectedWallet(usdcWallet);
+                    setStep('details');
+                  }}
+                  className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-5 flex items-center gap-4 ${tc.hoverBg} transition-colors`}
+                >
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                    <Smartphone size={22} className="text-emerald-300" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${tc.text}`}>Africa payout</p>
+                    <p className={`text-xs ${tc.textMuted} mt-0.5`}>Mobile Money and local bank payouts in BorderPay corridors.</p>
+                  </div>
+                  <ArrowRight size={18} className={tc.textMuted} />
+                </button>
+              )}
+
               {TRANSFERS_LIVE ? (
                 <button
                   type="button"
@@ -1016,7 +1109,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <Coins size={22} className="text-cyan-400" />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className={`text-sm font-semibold ${tc.text}`}>External Bridge Wallet Withdrawal</p>
+                    <p className={`text-sm font-semibold ${tc.text}`}>External wallet withdrawal</p>
                     <p className={`text-xs ${tc.textMuted} mt-0.5`}>Only USDC on Base or USDT on TRON.</p>
                   </div>
                   <ArrowRight size={18} className={tc.textMuted} />
@@ -1030,7 +1123,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <Coins size={22} className="text-cyan-400" />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className={`text-sm font-semibold ${tc.text}`}>External Bridge Wallet Withdrawal</p>
+                    <p className={`text-sm font-semibold ${tc.text}`}>External wallet withdrawal</p>
                     <p className={`text-xs ${tc.textMuted} mt-0.5`}>Only USDC on Base or USDT on TRON — pending sandbox evidence sign-off</p>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Pending evidence</span>
@@ -1094,7 +1187,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
               <Info size={16} className="text-[#C7FF00] mt-0.5 flex-shrink-0" />
               <p className={`text-xs ${tc.textMuted}`}>
-                Bridge Wallet payouts settle in seconds. Other payout rails launch through BorderPay.
+                BorderPay wallet payouts settle in seconds. Africa rails will unlock after provider credentials are configured.
               </p>
             </div>
           </motion.div>
@@ -1111,8 +1204,95 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             exit={{ opacity: 0, x: -20 }}
             className="px-5 py-6"
           >
+            {method === 'africa' && (
+              <div className="space-y-4">
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Destination country</label>
+                  <select
+                    value={africaCountryIso}
+                    onChange={(event) => {
+                      const iso = event.target.value;
+                      const nextRoutes = africaCommercialRoutesForCountry('payout', iso, true);
+                      setAfricaCountryIso(iso);
+                      setAfricaRail(firstAfricaRoute(nextRoutes)?.rail || 'mobile_money');
+                    }}
+                    className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                  >
+                    {africaPayoutCountries.map((country) => (
+                      <option key={country.iso2} value={country.iso2}>
+                        {COUNTRY_FLAG[country.iso2] || ''} {country.country} · {country.currency}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Delivery rail</label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {africaRoutes.map((route) => {
+                      const Icon = railIcon(route.rail);
+                      const active = selectedAfricaRoute?.rail === route.rail;
+                      return (
+                        <button
+                          key={`${route.iso2}-${route.rail}`}
+                          type="button"
+                          onClick={() => setAfricaRail(route.rail)}
+                          className={`w-full text-left border rounded-2xl p-4 flex items-center gap-3 transition-colors ${
+                            active ? 'border-[#C7FF00]/60 bg-[#C7FF00]/10' : `${tc.cardBorder} ${tc.card}`
+                          }`}
+                        >
+                          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center">
+                            <Icon size={18} className={active ? 'text-[#C7FF00]' : tc.textMuted} />
+                          </div>
+                          <div className="flex-1">
+                            <p className={`text-sm font-semibold ${tc.text}`}>{railLabel(route.rail)}</p>
+                            <p className={`text-xs ${tc.textMuted}`}>BorderPay fee: {route.borderpayCustomerFee}</p>
+                          </div>
+                          {active && <CheckCircle size={16} className="text-[#C7FF00]" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Recipient name</label>
+                  <input
+                    type="text"
+                    value={africaRecipientName}
+                    onChange={(event) => setAfricaRecipientName(event.target.value)}
+                    placeholder="Recipient full name"
+                    className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>
+                    {selectedAfricaRoute?.rail === 'mobile_money' ? 'Mobile money number' : 'Bank account number'}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode={selectedAfricaRoute?.rail === 'mobile_money' ? 'tel' : 'numeric'}
+                    value={africaRecipientAccount}
+                    onChange={(event) => setAfricaRecipientAccount(event.target.value)}
+                    placeholder={selectedAfricaRoute?.rail === 'mobile_money' ? '+254...' : 'Account number'}
+                    className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                  />
+                </div>
+
+                <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
+                  <span className="text-lg">🇺🇸</span>
+                  <div className="flex-1">
+                    <p className={`text-sm font-semibold ${tc.text}`}>USDC wallet</p>
+                    <p className={`text-xs ${tc.textMuted}`}>Funds source for Africa payout preview</p>
+                  </div>
+                  <CheckCircle size={16} className="text-[#C7FF00]" />
+                </div>
+              </div>
+            )}
+
             {/* Currency Picker (Africa only — not for P2P, US, or Bridge Wallet withdrawals) */}
-            {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && (() => {
+            {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && method !== 'africa' && (() => {
               const availableCurrencies = method === 'bank'
                 ? SUPPORTED_CURRENCIES.filter(c => BANK_TRANSFER_CURRENCIES.includes(c.code))
                 : SUPPORTED_CURRENCIES.filter(c => MOMO_CURRENCIES.includes(c.code));
@@ -1184,7 +1364,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             })()}
 
             {/* Bank / MoMo Selection (Africa only) */}
-            {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && (
+            {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && method !== 'africa' && (
               <>
                 <div className="mb-4">
                   <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>
@@ -1468,6 +1648,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </span>
                   </div>
                 </>
+              ) : method === 'africa' ? (
+                <>
+                  <p className={`text-sm font-semibold ${tc.text}`}>{africaRecipientName || 'Recipient'}</p>
+                  <p className={`text-xs ${tc.textMuted}`}>
+                    {COUNTRY_FLAG[selectedAfricaRoute?.iso2 || ''] || ''} {selectedAfricaRoute?.country || 'Africa'} · {selectedAfricaRoute ? railLabel(selectedAfricaRoute.rail) : 'Local rail'}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#C7FF00]/15 text-[#C7FF00] uppercase">
+                      {selectedAfricaRoute?.currency || ''}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-white/[0.06] text-white/70">USDC source</span>
+                  </div>
+                </>
               ) : (
                 <>
                   <p className={`text-sm font-semibold ${tc.text}`}>{resolvedName || accountNumber}</p>
@@ -1586,11 +1779,40 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.method')}</span>
                   <span className={`text-sm font-medium ${tc.text}`}>
-                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Bridge Wallet' : method === 'borderpay' ? 'BorderPay recipient' : t('send.borderPayPay')}
+                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'External wallet withdrawal' : method === 'borderpay' ? 'BorderPay recipient' : method === 'africa' ? 'Africa payout' : t('send.borderPayPay')}
                   </span>
                 </div>
 
-                {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && (
+                {method === 'africa' && selectedAfricaRoute && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Country</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{COUNTRY_FLAG[selectedAfricaRoute.iso2] || ''} {selectedAfricaRoute.country}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Delivery rail</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{railLabel(selectedAfricaRoute.rail)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>Recipient</span>
+                      <span className={`text-sm font-medium ${tc.text} text-right max-w-[190px] truncate`}>{africaRecipientName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>{selectedAfricaRoute.rail === 'mobile_money' ? 'Mobile number' : 'Account'}</span>
+                      <span className={`text-sm font-mono ${tc.text}`}>{africaRecipientAccount}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>BorderPay fee</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{selectedAfricaRoute.borderpayCustomerFee}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className={`text-xs ${tc.textMuted}`}>FX quote</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>Shown before live submit</span>
+                    </div>
+                  </>
+                )}
+
+                {method !== 'us_ach_wire' && method !== 'stablecoin' && method !== 'borderpay' && method !== 'africa' && (
                   <>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>{method === 'bank' ? t('send.bankName') : t('send.provider')}</span>
@@ -1722,6 +1944,37 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
             )}
 
+            {method === 'africa' && selectedAfricaRoute && (
+              <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-4`}>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className={tc.textMuted}>Funding source</span>
+                    <span className={tc.text}>USDC wallet</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className={tc.textMuted}>Send amount</span>
+                    <span className={tc.text}>${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDC</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className={tc.textMuted}>BorderPay fee</span>
+                    <span className={tc.text}>{selectedAfricaRoute.borderpayCustomerFee}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className={tc.textMuted}>Payout currency</span>
+                    <span className={tc.text}>{selectedAfricaRoute.currency}</span>
+                  </div>
+                  <div className={`h-px ${tc.border} my-1`} />
+                  <div className="flex justify-between text-sm font-bold">
+                    <span className={tc.text}>Recipient receives</span>
+                    <span className="text-[#C7FF00]">Final FX quote before submit</span>
+                  </div>
+                  <p className={`text-[11px] ${tc.textMuted} leading-relaxed`}>
+                    Africa rails are locked for UI review. Live quote and submit unlock after provider API credentials are configured.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Warning */}
             <div className="flex items-start gap-2 px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl mb-6">
               <AlertCircle size={16} className="text-yellow-400 mt-0.5 flex-shrink-0" />
@@ -1730,6 +1983,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
             <button
               onClick={() => {
+                if (method === 'africa') {
+                  toast.error('Africa rails are locked until provider credentials are configured.');
+                  return;
+                }
                 if (!hasAnyAuthFactor) {
                   toast.error('Set a transaction PIN or biometric verification before sending payouts.');
                   onNavigate?.('settings');
@@ -1737,9 +1994,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 }
                 setStep('pin');
               }}
-              className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
+              disabled={method === 'africa'}
+              className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {t('send.confirmAndPay')}
+              {method === 'africa' ? 'Locked until provider credentials' : t('send.confirmAndPay')}
             </button>
           </motion.div>
         )}

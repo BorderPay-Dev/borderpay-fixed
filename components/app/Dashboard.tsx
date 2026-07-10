@@ -52,7 +52,7 @@ import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
-import { formatLocalRailAmount, localRailForCountry } from '../../utils/presentation/africanRailDisplay';
+import { formatLocalRailAmount, localRailForCountry, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED } from '../../utils/featureFlags';
 
@@ -154,8 +154,16 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       '';
     const country =
       cachedProfile?.country ||
+      cachedProfile?.country_code ||
+      cachedProfile?.countryCode ||
       stored?.country ||
+      stored?.country_code ||
+      stored?.countryCode ||
+      stored?.profile?.country ||
+      stored?.profile?.country_code ||
       meta?.country ||
+      meta?.country_code ||
+      meta?.countryCode ||
       '';
     return { fullName: String(fullName || ''), email: String(email || ''), country: String(country || '') };
   }, [cachedProfile]);
@@ -281,7 +289,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   const displayWalletRow = useCallback((row: DashboardWalletRow): DashboardWalletRow => {
     const currency = String(row.currency || '').toUpperCase();
-    const localRail = localRailForCountry(cachedIdentity.country);
+    const localRail = localRailForCountry(cachedIdentity.country) || localRailForStoredUser();
     if (currency !== 'USDC' || !localRail) return row;
     return {
       ...row,

@@ -140,3 +140,45 @@ export function validateAfricaCommercialFeeRoute(route: AfricaCommercialRoute): 
 export function validateAfricaCommercialFeeRoutes(routes = AFRICA_COMMERCIAL_FEE_ROUTES): string[] {
   return routes.flatMap(validateAfricaCommercialFeeRoute);
 }
+
+export function africaCommercialRoutesFor(
+  direction: AfricaDirection,
+  enabledOnly = true,
+): AfricaCommercialRoute[] {
+  return AFRICA_COMMERCIAL_FEE_ROUTES.filter((route) =>
+    route.direction === direction && (!enabledOnly || route.enabled),
+  );
+}
+
+export function africaCommercialRoutesForCountry(
+  direction: AfricaDirection,
+  iso2: string,
+  enabledOnly = true,
+): AfricaCommercialRoute[] {
+  const code = String(iso2 || '').toUpperCase();
+  return africaCommercialRoutesFor(direction, enabledOnly).filter((route) => route.iso2 === code);
+}
+
+export function africaCommercialRouteForRail(
+  direction: AfricaDirection,
+  iso2: string,
+  rail: AfricaRail,
+  enabledOnly = true,
+): AfricaCommercialRoute | null {
+  return africaCommercialRoutesForCountry(direction, iso2, enabledOnly)
+    .find((route) => route.rail === rail) || null;
+}
+
+export function africaCommercialCountries(direction: AfricaDirection, enabledOnly = true) {
+  const byIso = new Map<string, { country: string; iso2: string; currency: string }>();
+  for (const route of africaCommercialRoutesFor(direction, enabledOnly)) {
+    if (!byIso.has(route.iso2)) {
+      byIso.set(route.iso2, {
+        country: route.country,
+        iso2: route.iso2,
+        currency: route.currency,
+      });
+    }
+  }
+  return Array.from(byIso.values()).sort((a, b) => a.country.localeCompare(b.country));
+}

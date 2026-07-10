@@ -20,6 +20,11 @@ import {
 } from '../dashboard/bridge/WalletVisuals';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
+import {
+  africaCommercialRoutesForCountry,
+  type AfricaRail,
+} from '../../utils/fees/africaCommercialPricing';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -34,6 +39,16 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
+const COUNTRY_FLAG: Record<string, string> = {
+  BJ: '🇧🇯', BW: '🇧🇼', BF: '🇧🇫', CM: '🇨🇲', TD: '🇹🇩', CG: '🇨🇬',
+  EG: '🇪🇬', GA: '🇬🇦', GH: '🇬🇭', CI: '🇨🇮', KE: '🇰🇪', MW: '🇲🇼',
+  ML: '🇲🇱', NG: '🇳🇬', RW: '🇷🇼', SN: '🇸🇳', ZA: '🇿🇦', TZ: '🇹🇿',
+  TG: '🇹🇬', UG: '🇺🇬', ZM: '🇿🇲',
+};
+
+function railLabel(rail: AfricaRail): string {
+  return rail === 'mobile_money' ? 'Mobile Money' : 'Local bank account';
+}
 
 function isApproved(value?: string | null): boolean {
   if (typeof value !== 'string') return false;
@@ -116,6 +131,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
+  const localRail = useMemo(() => localRailForStoredUser(), []);
+  const africaCollectionRoutes = useMemo(
+    () => localRail ? africaCommercialRoutesForCountry('collection', localRail.countryCode, true) : [],
+    [localRail],
+  );
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
@@ -282,6 +302,37 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
           </div>
         </div>
 
+        {localRail && africaCollectionRoutes.length > 0 && (
+          <div className={`mb-5 rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
+            <div className="px-4 py-3.5 border-b border-white/[0.06]">
+              <p className={`text-sm font-semibold ${tc.text}`}>Africa receive</p>
+              <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
+                {COUNTRY_FLAG[localRail.countryCode] || localRail.flag} {localRail.country} · {localRail.currency}
+              </p>
+            </div>
+            {africaCollectionRoutes.map((route, index) => (
+              <div
+                key={`${route.iso2}-${route.rail}`}
+                className={`px-4 py-3.5 flex items-center gap-3 ${index > 0 ? `border-t ${tc.borderLight}` : ''}`}
+              >
+                <div className="w-11 h-11 rounded-full bg-[#C7FF00]/10 flex items-center justify-center text-lg">
+                  {COUNTRY_FLAG[route.iso2] || localRail.flag}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-[15px] font-semibold ${tc.text}`}>{railLabel(route.rail)}</p>
+                  <p className={`text-[11px] ${tc.textMuted}`}>BorderPay fee: {route.borderpayCustomerFee}</p>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-amber-500/15 text-amber-300">
+                  Locked
+                </span>
+              </div>
+            ))}
+            <p className={`px-4 pb-4 text-[11px] ${tc.textMuted} leading-relaxed`}>
+              Local collection is ready for UI review and unlocks after provider API credentials are configured.
+            </p>
+          </div>
+        )}
+
         {/* Unified list — same rows/sheets as the Wallet tab */}
         <h2 className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-2.5 px-1`}>
           {tt('receive.payInto', 'Pay into')}
@@ -321,16 +372,21 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
               {stables.map((s, i) => {
                 const rawSym = String(s.currency || '').toUpperCase();
                 const sym = rawSym || (String(s.chain).toLowerCase() === 'tron' ? 'USDT' : 'USDC');
+                const displayAsLocal = sym === 'USDC' && !!localRail;
+                const displayCurrency = displayAsLocal ? localRail.currency : sym;
+                const displayName = displayAsLocal ? localRail.country : assetName(sym);
                 const showDivider = visibleVas.length > 0 || i > 0;
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
-                    <AssetBadge symbol={sym} size={44} />
+                    <AssetBadge symbol={displayCurrency} size={44} />
                     <div className="flex-1 min-w-0">
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
-                        {sym} <span className={`text-xs font-medium ${tc.textMuted}`}>· {assetName(sym)} ({chainLabel(s.chain)})</span>
+                        {displayCurrency} <span className={`text-xs font-medium ${tc.textMuted}`}>· {displayName}</span>
                       </div>
-                      <div className={`text-[11px] ${tc.textMuted}`}>{sym} · stablecoin deposit address</div>
+                      <div className={`text-[11px] ${tc.textMuted}`}>
+                        {displayAsLocal ? `Backed by USDC · ${chainLabel(s.chain)}` : `${sym} · deposit address`}
+                      </div>
                     </div>
                     <span className={`text-[10px] uppercase tracking-wider ${tc.textMuted} hidden xs:inline`}>View address</span>
                     <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
