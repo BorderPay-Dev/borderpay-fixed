@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Filter, Download, Search, ArrowUpRight, ArrowDownLeft, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
-import { backendAPI } from '../../utils/api/backendAPI';
+import { backendAPI, dedupeFinancialTransactions } from '../../utils/api/backendAPI';
 import { txDirection } from '../../utils/transactions/direction';
 import { SkeletonRows } from '../common/Skeleton';
 import { ErrorState } from '../common/ErrorState';
@@ -42,7 +42,7 @@ const TX_CACHE_KEY = 'borderpay_tx_history_v1';
 const TX_REFRESH_TS_KEY = 'borderpay_tx_refresh_ts_v1';
 const DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1';
 const BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1';
-const TX_FETCH_TIMEOUT_MS = 1400;
+const TX_FETCH_TIMEOUT_MS = 8500;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return Promise.race<T>([
@@ -71,14 +71,14 @@ function readTxCache(cacheKey: string, userId: string): Transaction[] {
   try {
     const raw = localStorage.getItem(cacheKey);
     const primary = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(primary) && primary.length > 0) return primary;
+    if (Array.isArray(primary) && primary.length > 0) return dedupeFinancialTransactions(normalizeTxRows(primary));
   } catch { /* continue to fallback */ }
   try {
     const recent = JSON.parse(localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');
-    if (Array.isArray(recent) && recent.length > 0) return normalizeTxRows(recent);
+    if (Array.isArray(recent) && recent.length > 0) return dedupeFinancialTransactions(normalizeTxRows(recent));
     const bizKey = financialCacheKey(BIZ_DASH_TX_KEY, { userId, accountType: 'business' });
     const biz = JSON.parse(localStorage.getItem(bizKey) || '[]');
-    if (Array.isArray(biz) && biz.length > 0) return normalizeTxRows(biz);
+    if (Array.isArray(biz) && biz.length > 0) return dedupeFinancialTransactions(normalizeTxRows(biz));
   } catch { /* noop */ }
   return [];
 }
@@ -87,13 +87,22 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey(TX_REFRESH_TS_KEY, { userId });
   const seededRows = readTxCache(cacheKey, userId);
+  const hasFreshTxCache = (() => {
+    try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      return Number.isFinite(last) && Date.now() - last < 60_000;
+    } catch {
+      return false;
+    }
+  })();
   useEffect(() => {
     navPerfTrackCache('transactions', seededRows.length > 0);
   }, [seededRows.length]);
   // Seed from cache so the history paints instantly on open, then refreshes.
   const [transactions, setTransactions] = useState<Transaction[]>(() => seededRows);
   const transactionsRef = useRef<Transaction[]>(seededRows);
-  const [loading, setLoading] = useState(false);
+  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshTxCache);
+  const [loading, setLoading] = useState(!hasFreshTxCache);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
   const [showFilters, setShowFilters] = useState(false);
@@ -104,6 +113,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   const tc = useThemeClasses();
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
+  useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
 
   useEffect(() => {
     loadTransactions();
@@ -173,7 +183,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
       );
       if (result.success && result.data) {
         const txns = (result.data as any).transactions || [];
-        const list = Array.isArray(txns) ? txns : [];
+        const list = dedupeFinancialTransactions(Array.isArray(txns) ? normalizeTxRows(txns) : []);
         setTransactions(list);
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
@@ -184,6 +194,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     } catch (error) {
       if (transactionsRef.current.length === 0) setLoadError(true);
     } finally {
+      setInitialRefreshDone(true);
       setLoading(false);
       refreshInFlightRef.current = false;
     }
@@ -352,7 +363,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
             onRetry={() => loadTransactions(true)}
             compact
           />
-        ) : loading && transactions.length === 0 ? (
+        ) : (loading || !initialRefreshDone) ? (
           <SkeletonRows count={6} />
         ) : filteredTransactions.length === 0 ? (
           <div className="text-center py-12">

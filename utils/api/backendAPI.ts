@@ -53,6 +53,77 @@ function isBridgeResourceVisible(row: any): boolean {
   return ![status, providerStatus].some((s) => s && inactiveStatuses.includes(s));
 }
 
+function firstNonEmpty(...values: unknown[]): string {
+  for (const value of values) {
+    const next = String(value ?? '').trim();
+    if (next) return next.replace(/^bridge:/i, '');
+  }
+  return '';
+}
+
+function bridgeTransferKey(row: any): string {
+  const md = row?.metadata || {};
+  const raw = md?.raw || {};
+  return firstNonEmpty(
+    row?.bridge_transfer_id,
+    md?.bridge_transfer_id,
+    md?.transfer_id,
+    md?.payment_route?.transfer_id,
+    md?.event_object_id,
+    raw?.payment_route?.transfer_id,
+    raw?.transfer_id,
+  );
+}
+
+export function dedupeFinancialTransactions<T extends Record<string, any>>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => {
+      const transferKey = bridgeTransferKey(row);
+      const eventKey = firstNonEmpty(
+        row?.metadata?.bridge_event_id,
+        row?.metadata?.event_id,
+        row?.event_id,
+      );
+      const key = transferKey
+        ? `transfer:${transferKey}`
+        : eventKey
+          ? `event:${eventKey}`
+          : `row:${firstNonEmpty(row?.id, row?.created_at)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+export function dedupeNotifications<T extends Record<string, any>>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => {
+      const md = row?.metadata || {};
+      const transferKey = firstNonEmpty(
+        md?.bridge_transfer_id,
+        md?.transfer_id,
+        md?.payment_route?.transfer_id,
+        md?.raw?.payment_route?.transfer_id,
+      );
+      const eventKey = firstNonEmpty(md?.bridge_event_id, md?.event_id, row?.event_id);
+      const contentKey = [
+        String(row?.title || '').trim().toLowerCase(),
+        String(row?.body || row?.message || '').trim().toLowerCase(),
+        String(row?.created_at || '').slice(0, 16),
+      ].join('|');
+      const key = transferKey
+        ? `transfer:${transferKey}`
+        : eventKey
+          ? `event:${eventKey}`
+          : `content:${contentKey || firstNonEmpty(row?.id)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 // ── Core API caller with retry for transient network failures ────────────────
 
 async function apiCall<T = any>(
@@ -651,24 +722,23 @@ export const transactionAPI = {
         },
       };
     });
-    const normalizeBridgeEventId = (value: unknown) => String(value || '').replace(/^bridge:/i, '');
-    const seen = new Set<string>();
     const transactions = [...ledgerTransactions, ...transferTransactions]
       .sort((a: any, b: any) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
-      .filter((row: any) => {
-        const key = String(
-          row?.metadata?.bridge_transfer_id ||
-          normalizeBridgeEventId(row?.metadata?.bridge_event_id) ||
-          normalizeBridgeEventId(row?.metadata?.event_id) ||
-          row?.id ||
-          ''
-        );
-        if (key && seen.has(key)) return false;
-        if (key) seen.add(key);
-        return true;
-      })
+      .map((row: any) => {
+        const raw = row?.metadata?.raw || {};
+        const transferId = bridgeTransferKey(row);
+        return {
+          ...row,
+          metadata: {
+            ...(row?.metadata || {}),
+            ...(transferId ? { bridge_transfer_id: transferId } : {}),
+            ...(raw?.id ? { bridge_activity_id: raw.id } : {}),
+          },
+        };
+      });
+    const dedupedTransactions = dedupeFinancialTransactions(transactions)
       .slice(offset, offset + limit);
-    return { success: true, data: { transactions } };
+    return { success: true, data: { transactions: dedupedTransactions } };
   },
 
   async getCustomerTransactions(_customerId: string, _filters?: any) {
@@ -1687,7 +1757,21 @@ export const notificationsAPI = {
   },
 
   async getNotifications(limit: number = 20) {
-    return apiCall(`get-notifications?limit=${limit}`, { method: 'GET' });
+    const fetchLimit = Math.max(limit * 2, limit);
+    const res: any = await apiCall(`get-notifications?limit=${fetchLimit}`, { method: 'GET' });
+    if (!res?.success) return res;
+    const rows = Array.isArray(res?.data?.notifications)
+      ? res.data.notifications
+      : (Array.isArray(res?.data) ? res.data : []);
+    const notifications = dedupeNotifications(rows).slice(0, limit);
+    return {
+      ...res,
+      data: {
+        ...(res.data && !Array.isArray(res.data) ? res.data : {}),
+        notifications,
+        unread_count: notifications.filter((n: any) => !n?.read).length,
+      },
+    };
   },
 
   async markAsRead(notificationId: string) {

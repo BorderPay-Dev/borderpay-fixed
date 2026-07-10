@@ -35,7 +35,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
-import { backendAPI } from '../../utils/api/backendAPI';
+import { backendAPI, dedupeFinancialTransactions } from '../../utils/api/backendAPI';
 import { deriveKycStatus, isKycVerified } from '../../utils/config/environment';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -196,7 +196,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(dashWalletsKey, []),
     [dashWalletsKey],
   );
-  const cachedRecent = useMemo(() => readJSON<any[]>(dashRecentKey, []), [dashRecentKey]);
+  const cachedRecent = useMemo(() => dedupeFinancialTransactions(readJSON<any[]>(dashRecentKey, [])), [dashRecentKey]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
     ws
       .filter((w) => ['USDC', 'USDT'].includes(String(w.currency || '').toUpperCase()))
@@ -427,7 +427,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // ── Recent transactions ───────────────────────────────────────────────
       if (Array.isArray(snapshotData?.transactions)) {
         const txns = snapshotData.transactions || [];
-        const recent = Array.isArray(txns) ? txns.slice(0, 5) : [];
+        const recent = Array.isArray(txns) ? dedupeFinancialTransactions(txns).slice(0, 5) : [];
         setRecentTransactions(recent);
         writeJSON(dashRecentKey, recent);
       }

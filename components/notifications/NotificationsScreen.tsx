@@ -15,7 +15,7 @@ import {
   Bell, CheckCheck, Trash2, AlertCircle, Loader2, ChevronLeft,
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Sparkles, Info,
 } from 'lucide-react';
-import { backendAPI } from '../../utils/api/backendAPI';
+import { backendAPI, dedupeNotifications } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
@@ -81,7 +81,7 @@ function readCachedNotifications(): NotificationRow[] {
     const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.rows) ? parsed.rows : [];
+    return Array.isArray(parsed?.rows) ? dedupeNotifications(parsed.rows) : [];
   } catch {
     return [];
   }
@@ -91,7 +91,7 @@ function writeCachedNotifications(rows: NotificationRow[]): void {
   try {
     const key = currentNotificationCacheKey();
     if (!key) return;
-    localStorage.setItem(key, JSON.stringify({ rows: rows.slice(0, 50), cached_at: Date.now() }));
+    localStorage.setItem(key, JSON.stringify({ rows: dedupeNotifications(rows).slice(0, 50), cached_at: Date.now() }));
   } catch { /* ignore notification cache write */ }
 }
 
@@ -140,7 +140,16 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
   const rowsRef = useRef<NotificationRow[]>(initialRows);
   const loadInFlightRef = useRef<Promise<void> | null>(null);
-  const [loading, setLoading] = useState(false);
+  const hasFreshNotificationCache = useMemo(() => {
+    try {
+      const last = Number(localStorage.getItem(refreshTsKey) || '0');
+      return Number.isFinite(last) && Date.now() - last < 60_000;
+    } catch {
+      return false;
+    }
+  }, [refreshTsKey]);
+  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshNotificationCache);
+  const [loading, setLoading] = useState(!hasFreshNotificationCache);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const load = useCallback(async (force = false) => {
@@ -172,9 +181,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
 	        { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rows : [] } } as any,
 	      );
       if (r?.success) {
-        const data = Array.isArray((r as any)?.data?.notifications)
+        const dataRaw = Array.isArray((r as any)?.data?.notifications)
           ? (r as any).data.notifications
           : (Array.isArray((r as any)?.data) ? (r as any).data : []);
+        const data = dedupeNotifications(dataRaw);
         setRows(data);
         writeCachedNotifications(data);
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
@@ -190,6 +200,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     } catch (e: any) {
       setError(friendlyError(e, "Notifications couldn't be loaded right now."));
     } finally {
+      setInitialRefreshDone(true);
       setLoading(false);
     }
     })();
@@ -324,7 +335,9 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
           <div className={`mb-3 text-[11px] ${tc.textMuted}`}>Refreshing notifications…</div>
         ) : null}
 
-        {rows.length === 0 ? (
+        {loading && !initialRefreshDone ? (
+          <SkeletonRows count={6} />
+        ) : rows.length === 0 ? (
           <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} px-6 py-12 text-center`}>
             <div className={`w-14 h-14 rounded-2xl ${tc.bgAlt} flex items-center justify-center mx-auto mb-4`}>
               <Bell className={`w-6 h-6 ${tc.textMuted}`} />
