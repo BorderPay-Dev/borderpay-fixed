@@ -33,6 +33,7 @@ import {
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { formatLocalRailAmount, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 
 interface WalletScreenProps {
   userId:     string;
@@ -147,6 +148,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
+  const localRail = useMemo(() => localRailForStoredUser(), []);
   const refreshInFlightRef = useRef(false);
   const preselectConsumedRef = useRef(false);
 
@@ -420,20 +422,28 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
               {stables.map((s, i) => {
                 const sym = String(s.currency || '').toUpperCase();
                 const stableBalance = Number(balanceByCurrency[sym] || 0);
+                const displayAsLocal = sym === 'USDC' && !!localRail;
+                const displayCurrency = displayAsLocal ? localRail.currency : sym;
+                const displayName = displayAsLocal ? localRail.country : assetName(sym);
+                const primaryAmount = displayAsLocal
+                  ? formatLocalRailAmount(stableBalance, localRail)
+                  : `$${stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                 const showDivider = vas.length > 0 || i > 0;
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
-                    <AssetBadge symbol={sym} size={44} />
+                    <AssetBadge symbol={displayCurrency} size={44} />
                     <div className="flex-1 min-w-0">
                       <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
-                        {sym} <span className={`text-xs font-medium ${tc.textMuted}`}>· {assetName(sym)} ({chainLabel(s.chain)})</span>
+                        {displayCurrency} <span className={`text-xs font-medium ${tc.textMuted}`}>· {displayName}</span>
                       </div>
-                      <div className={`text-[11px] ${tc.textMuted}`}>{sym} · stablecoin</div>
+                      <div className={`text-[11px] ${tc.textMuted}`}>
+                        {displayAsLocal ? 'Backed by USDC' : `${sym} · stablecoin`}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className={`text-[15px] font-bold ${tc.text}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        ${stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {primaryAmount}
                       </div>
                       <div className={`text-[11px] ${tc.textMuted}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {sym}

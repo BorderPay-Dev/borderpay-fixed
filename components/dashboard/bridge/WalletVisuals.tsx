@@ -117,7 +117,12 @@ export function ChainChip({ chain, size = 20 }: { chain: string; size?: number }
 
 // Fiat currencies render a flag (mobile renders these crisply); stablecoins use
 // the brand-coloured coin glyph.
-const FLAG: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+const FLAG: Record<string, string> = {
+  USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧',
+  BWP: '🇧🇼', CDF: '🇨🇩', EGP: '🇪🇬', GHS: '🇬🇭', KES: '🇰🇪',
+  MWK: '🇲🇼', NGN: '🇳🇬', RWF: '🇷🇼', TZS: '🇹🇿', UGX: '🇺🇬',
+  XAF: '🇨🇲', XOF: '🇧🇯', ZAR: '🇿🇦', ZMW: '🇿🇲',
+};
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',

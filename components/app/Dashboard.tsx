@@ -52,6 +52,7 @@ import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
+import { formatLocalRailAmount, localRailForCountry } from '../../utils/presentation/africanRailDisplay';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED } from '../../utils/featureFlags';
 
@@ -151,7 +152,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       cachedProfile?.email ||
       stored?.email ||
       '';
-    return { fullName: String(fullName || ''), email: String(email || '') };
+    const country =
+      cachedProfile?.country ||
+      stored?.country ||
+      meta?.country ||
+      '';
+    return { fullName: String(fullName || ''), email: String(email || ''), country: String(country || '') };
   }, [cachedProfile]);
   // Canonical 2FA signal (LoginScreen uses TOTPManager) so the dashboard agrees.
   const cached2FA = useMemo(() => {
@@ -192,8 +198,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => financialCacheKey('borderpay_dashboard_refresh_ts_v2', { userId }),
     [userId],
   );
+  type DashboardWalletRow = {
+    currency: string;
+    balance: number;
+    symbol: string;
+    color: string;
+    displayCurrency?: string;
+    displayBalanceLabel?: string;
+    backingCurrency?: string;
+  };
   const cachedWallets = useMemo(
-    () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(dashWalletsKey, []),
+    () => readJSON<DashboardWalletRow[]>(dashWalletsKey, []),
     [dashWalletsKey],
   );
   const cachedRecent = useMemo(() => dedupeFinancialTransactions(readJSON<any[]>(dashRecentKey, [])), [dashRecentKey]);
@@ -263,6 +278,20 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
     handleNavigate('wallet-detail');
   }, [handleNavigate]);
+
+  const displayWalletRow = useCallback((row: DashboardWalletRow): DashboardWalletRow => {
+    const currency = String(row.currency || '').toUpperCase();
+    const localRail = localRailForCountry(cachedIdentity.country);
+    if (currency !== 'USDC' || !localRail) return row;
+    return {
+      ...row,
+      displayCurrency: localRail.currency,
+      displayBalanceLabel: formatLocalRailAmount(Number(row.balance || 0), localRail),
+      backingCurrency: 'USDC',
+      symbol: localRail.symbol,
+      color: '#C7FF00',
+    };
+  }, [cachedIdentity.country]);
 
   // ─── data loading ─────────────────────────────────────────────────────────
   const loadDashboardData = useCallback(async () => {
@@ -336,7 +365,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // Spendable balances are wallet-settled only. Virtual accounts are
       // receive rails and tracked separately via snapshotData.virtual_accounts.
       {
-        type Row = { currency: string; balance: number; symbol: string; color: string };
+        type Row = DashboardWalletRow;
         const walletSource = Array.isArray(snapshotData?.wallets)
           ? snapshotData.wallets
           : Array.isArray(walletRouteData?.wallets)
@@ -387,9 +416,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           };
           const rows = [...activeVaRows, ...spendableRows]
             .sort((a, b) => rank(a.currency) - rank(b.currency));
-          setWallets(rows);
+          const displayRows = rows.map(displayWalletRow);
+          setWallets(displayRows);
           setTotalBalance(usdLikeTotal(spendableRows));
-          writeJSON(dashWalletsKey, rows);
+          writeJSON(dashWalletsKey, displayRows);
         }
         if (Array.isArray(vaSource)) {
           const hasVA = (vaSource as any[]).some((va: any) =>
@@ -453,7 +483,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         dashboardLoadInFlightRef.current = null;
       }
     }
-  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey]);
+  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey, displayWalletRow]);
 
   useEffect(() => {
     loadDashboardData();
@@ -799,7 +829,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               </button>
             ) : (
               <>
-                {wallets.map((w) => (
+                {wallets.map((w) => {
+                  const displayCurrency = String(w.displayCurrency || w.currency).toUpperCase();
+                  return (
                   <button
                     key={w.currency}
                     onPointerDown={() => prefetchScreen('wallet-detail')}
@@ -809,13 +841,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     className={`flex-shrink-0 w-[136px] min-h-[132px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center ${tc.hoverBg} transition-colors flex flex-col items-center justify-center`}
                   >
                     <div className="flex justify-center">
-                      <DashboardCurrencyIcon currency={w.currency} color={w.color} />
+                      <DashboardCurrencyIcon currency={displayCurrency} color={w.color} />
                     </div>
                     <p className={`text-lg ${tc.text} uppercase font-semibold mt-3`}>
-                      {w.currency}
+                      {displayCurrency}
                     </p>
+                    {w.displayBalanceLabel && (
+                      <p className={`text-[11px] ${tc.textMuted} mt-1`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {balanceHidden ? '••••' : w.displayBalanceLabel}
+                      </p>
+                    )}
                   </button>
-                ))}
+                );})}
                 <button
                   onPointerDown={() => prefetchScreen('add-wallet')}
                   onMouseEnter={() => prefetchScreen('add-wallet')}
@@ -989,7 +1026,12 @@ type RatePair = {
 
 function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
   const code = String(currency || '').toUpperCase();
-  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+  const flag: Record<string, string> = {
+    USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧',
+    BWP: '🇧🇼', CDF: '🇨🇩', EGP: '🇪🇬', GHS: '🇬🇭', KES: '🇰🇪',
+    MWK: '🇲🇼', NGN: '🇳🇬', RWF: '🇷🇼', TZS: '🇹🇿', UGX: '🇺🇬',
+    XAF: '🇨🇲', XOF: '🇧🇯', ZAR: '🇿🇦', ZMW: '🇿🇲',
+  };
   const [imgFailed, setImgFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[code];
 
