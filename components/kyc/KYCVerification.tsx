@@ -146,7 +146,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [lastHostedUrlTs, setLastHostedUrlTs] = useState<number>(() => {
     try { return Number(localStorage.getItem(`borderpay_last_verify_url_ts:${userId}`) || '0'); } catch { return 0; }
   });
-  const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
   const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`borderpay_last_tos_url:${userId}`); } catch { return null; }
   });
@@ -193,42 +192,19 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     } catch { /* noop */ }
   }, [userId]);
 
-  const openTopLevelHostedFallback = useCallback((url: string | null) => {
-    if (!url) return;
-    // Some Bridge hosted pages may refuse iframe embedding on specific hops.
-    // Hard fail-safe: open same link in current tab to avoid white-screen dead end.
+  const openExternalVerificationUrl = useCallback((url: string) => {
+    try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* noop */ }
+    try {
+      sessionStorage.removeItem('borderpay_verification_embed_open');
+      sessionStorage.removeItem('borderpay_verification_embed_title');
+      sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
+      window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
+    } catch { /* noop */ }
+    setEmbeddedPolling(false);
+    setEmbeddedUrl(null);
+    setEmbeddedReturnEnabled(true);
     window.location.href = url;
   }, []);
-
-  useEffect(() => {
-    if (!embeddedUrl) return;
-    const t = window.setTimeout(() => {
-      if (!embedLoaded) {
-        openTopLevelHostedFallback(embeddedUrl);
-      }
-    }, 2200);
-    return () => window.clearTimeout(t);
-  }, [embeddedUrl, embedLoaded, openTopLevelHostedFallback, embedNonce]);
-
-  // If the previous attempt required Bridge ToS, resume automatically on return
-  // to fetch/open the actual hosted KYC/KYB link.
-  useEffect(() => {
-    let cancelled = false;
-    const shouldResume = (() => {
-      try { return sessionStorage.getItem(resumeAfterTosKey) === '1'; } catch { return false; }
-    })();
-    if (!shouldResume) return;
-    try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
-    const timer = window.setTimeout(async () => {
-      if (cancelled) return;
-      await autoResumeVerificationAfterTos();
-    }, 200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeAfterTosKey]);
 
   const resolveVerificationContext = useCallback(async (): Promise<{ accountType: AccountType; emailConfirmed: boolean }> => {
     let currentAccountType: AccountType = accountType;
@@ -253,37 +229,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       : await backendAPI.bridge.kyc.startIndividual({ redirect_url, force_new: forceNew });
   }, []);
 
-  const autoResumeVerificationAfterTos = useCallback(async () => {
-    const ctx = await resolveVerificationContext();
-    if (!ctx.emailConfirmed) {
-      toast.error('Verify your email first, then retry verification.');
-      return;
-    }
-
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const r: any = await requestHostedLink(ctx.accountType);
-      if (r?.success && r.data?.link_url) {
-        setTosLinkUrl(null);
-        setLastHostedUrl(r.data.link_url);
-        openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
-        return;
-      }
-      if (r?.success && r.data?.tos_link_url) {
-        setTosLinkUrl(r.data.tos_link_url);
-        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
-        return;
-      }
-      if (r?.success && r.data?.already_approved) {
-        await refresh();
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    }
-
-    toast.error('Could not continue verification automatically. Tap Continue verification.');
-  }, [openHostedVerificationUrl, refresh, requestHostedLink, resolveVerificationContext]);
-
-  const probeVerificationState = useCallback(async (fromTosCallback = false) => {
+  const probeVerificationState = useCallback(async () => {
     try {
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
@@ -307,7 +253,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
           localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
         } catch { /* noop */ }
-        if (fromTosCallback) openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
       if (r?.success && r.data?.already_approved) {
@@ -316,7 +261,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     } catch {
       // silent probe: never block verification screen
     }
-  }, [requestHostedLink, resolveVerificationContext, refresh, openHostedVerificationUrl]);
+  }, [requestHostedLink, resolveVerificationContext, refresh]);
 
   useEffect(() => {
     if (status === 'verified' || status === 'under_review' || status === 'rejected') return;
@@ -347,7 +292,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
         } catch { /* noop */ }
         await refresh();
-        await probeVerificationState(true);
       } catch {
         // Ignore cross-origin frame access until callback returns to app origin.
       }
@@ -356,7 +300,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       cancelled = true;
       window.clearInterval(poll);
     };
-  }, [embeddedPolling, embeddedUrl, probeVerificationState, refresh]);
+  }, [embeddedPolling, embeddedUrl, refresh]);
 
   useEffect(() => {
     const onReturn = () => {
@@ -369,16 +313,14 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
       } catch { /* noop */ }
       setEmbeddedReturnEnabled(true);
+      void refresh();
     };
     window.addEventListener('borderpay:verification_embed_return', onReturn);
     return () => window.removeEventListener('borderpay:verification_embed_return', onReturn);
-  }, []);
+  }, [refresh]);
 
   const startVerification = async () => {
     try {
-      // Clear any stale resume marker from older attempts so callback-to-kyc
-      // never relaunches hosted verification unexpectedly.
-      try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
       // Always ask Bridge for the current hosted ToS/KYC/KYB state. Bridge is
       // the source of truth for whether ToS or verification comes next.
       const ctx = await resolveVerificationContext();
@@ -395,7 +337,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url);
           localStorage.setItem(`borderpay_last_tos_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
       }
@@ -410,16 +351,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
           localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* noop */ }
-        try {
-          sessionStorage.removeItem('borderpay_verification_embed_open');
-          sessionStorage.removeItem('borderpay_verification_embed_title');
-          sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
-          window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
-        } catch { /* noop */ }
-        setEmbeddedPolling(false);
-        setEmbeddedUrl(null);
-        window.location.href = r.data.link_url;
+        openExternalVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -433,7 +365,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       }
       if (r?.code === 'tos_required') {
         if (tosLinkUrl) {
-          try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
           openHostedVerificationUrl(tosLinkUrl, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
           return;
         }
@@ -467,7 +398,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
           localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
         } catch { /* noop */ }
-        openHostedVerificationUrl(r.data.link_url, { title: 'Restart verification', returnEnabled: true });
+        openExternalVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
@@ -487,10 +418,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const continueFromEmbeddedTos = async () => {
     try {
-      // User is already explicitly continuing from the embedded ToS step.
-      // Do not keep the old "resume after tos" marker, otherwise callback
-      // can auto-launch verification again and create a loop.
-      try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
+      // User is explicitly continuing from the embedded Bridge ToS step.
+      // Never auto-launch after callback; each verification link open must be
+      // caused by a user click on this screen.
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
@@ -509,7 +439,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
           localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
+        openExternalVerificationUrl(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
@@ -520,7 +450,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url);
           localStorage.setItem(`borderpay_last_tos_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
+        toast.warning('Accept the Bridge Terms of Service first, then tap Continue verification.');
+        if (r.data.tos_link_url !== embeddedUrl) {
+          openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
+        }
         return;
       }
       if (r?.success && r.data?.already_approved) {
@@ -665,22 +598,13 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             loading="eager"
             onLoad={() => {
               setEmbedLoaded(true);
-              try {
-                const href = iframeRef.current?.contentWindow?.location?.href || '';
-                if (href === 'about:blank') {
-                  openTopLevelHostedFallback(embeddedUrl);
-                }
-              } catch {
-                // Cross-origin access denied is expected when remote page is loaded;
-                // in that case the iframe likely rendered correctly.
-              }
-            }}
-            onError={() => {
-              openTopLevelHostedFallback(embeddedUrl);
             }}
           />
           {!embeddedReturnEnabled && (
             <div className="absolute bottom-0 inset-x-0 p-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] bg-gradient-to-t from-black/65 to-transparent">
+              <p className="mb-3 text-center text-xs leading-snug text-white/85">
+                Accept Bridge Terms of Service first. Skipping this step can delay verification.
+              </p>
               <button
                 onClick={() => { void continueFromEmbeddedTos(); }}
                 className="w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
