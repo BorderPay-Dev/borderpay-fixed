@@ -6,6 +6,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { SkeletonRows } from '../common/Skeleton';
 import { localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
+import { Shield } from 'lucide-react';
 
 interface AddWalletScreenProps {
   userId: string;
@@ -38,6 +39,26 @@ const STABLE_ICON_URL: Record<string, string> = {
 };
 const INACTIVE_VA_STATUSES = new Set(['inactive', 'deactivated', 'disabled', 'closed', 'archived', 'cancelled', 'canceled', 'rejected', 'suspended', 'blocked']);
 const ACTIVE_VA_STATUSES = new Set(['active', 'activated']);
+
+function isApproved(value?: string | null): boolean {
+  if (typeof value !== 'string') return false;
+  return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
+}
+
+function readCachedVerified(): boolean {
+  try {
+    const u = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    const accountType = String(u?.account_type || 'individual').toLowerCase();
+    const kycApproved = isApproved(u?.bridge_kyc_status);
+    const kybApproved = isApproved(u?.bridge_kyb_status);
+    const accountApproved = isApproved(u?.bridge_account_status);
+    return accountType === 'business'
+      ? (kybApproved || accountApproved)
+      : (kycApproved || accountApproved);
+  } catch {
+    return false;
+  }
+}
 
 function getVaStatus(row?: VaRow): string {
   return String(row?.account_details?.status || row?.status || 'active').trim().toLowerCase();
@@ -88,6 +109,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const [errorMessage, setErrorMessage] = useState('');
   const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<Set<string>>(new Set());
   const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshWalletCache);
+  const [isVerified] = useState<boolean>(() => readCachedVerified());
   const refreshInFlightRef = useRef(false);
   const localRail = useMemo(() => localRailForStoredUser(), []);
 
@@ -127,8 +149,9 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   };
 
   useEffect(() => {
+    if (!isVerified) return;
     void refresh();
-  }, [userId]);
+  }, [userId, isVerified]);
 
   const existingStable = useMemo(
     () => new Set(stableRows.map((r) => String(r.currency || '').toUpperCase())),
@@ -167,6 +190,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   );
 
   const requestVirtualAccount = async (currency: string) => {
+    if (!isVerified) {
+      setErrorMessage('Complete verification before requesting accounts.');
+      return;
+    }
     if (requesting) return;
     setErrorMessage('');
     setRequesting(currency);
@@ -225,6 +252,29 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       </button>
     );
   };
+
+  if (!isVerified) {
+    return (
+      <div className={`min-h-screen ${tc.bg}`}>
+        <FloatingBackButton onBack={onBack} />
+        <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-28">
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
+            {tt('wallet.add.title', 'Add wallet')}
+          </p>
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-8 text-center`}>
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-7 h-7 text-amber-400" />
+            </div>
+            <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Verification required</h2>
+            <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto mb-6 leading-relaxed`}>
+              Complete verification to request virtual accounts and wallets.
+            </p>
+            <button onClick={onBack} className={`text-[12px] font-semibold ${tc.textSecondary} hover:${tc.text}`}>Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
