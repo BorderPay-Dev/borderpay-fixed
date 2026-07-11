@@ -23,6 +23,7 @@ import { render as individualPaymentReceived }         from "./individual/paymen
 import { render as individualFounderWelcome }          from "./individual/founder-welcome.ts";
 import { render as individualFirstTransactionReminder }from "./individual/first-transaction-reminder.ts";
 import { render as individualAccountSuspended }        from "./individual/account-suspended.ts";
+import { render as individualVirtualAccountLimits }     from "./individual/virtual-account-limits.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessPinResetLink }            from "./business/pin-reset-link.ts";
@@ -37,6 +38,7 @@ import { render as businessPaymentReceived }           from "./business/payment-
 import { render as businessFounderWelcome }            from "./business/founder-welcome.ts";
 import { render as businessFirstTransactionReminder }  from "./business/first-transaction-reminder.ts";
 import { render as businessAccountSuspended }          from "./business/account-suspended.ts";
+import { render as businessVirtualAccountLimits }       from "./business/virtual-account-limits.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -51,6 +53,7 @@ export type TemplateName =
   | "individual.founder_welcome"
   | "individual.first_transaction_reminder"
   | "individual.account_suspended"
+  | "individual.virtual_account_limits"
   | "business.email_verification"
   | "business.pin_reset_link"
   | "business.kyb_submitted"
@@ -63,7 +66,8 @@ export type TemplateName =
   | "business.payment_received"
   | "business.founder_welcome"
   | "business.first_transaction_reminder"
-  | "business.account_suspended";
+  | "business.account_suspended"
+  | "business.virtual_account_limits";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -80,6 +84,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.founder_welcome":         individualFounderWelcome,
   "individual.first_transaction_reminder": individualFirstTransactionReminder,
   "individual.account_suspended":       individualAccountSuspended,
+  "individual.virtual_account_limits":   individualVirtualAccountLimits,
   "business.email_verification":        businessEmailVerification,
   "business.pin_reset_link":            businessPinResetLink,
   "business.kyb_submitted":             businessKybSubmitted,
@@ -93,6 +98,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.founder_welcome":           businessFounderWelcome,
   "business.first_transaction_reminder": businessFirstTransactionReminder,
   "business.account_suspended":         businessAccountSuspended,
+  "business.virtual_account_limits":     businessVirtualAccountLimits,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {
