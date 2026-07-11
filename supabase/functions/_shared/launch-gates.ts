@@ -1,8 +1,9 @@
 /**
  * BorderPay launch gates.
  *
- * These gates intentionally fail closed. They protect billable/provider-touching
- * Bridge operations while signup and read-only app access continue.
+ * These gates intentionally fail closed only for the outer launch switch. Bridge
+ * hosted onboarding owns ToS + KYC/KYB collection; the app must not block users
+ * behind a local BorderPay ToS row before requesting the Bridge hosted link.
  */
 
 export const BRIDGE_ONBOARDING_PAUSED_CODE = "bridge_onboarding_paused";
@@ -24,16 +25,14 @@ export function bridgeOnboardingPausedBody() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stepped verification gate.
+// Verification gate.
 //
-// Bridge bills us per verification ($2 KYC / $10 KYB). We therefore NEVER call
-// a Bridge verification endpoint unless these conditions hold:
-//   1. onboarding is enabled (env, fail-closed)         — bridgeOnboardingEnabled()
-//   2. BorderPay Terms of Service were accepted durably
+// Bridge hosted KYC/KYB collects Bridge Terms of Service as part of the hosted
+// flow. Do not require local `tos_accepted_at` here; doing so prevents the app
+// from ever receiving the Bridge ToS/KYC/KYB URL and blocks live onboarding.
 //
 // The env gate stays the OUTER guard, so while BRIDGE_ONBOARDING_ENABLED is off
-// every caller still gets `bridge_onboarding_paused` and no behavior changes in
-// production until this is explicitly enabled with a paired deploy.
+// every caller still gets `bridge_onboarding_paused`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const TOS_REQUIRED_CODE           = "tos_required";
@@ -48,27 +47,12 @@ export type VerificationGateResult =
 
 /**
  * Pure gate used by bridge-kyc-link / bridge-kyb-link before any Bridge
- * verification call. Order: env pause → ToS.
- *
- * NOTE: KYC/KYB is now AUTOMATIC — Bridge runs verification and we react to its
- * webhook. There is NO admin manual-review step; that gate has been removed.
- * The remaining gates are the env launch-pause and durable ToS acceptance.
+ * verification call. Bridge ToS happens inside the provider-hosted flow.
  */
 export function verificationGate(input: VerificationGateInput): VerificationGateResult {
+  void input;
   if (!bridgeOnboardingEnabled()) {
     return { allowed: false, code: BRIDGE_ONBOARDING_PAUSED_CODE, status: 503, body: bridgeOnboardingPausedBody() };
-  }
-  if (!input.hasAcceptedTos) {
-    return {
-      allowed: false,
-      code: TOS_REQUIRED_CODE,
-      status: 409,
-      body: {
-        success: false,
-        code: TOS_REQUIRED_CODE,
-        error: "Accept BorderPay Terms of Service before starting verification.",
-      },
-    };
   }
   return { allowed: true };
 }
