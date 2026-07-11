@@ -483,12 +483,13 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  const { error: updateErr } = await supa.from("user_profiles").update({
-    bridge_kyc_link_id:  links.kyc_link_id,
-    bridge_kyc_link_url: links.kyc_link_url,
+  const updatePayload: Record<string, unknown> = {
+    ...(links.kyc_link_id ? { bridge_kyc_link_id: links.kyc_link_id } : {}),
+    ...(links.kyc_link_url ? { bridge_kyc_link_url: links.kyc_link_url } : {}),
     ...(links.customer_id ? { bridge_customer_id: links.customer_id } : {}),
-    updated_at:          new Date().toISOString(),
-  }).eq("id", user.id);
+    updated_at: new Date().toISOString(),
+  };
+  const { error: updateErr } = await supa.from("user_profiles").update(updatePayload).eq("id", user.id);
   if (updateErr) {
     await writeTrace(correlationId, "db_update_failed", {
       executionTimestamp,

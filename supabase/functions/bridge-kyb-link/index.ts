@@ -72,7 +72,7 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
   };
 }
 
-function extractLink(parsed: any): { link_url: string; link_id: string; customer_id?: string } | null {
+function extractLink(parsed: any): { link_url: string | null; link_id: string | null; customer_id?: string; tos_link_url: string | null } | null {
   if (!parsed) return null;
   const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
   for (const c of candidates) {
@@ -83,7 +83,10 @@ function extractLink(parsed: any): { link_url: string; link_id: string; customer
       c?.link;
     const link_id: string | null  = c?.kyc_link?.id || c?.id;
     const customer_id: string | undefined = c?.customer_id || c?.kyc_link?.customer_id;
-    if (link_url && link_id) return { link_url, link_id, customer_id };
+    const tos_link_url: string | null = c?.tos_link?.url || c?.tos_link || c?.data?.tos_link?.url || null;
+    if (link_url || tos_link_url) {
+      return { link_url: link_url || null, link_id: link_id || null, customer_id, tos_link_url: tos_link_url || null };
+    }
   }
   return null;
 }
@@ -215,12 +218,13 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  const { error: updateErr } = await supa.from("business_profiles").update({
-    bridge_kyb_link_id:  link.link_id,
-    bridge_kyb_link_url: link.link_url,
+  const updatePayload: Record<string, unknown> = {
+    ...(link.link_id ? { bridge_kyb_link_id: link.link_id } : {}),
+    ...(link.link_url ? { bridge_kyb_link_url: link.link_url } : {}),
     ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}),
-    updated_at:          new Date().toISOString(),
-  }).eq("user_id", user.id);
+    updated_at: new Date().toISOString(),
+  };
+  const { error: updateErr } = await supa.from("business_profiles").update(updatePayload).eq("user_id", user.id);
   if (updateErr) {
     console.error(`bridge-kyb-link: business_profiles update failed for user=${user.id}: ${updateErr.message}`);
     return json({
@@ -233,6 +237,12 @@ Deno.serve(async (req: Request) => {
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
   return json({
     success: true,
-    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined },
+    data: {
+      link_id: link.link_id,
+      link_url: link.link_url,
+      tos_link_url: link.tos_link_url,
+      expires_at,
+      reused: !r.ok ? true : undefined,
+    },
   });
 });
