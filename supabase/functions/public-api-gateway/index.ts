@@ -17,6 +17,9 @@ import {
   BridgeProviderError,
 } from "../_shared/providers/bridge.ts";
 import {
+  loadVirtualAccountDeveloperFeePercent,
+} from "../_shared/providers/virtual-account-config.ts";
+import {
   validateCustomerCreate,
   validateIdempotencyHeader,
   validateTransferOrPayout,
@@ -258,7 +261,11 @@ async function handleRoute(
         body: { success: false, error: parsed.error },
       };
     }
-    const result = await bridgeProvider.createVirtualAccount(parsed.value);
+    const developerFeePercent = await loadVirtualAccountDeveloperFeePercent(supa);
+    const result = await bridgeProvider.createVirtualAccount({
+      ...parsed.value,
+      developer_fee_percent: developerFeePercent,
+    });
     return {
       status: 201,
       body: {

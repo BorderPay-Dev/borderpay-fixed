@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: BorderPay Public API
-  version: 1.0.1
+  version: 1.0.2
   summary: BorderPay API v1 (gateway-enforced contract)
   description: |
     Public partner API contract aligned to live gateway validators (Step 2D, 2026-07-06).
@@ -68,7 +68,7 @@ paths:
   /v1/wallets:
     post:
       tags: [Wallets]
-      summary: Create stablecoin wallet
+      summary: Create wallet
       operationId: createWallet
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -338,11 +338,14 @@ components:
           enum: [USD, EUR, GBP]
         destination:
           type: object
-          required: [rail, currency, address]
+          required: [payment_rail, currency]
           properties:
-            rail: { type: string }
+            payment_rail:
+              type: string
+              enum: [base, tron, ethereum, solana, polygon, arbitrum, optimism, avalanche_c_chain, celo, stellar, tempo]
             currency: { type: string }
             address: { type: string }
+            bridge_wallet_id: { type: string }
 
     CreateVirtualAccountResponse:
       type: object
@@ -365,7 +368,9 @@ components:
       type: object
       required: [payment_rail, currency]
       properties:
-        payment_rail: { type: string }
+        payment_rail:
+          type: string
+          enum: [bridge_wallet, base, tron, ethereum, solana, polygon, arbitrum, optimism, avalanche_c_chain, celo, stellar, tempo, ach, wire, sepa, mobile_money, local_bank, external_account]
         currency: { type: string }
         chain: { type: string }
         amount: { type: string }
@@ -385,8 +390,11 @@ components:
 
     CreateTransferRequest:
       type: object
-      required: [source, destination, idempotency_key]
+      required: [on_behalf_of, source, destination, idempotency_key]
       properties:
+        on_behalf_of:
+          type: string
+          description: BorderPay/Bridge customer id the transfer is executed for.
         source:
           $ref: '#/components/schemas/TransferParty'
         destination:

@@ -6,16 +6,15 @@
     "transfer_id": "tr_01J2X7TQK5PZCC5M5J4N6Q9S1A",
     "status": "completed",
     "source": {
-      "payment_rail": "stablecoin",
+      "payment_rail": "bridge_wallet",
       "currency": "USDC",
-      "chain": "BASE",
+      "bridge_wallet_id": "wallet_sender_usdc",
       "amount": "10.00"
     },
     "destination": {
-      "payment_rail": "stablecoin",
-      "currency": "USDC",
-      "chain": "BASE",
-      "address": "0x0000000000000000000000000000000000000002"
+      "payment_rail": "base",
+      "currency": "usdc",
+      "to_address": "0x0000000000000000000000000000000000000002"
     },
     "settled_at": "2026-07-06T12:09:56Z"
   }

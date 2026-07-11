@@ -8,16 +8,15 @@
     "failure_code": "provider_unavailable",
     "failure_reason": "Upstream provider timeout",
     "source": {
-      "payment_rail": "stablecoin",
+      "payment_rail": "bridge_wallet",
       "currency": "USDT",
-      "chain": "TRON",
+      "bridge_wallet_id": "wallet_sender_usdt",
       "amount": "15.00"
     },
     "destination": {
-      "payment_rail": "stablecoin",
-      "currency": "USDT",
-      "chain": "TRON",
-      "address": "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE"
+      "payment_rail": "tron",
+      "currency": "usdt",
+      "to_address": "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE"
     }
   }
 }

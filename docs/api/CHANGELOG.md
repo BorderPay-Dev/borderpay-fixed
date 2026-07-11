@@ -1,5 +1,14 @@
 # BorderPay API Changelog
 
+## v1.0.2 - 2026-07-11
+
+- Replaced legacy `stablecoin` transfer examples with Bridge-compatible rails:
+  - source: `bridge_wallet`
+  - destinations: `base`, `tron`, or another supported Bridge rail
+- Required `on_behalf_of` for transfer and payout create requests.
+- Aligned virtual-account destination payloads to `payment_rail` plus `bridge_wallet_id` or address.
+- Enforced HTTPS-only webhook endpoint registration.
+
 ## v1.0.1 - 2026-07-06
 
 - Synced OpenAPI to gateway-enforced v1 routes.

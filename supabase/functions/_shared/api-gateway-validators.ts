@@ -26,16 +26,28 @@ const STABLECOIN_CHAINS = new Set([
   "OPTIMISM",
   "ARBITRUM",
 ]);
+const BRIDGE_BLOCKCHAIN_RAILS = new Set([
+  "arbitrum",
+  "avalanche_c_chain",
+  "base",
+  "celo",
+  "ethereum",
+  "optimism",
+  "polygon",
+  "solana",
+  "stellar",
+  "tempo",
+  "tron",
+]);
 const SOURCE_RAILS = new Set([
-  "stablecoin",
   "ach",
   "wire",
   "sepa",
   "bridge_wallet",
   "external_account",
+  ...BRIDGE_BLOCKCHAIN_RAILS,
 ]);
 const DEST_RAILS = new Set([
-  "stablecoin",
   "ach",
   "wire",
   "sepa",
@@ -43,6 +55,7 @@ const DEST_RAILS = new Set([
   "local_bank",
   "bridge_wallet",
   "external_account",
+  ...BRIDGE_BLOCKCHAIN_RAILS,
 ]);
 
 function invalid(
@@ -198,9 +211,10 @@ export type VirtualAccountCreateInput = {
   customer_id: string;
   currency: "USD" | "EUR" | "GBP";
   destination: {
-    rail: string;
+    payment_rail: string;
     currency: string;
-    address: string;
+    address?: string;
+    bridge_wallet_id?: string;
   };
 };
 
@@ -221,14 +235,21 @@ export function validateVirtualAccountCreate(
   }
 
   const destination = body?.destination ?? {};
-  const rail = stringField(destination?.rail);
-  if (!rail) {
-    return invalid("destination.rail is required", {
-      field: "destination.rail",
+  const paymentRail = stringField(destination?.payment_rail ?? destination?.rail)
+    .toLowerCase();
+  if (!paymentRail) {
+    return invalid("destination.payment_rail is required", {
+      field: "destination.payment_rail",
+    });
+  }
+  if (!BRIDGE_BLOCKCHAIN_RAILS.has(paymentRail)) {
+    return invalid("destination.payment_rail unsupported for virtual account", {
+      field: "destination.payment_rail",
+      allowed: Array.from(BRIDGE_BLOCKCHAIN_RAILS),
     });
   }
 
-  const dcy = stringField(destination?.currency);
+  const dcy = stringField(destination?.currency).toLowerCase();
   if (!dcy) {
     return invalid("destination.currency is required", {
       field: "destination.currency",
@@ -236,9 +257,10 @@ export function validateVirtualAccountCreate(
   }
 
   const address = stringField(destination?.address);
-  if (!address) {
-    return invalid("destination.address is required", {
-      field: "destination.address",
+  const bridgeWalletId = stringField(destination?.bridge_wallet_id);
+  if (!address && !bridgeWalletId) {
+    return invalid("destination.bridge_wallet_id or destination.address is required", {
+      field: "destination.bridge_wallet_id",
     });
   }
 
@@ -248,15 +270,17 @@ export function validateVirtualAccountCreate(
       customer_id: customerId,
       currency: currency as "USD" | "EUR" | "GBP",
       destination: {
-        rail,
+        payment_rail: paymentRail,
         currency: dcy,
-        address,
+        ...(address ? { address } : {}),
+        ...(bridgeWalletId ? { bridge_wallet_id: bridgeWalletId } : {}),
       },
     },
   };
 }
 
 export type TransferInput = {
+  on_behalf_of: string;
   source: Record<string, unknown>;
   destination: Record<string, unknown>;
   developer_fee?: Record<string, unknown>;
@@ -267,6 +291,11 @@ export function validateTransferOrPayout(
   body: any,
 ): ValidationResult<TransferInput> {
   const transfer = body?.transfer ?? body ?? {};
+
+  const onBehalfOf = stringField(transfer?.on_behalf_of ?? body?.on_behalf_of);
+  if (!onBehalfOf) {
+    return invalid("on_behalf_of is required", { field: "on_behalf_of" });
+  }
 
   const idem = stringField(transfer?.idempotency_key);
   if (!idem) {
@@ -285,6 +314,12 @@ export function validateTransferOrPayout(
   }
 
   const sourceRail = stringField((source as any).payment_rail).toLowerCase();
+  if (sourceRail === "stablecoin") {
+    return invalid("source.payment_rail must use Bridge rails, not stablecoin", {
+      field: "source.payment_rail",
+      allowed: Array.from(SOURCE_RAILS),
+    });
+  }
   if (!SOURCE_RAILS.has(sourceRail)) {
     return invalid("source.payment_rail unsupported", {
       field: "source.payment_rail",
@@ -293,6 +328,12 @@ export function validateTransferOrPayout(
   }
 
   const destRail = stringField((destination as any).payment_rail).toLowerCase();
+  if (destRail === "stablecoin") {
+    return invalid("destination.payment_rail must use Bridge rails, not stablecoin", {
+      field: "destination.payment_rail",
+      allowed: Array.from(DEST_RAILS),
+    });
+  }
   if (!DEST_RAILS.has(destRail)) {
     return invalid("destination.payment_rail unsupported", {
       field: "destination.payment_rail",
@@ -318,30 +359,33 @@ export function validateTransferOrPayout(
     });
   }
 
-  if (sourceRail === "stablecoin") {
-    const chain = stringField((source as any).chain).toUpperCase();
-    if (!chain) {
-      return invalid("source.chain required for stablecoin source", {
-        field: "source.chain",
+  if (sourceRail === "bridge_wallet") {
+    const walletId = stringField((source as any).bridge_wallet_id);
+    if (!walletId) {
+      return invalid("source.bridge_wallet_id required for bridge_wallet source", {
+        field: "source.bridge_wallet_id",
       });
     }
   }
 
-  if (destRail === "stablecoin") {
-    const chain = stringField((destination as any).chain).toUpperCase();
-    if (!chain) {
-      return invalid("destination.chain required for stablecoin destination", {
-        field: "destination.chain",
+  if (destRail === "bridge_wallet") {
+    const walletId = stringField((destination as any).bridge_wallet_id);
+    if (!walletId) {
+      return invalid("destination.bridge_wallet_id required for bridge_wallet destination", {
+        field: "destination.bridge_wallet_id",
       });
     }
+  }
+
+  if (BRIDGE_BLOCKCHAIN_RAILS.has(destRail)) {
     const toAddress = stringField(
       (destination as any).address || (destination as any).to_address,
     );
     if (!toAddress) {
       return invalid(
-        "destination.address required for stablecoin destination",
+        "destination.to_address required for blockchain destination",
         {
-          field: "destination.address",
+          field: "destination.to_address",
         },
       );
     }
@@ -350,6 +394,7 @@ export function validateTransferOrPayout(
   return {
     ok: true,
     value: {
+      on_behalf_of: onBehalfOf,
       source,
       destination,
       developer_fee: typeof transfer?.developer_fee === "object"
@@ -379,8 +424,8 @@ export function validateWebhookCreate(
       field: "endpoint_url",
     });
   }
-  if (!["https:", "http:"].includes(parsed.protocol)) {
-    return invalid("endpoint_url must use http or https", {
+  if (parsed.protocol !== "https:") {
+    return invalid("endpoint_url must use https", {
       field: "endpoint_url",
     });
   }

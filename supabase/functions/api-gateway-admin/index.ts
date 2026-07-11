@@ -54,6 +54,20 @@ function normalizeWindowMinutes(v: unknown): number {
   return Math.max(1, Math.min(1440, Math.floor(n)));
 }
 
+function requireHttpsUrl(v: unknown, field: string): string {
+  const raw = requireString(v, field);
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${field} must be a valid URL`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`${field} must use https`);
+  }
+  return raw;
+}
+
 async function sha256Hex(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -284,7 +298,7 @@ Deno.serve(async (req) => {
 
     if (action === "create_webhook_endpoint") {
       const tenantId = requireString(body?.tenant_id, "tenant_id");
-      const endpointUrl = requireString(body?.endpoint_url, "endpoint_url");
+      const endpointUrl = requireHttpsUrl(body?.endpoint_url, "endpoint_url");
       const secret = newWebhookSecret();
       const secretHash = await sha256Hex(secret);
 

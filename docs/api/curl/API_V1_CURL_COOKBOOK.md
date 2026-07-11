@@ -71,9 +71,9 @@ curl -s "$GATEWAY_URL" \
     \"customer_id\":\"$CUSTOMER_ID\",
     \"currency\":\"USD\",
     \"destination\":{
-      \"rail\":\"base\",
+      \"payment_rail\":\"base\",
       \"currency\":\"usdc\",
-      \"address\":\"0x0000000000000000000000000000000000000001\"
+      \"bridge_wallet_id\":\"$USDC_BRIDGE_WALLET_ID\"
     }
   }"
 ```
@@ -88,18 +88,17 @@ curl -s "$GATEWAY_URL" \
   -H "x-borderpay-mode: $MODE" \
   -H "Idempotency-Key: idem-transfer-001" \
   -d "{
+    \"on_behalf_of\":\"$CUSTOMER_ID\",
     \"source\":{
-      \"payment_rail\":\"stablecoin\",
+      \"payment_rail\":\"bridge_wallet\",
       \"currency\":\"USDC\",
-      \"chain\":\"BASE\",
       \"amount\":\"10.00\",
-      \"customer_id\":\"$CUSTOMER_ID\"
+      \"bridge_wallet_id\":\"$USDC_BRIDGE_WALLET_ID\"
     },
     \"destination\":{
-      \"payment_rail\":\"stablecoin\",
-      \"currency\":\"USDC\",
-      \"chain\":\"BASE\",
-      \"address\":\"0x0000000000000000000000000000000000000002\"
+      \"payment_rail\":\"base\",
+      \"currency\":\"usdc\",
+      \"to_address\":\"0x0000000000000000000000000000000000000002\"
     },
     \"idempotency_key\":\"idem-transfer-001\"
   }"
@@ -115,18 +114,17 @@ curl -s "$GATEWAY_URL" \
   -H "x-borderpay-mode: $MODE" \
   -H "Idempotency-Key: idem-payout-001" \
   -d "{
+    \"on_behalf_of\":\"$CUSTOMER_ID\",
     \"source\":{
-      \"payment_rail\":\"stablecoin\",
+      \"payment_rail\":\"bridge_wallet\",
       \"currency\":\"USDT\",
-      \"chain\":\"TRON\",
       \"amount\":\"15.00\",
-      \"customer_id\":\"$CUSTOMER_ID\"
+      \"bridge_wallet_id\":\"$USDT_BRIDGE_WALLET_ID\"
     },
     \"destination\":{
-      \"payment_rail\":\"stablecoin\",
-      \"currency\":\"USDT\",
-      \"chain\":\"TRON\",
-      \"address\":\"TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE\"
+      \"payment_rail\":\"tron\",
+      \"currency\":\"usdt\",
+      \"to_address\":\"TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE\"
     },
     \"idempotency_key\":\"idem-payout-001\"
   }"
