@@ -23,6 +23,7 @@ import {
   Mail,
   MessageSquare,
   Users,
+  Palette,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
@@ -160,6 +161,9 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       title: t('settings.account'),
       items: [
         { icon: User, label: isBusinessAccount ? 'Business information' : t('settings.personalInfo'), screen: 'profile', color: 'text-blue-400' },
+        ...(isBusinessAccount ? [
+          { icon: Palette, label: 'White-label app', screen: 'white-label-settings', color: 'text-[#C7FF00]' },
+        ] : []),
         // Plans & pricing removed: there are no plans, paid upgrades, or
         // first-fund activation requirements in-app.
         // Payment Methods option removed per product decision.

@@ -15,6 +15,7 @@ import {
   AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
+import type { WhiteLabelBranding } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
@@ -34,6 +35,13 @@ const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v2';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
 const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v2';
 const VA_LIST_CACHE_KEY = 'borderpay_va_v3';
+const DEFAULT_WHITE_LABEL_BRANDING: WhiteLabelBranding = {
+  app_name: 'BorderPay',
+  logo_url: null,
+  primary_color: '#C7FF00',
+  background_color: '#0B0E11',
+  background_accent: '#1A1F26',
+};
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -56,6 +64,16 @@ function hasActiveCachedVa(userId: string): boolean {
   } catch {
     return false;
   }
+}
+function whiteLabelCacheKey(userId: string): string {
+  return `borderpay_white_label_branding_v1:${userId}`;
+}
+function readWhiteLabelBranding(userId: string, fallbackName: string): WhiteLabelBranding {
+  try {
+    const raw = localStorage.getItem(whiteLabelCacheKey(userId));
+    if (raw) return { ...DEFAULT_WHITE_LABEL_BRANDING, ...JSON.parse(raw) };
+  } catch { /* noop */ }
+  return { ...DEFAULT_WHITE_LABEL_BRANDING, app_name: fallbackName || DEFAULT_WHITE_LABEL_BRANDING.app_name };
 }
 
 interface BusinessDashboardProps {
@@ -129,6 +147,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   );
 
   const [companyName, setCompanyName]               = useState<string>(initialCompanyName);
+  const [whiteLabelBranding, setWhiteLabelBranding] = useState<WhiteLabelBranding>(() => readWhiteLabelBranding(userId, initialCompanyName));
   const [registrationNumber, setRegistrationNumber] = useState<string | null>(null);
   const [country, setCountry]                       = useState<string | null>(initialCountry);
   const [profileError, setProfileError]             = useState<string | null>(null);
@@ -181,10 +200,37 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
     try { return sessionStorage.getItem(setupBannerDismissKey) === '1'; } catch { return false; }
   });
   const localRail = useMemo(() => localRailForStoredUser(), []);
+  const whiteLabelAccent = whiteLabelBranding.primary_color || '#C7FF00';
+  const whiteLabelName = String(whiteLabelBranding.app_name || '').trim() || companyName;
 
   useEffect(() => {
     navPerfTrackCache('dashboard', cachedBizWallets.length > 0 || cachedBizTransactions.length > 0);
   }, [cachedBizWallets.length, cachedBizTransactions.length]);
+
+  useEffect(() => {
+    let alive = true;
+    const apply = (branding: WhiteLabelBranding) => {
+      if (!alive) return;
+      setWhiteLabelBranding(branding);
+      try { localStorage.setItem(whiteLabelCacheKey(userId), JSON.stringify(branding)); } catch { /* noop */ }
+    };
+    try {
+      const raw = localStorage.getItem(whiteLabelCacheKey(userId));
+      if (raw) setWhiteLabelBranding({ ...DEFAULT_WHITE_LABEL_BRANDING, ...JSON.parse(raw) });
+    } catch { /* noop */ }
+    void backendAPI.whiteLabel.get().then((res: any) => {
+      if (res?.success && res?.data?.branding) apply(res.data.branding);
+    });
+    const onBranding = (event: Event) => {
+      const branding = (event as CustomEvent).detail;
+      if (branding) apply({ ...DEFAULT_WHITE_LABEL_BRANDING, ...branding });
+    };
+    window.addEventListener('borderpay:white_label_branding_updated', onBranding as EventListener);
+    return () => {
+      alive = false;
+      window.removeEventListener('borderpay:white_label_branding_updated', onBranding as EventListener);
+    };
+  }, [userId]);
 
   useEffect(() => {
     walletsRef.current = wallets;
@@ -442,17 +488,31 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   const initials = (companyName || 'B').slice(0, 2).toUpperCase();
 
   return (
-    <div className={`min-h-screen ${tc.bg}`}>
+    <div
+      className={`min-h-screen ${tc.bg}`}
+      style={{
+        background:
+          `radial-gradient(circle at 92% 0%, ${whiteLabelAccent}14, transparent 28%), ` +
+          `linear-gradient(180deg, ${whiteLabelBranding.background_color || '#0B0E11'}, ${whiteLabelBranding.background_accent || '#1A1F26'})`,
+      }}
+    >
       {/* ── 1. Business identity row ─────────────────────────────────── */}
       <section className="flex items-center justify-between px-5 sm:px-6 pt-5 gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-[#C7FF00] flex items-center justify-center text-black font-bold text-sm flex-shrink-0">
-            {initials}
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-black font-bold text-sm flex-shrink-0 overflow-hidden"
+            style={{ backgroundColor: whiteLabelAccent }}
+          >
+            {whiteLabelBranding.logo_url ? (
+              <img src={whiteLabelBranding.logo_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              initials
+            )}
           </div>
           <div className="min-w-0">
             <p className={`text-[10px] uppercase tracking-[0.16em] ${tc.textMuted} font-semibold`}>Business</p>
-            {companyName ? (
-              <h1 className={`text-base font-semibold ${tc.text} truncate`}>{companyName}</h1>
+            {whiteLabelName ? (
+              <h1 className={`text-base font-semibold ${tc.text} truncate`}>{whiteLabelName}</h1>
             ) : (
               <div className={`h-5 w-36 rounded ${tc.bgAlt} animate-pulse`} aria-label="Loading business name" />
             )}
@@ -595,7 +655,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
                         </div>
                         {isSpendable ? (
                           <>
-                            <p className={`text-[17px] ${tc.text} font-semibold mt-3 leading-tight`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  <p className={`text-[17px] ${tc.text} font-semibold mt-3 leading-tight`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {balanceLabel}
                             </p>
                             <p className={`text-[10px] ${tc.textMuted} uppercase font-semibold mt-1`}>
@@ -632,7 +692,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
             <div className="px-4 sm:px-5 mt-2">
               <button
                 onClick={() => loadWallets(true)}
-                className="text-[11px] text-[#C7FF00] font-semibold inline-flex items-center gap-1"
+                className="text-[11px] font-semibold inline-flex items-center gap-1"
+                style={{ color: whiteLabelAccent }}
               >
                 <RefreshCw className="w-3 h-3" /> Retry loading accounts
               </button>
@@ -699,7 +760,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
 
         {/* ── 7. Trust line ────────────────────────────────────────── */}
         <section className="px-5 sm:px-6 pt-1 flex items-center justify-center gap-1.5">
-          <ShieldCheck className="w-3 h-3 text-[#C7FF00]" />
+          <ShieldCheck className="w-3 h-3" style={{ color: whiteLabelAccent }} />
           <span className={`text-[10px] ${tc.textMuted}`}>Secured by BorderPay Africa</span>
         </section>
       </div>

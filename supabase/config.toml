@@ -46,6 +46,11 @@ verify_jwt = false
 [functions.api-gateway-admin]
 verify_jwt = false
 
+# Business white-label branding — authenticated in-code and limited to the
+# caller's business tenant. Runs with service role only after user JWT check.
+[functions.white-label-branding]
+verify_jwt = false
+
 # WebAuthn credential delete — authenticated; deletes only the caller's rows.
 [functions.webauthn-delete]
 verify_jwt = true

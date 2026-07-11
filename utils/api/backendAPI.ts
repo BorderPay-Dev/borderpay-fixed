@@ -2076,6 +2076,38 @@ export const businessAPI = {
   },
 };
 
+export interface WhiteLabelBranding {
+  app_name: string;
+  logo_url: string | null;
+  primary_color: string;
+  background_color: string;
+  background_accent: string;
+}
+
+export const whiteLabelAPI = {
+  get: async () =>
+    apiCall<{ tenant_id: string; branding: WhiteLabelBranding }>(
+      'white-label-branding',
+      { method: 'POST', body: JSON.stringify({ action: 'get' }) },
+    ),
+
+  save: async (branding: Partial<WhiteLabelBranding>) =>
+    apiCall<{ tenant_id: string; branding: WhiteLabelBranding }>(
+      'white-label-branding',
+      { method: 'POST', body: JSON.stringify({ action: 'save', branding }) },
+    ),
+
+  uploadLogo: async (file: File) => {
+    const form = new FormData();
+    form.append('action', 'upload_logo');
+    form.append('file', file);
+    return apiCall<{ tenant_id: string; branding: WhiteLabelBranding }>(
+      'white-label-branding',
+      { method: 'POST', body: form },
+    );
+  },
+};
+
 // ============================================================================
 // COMBINED BACKEND API — single import for all components
 // ============================================================================
@@ -2920,6 +2952,7 @@ export const backendAPI = {
   customers: customersAPI,
   provisioning: provisioningAPI,
   business: businessAPI,
+  whiteLabel:   whiteLabelAPI,
   bridge: bridgeAPI,
   subscription: subscriptionAPI,
   payouts:      payoutsAPI,

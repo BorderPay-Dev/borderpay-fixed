@@ -116,6 +116,7 @@ const PINSetup = lazyImport(() => import('../security/PINSetup').then(m => ({ de
 const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m => ({ default: m.SendMoneyFlow })));
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
+const WhiteLabelSettingsScreen = lazyImport(() => import('../business/WhiteLabelSettingsScreen').then(m => ({ default: m.WhiteLabelSettingsScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
 const AfricaAddMoneyScreen = lazyImport(() => import('../deposit/AfricaAddMoneyScreen').then(m => ({ default: m.AfricaAddMoneyScreen })));
 const eagerPreload = () => Promise.resolve();
@@ -143,6 +144,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'terms-of-service': eagerPreload,
   'privacy-policy': eagerPreload,
   preferences: eagerPreload,
+  'white-label-settings': (WhiteLabelSettingsScreen as any).preload,
   'help-center': eagerPreload,
   support: eagerPreload,
   team:          eagerPreload,
@@ -195,6 +197,7 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
     case 'terms-of-service':
     case 'privacy-policy':
     case 'preferences':
+    case 'white-label-settings':
     case 'biometric-setup':
     case 'help-center':
     case 'support':
@@ -366,6 +369,7 @@ export type AppScreen =
   | 'terms-of-service'
   | 'privacy-policy'
   | 'preferences'
+  | 'white-label-settings'
   | 'biometric-setup'
   | 'help-center'
   | 'support'
@@ -1091,6 +1095,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'preferences':
         return <PreferencesScreen onBack={navigateBack} />;
+
+      case 'white-label-settings':
+        if (!isBusinessAccount) { navigateTo('settings'); return null; }
+        return <WhiteLabelSettingsScreen userId={userId} onBack={navigateBack} />;
 
       case 'help-center':
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
