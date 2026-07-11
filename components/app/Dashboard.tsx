@@ -69,6 +69,7 @@ function readCachedProfile(): any {
 // open (native-app feel), then refresh in the background. Keys are versioned.
 const DASH_WALLETS_KEY = 'borderpay_dash_wallets_v2';
 const DASH_RECENT_KEY  = 'borderpay_dash_recent_tx_v1';
+const TX_HISTORY_KEY   = 'borderpay_tx_history_v1';
 function readJSON<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : fallback; }
   catch { return fallback; }
@@ -199,6 +200,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   // first-paints $0.00 or an empty activity list, then refreshes silently.
   const dashWalletsKey = useMemo(() => financialCacheKey(DASH_WALLETS_KEY, { userId }), [userId]);
   const dashRecentKey = useMemo(() => financialCacheKey(DASH_RECENT_KEY, { userId }), [userId]);
+  const txHistoryKey = useMemo(() => financialCacheKey(TX_HISTORY_KEY, { userId }), [userId]);
   const dashRefreshTsKey = useMemo(
     () => financialCacheKey('borderpay_dashboard_refresh_ts_v2', { userId }),
     [userId],
@@ -217,7 +219,11 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => readJSON<DashboardWalletRow[]>(dashWalletsKey, []),
     [dashWalletsKey],
   );
-  const cachedRecent = useMemo(() => dedupeFinancialTransactions(readJSON<any[]>(dashRecentKey, [])), [dashRecentKey]);
+  const cachedRecent = useMemo(() => {
+    const recent = dedupeFinancialTransactions(readJSON<any[]>(dashRecentKey, []));
+    if (recent.length > 0) return recent;
+    return dedupeFinancialTransactions(readJSON<any[]>(txHistoryKey, [])).slice(0, 5);
+  }, [dashRecentKey, txHistoryKey]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
     ws
       .filter((w) => ['USDC', 'USDT'].includes(String(w.currency || '').toUpperCase()))

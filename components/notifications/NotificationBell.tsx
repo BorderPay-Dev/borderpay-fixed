@@ -41,6 +41,26 @@ interface NotificationBellProps {
   className?: string;
 }
 
+function currentNotificationCacheKey(): string | null {
+  try {
+    const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    if (cached?.id) return `borderpay_notifications_cache:${cached.id}`;
+  } catch { /* noop */ }
+  try {
+    const user = authAPI.getStoredUser?.();
+    if (user?.id) return `borderpay_notifications_cache:${user.id}`;
+  } catch { /* noop */ }
+  return null;
+}
+
+function writeNotificationScreenCache(rows: Notification[]): void {
+  try {
+    const key = currentNotificationCacheKey();
+    if (!key) return;
+    localStorage.setItem(key, JSON.stringify({ rows: rows.slice(0, 50), cached_at: Date.now() }));
+  } catch { /* ignore notification cache write */ }
+}
+
 export function NotificationBell({ className = '' }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -109,6 +129,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
           ? (result.data as any).notifications
           : (Array.isArray(result.data) ? result.data : []);
         setNotifications(Array.isArray(items) ? items : []);
+        writeNotificationScreenCache(Array.isArray(items) ? items : []);
         setUnreadCount(items.filter((n: any) => !n?.read).length);
       }
     } catch (_) {

@@ -74,7 +74,8 @@ function readTxCache(cacheKey: string, userId: string): Transaction[] {
     if (Array.isArray(primary) && primary.length > 0) return dedupeFinancialTransactions(normalizeTxRows(primary));
   } catch { /* continue to fallback */ }
   try {
-    const recent = JSON.parse(localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');
+    const scopedDashKey = financialCacheKey(DASH_RECENT_TX_KEY, { userId });
+    const recent = JSON.parse(localStorage.getItem(scopedDashKey) || localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');
     if (Array.isArray(recent) && recent.length > 0) return dedupeFinancialTransactions(normalizeTxRows(recent));
     const bizKey = financialCacheKey(BIZ_DASH_TX_KEY, { userId, accountType: 'business' });
     const biz = JSON.parse(localStorage.getItem(bizKey) || '[]');

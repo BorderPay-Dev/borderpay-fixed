@@ -194,16 +194,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const openExternalVerificationUrl = useCallback((url: string) => {
     try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* noop */ }
-    try {
-      sessionStorage.removeItem('borderpay_verification_embed_open');
-      sessionStorage.removeItem('borderpay_verification_embed_title');
-      sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
-      window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
-    } catch { /* noop */ }
-    setEmbeddedPolling(false);
-    setEmbeddedUrl(null);
-    setEmbeddedReturnEnabled(true);
-    window.location.href = url;
+    // Do not tear down the embedded Bridge ToS view before the browser begins
+    // top-level navigation. Clearing it first causes a visible bounce back to
+    // the verification screen before Bridge KYC/KYB opens.
+    window.location.assign(url);
   }, []);
 
   const resolveVerificationContext = useCallback(async (opts?: { skipProfileRefresh?: boolean }): Promise<{ accountType: AccountType; emailConfirmed: boolean }> => {
@@ -422,7 +416,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       // User is explicitly continuing from the embedded Bridge ToS step.
       // Never auto-launch after callback; each verification link open must be
       // caused by a user click on this screen.
-      const ctx = await resolveVerificationContext();
+      const ctx = await resolveVerificationContext({ skipProfileRefresh: true });
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
         return;
@@ -603,7 +597,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           />
           {!embeddedReturnEnabled && (
             <div className="absolute bottom-0 inset-x-0 p-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] bg-gradient-to-t from-black/65 to-transparent">
-              <p className="mb-3 text-center text-xs leading-snug text-white/85">
+              <p className="mb-3 rounded-2xl border border-[#C7FF00]/40 bg-[#C7FF00] px-3 py-2 text-center text-xs font-semibold leading-snug text-black shadow-lg">
                 Accept Bridge Terms of Service first. Skipping this step can delay verification.
               </p>
               <button

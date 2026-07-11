@@ -768,7 +768,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const vaKey = financialCacheKey('borderpay_va_v3', { userId });
     const walletRefreshTsKey = financialCacheKey('borderpay_wallet_refresh_ts_v3', { userId });
     const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
+    const txRefreshTsKey = financialCacheKey('borderpay_tx_refresh_ts_v1', { userId });
+    const dashRecentKey = financialCacheKey('borderpay_dash_recent_tx_v1', { userId });
     const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
+    const notificationsKey = `borderpay_notifications_cache:${userId}`;
+    const notificationsRefreshTsKey = financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId });
     const warm = async () => {
       // Avoid re-running heavy warm fan-out on every app resume / quick session
       // re-entry. Route screens now own their own revalidation throttles.
@@ -812,6 +816,28 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           if (!cancelled && txRes?.success) {
             const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
             try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
+            try { localStorage.setItem(dashRecentKey, JSON.stringify(txRows.slice(0, 5))); } catch {}
+            try { localStorage.setItem(txRefreshTsKey, String(Date.now())); } catch {}
+          }
+        }
+      } catch {}
+
+      try {
+        const hasNotificationCache = (() => {
+          try {
+            const raw = localStorage.getItem(notificationsKey);
+            const parsed = raw ? JSON.parse(raw) : null;
+            return Array.isArray(parsed?.rows) && parsed.rows.length > 0;
+          } catch { return false; }
+        })();
+        if (!hasNotificationCache) {
+          const notifRes: any = await backendAPI.notifications.getNotifications(50);
+          if (!cancelled && notifRes?.success) {
+            const notificationRows = Array.isArray(notifRes?.data?.notifications)
+              ? notifRes.data.notifications
+              : (Array.isArray(notifRes?.data) ? notifRes.data : []);
+            try { localStorage.setItem(notificationsKey, JSON.stringify({ rows: notificationRows.slice(0, 50), cached_at: Date.now() })); } catch {}
+            try { localStorage.setItem(notificationsRefreshTsKey, String(Date.now())); } catch {}
           }
         }
       } catch {}
