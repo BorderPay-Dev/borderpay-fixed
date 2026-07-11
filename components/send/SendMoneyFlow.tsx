@@ -42,7 +42,7 @@ import {
   type AfricaRail,
   type AfricaCommercialRoute,
 } from '../../utils/fees/africaCommercialPricing';
-import { currencyLabelForCode, flagForCountryCode } from '../../utils/presentation/africanRailDisplay';
+import { flagForCountryCode, formatLocalRailAmount, localRailForCountry } from '../../utils/presentation/africanRailDisplay';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -292,6 +292,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     const exact = africaCommercialRouteForRail('payout', africaCountryIso, africaRail, true);
     return exact || firstAfricaRoute(africaRoutes);
   }, [africaCountryIso, africaRail, africaRoutes]);
+  const selectedAfricaDisplay = useMemo(
+    () => selectedAfricaRoute
+      ? (localRailForCountry(selectedAfricaRoute.iso3) || localRailForCountry(selectedAfricaRoute.iso2))
+      : null,
+    [selectedAfricaRoute],
+  );
+  const formatAfricaLocalAmount = useCallback((valueUsd: number | string | null | undefined) => {
+    const value = Number(valueUsd || 0);
+    if (!selectedAfricaRoute) return '';
+    if (!Number.isFinite(value) || value <= 0) return `${selectedAfricaRoute.currency}`;
+    if (selectedAfricaDisplay) return `${formatLocalRailAmount(value, selectedAfricaDisplay)} ${selectedAfricaRoute.currency}`;
+    return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${selectedAfricaRoute.currency}`;
+  }, [selectedAfricaDisplay, selectedAfricaRoute]);
   const [africaRecipientName, setAfricaRecipientName] = useState('');
   const [africaRecipientAccount, setAfricaRecipientAccount] = useState('');
 
@@ -1275,9 +1288,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </div>
 
                 <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center gap-3`}>
-                  <span className="text-lg">🇺🇸</span>
+                  <span className="text-lg">{flagForCountryCode(selectedAfricaRoute?.iso2 || '')}</span>
                   <div className="flex-1">
-                    <p className={`text-sm font-semibold ${tc.text}`}>USDC wallet</p>
+                    <p className={`text-sm font-semibold ${tc.text}`}>{selectedAfricaRoute?.currency || 'Local'} balance</p>
                     <p className={`text-xs ${tc.textMuted}`}>Funds source for Africa payout preview</p>
                   </div>
                   <CheckCircle size={16} className="text-[#C7FF00]" />
@@ -1650,9 +1663,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   </p>
                   <div className="flex items-center gap-1.5 mt-1.5">
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#C7FF00]/15 text-[#C7FF00] uppercase">
-                      {currencyLabelForCode(selectedAfricaRoute?.currency || '')}
+                      {selectedAfricaRoute?.currency || ''}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-white/[0.06] text-white/70">USDC source</span>
                   </div>
                 </>
               ) : (
@@ -1668,7 +1680,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>{t('send.amount')}</label>
               <div className="relative">
                 <span className={`absolute left-4 top-1/2 -translate-y-1/2 text-xl font-bold ${tc.text}`}>
-                  {getCurrencySymbol(selectedCurrency)}
+                  {method === 'africa' && selectedAfricaDisplay ? selectedAfricaDisplay.symbol : getCurrencySymbol(selectedCurrency)}
                 </span>
                 <input
                   type="number"
@@ -1682,7 +1694,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {selectedWallet && (
                 <div className="flex items-center justify-between mt-2 px-1">
                   <p className={`text-xs ${tc.textMuted}`}>
-                    {t('send.available')}: {getCurrencySymbol(selectedCurrency)}{selectedWallet.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {t('send.available')}: {method === 'africa'
+                      ? formatAfricaLocalAmount(selectedWallet.balance)
+                      : `${getCurrencySymbol(selectedCurrency)}${selectedWallet.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                   </p>
                   <button
                     onClick={() => setAmount(selectedWallet.balance.toString())}
@@ -1761,9 +1775,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <div className="text-center mb-5">
                 <p className={`text-xs ${tc.textMuted} mb-1`}>{t('send.youAreSending')}</p>
                 <p className="text-3xl font-bold text-[#C7FF00]">
-                  {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {method === 'africa' && selectedAfricaRoute
+                    ? formatAfricaLocalAmount(amount)
+                    : `${getCurrencySymbol(selectedCurrency)}${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                 </p>
-                <p className={`text-xs ${tc.textMuted} mt-1`}>{selectedCurrency}</p>
+                <p className={`text-xs ${tc.textMuted} mt-1`}>
+                  {method === 'africa' && selectedAfricaRoute ? selectedAfricaRoute.currency : selectedCurrency}
+                </p>
               </div>
 
               <div className={`h-px ${tc.border} mb-4`} />
@@ -1781,7 +1799,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Country</span>
-                      <span className={`text-sm font-medium ${tc.text}`}>{flagForCountryCode(selectedAfricaRoute.iso2)} {selectedAfricaRoute.country} · {selectedAfricaRoute.iso3}</span>
+                      <span className={`text-sm font-medium ${tc.text}`}>{flagForCountryCode(selectedAfricaRoute.iso2)} {selectedAfricaRoute.country}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className={`text-xs ${tc.textMuted}`}>Delivery rail</span>
@@ -1896,7 +1914,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.currency')}</span>
-                  <span className={`text-sm font-medium ${tc.text}`}>{selectedCurrency}</span>
+                  <span className={`text-sm font-medium ${tc.text}`}>
+                    {method === 'africa' && selectedAfricaRoute ? selectedAfricaRoute.currency : selectedCurrency}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1943,11 +1963,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>Funding source</span>
-                    <span className={tc.text}>USDC wallet</span>
+                    <span className={tc.text}>{selectedAfricaRoute.currency} balance</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>Send amount</span>
-                    <span className={tc.text}>${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDC</span>
+                    <span className={tc.text}>{formatAfricaLocalAmount(amount)}</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>BorderPay fee</span>
@@ -1955,7 +1975,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>Payout currency</span>
-                    <span className={tc.text}>{currencyLabelForCode(selectedAfricaRoute.currency)}</span>
+                    <span className={tc.text}>{selectedAfricaRoute.currency}</span>
                   </div>
                   <div className={`h-px ${tc.border} my-1`} />
                   <div className="flex justify-between text-sm font-bold">
@@ -2013,7 +2033,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
               <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
               <p className={`text-sm ${tc.textSecondary}`}>
-                {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'borderpay' ? (borderPayRecipientEmail.trim().toLowerCase() || 'BorderPay recipient') : (selectedExternalAccount?.account_owner_name || 'External account')}
+                {method === 'africa' && selectedAfricaRoute
+                  ? `${formatAfricaLocalAmount(amount)} → ${africaRecipientName || 'Recipient'}`
+                  : `${getCurrencySymbol(selectedCurrency)}${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → ${method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'borderpay' ? (borderPayRecipientEmail.trim().toLowerCase() || 'BorderPay recipient') : (selectedExternalAccount?.account_owner_name || 'External account')}`}
               </p>
             </div>
 
@@ -2102,10 +2124,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
             <h2 className={`text-xl font-bold mb-2 ${tc.text}`}>{t('send.txSuccessful')}</h2>
             <p className="text-2xl font-bold text-[#C7FF00] mb-1">
-              {getCurrencySymbol(selectedCurrency)}{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {method === 'africa' && selectedAfricaRoute
+                ? formatAfricaLocalAmount(amount)
+                : `${getCurrencySymbol(selectedCurrency)}${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
             </p>
             <p className={`text-sm ${tc.textMuted} mb-6`}>
-              → {method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'borderpay' ? (borderPayRecipientEmail.trim().toLowerCase() || 'BorderPay recipient') : (selectedExternalAccount?.account_owner_name || 'External account')}
+              → {method === 'africa' ? (africaRecipientName || 'Recipient') : method === 'stablecoin' ? `${crypto.address.slice(0, 8)}...${crypto.address.slice(-6)}` : method === 'borderpay' ? (borderPayRecipientEmail.trim().toLowerCase() || 'BorderPay recipient') : (selectedExternalAccount?.account_owner_name || 'External account')}
             </p>
 
             {/* Transaction details */}
@@ -2136,7 +2160,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between items-center">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.newBalance')}</span>
                   <span className={`text-sm font-semibold ${tc.text}`}>
-                    {getCurrencySymbol(selectedCurrency)}{newBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {method === 'africa' && selectedAfricaRoute
+                      ? formatAfricaLocalAmount(newBalance)
+                      : `${getCurrencySymbol(selectedCurrency)}${newBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                   </span>
                 </div>
               )}
