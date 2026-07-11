@@ -101,8 +101,9 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
   // Seed from cache so the history paints instantly on open, then refreshes.
   const [transactions, setTransactions] = useState<Transaction[]>(() => seededRows);
   const transactionsRef = useRef<Transaction[]>(seededRows);
-  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshTxCache);
-  const [loading, setLoading] = useState(!hasFreshTxCache);
+  const canPaintCachedTransactions = hasFreshTxCache || seededRows.length > 0;
+  const [initialRefreshDone, setInitialRefreshDone] = useState(canPaintCachedTransactions);
+  const [loading, setLoading] = useState(!canPaintCachedTransactions);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
   const [showFilters, setShowFilters] = useState(false);

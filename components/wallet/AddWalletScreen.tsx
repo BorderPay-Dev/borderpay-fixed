@@ -108,8 +108,9 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const [requesting, setRequesting] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<Set<string>>(new Set());
-  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshWalletCache);
   const [isVerified] = useState<boolean>(() => readCachedVerified());
+  const hasCachedWalletRows = stableRows.length > 0 || vaRows.length > 0;
+  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshWalletCache || hasCachedWalletRows);
   const refreshInFlightRef = useRef(false);
   const localRail = useMemo(() => localRailForStoredUser(), []);
 
@@ -117,10 +118,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     try {
-      await Promise.race([
-        backendAPI.bridge.syncAccounts(),
-        new Promise((resolve) => setTimeout(resolve, 8000)),
-      ]);
       const [route, caps]: any[] = await Promise.all([
         backendAPI.financial.getWalletRouteData(),
         backendAPI.bridge.virtualAccount.capabilities().catch(() => null),
@@ -142,6 +139,25 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         .filter((row: any) => ['USDC', 'USDT'].includes(String(row?.currency || '').toUpperCase()))
         .reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
       try { localStorage.setItem(`borderpay_wallet_total_v2_${userId}`, String(total)); } catch { /* noop */ }
+      void Promise.race([
+        backendAPI.bridge.syncAccounts().catch(() => null),
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]).then(async () => {
+        try {
+          const next: any = await backendAPI.financial.getWalletRouteData();
+          const nextData = next?.data || {};
+          const nextStable = Array.isArray(nextData?.stablecoin_wallets) ? nextData.stablecoin_wallets : [];
+          const nextVa = Array.isArray(nextData?.virtual_accounts) ? nextData.virtual_accounts : [];
+          setStableRows(nextStable);
+          setVaRows(nextVa);
+          try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
+          try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
+        } catch {
+          // keep first snapshot
+        }
+      }).catch(() => {
+        // keep first snapshot
+      });
     } finally {
       setInitialRefreshDone(true);
       refreshInFlightRef.current = false;

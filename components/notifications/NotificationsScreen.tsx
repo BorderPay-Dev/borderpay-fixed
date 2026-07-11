@@ -148,8 +148,9 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       return false;
     }
   }, [refreshTsKey]);
-  const [initialRefreshDone, setInitialRefreshDone] = useState(hasFreshNotificationCache);
-  const [loading, setLoading] = useState(!hasFreshNotificationCache);
+  const canPaintCachedNotifications = hasFreshNotificationCache || initialRows.length > 0;
+  const [initialRefreshDone, setInitialRefreshDone] = useState(canPaintCachedNotifications);
+  const [loading, setLoading] = useState(!canPaintCachedNotifications);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const load = useCallback(async (force = false) => {
@@ -158,16 +159,16 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
       return;
     }
     const run = (async () => {
-    // Keep first paint instant; refresh in background and throttle fast re-entry.
-	    setError(null);
-	    try {
-	      const rows = rowsRef.current;
-	      const hasCachedRows = rows.length > 0;
-	      if (rows.length > 0) setLoading(true);
-	      const last = Number(localStorage.getItem(refreshTsKey) || '0');
-	      if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
-	        return;
-      }
+      // Keep first paint instant; refresh in background and throttle fast re-entry.
+      setError(null);
+      try {
+        const rows = rowsRef.current;
+        const hasCachedRows = rows.length > 0;
+        if (rows.length === 0) setLoading(true);
+        const last = Number(localStorage.getItem(refreshTsKey) || '0');
+        if (!force && hasCachedRows && Number.isFinite(last) && Date.now() - last < 45_000) {
+          return;
+        }
       const uid = currentUserId();
       if (!uid) {
         setRows([]);
@@ -176,10 +177,10 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         return;
       }
       const r: any = await withTimeout(
-	        backendAPI.notifications.getNotifications(50),
-	        NOTIFICATION_FETCH_TIMEOUT_MS,
-	        { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rows : [] } } as any,
-	      );
+        backendAPI.notifications.getNotifications(50),
+        NOTIFICATION_FETCH_TIMEOUT_MS,
+        { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rows : [] } } as any,
+      );
       if (r?.success) {
         const dataRaw = Array.isArray((r as any)?.data?.notifications)
           ? (r as any).data.notifications
@@ -212,12 +213,12 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         loadInFlightRef.current = null;
       }
     }
-	  }, [onUnreadCountChange, refreshTsKey]);
+  }, [onUnreadCountChange, refreshTsKey]);
 
-	  useEffect(() => {
+  useEffect(() => {
     navPerfTrackCache('notifications', initialRows.length > 0);
-	    load();
-	    try {
+    load();
+    try {
       const last = Number(localStorage.getItem(prewarmTsKey) || '0');
       if (!Number.isFinite(last) || Date.now() - last >= 180_000) {
         const prefetch = (window as any).__borderpay_prefetch;
