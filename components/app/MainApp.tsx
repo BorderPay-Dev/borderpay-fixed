@@ -46,6 +46,12 @@ import { ErrorBoundary } from '../common/ErrorBoundary';
 import { AppShell, type AppRoute } from '../shell/AppShell';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import {
+  notificationInboxCacheKey,
+  notificationRefreshTsCacheKey,
+  transactionHistoryCacheKey,
+  transactionRefreshTsCacheKey,
+} from '../../utils/financial/financialDataCache';
+import {
   TRANSFERS_LIVE,
   EXTERNAL_ACCOUNTS_LIVE,
   PAYROLL_NAV_ENABLED,
@@ -767,12 +773,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const walletsKey = financialCacheKey('borderpay_wallets_v3', { userId });
     const vaKey = financialCacheKey('borderpay_va_v3', { userId });
     const walletRefreshTsKey = financialCacheKey('borderpay_wallet_refresh_ts_v3', { userId });
-    const txKey = financialCacheKey('borderpay_tx_history_v1', { userId });
-    const txRefreshTsKey = financialCacheKey('borderpay_tx_refresh_ts_v1', { userId });
-    const dashRecentKey = financialCacheKey('borderpay_dash_recent_tx_v1', { userId });
+    const txKey = transactionHistoryCacheKey(userId);
+    const txRefreshTsKey = transactionRefreshTsCacheKey(userId);
     const extKey = financialCacheKey('borderpay_payout_accounts_v1', { userId });
-    const notificationsKey = `borderpay_notifications_cache:${userId}`;
-    const notificationsRefreshTsKey = financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId });
+    const notificationsKey = notificationInboxCacheKey(userId);
+    const notificationsRefreshTsKey = notificationRefreshTsCacheKey(userId);
     const warm = async () => {
       // Avoid re-running heavy warm fan-out on every app resume / quick session
       // re-entry. Route screens now own their own revalidation throttles.
@@ -816,7 +821,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           if (!cancelled && txRes?.success) {
             const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
             try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
-            try { localStorage.setItem(dashRecentKey, JSON.stringify(txRows.slice(0, 5))); } catch {}
             try { localStorage.setItem(txRefreshTsKey, String(Date.now())); } catch {}
           }
         }

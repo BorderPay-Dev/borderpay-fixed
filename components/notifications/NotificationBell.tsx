@@ -21,6 +21,7 @@ import {
 import { authAPI } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { notificationInboxCacheKey } from '../../utils/financial/financialDataCache';
 
 interface Notification {
   id: string;
@@ -44,11 +45,11 @@ interface NotificationBellProps {
 function currentNotificationCacheKey(): string | null {
   try {
     const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    if (cached?.id) return `borderpay_notifications_cache:${cached.id}`;
+    if (cached?.id) return notificationInboxCacheKey(cached.id);
   } catch { /* noop */ }
   try {
     const user = authAPI.getStoredUser?.();
-    if (user?.id) return `borderpay_notifications_cache:${user.id}`;
+    if (user?.id) return notificationInboxCacheKey(user.id);
   } catch { /* noop */ }
   return null;
 }

@@ -24,13 +24,13 @@ import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { legacyBusinessDashboardTxCacheKey, transactionHistoryCacheKey } from '../../utils/financial/financialDataCache';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { formatLocalRailAmount, localRailForStoredUser } from '../../utils/presentation/africanRailDisplay';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v2';
-const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
 const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v2';
 const VA_LIST_CACHE_KEY = 'borderpay_va_v3';
@@ -149,10 +149,17 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   );
   const cachedBizWallets = useMemo(() => readBizWallets(bizWalletsCacheKey), [bizWalletsCacheKey]);
   const bizTxCacheKey = useMemo(
-    () => financialCacheKey(BIZ_TX_KEY, { userId, accountType: 'business' }),
+    () => transactionHistoryCacheKey(userId),
     [userId],
   );
-  const cachedBizTransactions = useMemo(() => readBizTx(bizTxCacheKey), [bizTxCacheKey]);
+  const legacyBizTxCacheKey = useMemo(
+    () => legacyBusinessDashboardTxCacheKey(userId),
+    [userId],
+  );
+  const cachedBizTransactions = useMemo(() => {
+    const shared = readBizTx(bizTxCacheKey);
+    return shared.length > 0 ? shared : readBizTx(legacyBizTxCacheKey);
+  }, [bizTxCacheKey, legacyBizTxCacheKey]);
   const [wallets, setWallets]             = useState<WalletRow[]>(cachedBizWallets);
   const walletsRef = useRef<WalletRow[]>(cachedBizWallets);
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);

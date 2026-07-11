@@ -19,7 +19,11 @@ import { backendAPI, dedupeNotifications } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
-import { financialCacheKey } from '../../utils/financial/cacheScope';
+import {
+  legacyNotificationInboxCacheKey,
+  notificationInboxCacheKey,
+  notificationRefreshTsCacheKey,
+} from '../../utils/financial/financialDataCache';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface NotificationRow {
@@ -54,15 +58,9 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
   });
 }
 
-const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
-
 function currentNotificationCacheKey(): string | null {
-  try {
-    const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    return user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null;
-  } catch {
-    return null;
-  }
+  const uid = currentUserId();
+  return uid ? notificationInboxCacheKey(uid) : null;
 }
 
 function currentUserId(): string | null {
@@ -79,8 +77,10 @@ function readCachedNotifications(): NotificationRow[] {
     const key = currentNotificationCacheKey();
     if (!key) return [];
     const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const legacyUid = currentUserId();
+    const legacyRaw = legacyUid ? localStorage.getItem(legacyNotificationInboxCacheKey(legacyUid)) : null;
+    if (!raw && !legacyRaw) return [];
+    const parsed = JSON.parse(raw || legacyRaw || '{}');
     return Array.isArray(parsed?.rows) ? dedupeNotifications(parsed.rows) : [];
   } catch {
     return [];
@@ -131,11 +131,11 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const initialRows = useMemo(() => readCachedNotifications(), []);
   const refreshTsKey = useMemo(() => {
     const uid = currentUserId() || 'anon';
-    return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
+    return notificationRefreshTsCacheKey(uid);
   }, []);
   const prewarmTsKey = useMemo(() => {
     const uid = currentUserId() || 'anon';
-    return financialCacheKey('borderpay_notifications_prewarm_ts_v1', { userId: uid });
+    return `${notificationRefreshTsCacheKey(uid)}:prewarm`;
   }, []);
   const [rows, setRows]       = useState<NotificationRow[]>(initialRows);
   const rowsRef = useRef<NotificationRow[]>(initialRows);

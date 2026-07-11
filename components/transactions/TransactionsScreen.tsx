@@ -14,7 +14,13 @@ import { SkeletonRows } from '../common/Skeleton';
 import { ErrorState } from '../common/ErrorState';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
-import { financialCacheKey } from '../../utils/financial/cacheScope';
+import {
+  LEGACY_DASHBOARD_RECENT_TX_CACHE_BASE,
+  legacyBusinessDashboardTxCacheKey,
+  legacyDashboardRecentTxCacheKey,
+  transactionHistoryCacheKey,
+  transactionRefreshTsCacheKey,
+} from '../../utils/financial/financialDataCache';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface TransactionsScreenProps {
@@ -38,10 +44,6 @@ interface Transaction {
   metadata?: any;
 }
 
-const TX_CACHE_KEY = 'borderpay_tx_history_v1';
-const TX_REFRESH_TS_KEY = 'borderpay_tx_refresh_ts_v1';
-const DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1';
-const BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1';
 const TX_FETCH_TIMEOUT_MS = 8500;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -74,10 +76,10 @@ function readTxCache(cacheKey: string, userId: string): Transaction[] {
     if (Array.isArray(primary) && primary.length > 0) return dedupeFinancialTransactions(normalizeTxRows(primary));
   } catch { /* continue to fallback */ }
   try {
-    const scopedDashKey = financialCacheKey(DASH_RECENT_TX_KEY, { userId });
-    const recent = JSON.parse(localStorage.getItem(scopedDashKey) || localStorage.getItem(DASH_RECENT_TX_KEY) || '[]');
+    const scopedDashKey = legacyDashboardRecentTxCacheKey(userId);
+    const recent = JSON.parse(localStorage.getItem(scopedDashKey) || localStorage.getItem(LEGACY_DASHBOARD_RECENT_TX_CACHE_BASE) || '[]');
     if (Array.isArray(recent) && recent.length > 0) return dedupeFinancialTransactions(normalizeTxRows(recent));
-    const bizKey = financialCacheKey(BIZ_DASH_TX_KEY, { userId, accountType: 'business' });
+    const bizKey = legacyBusinessDashboardTxCacheKey(userId);
     const biz = JSON.parse(localStorage.getItem(bizKey) || '[]');
     if (Array.isArray(biz) && biz.length > 0) return dedupeFinancialTransactions(normalizeTxRows(biz));
   } catch { /* noop */ }
@@ -85,8 +87,8 @@ function readTxCache(cacheKey: string, userId: string): Transaction[] {
 }
 
 export function TransactionsScreen({ userId, customerId: _customerId, onBack }: TransactionsScreenProps) {
-  const cacheKey = financialCacheKey(TX_CACHE_KEY, { userId });
-  const refreshTsKey = financialCacheKey(TX_REFRESH_TS_KEY, { userId });
+  const cacheKey = transactionHistoryCacheKey(userId);
+  const refreshTsKey = transactionRefreshTsCacheKey(userId);
   const seededRows = readTxCache(cacheKey, userId);
   const hasFreshTxCache = (() => {
     try {
