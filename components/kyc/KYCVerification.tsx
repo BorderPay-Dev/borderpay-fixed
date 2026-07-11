@@ -206,9 +206,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     window.location.href = url;
   }, []);
 
-  const resolveVerificationContext = useCallback(async (): Promise<{ accountType: AccountType; emailConfirmed: boolean }> => {
+  const resolveVerificationContext = useCallback(async (opts?: { skipProfileRefresh?: boolean }): Promise<{ accountType: AccountType; emailConfirmed: boolean }> => {
     let currentAccountType: AccountType = accountType;
     let emailConfirmed = true;
+    if (opts?.skipProfileRefresh) return { accountType: currentAccountType, emailConfirmed };
     try {
       const freshProfile = await backendAPI.user.getProfile();
       const fresh = freshProfile?.success ? freshProfile?.data?.user : null;
@@ -231,7 +232,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const probeVerificationState = useCallback(async () => {
     try {
-      const ctx = await resolveVerificationContext();
+      const ctx = await resolveVerificationContext({ skipProfileRefresh: true });
       if (!ctx.emailConfirmed) {
         setTosLinkUrl(null);
         return;
@@ -323,7 +324,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     try {
       // Always ask Bridge for the current hosted ToS/KYC/KYB state. Bridge is
       // the source of truth for whether ToS or verification comes next.
-      const ctx = await resolveVerificationContext();
+      const ctx = await resolveVerificationContext({ skipProfileRefresh: true });
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
         return;
@@ -380,7 +381,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const restartVerification = async () => {
     try {
-      const ctx = await resolveVerificationContext();
+      const ctx = await resolveVerificationContext({ skipProfileRefresh: true });
       if (!ctx.emailConfirmed) {
         toast.error('Verify your email first, then retry verification.');
         return;
