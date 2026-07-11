@@ -21,6 +21,16 @@ export type BridgeIdentityInvariantFailure = {
 
 type SupaLike = { from: (table: string) => any };
 
+function canonicalVerificationStatus(...values: Array<string | null | undefined>): string | null {
+  const normalized = values
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  if (normalized.some((value) => ["approved", "active", "authorized", "verified", "completed", "complete"].includes(value))) {
+    return "approved";
+  }
+  return normalized[0] ?? null;
+}
+
 function fail(
   reason: BridgeIdentityInvariantFailure["reason"],
   error: string,
@@ -42,7 +52,7 @@ export async function loadAndAssertBridgeIdentityInvariant(
 ): Promise<{ ok: true; context: BridgeIdentityContext } | { ok: false; failure: BridgeIdentityInvariantFailure }> {
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("id, account_type, country, bridge_customer_id, bridge_kyc_status")
+    .select("id, account_type, country, bridge_customer_id, bridge_kyc_status, bridge_account_status")
     .eq("id", userId)
     .maybeSingle();
 
@@ -53,7 +63,10 @@ export async function loadAndAssertBridgeIdentityInvariant(
   const account_type: BridgeAccountType = profile.account_type === "business" ? "business" : "individual";
   let country: string | null = profile.country ?? null;
   let bridge_customer_id: string | null = profile.bridge_customer_id ?? null;
-  let verification_status: string | null = profile.bridge_kyc_status ?? null;
+  let verification_status: string | null = canonicalVerificationStatus(
+    profile.bridge_kyc_status,
+    profile.bridge_account_status,
+  );
 
   if (account_type === "business") {
     const { data: biz } = await supa
@@ -62,7 +75,10 @@ export async function loadAndAssertBridgeIdentityInvariant(
       .eq("user_id", userId)
       .maybeSingle();
     country = biz?.country ?? country;
-    verification_status = biz?.bridge_kyb_status ?? verification_status;
+    verification_status = canonicalVerificationStatus(
+      biz?.bridge_kyb_status,
+      profile.bridge_account_status,
+    );
     bridge_customer_id = biz?.bridge_customer_id ?? bridge_customer_id;
   }
 
