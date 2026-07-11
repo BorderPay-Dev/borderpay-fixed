@@ -94,7 +94,7 @@ export function AfricaAddMoneyScreen({ onBack }: AfricaAddMoneyScreenProps) {
                           </div>
                           <div className="flex-1">
                             <p className={`text-sm font-semibold ${tc.text}`}>{railLabel(route.rail)}</p>
-                            <p className={`text-xs ${tc.textMuted}`}>BorderPay fee: {route.borderpayCustomerFee}</p>
+                            <p className={`text-xs ${tc.textMuted}`}>Fee shown on preview</p>
                           </div>
                           {active && <CheckCircle size={16} className="text-[#C7FF00]" />}
                         </button>
