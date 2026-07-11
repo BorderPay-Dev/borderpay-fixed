@@ -17,6 +17,8 @@ alter table public.api_tenants
 create index if not exists api_tenants_beta_access_idx
   on public.api_tenants (beta_access_enabled);
 
+drop function if exists public.api_gateway_resolve_api_key(text);
+
 create or replace function public.api_gateway_resolve_api_key(
   p_key_hash text
 )

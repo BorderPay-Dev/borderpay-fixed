@@ -3,7 +3,9 @@
 
 create table if not exists public.api_tenants (
   id                     uuid primary key default gen_random_uuid(),
-  business_user_id       uuid references public.user_profiles(id) on delete set null,
+  -- Stored as an application pointer. Production user_profiles has a composite
+  -- primary key (id, payment_provider), so a single-column FK is invalid.
+  business_user_id       uuid,
   tenant_name            text not null,
   default_mode           text not null default 'sandbox' check (default_mode in ('sandbox', 'production')),
   is_active              boolean not null default true,
@@ -29,7 +31,7 @@ create table if not exists public.api_keys (
   is_active              boolean not null default true,
   revoked_at             timestamptz,
   last_used_at           timestamptz,
-  created_by             uuid references public.user_profiles(id) on delete set null,
+  created_by             uuid,
   created_at             timestamptz not null default now(),
   updated_at             timestamptz not null default now(),
   constraint api_keys_prefix_format check (char_length(key_prefix) >= 6),

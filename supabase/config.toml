@@ -36,6 +36,16 @@ verify_jwt = false
 [functions.process-pending-events]
 verify_jwt = false
 
+# Public API gateway — partner API keys are NOT Supabase JWTs. The function
+# authenticates `Authorization: Bearer bpk_*` in-code against api_keys.
+[functions.public-api-gateway]
+verify_jwt = false
+
+# API gateway admin — accepts service-role or an admin user JWT, then enforces
+# admin/service authorization in-code.
+[functions.api-gateway-admin]
+verify_jwt = false
+
 # WebAuthn credential delete — authenticated; deletes only the caller's rows.
 [functions.webauthn-delete]
 verify_jwt = true
