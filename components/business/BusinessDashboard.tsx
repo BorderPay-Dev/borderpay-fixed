@@ -479,7 +479,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   const kybVerified = affiliateKycStatus === 'verified';
   const setupSteps = [
     { id: '2fa', label: 'Enable 2FA', completed: has2FA, screen: 'two-factor-setup' },
-    { id: 'pin', label: 'Set transaction PIN', completed: hasPIN, screen: 'change-pin' },
+    { id: 'pin', label: 'Set transaction PIN', completed: hasPIN, screen: hasPIN ? 'change-pin' : 'pin-setup' },
     { id: 'kyb', label: 'Complete business verification', completed: kybVerified, screen: 'kyc' },
   ];
   const showSetupBanner = !setupSteps.every((s) => s.completed);

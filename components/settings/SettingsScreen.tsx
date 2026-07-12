@@ -75,6 +75,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     if (typeof prefetch !== 'function') return;
     [
       'profile',
+      'pin-setup',
       'change-pin',
       'change-password',
       'two-factor-setup',
@@ -176,7 +177,12 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     {
       title: t('settings.security'),
       items: [
-        { icon: Lock, label: t('settings.changePin'), screen: 'change-pin', color: 'text-yellow-400' },
+        {
+          icon: Lock,
+          label: hasPIN ? t('settings.changePin') : 'Set transaction PIN',
+          screen: hasPIN ? 'change-pin' : 'pin-setup',
+          color: 'text-yellow-400',
+        },
         { icon: Smartphone, label: t('settings.twoFactor'), screen: 'two-factor-setup', color: 'text-green-400' },
         { icon: Fingerprint, label: 'Biometric Login', screen: 'biometric-setup', color: 'text-[#C7FF00]' },
         { icon: Shield, label: t('settings.disable2fa'), action: 'disable-2fa', color: 'text-orange-400' },
