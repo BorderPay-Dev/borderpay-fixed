@@ -8,6 +8,9 @@
     "compute:rc1-status": "python3 scripts/ci/compute_rc1_status.py --write",
     "dev": "vite",
     "build": "npm run guard:safety-boundaries && npm run type-check && npm run compute:rc1-status && vite build",
+    "smoke:browser": "npm run build && playwright test --config=playwright.config.ts",
+    "smoke:browser:fast": "playwright test --config=playwright.config.ts",
+    "smoke:browser:install": "playwright install chromium",
     "preview": "vite preview",
     "deploy": "npm run build && firebase deploy --only hosting",
     "predeploy:gate": "python3 scripts/predeploy/run_predeploy_gate.py",
@@ -93,6 +96,7 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.0.0",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.12",

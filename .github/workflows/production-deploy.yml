@@ -20,7 +20,16 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install browser for smoke tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke gate
+        run: npm run smoke:browser
 
       - name: Install Supabase CLI
         run: npm install -g supabase
@@ -36,4 +45,3 @@ jobs:
         run: |
           echo "Predeploy gate passed."
           echo "No automated production deployment is configured in this workflow."
-

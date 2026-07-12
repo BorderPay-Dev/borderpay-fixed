@@ -567,6 +567,13 @@ def stage6_deployment_readiness(ci_mode: bool = False) -> StageResult:
         remediation="N/A",
     ))
 
+    stage.checks.append(run_check_command(
+        name="Browser smoke gate",
+        cmd="npm run smoke:browser",
+        severity="critical",
+        remediation="Install the Playwright browser with `npm run smoke:browser:install`, then rerun the predeploy gate.",
+    ))
+
     stage.passed = all(c.passed for c in stage.checks)
     stage.ended_at = now_utc()
     return stage
