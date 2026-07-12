@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
@@ -139,7 +139,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const isBusiness = accountType === 'business';
 
   // KYC/KYB is FREE now — the user can start verification right here. Opens the
-  // secure hosted verification flow; Bridge returns them to /?screen=kyc.
+  // secure hosted verification flow; Bridge returns them to the dashboard.
   const [lastHostedUrl, setLastHostedUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`borderpay_last_verify_url:${userId}`); } catch { return null; }
   });
@@ -174,8 +174,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       } catch { /* noop */ }
     }
     try {
-      // Sev-1 guard: persist desired post-return route so callback never drops
-      // to dashboard if query params are stripped by external redirects.
+      // Embedded ToS stays on this screen so the user can continue into the
+      // external KYC/KYB link after accepting Bridge terms.
       sessionStorage.setItem('borderpay_post_callback_screen', 'kyc');
     } catch { /* noop */ }
     setEmbeddedUrl(url);
@@ -193,7 +193,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [userId]);
 
   const openExternalVerificationUrl = useCallback((url: string) => {
-    try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* noop */ }
+    try { sessionStorage.setItem('borderpay_post_callback_screen', 'dashboard'); } catch { /* noop */ }
     // Do not tear down the embedded Bridge ToS view before the browser begins
     // top-level navigation. Clearing it first causes a visible bounce back to
     // the verification screen before Bridge KYC/KYB opens.
@@ -218,7 +218,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [accountType]);
 
   const requestHostedLink = useCallback(async (currentAccountType: AccountType, forceNew = false) => {
-    const redirect_url = `${window.location.origin}/?screen=kyc`;
+    const redirect_url = `${window.location.origin}/?screen=dashboard`;
     return currentAccountType === 'business'
       ? await backendAPI.bridge.kyb.startBusiness({ redirect_url, force_new: forceNew })
       : await backendAPI.bridge.kyc.startIndividual({ redirect_url, force_new: forceNew });
@@ -499,10 +499,17 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   return (
     <div className={`min-h-screen ${tc.bg}`}>
       <header
-        className="flex items-center justify-between px-5 sm:px-6 pb-3 max-w-2xl mx-auto"
+        className="grid grid-cols-[2.25rem_1fr_2.25rem] items-center gap-3 px-5 sm:px-6 pb-3 max-w-2xl mx-auto"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.85rem)' }}
       >
-        <h1 className={`text-base font-semibold ${tc.text}`}>{title}</h1>
+        <button
+          onClick={onBack}
+          aria-label="Back to dashboard"
+          className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center ${tc.hoverBg}`}
+        >
+          <ArrowLeft className={`w-4 h-4 ${tc.text}`} />
+        </button>
+        <h1 className={`text-base font-semibold ${tc.text} text-center truncate`}>{title}</h1>
         <button
           onClick={refresh}
           aria-label="Refresh status"

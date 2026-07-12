@@ -719,14 +719,14 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, []);
 
   // Hosted verification callback deep-link:
-  // Bridge returns to `/?screen=kyc`. Honor that route directly so users
-  // land back on verification instead of dashboard.
+  // Final Bridge KYC/KYB external returns land on dashboard. The embedded ToS
+  // step can still keep users on KYC via the session marker while they continue.
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const screenParam = params.get('screen');
       const marker = sessionStorage.getItem('borderpay_post_callback_screen');
-      if (!screenParam && marker !== 'kyc') return;
+      if (!screenParam && marker !== 'kyc' && marker !== 'dashboard') return;
       const target = canonicalizeScreen(screenParam || marker || 'dashboard');
       if (target !== currentScreen) {
         setCurrentScreen(target);

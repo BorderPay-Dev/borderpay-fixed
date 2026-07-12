@@ -130,15 +130,16 @@ function AppContent() {
   const [appLocked, setAppLocked] = useState(false);
   const [lockChecked, setLockChecked] = useState(false);
 
-  // Normalize hosted verification callback paths to the in-app KYC route.
-  // Bridge may return to /onboarding/kyc-complete; map it to /?screen=kyc.
+  // Normalize hosted verification callback paths to dashboard. The KYC/KYB
+  // external flow should return users to the app shell, then Bridge webhooks
+  // update verification status asynchronously.
   useEffect(() => {
     try {
       const path = String(window.location.pathname || '').replace(/\/+$/, '');
       if (path !== '/onboarding/kyc-complete') return;
       const url = new URL(window.location.href);
       url.pathname = '/';
-      url.searchParams.set('screen', 'kyc');
+      url.searchParams.set('screen', 'dashboard');
       window.history.replaceState({}, '', url.pathname + url.search + url.hash);
     } catch { /* noop */ }
   }, []);
