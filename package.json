@@ -7,7 +7,7 @@
     "guard:safety-boundaries": "bash scripts/ci/enforce-safety-boundaries.sh",
     "compute:rc1-status": "python3 scripts/ci/compute_rc1_status.py --write",
     "dev": "vite",
-    "build": "npm run guard:safety-boundaries && npm run compute:rc1-status && vite build",
+    "build": "npm run guard:safety-boundaries && npm run type-check && npm run compute:rc1-status && vite build",
     "preview": "vite preview",
     "deploy": "npm run build && firebase deploy --only hosting",
     "predeploy:gate": "python3 scripts/predeploy/run_predeploy_gate.py",

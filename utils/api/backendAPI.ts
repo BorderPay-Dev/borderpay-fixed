@@ -15,6 +15,13 @@ import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../per
 import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
 import { affiliateProgramUrl } from '../affiliate/config';
 
+type APIResponse<T> = {
+  success: boolean;
+  data?: T;
+  error?: string;
+  code?: string;
+};
+
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
   // provider-side orchestration and/or email delivery.

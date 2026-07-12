@@ -185,7 +185,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         const dataRaw = Array.isArray((r as any)?.data?.notifications)
           ? (r as any).data.notifications
           : (Array.isArray((r as any)?.data) ? (r as any).data : []);
-        const data = dedupeNotifications(dataRaw);
+        const data = dedupeNotifications(dataRaw as NotificationRow[]);
         setRows(data);
         writeCachedNotifications(data);
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }

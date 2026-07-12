@@ -260,7 +260,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   useEffect(() => {
     if (status === 'verified' || status === 'under_review' || status === 'rejected') return;
-    void probeVerificationState(false);
+    void probeVerificationState();
   }, [status, probeVerificationState]);
 
   useEffect(() => {

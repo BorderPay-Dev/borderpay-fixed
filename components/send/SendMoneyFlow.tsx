@@ -667,11 +667,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       setLimitError(null);
       return;
     }
-    const channel = method === 'mobile_money' ? 'mobile_money' : 'bank';
+    const channel = method === 'africa' && selectedAfricaRoute?.rail === 'mobile_money' ? 'mobile_money' : 'bank';
     const symbol = getCurrencySymbol(selectedCurrency);
     const err = validateTransferAmount(num, selectedCurrency, channel, symbol);
     setLimitError(err);
-  }, [amount, selectedCurrency, method]);
+  }, [amount, selectedCurrency, method, selectedAfricaRoute?.rail]);
 
   const stablecoinMinimumError = useMemo(() => {
     if (method !== 'stablecoin') return null;
