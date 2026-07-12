@@ -498,7 +498,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         dashboardLoadInFlightRef.current = null;
       }
     }
-  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey, displayWalletRow]);
+  }, [dashRefreshTsKey, dashWalletsKey, displayWalletRow, txHistoryKey]);
 
   useEffect(() => {
     loadDashboardData();
