@@ -86,6 +86,7 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
   const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const API_GATEWAY_ADMIN_TOKEN = Deno.env.get("API_GATEWAY_ADMIN_TOKEN") ?? "";
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
     return json({ success: false, error: "Server configuration missing" }, 500);
   }
@@ -101,8 +102,10 @@ Deno.serve(async (req) => {
   }
 
   const isServiceRole = token === SUPABASE_SERVICE_ROLE;
-  let actorId = "service_role";
-  if (!isServiceRole) {
+  const isApiGatewayAdmin =
+    API_GATEWAY_ADMIN_TOKEN.length > 0 && token === API_GATEWAY_ADMIN_TOKEN;
+  let actorId = isApiGatewayAdmin ? "api_gateway_admin_token" : "service_role";
+  if (!isServiceRole && !isApiGatewayAdmin) {
     const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
     if (authErr || !userInfo?.user) {
       return json({ success: false, error: "Unauthorized" }, 401);

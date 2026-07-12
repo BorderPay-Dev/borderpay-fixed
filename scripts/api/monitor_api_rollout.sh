@@ -44,15 +44,19 @@ RESP="$(curl -sS "$ADMIN_FN" \
   -H "Content-Type: application/json" \
   -d "{\"action\":\"get_rollout_metrics\",\"tenant_id\":\"${TENANT_ID}\",\"window_minutes\":${WINDOW_MINUTES}}")"
 
-echo "$RESP" | python3 - \
+RESP_JSON="$RESP" python3 - \
   "$ALERT_ERROR_RATE_PCT" \
   "$ALERT_P95_LATENCY_MS" \
   "$ALERT_PROVIDER_ERRORS" \
   "$ALERT_RATE_LIMITED_REQUESTS" \
   "$ALERT_MIN_REQUESTS" <<'PY'
-import json, sys
+import json, os, sys
 
-obj = json.load(sys.stdin)
+try:
+    obj = json.loads(os.environ.get("RESP_JSON") or "{}")
+except json.JSONDecodeError as exc:
+    print("rollout_metrics: invalid JSON response", str(exc))
+    raise SystemExit(2)
 if not obj.get("success"):
     print("rollout_metrics: FAIL", obj)
     raise SystemExit(2)
@@ -91,4 +95,3 @@ if alerts:
 
 print("rollout_alert: CLEAR")
 PY
-
