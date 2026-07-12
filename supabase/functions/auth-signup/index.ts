@@ -102,25 +102,35 @@ Deno.serve(async (req: Request) => {
       p_email:      email,
       p_ip:         requestIp,
       p_user_agent: ua,
+      p_email_limit_per_hour: 5,
+      p_ip_limit_per_hour: 25,
+      p_cooldown_seconds: 20,
     });
     if (abuseErr) {
-      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
-    }
-    const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
-    if (!abuse?.allowed) {
-      const retryAfter = Number(abuse?.retry_after_seconds || 30);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: abuse?.code || "rate_limited",
-          error: "Too many signup attempts. Please wait and try again.",
-          retry_after_seconds: retryAfter,
-        }),
-        {
-          status: 429,
-          headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
-        },
-      );
+      const msg = String(abuseErr.message || "");
+      const missingRpc = msg.includes("Could not find the function public.enforce_signup_abuse_protection");
+      if (missingRpc) {
+        console.error("auth-signup abuse protection unavailable; allowing signup", { message: msg });
+      } else {
+        return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
+      }
+    } else {
+      const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
+      if (!abuse?.allowed) {
+        const retryAfter = Number(abuse?.retry_after_seconds || 30);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            code: abuse?.code || "rate_limited",
+            error: "Too many signup attempts. Please wait and try again.",
+            retry_after_seconds: retryAfter,
+          }),
+          {
+            status: 429,
+            headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
+          },
+        );
+      }
     }
 
     // CAPTCHA hook. When SIGNUP_CAPTCHA_SECRET is configured this fails-closed.
