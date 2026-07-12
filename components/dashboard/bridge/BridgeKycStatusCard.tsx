@@ -116,7 +116,6 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const ctaLabel =
     status === 'not_started' ? (isBusiness ? tt('dash.kyb.start',     'Start business verification')   : tt('dash.kyc.start',     'Start identity verification'))
   : status === 'pending'     ? (isBusiness ? tt('dash.kyb.continue',  'Continue verification')         : tt('dash.kyc.continue',  'Continue verification'))
-  : status === 'rejected'    ? (isBusiness ? tt('dash.kyb.retry',     'Retry verification')            : tt('dash.kyc.retry',     'Retry verification'))
   : null;
 
   const headline =
@@ -148,7 +147,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
           ? tt('dash.kyb.review.body', 'We are reviewing your business submission. Timelines vary depending on the business and required documents.')
           : tt('dash.kyc.review.body', 'Most reviews complete in a few minutes.'))
   : status === 'pending'      ? tt('dash.kyc.pending.body',  'Pick up where you left off.')
-  : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'You can retry, or contact support.')
+  : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'Contact support for the next steps.')
   : (isBusiness
       ? tt('dash.kyb.start.body', "Complete business, ownership, and address checks in BorderPay's secure verification flow.")
       : tt('dash.kyc.start.body', 'Provide a government ID and a quick selfie. Takes 2–3 minutes.'));
