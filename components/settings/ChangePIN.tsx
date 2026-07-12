@@ -3,14 +3,16 @@
  * i18n + theme-aware, uses authAPI.getToken()
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
-import { Lock, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
+import { Lock, Eye, EyeOff, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import { PINManager } from '../../utils/security/SecurityManager';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { PINSetup } from '../security/PINSetup';
+import { backendAPI } from '../../utils/api/backendAPI';
 
 interface ChangePINProps {
   userId: string;
@@ -24,12 +26,32 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
   const [showCurrentPIN, setShowCurrentPIN] = useState(false);
   const [showNewPIN, setShowNewPIN] = useState(false);
   const [showConfirmPIN, setShowConfirmPIN] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
+  const [setupMode, setSetupMode] = useState(false);
   
   const [formData, setFormData] = useState({
     currentPIN: '',
     newPIN: '',
     confirmPIN: '',
   });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res: any = await backendAPI.auth.getSecurityStatus(userId);
+        if (!alive) return;
+        const pinSet = !!(res?.data?.pin_set ?? res?.pin_set);
+        setSetupMode(!pinSet);
+      } catch {
+        if (!alive) return;
+        setSetupMode(!PINManager.hasPIN(userId));
+      } finally {
+        if (alive) setCheckingStatus(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +85,11 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
         toast.success('PIN changed successfully');
         onBack();
       } else {
+        if (/pin not set up/i.test(String(result.error || ''))) {
+          setSetupMode(true);
+          toast.error('Create your transaction PIN first.');
+          return;
+        }
         toast.error(friendlyError(result.error, 'Failed to change PIN'));
       }
     } catch (error) {
@@ -79,6 +106,27 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
 
   const isPINValid = formData.newPIN.length === 6 && /^\d+$/.test(formData.newPIN);
   const isPINMatch = formData.newPIN === formData.confirmPIN && formData.confirmPIN.length === 6;
+
+  if (checkingStatus) {
+    return (
+      <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe`}>
+        <FloatingBackButton onBack={onBack} />
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-[#C7FF00]" />
+        </div>
+      </div>
+    );
+  }
+
+  if (setupMode) {
+    return (
+      <PINSetup
+        userId={userId}
+        onBack={onBack}
+        onComplete={onBack}
+      />
+    );
+  }
 
   return (
     <div className={`min-h-screen ${tc.bg} pb-safe`}>
