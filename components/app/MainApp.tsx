@@ -457,9 +457,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [verificationEmbedOpen, setVerificationEmbedOpen] = useState<boolean>(() => {
     try { return sessionStorage.getItem('borderpay_verification_embed_open') === '1'; } catch { return false; }
   });
-  const [verificationEmbedTitle, setVerificationEmbedTitle] = useState<string>(() => {
-    try { return sessionStorage.getItem('borderpay_verification_embed_title') || ''; } catch { return ''; }
-  });
   const [verificationEmbedReturnEnabled, setVerificationEmbedReturnEnabled] = useState<boolean>(() => {
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
@@ -700,7 +697,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       const title = String(ce?.detail?.title || '');
       const returnEnabled = ce?.detail?.returnEnabled !== false;
       setVerificationEmbedOpen(open);
-      setVerificationEmbedTitle(title);
       setVerificationEmbedReturnEnabled(returnEnabled);
       try {
         if (open) {
@@ -728,6 +724,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       const marker = sessionStorage.getItem('borderpay_post_callback_screen');
       if (!screenParam && marker !== 'kyc' && marker !== 'dashboard') return;
       const target = canonicalizeScreen(screenParam || marker || 'dashboard');
+      sessionStorage.removeItem('borderpay_verification_embed_open');
+      sessionStorage.removeItem('borderpay_verification_embed_title');
+      sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
+      setVerificationEmbedOpen(false);
+      setVerificationEmbedReturnEnabled(true);
       if (target !== currentScreen) {
         setCurrentScreen(target);
         setNavigationStack(target === 'dashboard' ? ['dashboard'] : ['dashboard', target]);
@@ -1164,8 +1165,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 onLock={onLock}
                 onOpenPayoutAccounts={EXTERNAL_ACCOUNTS_LIVE ? () => navigateTo('external-accounts') : undefined}
                 onOpenWithdrawalWallets={() => navigateTo('external-wallets')}
-                verificationFocus={verificationEmbedOpen}
-                verificationFocusTitle={verificationEmbedTitle}
+                verificationFocus={currentScreen === 'kyc' && verificationEmbedOpen}
                 verificationReturnEnabled={verificationEmbedReturnEnabled}
                 onVerificationReturn={() => {
                   try {

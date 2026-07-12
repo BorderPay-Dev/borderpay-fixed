@@ -193,10 +193,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, [userId]);
 
   const openExternalVerificationUrl = useCallback((url: string) => {
-    try { sessionStorage.setItem('borderpay_post_callback_screen', 'dashboard'); } catch { /* noop */ }
-    // Do not tear down the embedded Bridge ToS view before the browser begins
-    // top-level navigation. Clearing it first causes a visible bounce back to
-    // the verification screen before Bridge KYC/KYB opens.
+    try {
+      sessionStorage.setItem('borderpay_post_callback_screen', 'dashboard');
+      sessionStorage.removeItem('borderpay_verification_embed_open');
+      sessionStorage.removeItem('borderpay_verification_embed_title');
+      sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
+      window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', {
+        detail: { open: false, title: '', returnEnabled: true },
+      }));
+    } catch { /* noop */ }
     window.location.assign(url);
   }, []);
 

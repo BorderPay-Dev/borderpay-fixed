@@ -77,7 +77,6 @@ export interface AppShellProps {
   onOpenWithdrawalWallets?: () => void;
   /** Verification focus mode: hides app chrome except profile + return control. */
   verificationFocus?: boolean;
-  verificationFocusTitle?: string;
   verificationReturnEnabled?: boolean;
   onVerificationReturn?: () => void;
   children:           React.ReactNode;
@@ -112,7 +111,6 @@ export function AppShell({
   onOpenPayoutAccounts,
   onOpenWithdrawalWallets,
   verificationFocus = false,
-  verificationFocusTitle,
   verificationReturnEnabled = true,
   onVerificationReturn,
   children,
@@ -420,15 +418,6 @@ export function AppShell({
             >
               <Menu className={`w-5 h-5 ${tc.text}`} />
             </button>
-          )}
-
-          {/* Verification title */}
-          {verificationFocus && (
-            <div className="min-w-0 px-1">
-              <p className={`text-sm font-semibold ${tc.text} truncate`}>
-                {verificationFocusTitle || tt('shell.verification.title', 'Continue verification')}
-              </p>
-            </div>
           )}
 
           {/* Plan badge — own floating chip, only when paid */}
