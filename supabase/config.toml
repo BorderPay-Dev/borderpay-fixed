@@ -153,3 +153,14 @@ verify_jwt = true
 # Flutterwave webhook receiver — provider-signed; no JWT.
 [functions.flutterwave-webhook]
 verify_jwt = false
+
+# Public API gateway — external clients authenticate in-code with BorderPay API
+# keys, signatures, tenant status, and allowlists. Supabase platform JWT must
+# stay disabled or non-Supabase API clients are rejected before gateway auth runs.
+[functions.public-api-gateway]
+verify_jwt = false
+
+# API gateway admin control plane — server/operator route; authenticated in-code
+# with the dedicated API_GATEWAY_ADMIN_TOKEN bearer, not a user JWT.
+[functions.api-gateway-admin]
+verify_jwt = false

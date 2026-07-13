@@ -6,6 +6,8 @@ Set and verify these before running watchdog or RC gate workflows.
 
 - [ ] `API_GATEWAY_SUPABASE_URL`
 - [ ] `API_GATEWAY_SERVICE_ROLE_KEY`
+  - Value: the dedicated `API_GATEWAY_ADMIN_TOKEN` bearer configured on the Supabase Edge Function runtime.
+  - Do not use or distribute the general Supabase project service-role key for routine watchdog runs.
 - [ ] `API_GATEWAY_TENANT_IDS`
 - [ ] `API_GATEWAY_ALERT_ERROR_RATE_PCT` (optional)
 - [ ] `API_GATEWAY_ALERT_P95_LATENCY_MS` (optional)
@@ -17,6 +19,7 @@ Set and verify these before running watchdog or RC gate workflows.
 
 - [ ] `SUPABASE_URL`
 - [ ] `SERVICE_ROLE_KEY`
+  - Value: the dedicated API gateway admin bearer token for `api-gateway-admin`.
 - [ ] `DRILL_MATRIX_JSON`
 - [ ] `TENANT_IDS`
 - [ ] `OPERATOR`

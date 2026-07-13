@@ -8,6 +8,25 @@ export type AccountType  = "individual" | "business";
 export type FiatCurrency = "USD" | "EUR" | "GBP" | "NGN" | "KES" | "GHS" | "UGX" | "TZS" | "XAF" | "XOF" | "ZAR";
 export type StablecoinSymbol = "USDC" | "USDT" | "PYUSD" | "USDB" | "EURC";
 export type StablecoinChain  = "ETH" | "SOL" | "BSC" | "POLYGON" | "TRON" | "BASE" | "OPTIMISM" | "ARBITRUM";
+export type BridgePaymentRail =
+  | "stablecoin"
+  | "ach"
+  | "wire"
+  | "sepa"
+  | "mobile_money"
+  | "local_bank"
+  | "bridge_wallet"
+  | "external_account"
+  | "tron"
+  | "base"
+  | "ethereum"
+  | "solana"
+  | "polygon"
+  | "arbitrum"
+  | "optimism"
+  | "avalanche_c_chain"
+  | "celo"
+  | "stellar";
 
 export interface CustomerCreateInput {
   account_type:        AccountType;
@@ -60,10 +79,13 @@ export interface VirtualAccountCreateInput {
   // address + the blockchain rail it settles on. `rail` is a Bridge-canonical
   // chain string (e.g. "solana", "ethereum", "polygon", "tron", "base").
   destination:    {
-    rail:            string;
+    rail?:           string;
+    payment_rail?:   string;
     currency:        string;          // stablecoin symbol e.g. "usdc" | "usdt"
     address:         string;          // the wallet address to receive at
   };
+  developer_fee_percent?: string;
+  idempotency_key?: string;
 }
 
 /** A provider wallet as returned by GET /v0/customers/{id}/wallets. */
@@ -103,18 +125,25 @@ export interface WalletResult {
 }
 
 export interface TransferCreateInput {
+  on_behalf_of?: string;
   source: {
     customer_id:    string;
-    payment_rail:   "stablecoin" | "ach" | "wire" | "sepa";
+    payment_rail:   BridgePaymentRail;
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     amount:         string;            // decimal as string
+    from_address?:  string;
+    bridge_wallet_id?: string;
+    external_account_id?: string;
   };
   destination: {
-    payment_rail:   "stablecoin" | "ach" | "wire" | "sepa" | "mobile_money" | "local_bank";
+    payment_rail:   BridgePaymentRail;
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
     address?:       string;            // crypto address
+    bridge_wallet_id?: string;
+    external_account_id?: string;
+    deposit_id?:    string;
     bank_account?:  { account_number: string; routing_number?: string; iban?: string; bic?: string };
     mobile_money?:  { provider: string; phone: string };  // future
   };

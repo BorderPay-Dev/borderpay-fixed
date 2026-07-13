@@ -11,6 +11,8 @@ Use this before enabling scheduled monitoring in GitHub Actions.
 
 - [ ] `API_GATEWAY_SUPABASE_URL`
 - [ ] `API_GATEWAY_SERVICE_ROLE_KEY`
+  - Stores the dedicated API gateway admin bearer token accepted by `api-gateway-admin`.
+  - It is intentionally not the general Supabase project service-role key.
 - [ ] `API_GATEWAY_TENANT_IDS`
 
 ## C) Optional Alert Tuning Secrets

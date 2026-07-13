@@ -6,12 +6,16 @@ This is the exact command order for cutover.
 
 ```bash
 export SUPABASE_URL="https://<project-ref>.supabase.co"
-export SERVICE_ROLE_KEY="<service-role>"
+export SERVICE_ROLE_KEY="<api-gateway-admin-token>"
 export DRILL_MATRIX_JSON="docs/api/onboarding/tenant_drill_matrix.live.json"
 export TENANT_IDS="<tenant-uuid-1>,<tenant-uuid-2>"
 export OPERATOR="ops-oncall"
 export CHANGE_REQUEST_ID="CR-<id>"
 ```
+
+`SERVICE_ROLE_KEY` is the dedicated API gateway admin bearer token for
+`api-gateway-admin`. Do not use the general Supabase project service-role key
+for routine cutover/watchdog commands.
 
 ## 1) Dry RC Gate (must pass)
 

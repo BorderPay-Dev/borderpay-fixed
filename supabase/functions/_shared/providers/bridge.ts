@@ -230,7 +230,8 @@ export class BridgeProvider implements PaymentProvider {
   // stablecoin at that address. Sending a flat `{ currency }` (the old shape)
   // makes Bridge reject with "resubmit the following parameters … missing/invalid".
   async createVirtualAccount(input: VirtualAccountCreateInput): Promise<VirtualAccountResult> {
-    if (!input.destination?.address || !input.destination?.payment_rail || !input.destination?.currency) {
+    const destinationRail = input.destination?.payment_rail || input.destination?.rail;
+    if (!input.destination?.address || !destinationRail || !input.destination?.currency) {
       throw new BridgeProviderError(
         "Bridge createVirtualAccount request invalid: destination wallet fields are required",
         {
@@ -254,7 +255,7 @@ export class BridgeProvider implements PaymentProvider {
       source:      { currency: input.currency.toLowerCase() },
       destination: {
         currency:     input.destination.currency.toLowerCase(),
-        payment_rail: input.destination.payment_rail.toLowerCase(),
+        payment_rail: destinationRail.toLowerCase(),
         address:      input.destination.address,
       },
     };
