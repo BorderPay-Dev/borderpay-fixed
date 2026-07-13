@@ -5,7 +5,8 @@ BorderPay fee-schedule audit (fail-closed).
 Guards the money-math invariants for the BorderPay fee schedule:
 
   F1  Edge canonical schedule exists with the Bridge developer-fee rates
-      (fiat 2.5%, stablecoin 0.999%).
+      (virtual-account fiat 2.5%, external-account off-ramp 1.0%).
+      USDT 0.999 is a fixed trade rate, not a developer fee.
   F2  Edge African payout markup table carries the correct per-plan numbers
       (individual_starter 1.0, business_starter 0.75, premium/growth 0.5,
       enterprise 0.5).
@@ -49,7 +50,8 @@ front = read(FRONT)
 xfer = read(XFER)
 
 # Canonical expected numbers ------------------------------------------------
-DEV_FEE = {"fiat": 2.5, "stablecoin": 0.999}
+DEV_FEE = {"virtual_account_fiat": 2.5, "external_account_offramp": 1.0}
+FIXED_TRADE_RATE = {"USDT": 0.999}
 PAYOUT = {
     "individual_starter": 1.0,
     "individual_premium": 0.5,
@@ -64,6 +66,10 @@ if edge:
         got = num_after(edge, k)
         if got != v:
             failures.append(f"F1 edge BRIDGE_DEVELOPER_FEE_PERCENT.{k}: expected {v}, got {got}")
+    for k, v in FIXED_TRADE_RATE.items():
+        got = num_after(edge, k)
+        if got != v:
+            failures.append(f"F1 edge BRIDGE_FIXED_TRADE_RATE.{k}: expected {v}, got {got}")
 
 # F2 -----------------------------------------------------------------------
 if edge:
@@ -74,17 +80,17 @@ if edge:
 
 # F3 — frontend mirror identical ------------------------------------------
 if front:
-    for k, v in {**DEV_FEE, **PAYOUT}.items():
+    for k, v in {**DEV_FEE, **FIXED_TRADE_RATE, **PAYOUT}.items():
         got = num_after(front, k)
         if got != v:
             failures.append(f"F3 frontend mirror {k}: expected {v}, got {got}")
 
 # F4 — server-side enforcement --------------------------------------------
 if xfer:
-    if "bridgeDeveloperFeePercent" not in xfer:
-        failures.append("F4 bridge-transfer does not import/use bridgeDeveloperFeePercent")
-    if not re.search(r"developer_fee\s*:\s*\{\s*percentage\s*:\s*devFeePercent", xfer):
-        failures.append("F4 bridge-transfer does not pass a server-computed developer_fee percentage")
+    if "BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp" not in xfer:
+        failures.append("F4 bridge-transfer does not use the server external-account off-ramp developer fee")
+    if not re.search(r"developer_fee\s*:\s*isCryptoPayout[\s\S]*external_account_offramp", xfer):
+        failures.append("F4 bridge-transfer does not pass server-computed external-account developer_fee percentage")
 
 # F5 — client value no longer trusted -------------------------------------
 if xfer:
@@ -100,7 +106,7 @@ if failures:
     sys.exit(1)
 
 print(f"FEE SCHEDULE AUDIT: PASS ({total}/{total})")
-print("  ✓ F1 edge Bridge dev fee 2.5% fiat / 0.999% stablecoin")
+print("  ✓ F1 edge Bridge dev fee 2.5% VA / 1.0% external-account off-ramp; 0.999 USDT fixed rate is separate")
 print("  ✓ F2 edge African payout markup tiers (1.0/0.75 starter, 0.5 premium/growth/ent)")
 print("  ✓ F3 frontend mirror numbers identical to edge")
 print("  ✓ F4 bridge-transfer enforces developer fee server-side")

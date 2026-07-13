@@ -8,14 +8,19 @@
  * byte-identical to the edge module so the displayed fee can never drift from
  * the enforced fee.
  *
- * See the edge module's header for the full semantics of the two fee layers
- * (Bridge developer fee vs African payout markup).
+ * See the edge module's header for the full semantics of fee layers. Do not
+ * treat fixed trade rates as developer fees.
  */
 
-/** Bridge developer-fee percentages by source rail. Bridge deducts these. */
+/** Bridge developer-fee percentages. Bridge deducts these from transfers. */
 export const BRIDGE_DEVELOPER_FEE_PERCENT = {
-  fiat:       2.5,
-  stablecoin: 0.999,  // fixed trade rate
+  virtual_account_fiat:      2.5,
+  external_account_offramp:  1.0,
+} as const;
+
+/** Bridge fixed trade-rate config. This is NOT a developer fee. */
+export const BRIDGE_FIXED_TRADE_RATE = {
+  USDT: 0.999,
 } as const;
 
 export type FeePlanKey =
@@ -55,21 +60,14 @@ export function africanPayoutMarkupPercentForAccount(accountType: string | null 
     : AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT.individual;
 }
 
-const STABLECOIN_SYMBOLS: ReadonlySet<string> = new Set([
-  'USDC', 'USDT', 'PYUSD', 'USDB', 'EURC',
-]);
-
-/** Resolve the automatic Bridge developer-fee percent for a source rail. */
+/** Resolve the Bridge developer-fee percent for a known product path. */
 export function bridgeDeveloperFeePercent(
   paymentRail: string | null | undefined,
-  currency: string | null | undefined,
+  _currency: string | null | undefined,
 ): number {
   const rail = String(paymentRail ?? '').toLowerCase();
-  const cur  = String(currency ?? '').toUpperCase();
-  const isStablecoin = rail === 'stablecoin' || STABLECOIN_SYMBOLS.has(cur);
-  return isStablecoin
-    ? BRIDGE_DEVELOPER_FEE_PERCENT.stablecoin
-    : BRIDGE_DEVELOPER_FEE_PERCENT.fiat;
+  if (rail === 'external_account_offramp') return BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp;
+  return BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat;
 }
 
 /** BorderPay African payout markup percent for a subscription plan. */

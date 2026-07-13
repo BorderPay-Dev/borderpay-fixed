@@ -92,7 +92,7 @@ interface Wallet {
 interface ExternalAccountOption {
   id: string;
   bridge_external_account_id: string;
-  account_type: 'us' | 'iban' | 'clabe' | 'pix';
+  account_type: 'us' | 'iban' | 'gb' | 'clabe' | 'pix';
   currency: string;
   account_owner_name: string | null;
   bank_name: string | null;
@@ -277,8 +277,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, []);
 
   // Provider-backed capability gate for external bank accounts.
-  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'clabe' | 'pix'>>(
-    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'clabe' || x === 'pix')
+  const [externalAccountTypes, setExternalAccountTypes] = useState<Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'>>(
+    cachedSendCaps.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
   );
   const selectedExternalAccount = useMemo(
     () => externalAccounts.find((x) => x.bridge_external_account_id === selectedExternalAccountId) || null,
@@ -473,10 +473,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   useEffect(() => {
     if (method !== 'us_ach_wire') return;
-    if (selectedExternalAccount?.currency && selectedExternalAccount.currency !== selectedCurrency) {
-      setSelectedCurrency(selectedExternalAccount.currency);
+    if (selectedCurrency !== 'USDC') {
+      setSelectedCurrency('USDC');
     }
-  }, [method, selectedExternalAccount, selectedCurrency]);
+  }, [method, selectedCurrency]);
 
   // Stablecoin sends must always use the selected stablecoin asset as source.
   useEffect(() => {
@@ -652,6 +652,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         const destinationRail =
           selectedExternalAccount.account_type === 'iban' ? 'sepa'
+          : selectedExternalAccount.account_type === 'gb' ? 'faster_payments'
           : selectedExternalAccount.account_type === 'clabe' ? 'spei'
           : selectedExternalAccount.account_type === 'pix' ? 'pix'
           : 'ach';
@@ -659,7 +660,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           idempotency_key: transferIdempotencyKey,
           source: {
             payment_rail: 'bridge_wallet',
-            currency: selectedCurrency,
+            currency: 'USDC',
             amount: String(parseFloat(amount)),
             ...(selectedWallet?.bridge_wallet_id ? { bridge_wallet_id: selectedWallet.bridge_wallet_id } : {}),
           },
@@ -1128,7 +1129,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </>
             )}
 
-            {/* US Payment (ACH/Wire) Details */}
+            {/* Fiat external account payout details */}
             {method === 'us_ach_wire' && (
               <div className="space-y-4">
                 <div>

@@ -1,9 +1,10 @@
 // bridge-external-account — manage a customer's fiat payout (offramp) destinations.
 //
-// v1 supports two Bridge external-account types:
+// v1 supports Bridge external-account types:
 //   • us   — USD bank account (account_number + routing_number). Usable for
 //            ACH / ACH same-day / Wire payouts (rail chosen at transfer time).
 //   • iban — EUR bank account (IBAN + BIC). SEPA.
+//   • gb   — GBP bank account (sort code + account number). Faster Payments.
 //
 // Actions (single POST endpoint, switched on body.action):
 //   • create  → POST   /v0/customers/{customerId}/external_accounts
@@ -63,7 +64,17 @@ interface IbanAccountInput {
   last_name?: string;
   business_name?: string;
 }
-type CreateInput = UsAccountInput | IbanAccountInput;
+interface GbAccountInput {
+  account_type: "gb";
+  account_owner_name: string;
+  account_owner_type: "individual" | "business";
+  account: { sort_code: string; account_number: string };
+  bank_name?: string;
+  first_name?: string;
+  last_name?: string;
+  business_name?: string;
+}
+type CreateInput = UsAccountInput | IbanAccountInput | GbAccountInput;
 
 const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 
@@ -132,6 +143,19 @@ Deno.serve(async (req) => {
     return json({ success: true, data: (r.data as any)?.data ?? r.data });
   }
 
+  // ── capabilities ──────────────────────────────────────────────────────
+  // Keep this explicit. The frontend must not infer payout products from UI
+  // placeholders; it should ask the edge function which Bridge-backed external
+  // account types this deployment currently supports.
+  if (action === "capabilities") {
+    return json({
+      success: true,
+      data: {
+        supported_account_types: ["us", "iban", "gb"],
+      },
+    });
+  }
+
   // ── create ──────────────────────────────────────────────────────────
   // Paid gate: adding a payout destination is a money feature — requires an
   // activated (paid) plan. (list/delete stay open so users can always view /
@@ -145,15 +169,15 @@ Deno.serve(async (req) => {
     if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
   }
   const acct = body.account;
-  if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban")) {
-    return json({ success: false, error: "account.account_type must be 'us' or 'iban'" }, 400);
+  if (!acct || (acct.account_type !== "us" && acct.account_type !== "iban" && acct.account_type !== "gb")) {
+    return json({ success: false, error: "account.account_type must be 'us', 'iban', or 'gb'" }, 400);
   }
   if (!acct.account_owner_name) {
     return json({ success: false, error: "account_owner_name required" }, 400);
   }
 
   let bridgeBody: Record<string, unknown>;
-  let currency: "USD" | "EUR";
+  let currency: "USD" | "EUR" | "GBP";
   let railLabel: string;
   let derivedLast4: string;
 
@@ -182,7 +206,7 @@ Deno.serve(async (req) => {
         country:       a.address.country,
       },
     };
-  } else {
+  } else if (acct.account_type === "iban") {
     const a = acct as IbanAccountInput;
     if (!a.iban_number || !a.bic_swift || !a.iban_country) {
       return json({ success: false, error: "iban_number, bic_swift, and iban_country required for IBAN accounts" }, 400);
@@ -210,6 +234,39 @@ Deno.serve(async (req) => {
         : { business_name: a.business_name }),
       iban: { account_number: a.iban_number, bic: a.bic_swift, country: a.iban_country },
     };
+  } else if (acct.account_type === "gb") {
+    const a = acct as GbAccountInput;
+    if (!a.account?.sort_code || !a.account?.account_number) {
+      return json({ success: false, error: "sort_code and account_number required for GB accounts" }, 400);
+    }
+    if (a.account_owner_type !== "individual" && a.account_owner_type !== "business") {
+      return json({ success: false, error: "account_owner_type must be 'individual' or 'business'" }, 400);
+    }
+    if (a.account_owner_type === "individual" && (!a.first_name || !a.last_name)) {
+      return json({ success: false, error: "first_name and last_name required for individual GB accounts" }, 400);
+    }
+    if (a.account_owner_type === "business" && !a.business_name) {
+      return json({ success: false, error: "business_name required for business GB accounts" }, 400);
+    }
+    currency = "GBP";
+    railLabel = "faster_payments";
+    derivedLast4 = last4(a.account.account_number);
+    bridgeBody = {
+      currency:           "gbp",
+      account_type:       "gb",
+      account_owner_name: a.account_owner_name,
+      account_owner_type: a.account_owner_type,
+      ...(a.bank_name ? { bank_name: a.bank_name } : {}),
+      ...(a.account_owner_type === "individual"
+        ? { first_name: a.first_name, last_name: a.last_name }
+        : { business_name: a.business_name }),
+      account: {
+        sort_code:      a.account.sort_code,
+        account_number: a.account.account_number,
+      },
+    };
+  } else {
+    return json({ success: false, error: "unsupported external account type" }, 400);
   }
 
   const r = await bridgeFetch({
@@ -221,7 +278,7 @@ Deno.serve(async (req) => {
   if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
 
   const data = (r.data as any)?.data ?? r.data;
-  const extId = String(data?.id ?? "");
+  const extId = String(data?.id ?? data?.external_account_id ?? "");
   if (!extId) return json({ success: false, error: "Bridge response missing external account id" }, 502);
 
   // Mirror locally — descriptors only, never full account / routing / IBAN.

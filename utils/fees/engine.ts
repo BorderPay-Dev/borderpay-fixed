@@ -7,7 +7,7 @@
  *
  * Tiers (exact figures):
  *   International (US / EU / LatAm — international fiat payout):
- *     0.35% orchestration + 0.999% fixed settlement + 2.5% BorderPay markup,
+ *     0.35% orchestration + 0.999 fixed trade rate + 1.0% Bridge developer fee,
  *     for BOTH individual and business. Third-party/network costs pass through.
  *   African (EXTERNAL STABLECOIN withdrawal — USDT/USDC over TRON/Polygon/
  *     Solana/Arbitrum/Base):
@@ -27,7 +27,7 @@ export type FeeAccount  = 'individual' | 'business';
 /** International stack components (percent). */
 export const INTL_ORCHESTRATION_PERCENT   = 0.35;
 export const INTL_FIXED_SETTLEMENT_PERCENT = 0.999;
-export const INTL_DEVELOPER_MARKUP_PERCENT = BRIDGE_DEVELOPER_FEE_PERCENT.fiat; // 2.5
+export const INTL_DEVELOPER_MARKUP_PERCENT = BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp; // 1.0
 
 /** African external-stablecoin components (percent). Flat for both account types. */
 export const STABLECOIN_BRIDGE_USDT_PERCENT = 0.10;  // raw Bridge USDT support cost

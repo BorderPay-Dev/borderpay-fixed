@@ -9,7 +9,8 @@
 //
 //   NOTE: developer_fee is NOT accepted from the client. It is computed and
 //   enforced server-side from the canonical schedule in _shared/fees/schedule.ts
-//   (stablecoin 0.99% / fiat 2.5%). Any developer_fee in the body is ignored.
+//   (crypto payout flat fee / external-account fiat off-ramp percent fee).
+//   Any developer_fee in the body is ignored.
 //
 // Feature-flag gate (P0.2):
 //
@@ -72,6 +73,7 @@ import {
   isCryptoToCryptoTransfer,
   validateBridgePayout,
 } from "../_shared/bridge-payout-validator.ts";
+import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -129,6 +131,25 @@ const SUPPORTED_FX_PAIRS = new Set([
   "USD_MXN", "MXN_USD",
   "USD_USDT", "USDT_USD",
 ]);
+
+const FIAT_EXTERNAL_ACCOUNT_RAILS = new Set([
+  "ach",
+  "wire",
+  "ach_push",
+  "ach_same_day",
+  "fednow",
+  "sepa",
+  "faster_payments",
+]);
+const FIAT_EXTERNAL_ACCOUNT_DESTINATION_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
+
+function isFiatExternalAccountOfframp(body: any): boolean {
+  const srcRail = String(body?.source?.payment_rail || "").toLowerCase();
+  const dstRail = String(body?.destination?.payment_rail || "").toLowerCase();
+  return srcRail === "bridge_wallet"
+    && FIAT_EXTERNAL_ACCOUNT_RAILS.has(dstRail)
+    && !!String(body?.destination?.external_account_id || "").trim();
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -300,6 +321,42 @@ Deno.serve(async (req) => {
     enforcedCryptoPayout = validation.enforced;
   }
 
+  const isFiatExternalOfframp = isFiatExternalAccountOfframp(body);
+  if (isFiatExternalOfframp) {
+    const sourceWalletId = String(body?.source?.bridge_wallet_id || "").trim();
+    const externalAccountId = String(body?.destination?.external_account_id || "").trim();
+    const sourceCurrency = String(body?.source?.currency || "").toUpperCase();
+    const destinationCurrency = String(body?.destination?.currency || "").toUpperCase();
+    if (!sourceWalletId) {
+      return json({
+        success: false,
+        code: "source_wallet_required",
+        error: "USDC Bridge wallet id is required for fiat external-account payout.",
+      }, 400);
+    }
+    if (!externalAccountId) {
+      return json({
+        success: false,
+        code: "external_account_required",
+        error: "Bridge external account id is required for fiat payout.",
+      }, 400);
+    }
+    if (sourceCurrency !== "USDC") {
+      return json({
+        success: false,
+        code: "unsupported_offramp_source",
+        error: "Fiat external-account payouts must source from the user's USDC Bridge wallet.",
+      }, 400);
+    }
+    if (!FIAT_EXTERNAL_ACCOUNT_DESTINATION_CURRENCIES.has(destinationCurrency)) {
+      return json({
+        success: false,
+        code: "unsupported_offramp_currency",
+        error: "Supported fiat external-account payout currencies are USD, EUR, and GBP.",
+      }, 400);
+    }
+  }
+
   const sourceRail = body.source.payment_rail || "stablecoin";
   const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
   const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
@@ -342,7 +399,9 @@ Deno.serve(async (req) => {
       },
       developer_fee: isCryptoPayout
         ? { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD }
-        : { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD },
+        : isFiatExternalOfframp
+        ? { percentage: BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp }
+        : undefined,
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.

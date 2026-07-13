@@ -7,14 +7,15 @@
  * exact same numbers, so what we display can never drift from what the
  * server actually charges.
  *
- * Two distinct fee layers — do not conflate them:
+ * Fee layers — do not conflate them:
  *
  *  1. BRIDGE DEVELOPER FEE — Bridge takes it OUT OF the transfer (its
- *     native `developer_fee_percent`; deducted from the sent amount, NOT
- *     added on top of what the user is charged). Applied AUTOMATICALLY on
- *     every transfer, computed server-side, never trusted from the client:
- *       • Fiat rail (ach / wire / sepa):  2.5%
- *       • Stablecoin rail (USDT/USDC/…):  0.999%  (fixed trade rate)
+ *     native `developer_fee_percent`; deducted from the sent amount, never
+ *     trusted from the client:
+ *       • Virtual-account on-ramp developer fee: 2.5%
+ *       • External-account fiat off-ramp developer fee: 1.0%
+ *
+ *     Bridge fixed trade rates, e.g. USDT 0.999, are NOT developer fees.
  *
  *  2. AFRICAN PAYOUT MARKUP — BorderPay's fixed markup added on top of
  *     whatever African payout partner we route the local-currency leg
@@ -27,10 +28,15 @@
  *     once a partner lands. It does not move money on its own.
  */
 
-/** Bridge developer-fee percentages by source rail. Bridge deducts these. */
+/** Bridge developer-fee percentages. Bridge deducts these. */
 export const BRIDGE_DEVELOPER_FEE_PERCENT = {
-  fiat:       2.5,
-  stablecoin: 0.999,  // fixed trade rate
+  virtual_account_fiat:      2.5,
+  external_account_offramp:  1.0,
+} as const;
+
+/** Bridge fixed trade-rate config. This is NOT a developer fee. */
+export const BRIDGE_FIXED_TRADE_RATE = {
+  USDT: 0.999,
 } as const;
 
 export type FeePlanKey =
@@ -57,25 +63,16 @@ export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> =
 /** Lowest-tier markup used as the safe default when a plan key is unknown. */
 export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
 
-const STABLECOIN_SYMBOLS: ReadonlySet<string> = new Set([
-  "USDC", "USDT", "PYUSD", "USDB", "EURC",
-]);
-
 /**
- * Resolve the automatic Bridge developer-fee percent for a transfer's source
- * rail. Stablecoin (rail === "stablecoin" or a stablecoin currency symbol) is
- * the fixed 0.99%; everything else (fiat rails) is 2.5%.
+ * Resolve the Bridge developer-fee percent for a known product path.
  */
 export function bridgeDeveloperFeePercent(
   paymentRail: string | null | undefined,
-  currency: string | null | undefined,
+  _currency: string | null | undefined,
 ): number {
   const rail = String(paymentRail ?? "").toLowerCase();
-  const cur  = String(currency ?? "").toUpperCase();
-  const isStablecoin = rail === "stablecoin" || STABLECOIN_SYMBOLS.has(cur);
-  return isStablecoin
-    ? BRIDGE_DEVELOPER_FEE_PERCENT.stablecoin
-    : BRIDGE_DEVELOPER_FEE_PERCENT.fiat;
+  if (rail === "external_account_offramp") return BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp;
+  return BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat;
 }
 
 /**
