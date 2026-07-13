@@ -136,7 +136,7 @@ Deno.serve(async (req) => {
       const { data, error } = await supa
         .from("api_tenants")
         .select(
-          "id, business_user_id, tenant_name, default_mode, is_active, beta_access_enabled, max_single_transfer_usd, rate_limit_per_minute, created_at, updated_at",
+          "id, business_user_id, tenant_name, default_mode, is_active, beta_access_enabled, max_single_transfer_usd, rate_limit_per_minute, metadata, created_at, updated_at",
         )
         .order("created_at", { ascending: false })
         .limit(200);
@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
           .update(payload)
           .eq("id", tenantId)
           .select(
-            "id, tenant_name, default_mode, is_active, beta_access_enabled, max_single_transfer_usd, rate_limit_per_minute, updated_at",
+            "id, tenant_name, default_mode, is_active, beta_access_enabled, max_single_transfer_usd, rate_limit_per_minute, metadata, updated_at",
           )
           .single();
         if (error) throw new Error(error.message);
@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
         .from("api_tenants")
         .insert(payload)
         .select(
-          "id, tenant_name, default_mode, is_active, beta_access_enabled, max_single_transfer_usd, rate_limit_per_minute, created_at",
+          "id, tenant_name, default_mode, is_active, beta_access_enabled, max_single_transfer_usd, rate_limit_per_minute, metadata, created_at",
         )
         .single();
       if (error) throw new Error(error.message);

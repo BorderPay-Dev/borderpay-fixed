@@ -41,6 +41,7 @@ This is the canonical index for API closed-beta rollout operations.
 
 1. Go-live drill evidence
 - Script: `scripts/api/run_tenant_golive_drill.sh`
+- Runbook: `docs/api/onboarding/API_WHITE_LABEL_OPERATOR_RUNBOOK.md`
 - Matrix template: `docs/api/onboarding/TENANT_DRILL_MATRIX_TEMPLATE.json`
 
 2. Rollout evidence template
