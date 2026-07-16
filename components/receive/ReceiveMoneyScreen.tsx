@@ -14,6 +14,11 @@ import { Shield, Inbox, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { authAPI } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { deriveKycStatus } from '../../utils/config/environment';
+import {
+  bridgeVirtualAccountCurrenciesForCountry,
+  type BridgeVirtualAccountCurrency,
+} from '../../utils/compliance/partnerCountryPolicy';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel, assetName,
@@ -28,31 +33,28 @@ interface ReceiveMoneyScreenProps {
 }
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
-interface VaRow     { id: string; currency: 'USD' | 'EUR' | 'GBP'; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
+interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
 
 const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
 
-function isApproved(value?: string | null): boolean {
-  if (typeof value !== 'string') return false;
-  return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
+function readCachedProfile(): any {
+  try {
+    return JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+  } catch {
+    return {};
+  }
 }
 
 function readCachedVerified(): boolean {
-  try {
-    const u = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-    const accountType = String(u?.account_type || 'individual').toLowerCase();
-    const kycApproved = isApproved(u?.bridge_kyc_status);
-    const kybApproved = isApproved(u?.bridge_kyb_status);
-    const accountApproved = isApproved(u?.bridge_account_status);
-    return accountType === 'business'
-      ? (kybApproved || kycApproved || accountApproved)
-      : (kycApproved || accountApproved);
-  } catch {
-    return false;
-  }
+  return deriveKycStatus(readCachedProfile()) === 'verified';
+}
+
+function readCachedCountry(): string | null {
+  const u = readCachedProfile();
+  return u?.country ? String(u.country).toUpperCase() : null;
 }
 
 export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
@@ -65,6 +67,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const storedUser = authAPI.getStoredUser() || {};
   const userId = (storedUser.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
+  const [country, setCountry] = useState<string | null>(() => readCachedCountry());
 
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
@@ -163,6 +166,15 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
       try { localStorage.setItem(receiveRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+      void backendAPI.user.getProfile().then((profile: any) => {
+        if (!profile?.success || !profile?.data?.user) return;
+        const u = profile.data.user;
+        setIsVerified(deriveKycStatus(u) === 'verified');
+        setCountry(u?.country ? String(u.country).toUpperCase() : null);
+        try { localStorage.setItem('borderpay_user', JSON.stringify(u)); } catch { /* noop */ }
+      }).catch(() => {
+        // Keep cached profile state.
+      });
       // Heavy provider sync/provision runs after first paint; never blocks route render.
       if (shouldRunProviderSync()) {
         void Promise.allSettled([
@@ -224,10 +236,15 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     };
   /* eslint-disable-next-line */ }, [userId, isVerified, receiveRefreshTsKey]);
 
-  const visibleVas = useMemo(
-    () => vas.filter((v) => String(v.status || '').toLowerCase() === 'active' && Boolean(v.bridge_virtual_account_id)),
-    [vas],
-  );
+  const visibleVas = useMemo(() => {
+    const countryAllowed = bridgeVirtualAccountCurrenciesForCountry(country);
+    return vas.filter((v) => {
+      const currency = String(v.currency || '').toUpperCase() as BridgeVirtualAccountCurrency;
+      return countryAllowed.includes(currency) &&
+        String(v.status || '').toLowerCase() === 'active' &&
+        Boolean(v.bridge_virtual_account_id);
+    });
+  }, [vas, country]);
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {

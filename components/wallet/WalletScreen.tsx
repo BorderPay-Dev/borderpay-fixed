@@ -25,6 +25,7 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
+  bridgeVirtualAccountCurrenciesForCountry,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
 import { usePreferences } from '../../utils/hooks/usePreferences';
@@ -53,6 +54,29 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
 
+function readCachedCountry(): string | null {
+  try {
+    const stored = localStorage.getItem('borderpay_user');
+    if (!stored) return null;
+    const profile = JSON.parse(stored);
+    return profile?.country ? String(profile.country).toUpperCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+function intersectVaCapabilities(
+  supported: unknown,
+  country: string | null | undefined,
+): BridgeVirtualAccountCurrency[] {
+  const countryAllowed = bridgeVirtualAccountCurrenciesForCountry(country);
+  if (!Array.isArray(supported)) return countryAllowed;
+  const globalSupported = supported
+    .map((c: unknown) => String(c || '').toUpperCase())
+    .filter((c: string): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(c));
+  return countryAllowed.filter((c) => globalSupported.includes(c));
+}
+
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
@@ -64,7 +88,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
 
   // KYC gate — synchronous from cached profile.
-  const [kycStatus] = useState<string>(() => {
+  const [kycStatus, setKycStatus] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
       if (stored) return deriveKycStatus(JSON.parse(stored));
@@ -73,7 +97,10 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   });
   const isVerified = isVerifiedProp || isFullEnrollment(kycStatus);
 
-  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
+  const [country, setCountry] = useState<string | null>(() => readCachedCountry());
+  const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(
+    () => bridgeVirtualAccountCurrenciesForCountry(readCachedCountry()),
+  );
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
     [userId],
@@ -142,7 +169,11 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     try { requested = String(sessionStorage.getItem('borderpay_open_wallet_currency') || '').toUpperCase(); } catch { requested = ''; }
     if (!requested) return;
 
-    const va = vas.find((row) => String(row.currency || '').toUpperCase() === requested);
+    const countryAllowed = bridgeVirtualAccountCurrenciesForCountry(country);
+    const va = vas.find((row) => {
+      const currency = String(row.currency || '').toUpperCase() as BridgeVirtualAccountCurrency;
+      return currency === requested && countryAllowed.includes(currency);
+    });
     if (va) {
       setSelectedVa(va);
       preselectConsumedRef.current = true;
@@ -160,7 +191,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       preselectConsumedRef.current = true;
       try { sessionStorage.removeItem('borderpay_open_wallet_currency'); } catch { /* noop */ }
     }
-  }, [vas, stables, loading, refreshing]);
+  }, [vas, stables, loading, refreshing, country]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -264,15 +295,29 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   useEffect(() => {
     let alive = true;
     (async () => {
+      let profileCountry = country;
+      try {
+        const profile = await backendAPI.user.getProfile();
+        if (alive && profile?.success && profile?.data?.user) {
+          const nextCountry = profile.data.user?.country ? String(profile.data.user.country).toUpperCase() : null;
+          profileCountry = nextCountry;
+          setCountry(nextCountry);
+          setKycStatus(deriveKycStatus(profile.data.user));
+          try { localStorage.setItem('borderpay_user', JSON.stringify(profile.data.user)); } catch { /* noop */ }
+        }
+      } catch {
+        // Keep cached country policy.
+      }
       try {
         const caps = await backendAPI.bridge.virtualAccount.capabilities();
-        if (!alive || !caps?.success) return;
-        const supported = Array.isArray(caps.data?.supported_currencies)
-          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
-          : [];
-        if (supported.length > 0) setAvailableVaCurrencies(supported);
+        if (!alive) return;
+        if (caps?.success) {
+          setAvailableVaCurrencies(intersectVaCapabilities(caps.data?.supported_currencies, profileCountry));
+        } else {
+          setAvailableVaCurrencies(bridgeVirtualAccountCurrenciesForCountry(profileCountry));
+        }
       } catch {
-        // Keep fallback country policy list.
+        if (alive) setAvailableVaCurrencies(bridgeVirtualAccountCurrenciesForCountry(profileCountry));
       }
     })();
     return () => { alive = false; };
@@ -312,7 +357,11 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
 
   // ── Missing VA currencies (the "deposit chooser") ────────────────────────
-  const haveVa = useMemo(() => new Set(vas.map(v => v.currency)), [vas]);
+  const visibleVas = useMemo(() => {
+    const countryAllowed = bridgeVirtualAccountCurrenciesForCountry(country);
+    return vas.filter((v) => countryAllowed.includes(String(v.currency || '').toUpperCase() as BridgeVirtualAccountCurrency));
+  }, [vas, country]);
+  const haveVa = useMemo(() => new Set(visibleVas.map(v => v.currency)), [visibleVas]);
   const missingVa = availableVaCurrencies.filter(c => !haveVa.has(c));
   const haveStable = useMemo(
     () => new Set(stables.map((s) => String(s.currency || '').toUpperCase()).filter(Boolean)),
@@ -427,7 +476,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
             <div className="px-4 py-4">
               <SkeletonRows count={4} />
             </div>
-          ) : vas.length === 0 && stables.length === 0 ? (
+          ) : visibleVas.length === 0 && stables.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <p className={`text-sm ${tc.textMuted}`}>
                 No accounts yet — open one below.
@@ -436,7 +485,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           ) : (
             <>
               {/* Fiat virtual accounts first */}
-              {vas.map((v, i) => {
+              {visibleVas.map((v, i) => {
                 const cur = String(v.currency).toUpperCase();
                 const curBalance = Number(balanceByCurrency[cur] || 0);
                 return (
@@ -463,7 +512,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
               {stables.map((s, i) => {
                 const sym = String(s.currency || '').toUpperCase();
                 const stableBalance = Number(balanceByCurrency[sym] || 0);
-                const showDivider = vas.length > 0 || i > 0;
+                const showDivider = visibleVas.length > 0 || i > 0;
                 return (
                   <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>

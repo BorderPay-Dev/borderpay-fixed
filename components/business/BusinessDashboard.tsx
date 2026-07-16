@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
+import { deriveKycStatus } from '../../utils/config/environment';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
@@ -139,13 +140,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   const [country, setCountry]                       = useState<string | null>(initialCountry);
   const [profileError, setProfileError]             = useState<string | null>(null);
   const initialAffiliateKycStatus = useMemo<'verified' | 'pending'>(() => {
-    const raw = String(
-      stored?.bridge_kyb_status ||
-      stored?.bridge_verification_status ||
-      stored?.verification_status ||
-      '',
-    ).toLowerCase();
-    return (raw === 'approved' || raw === 'verified' || raw === 'active') ? 'verified' : 'pending';
+    return deriveKycStatus({ ...stored, account_type: 'business' }) === 'verified' ? 'verified' : 'pending';
   }, [stored]);
   const [affiliateKycStatus, setAffiliateKycStatus] = useState<'verified' | 'pending'>(initialAffiliateKycStatus);
   const [verificationResolved, setVerificationResolved] = useState<boolean>(initialAffiliateKycStatus === 'verified');
@@ -318,18 +313,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
               } catch { /* noop */ }
             });
           }
-          const kybState = String(
-            profile?.bridge_kyb_status ||
-            profile?.bridge_verification_status ||
-            profile?.verification_status ||
-            profile?.bridge_account_status ||
-            '',
-          ).toLowerCase();
-          setAffiliateKycStatus(
-            (kybState === 'approved' || kybState === 'verified' || kybState === 'active')
-              ? 'verified'
-              : 'pending',
-          );
+          const nextKybStatus = deriveKycStatus({ ...profile, account_type: 'business' }) === 'verified'
+            ? 'verified'
+            : 'pending';
+          setAffiliateKycStatus(nextKybStatus);
           setVerificationResolved(true);
           setProfileError(null);
           try {

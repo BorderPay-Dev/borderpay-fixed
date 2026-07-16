@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, Plus, Shield } from 'lucide-react';
+import { Lock, Plus } from 'lucide-react';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
+  bridgeVirtualAccountCurrenciesForCountry,
+  isBridgeCustodialWalletSupported,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
+import { deriveKycStatus } from '../../utils/config/environment';
 import { AssetBadge } from '../dashboard/bridge/WalletVisuals';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { showToast } from '../common/StatusToast';
@@ -46,9 +49,32 @@ const STABLE_ICON_URL: Record<string, string> = {
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
 };
 
-function isApproved(value?: string | null): boolean {
-  if (typeof value !== 'string') return false;
-  return ['approved', 'active', 'authorized', 'verified', 'completed', 'complete'].includes(value.toLowerCase());
+function readCachedUser(): any {
+  try {
+    return JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function isVerifiedProfile(profile: any): boolean {
+  return deriveKycStatus(profile) === 'verified';
+}
+
+function countryAllowedVaCurrencies(country: string | null | undefined): BridgeVirtualAccountCurrency[] {
+  return bridgeVirtualAccountCurrenciesForCountry(country);
+}
+
+function intersectVaCapabilities(
+  supported: unknown,
+  country: string | null | undefined,
+): BridgeVirtualAccountCurrency[] {
+  const countryAllowed = countryAllowedVaCurrencies(country);
+  if (!Array.isArray(supported)) return countryAllowed;
+  const globalSupported = supported
+    .map((c: unknown) => String(c || '').toUpperCase())
+    .filter((c: string): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(c));
+  return countryAllowed.filter((c) => globalSupported.includes(c));
 }
 
 export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
@@ -56,29 +82,20 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
-  const [stableSupported, setStableSupported] = useState<boolean>(false);
+  const [country, setCountry] = useState<string | null>(() => {
+    const cached = readCachedUser();
+    return cached?.country ? String(cached.country).toUpperCase() : null;
+  });
+  const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(
+    () => countryAllowedVaCurrencies(readCachedUser()?.country ? String(readCachedUser().country).toUpperCase() : null),
+  );
+  const [stableSupported, setStableSupported] = useState<boolean>(
+    () => isBridgeCustodialWalletSupported(readCachedUser()?.country ? String(readCachedUser().country).toUpperCase() : null),
+  );
   const [supportedStableSymbols, setSupportedStableSymbols] = useState<string[]>(['USDC', 'USDT']);
 
   const [verified, setVerified] = useState<boolean>(() => {
-    try {
-      const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
-      const accountType = String(cached?.account_type || 'individual').toLowerCase();
-      return accountType === 'business'
-        ? (isApproved(cached?.bridge_kyb_status) || isApproved(cached?.bridge_kyc_status) || isApproved(cached?.bridge_account_status))
-        : (isApproved(cached?.bridge_kyc_status) || isApproved(cached?.bridge_account_status));
-    } catch {
-      return false;
-    }
-  });
-
-  const [hasFirstFunding, setHasFirstFunding] = useState<boolean>(() => {
-    try {
-      const raw = localStorage.getItem(`borderpay_wallet_total_${userId}`);
-      return Number(raw || 0) > 0;
-    } catch {
-      return false;
-    }
+    return isVerifiedProfile(readCachedUser());
   });
 
   const walletCacheKey = useMemo(
@@ -116,15 +133,24 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       const routeData = route?.data || {};
       const nextStable = Array.isArray(routeData?.stablecoin_wallets) ? routeData.stablecoin_wallets : [];
       const nextVa = Array.isArray(routeData?.virtual_accounts) ? routeData.virtual_accounts : [];
-      const wallets = Array.isArray(routeData?.wallets) ? routeData.wallets : [];
       setStableRows(nextStable);
       setVaRows(nextVa);
       try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
 
-      const total = wallets.reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
-      setHasFirstFunding(total > 0);
-      try { localStorage.setItem(`borderpay_wallet_total_${userId}`, String(total)); } catch { /* noop */ }
+      let profileCountry = country;
+      try {
+        const p = await backendAPI.user.getProfile();
+        if (p?.success && p?.data?.user) {
+          const u = p.data.user;
+          profileCountry = u?.country ? String(u.country).toUpperCase() : null;
+          setCountry(profileCountry);
+          setVerified(isVerifiedProfile(u));
+          try { localStorage.setItem('borderpay_user', JSON.stringify(u)); } catch { /* noop */ }
+        }
+      } catch {
+        // Keep cached identity state.
+      }
 
       try {
         const [vaCaps, walletCaps] = await Promise.all([
@@ -132,15 +158,12 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           backendAPI.bridge.wallet.capabilities(),
         ]);
         if (vaCaps?.success && Array.isArray(vaCaps?.data?.supported_currencies)) {
-          const next = vaCaps.data.supported_currencies
-            .filter((c: unknown): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c).toUpperCase()))
-            .map((c: string) => c.toUpperCase() as BridgeVirtualAccountCurrency);
-          setSupportedVaCurrencies(next);
+          setSupportedVaCurrencies(intersectVaCapabilities(vaCaps.data.supported_currencies, profileCountry));
         } else {
-          setSupportedVaCurrencies([]);
+          setSupportedVaCurrencies(countryAllowedVaCurrencies(profileCountry));
         }
         if (walletCaps?.success) {
-          setStableSupported(Boolean(walletCaps?.data?.supported));
+          setStableSupported(Boolean(walletCaps?.data?.supported) && isBridgeCustodialWalletSupported(profileCountry));
           if (Array.isArray(walletCaps?.data?.supported_symbols) && walletCaps.data.supported_symbols.length > 0) {
             const supported = walletCaps.data.supported_symbols
               .map((s: any) => String(s || '').toUpperCase())
@@ -155,19 +178,9 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         }
       } catch {
         // Fail-closed on capabilities fetch errors.
-        setSupportedVaCurrencies([]);
+        setSupportedVaCurrencies(countryAllowedVaCurrencies(profileCountry));
         setStableSupported(false);
         setSupportedStableSymbols([]);
-      }
-
-      const p = await backendAPI.user.getProfile();
-      if (p?.success && p?.data?.user) {
-        const u = p.data.user;
-        const accountType = String(u?.account_type || 'individual').toLowerCase();
-        const isVerified = accountType === 'business'
-          ? (isApproved(u?.bridge_kyb_status) || isApproved(u?.bridge_kyc_status) || isApproved(u?.bridge_account_status))
-          : (isApproved(u?.bridge_kyc_status) || isApproved(u?.bridge_account_status));
-        setVerified(isVerified);
       }
     } finally {
       refreshInFlightRef.current = false;
@@ -257,18 +270,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       );
     }
 
-    if (card.type === 'virtual_account' && !hasFirstFunding) {
-      return (
-        <button
-          disabled
-          className="h-10 px-4 rounded-xl border border-white/15 text-white/55 text-sm font-semibold"
-          title="Receive your first transfer to unlock virtual accounts."
-        >
-          Locked
-        </button>
-      );
-    }
-
     return (
       <button
         onClick={() => void requestWallet(card)}
@@ -294,18 +295,13 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           </p>
         </div>
 
-        {!hasFirstFunding && (
-          <div className={`mb-4 rounded-2xl border ${tc.cardBorder} ${tc.card} p-3 flex items-start gap-2`}>
-            <Shield className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
-            <p className={`text-xs ${tc.textSecondary}`}>
-              Receive your first transfer to unlock virtual accounts (USD, EUR, GBP).
-              Stablecoin wallets can be added now.
-            </p>
-          </div>
-        )}
-
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {CARDS.map((card, idx) => {
+          {CARDS.filter((card) => {
+              if (card.type === 'virtual_account') {
+                return supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
+              }
+              return stableSupported && supportedStableSymbols.includes(card.code);
+            }).map((card, idx) => {
               const exists = card.type === 'virtual_account'
                 ? existingVa.has(card.code)
                 : existingStable.has(card.code);

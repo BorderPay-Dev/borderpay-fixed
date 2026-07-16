@@ -1,13 +1,6 @@
 /**
- * Verification hook — source of truth is the verification-partner KYC
- * status delivered by webhook to `user_profiles.bridge_kyc_status` (or
- * `business_profiles.bridge_kyb_status` for business accounts).
- *
- * The legacy `kyc_status` column is intentionally NOT consulted anymore.
- * Users marked verified under the previous provider are downgraded by
- * the accompanying database migration and must re-verify through the
- * current partner. The UI will show "starter" until our webhook handler
- * receives an `approved` event from the partner.
+ * Verification hook — mirrors the app-wide Bridge verification parser so
+ * cached approved profiles do not briefly render as starter on first paint.
  *
  * Synchronous hydration from localStorage on first render — no loading
  * spinner shown to users who already have a cached profile.
@@ -16,7 +9,7 @@
 import { useState, useEffect } from 'react';
 import { authAPI } from '../supabase/client';
 import { backendAPI } from '../api/backendAPI';
-import { ENV_CONFIG } from '../config/environment';
+import { ENV_CONFIG, deriveKycStatus } from '../config/environment';
 
 export interface VerificationStatus {
   isVerified:       boolean;
@@ -26,16 +19,8 @@ export interface VerificationStatus {
   canCreateProducts: boolean;
 }
 
-function isApproved(value?: string | null): boolean {
-  return typeof value === 'string' && value.toLowerCase() === 'approved';
-}
-
 function deriveFromProfile(profile?: any): VerificationStatus {
-  // Business accounts use bridge_kyb_status; individuals use bridge_kyc_status.
-  const verified =
-    profile?.account_type === 'business'
-      ? isApproved(profile?.bridge_kyb_status)
-      : isApproved(profile?.bridge_kyc_status);
+  const verified = deriveKycStatus(profile) === 'verified';
   return {
     isVerified:        verified,
     kycTier:           verified ? ENV_CONFIG.kycTier.FULL_ENROLLMENT : ENV_CONFIG.kycTier.NONE,
