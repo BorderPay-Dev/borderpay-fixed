@@ -167,7 +167,14 @@ if [ -f "$ROOT/scripts/ci/verify_no_legacy_stablecoins.py" ]; then
     || fail "Legacy stablecoin runtime guard failed."
 fi
 
-# 9) Pricing route/runtime guard:
+# 9) Product availability + dashboard wallet-chip regression guards.
+python3 "$ROOT/tests/audit/bridge_country_policy_audit.py" >/dev/null \
+  || fail "Bridge country policy / ISO-3 normalization audit failed."
+
+python3 "$ROOT/tests/audit/dashboard_spendable_wallet_chips_audit.py" >/dev/null \
+  || fail "Dashboard spendable wallet chip audit failed."
+
+# 10) Pricing route/runtime guard:
 #    PricingScreen and /pricing route are retired. Any reintroduction must fail CI.
 if [ -f "$ROOT/components/pricing/PricingScreen.tsx" ]; then
   fail "Retired PricingScreen.tsx reintroduced."

@@ -29,6 +29,10 @@ Asserts five invariants. Any failure = non-zero exit. Wire into CI.
   (5) The three tiers are disjoint — no country code appears in more
       than one of Prohibited / Unavailable / Controlled.
 
+  (6) Bridge policy accepts ISO-3 country codes from upstream profile/KYC data
+      before applying product rail gates. KEN must normalize to KE so Kenya
+      cannot receive USD virtual-account rail availability.
+
 Usage:
   $ python3 tests/audit/bridge_country_policy_audit.py
   PASS: bridge country policy parity audit
@@ -208,6 +212,59 @@ def assert_tiers_disjoint() -> list[str]:
     return findings
 
 
+def assert_iso3_normalization_and_va_gates() -> list[str]:
+    """Invariant (6): frontend/backend policy must normalize ISO-3 profile
+    country codes before applying Bridge product availability gates."""
+    findings: list[str] = []
+    policies = [
+        ("frontend", POLICY_FRONTEND.read_text()),
+        ("backend", POLICY_BACKEND.read_text()),
+    ]
+
+    for label, src in policies:
+        if "export function normalizeBridgeCountryCode" not in src:
+            findings.append(f"{label}: missing normalizeBridgeCountryCode()")
+        if not re.search(r"\bKEN\s*:\s*['\"]KE['\"]", src):
+            findings.append(f"{label}: missing KEN -> KE ISO-3 normalization")
+        if src.count("normalizeBridgeCountryCode(countryCode)") < 6:
+            findings.append(
+                f"{label}: Bridge country gates are not consistently using normalizeBridgeCountryCode(countryCode)"
+            )
+
+        no_us_match = re.search(
+            r"const\s+BRIDGE_VA_NO_US_RAIL[^=]*=\s*new\s+Set\s*\(\s*\[([^\]]*)\]",
+            src,
+            flags=re.DOTALL,
+        )
+        if not no_us_match:
+            findings.append(f"{label}: missing BRIDGE_VA_NO_US_RAIL")
+            continue
+        no_us_codes = set(re.findall(r"['\"]([A-Z]{2})['\"]", no_us_match.group(1)))
+        if "KE" not in no_us_codes:
+            findings.append(f"{label}: KE must remain in BRIDGE_VA_NO_US_RAIL")
+
+    backend_src = POLICY_BACKEND.read_text()
+    for required in (
+        "export function bridgeCountryTier",
+        "export function bridgeCountryBlockResponse",
+        "export function bridgeVirtualAccountCurrenciesForCountry",
+        "export function isBridgeCustodialWalletSupported",
+    ):
+        if required not in backend_src:
+            findings.append(f"backend: missing required normalized policy entry point: {required}")
+
+    frontend_src = POLICY_FRONTEND.read_text()
+    for required in (
+        "export function partnerCountryTier",
+        "export function bridgeVirtualAccountCurrenciesForCountry",
+        "export function isBridgeCustodialWalletSupported",
+    ):
+        if required not in frontend_src:
+            findings.append(f"frontend: missing required normalized policy entry point: {required}")
+
+    return findings
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -236,6 +293,11 @@ def main() -> int:
         failures.append("(5) tiers are not disjoint:")
         failures.extend("    " + s for s in f5)
 
+    f6 = assert_iso3_normalization_and_va_gates()
+    if f6:
+        failures.append("(6) ISO-3 normalization / VA rail gate regression:")
+        failures.extend("    " + s for s in f6)
+
     if failures:
         print("FAIL: bridge country policy parity audit")
         print()
@@ -258,6 +320,7 @@ def main() -> int:
     print(f"  inline country sets:         0   (in bridge-* edge functions, excluding policy file)")
     print(f"  gate-before-reuse:           ok  (every reuse path is preceded by isBridgeBlocked)")
     print(f"  tiers disjoint:              ok  (no country in more than one tier)")
+    print(f"  ISO-3 normalization:         ok  (KEN normalizes to KE before VA/product gates)")
     return 0
 
 
