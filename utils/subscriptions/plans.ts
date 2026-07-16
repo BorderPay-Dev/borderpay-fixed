@@ -1,16 +1,8 @@
 /**
- * BorderPay Africa — activation catalogue (funding-threshold model).
+ * BorderPay Africa — legacy access catalogue.
  *
- * There are no monthly subscriptions and no activation charges.
- * Each account type has two states:
- *   • a free, view-only DEFAULT state (…_starter) assigned at signup, and
- *   • an ACTIVATED state (…_activated) unlocked when the account keeps the
- *     minimum required wallet balance.
- *
- *   • individual_starter    Free (view-only)
- *   • individual_activated  Minimum balance $20
- *   • business_starter      Free (view-only)
- *   • business_activated    Minimum balance $50
+ * Kept for database/API compatibility only. Customer access is governed by
+ * verification/KYC/KYB.
  */
 
 export type PlanKey =
@@ -40,14 +32,14 @@ export interface PlanDef {
   account_type:      AccountType;
   display_name:      string;
   tagline:           string;
-  /** Minimum required wallet balance in USD cents. 0 = starter/free tier. */
+  /** Legacy field retained for API compatibility. Always 0. */
   activation_fee_usd: number;
   limits:            PlanLimits;
   features:          readonly PlanFeature[];
   cta_label:         string;
-  /** Marks the free tier auto-assigned at signup. */
+  /** Marks the default row auto-assigned at signup. */
   is_default:        boolean;
-  /** True for the paid, activated state. */
+  /** Legacy field. Access is governed by verification, not plan payment. */
   is_activated:      boolean;
 }
 
@@ -58,14 +50,14 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
   individual_starter: {
     key:                'individual_starter',
     account_type:       'individual',
-    display_name:       'Starter',
-    tagline:            'View-only. Fund wallet to unlock money movement.',
+    display_name:       'Individual',
+    tagline:            'Verify your identity to unlock BorderPay accounts.',
     activation_fee_usd: 0,
     limits: { va_currencies: [], max_team_members: null, cards_enabled: false },
     features: [
-      { title: 'Browse the app' },
-      { title: 'Live exchange rates' },
-      { title: 'Fund at least $20 to unlock USD / EUR / GBP accounts' },
+      { title: 'Identity verification' },
+      { title: 'USD / EUR / GBP accounts after approval' },
+      { title: 'Stablecoin wallets where supported' },
     ],
     cta_label:          'Get started',
     is_default:         true,
@@ -75,9 +67,9 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
   individual_activated: {
     key:                'individual_activated',
     account_type:       'individual',
-    display_name:       'Activated',
-    tagline:            'Minimum balance met. Multi-currency accounts unlocked.',
-    activation_fee_usd: 999,
+    display_name:       'Verified individual',
+    tagline:            'Identity verified. Multi-currency accounts available.',
+    activation_fee_usd: 0,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: null, cards_enabled: false },
     features: [
       { title: 'USD virtual account (ACH)',             highlight: true },
@@ -86,7 +78,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
       { title: 'All stablecoin wallets' },
       { title: 'Identity verification included' },
     ],
-    cta_label:          'Requires minimum $20 balance',
+    cta_label:          'Verify account',
     is_default:         false,
     is_activated:       true,
   },
@@ -94,14 +86,14 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
   business_starter: {
     key:                'business_starter',
     account_type:       'business',
-    display_name:       'Starter',
-    tagline:            'View-only. Fund wallet to unlock business rails.',
+    display_name:       'Business',
+    tagline:            'Verify your business to unlock BorderPay accounts.',
     activation_fee_usd: 0,
     limits: { va_currencies: [], max_team_members: BUSINESS_TEAM_SEATS, cards_enabled: false },
     features: [
-      { title: 'Browse the app' },
-      { title: 'Live exchange rates' },
-      { title: 'Fund at least $50 to unlock business wallets + team' },
+      { title: 'Business verification' },
+      { title: 'Business wallets and team access after approval' },
+      { title: 'Cross-border payments' },
     ],
     cta_label:          'Get started',
     is_default:         true,
@@ -111,9 +103,9 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
   business_activated: {
     key:                'business_activated',
     account_type:       'business',
-    display_name:       'Activated',
-    tagline:            'Minimum balance met. Corporate wallets unlocked.',
-    activation_fee_usd: 2999,
+    display_name:       'Verified business',
+    tagline:            'Business verified. Corporate wallets available.',
+    activation_fee_usd: 0,
     limits: { va_currencies: ['USD', 'EUR', 'GBP'], max_team_members: BUSINESS_TEAM_SEATS, cards_enabled: false },
     features: [
       { title: 'USD / EUR / GBP business virtual accounts', highlight: true },
@@ -122,7 +114,7 @@ export const PLANS: Readonly<Record<PlanKey, PlanDef>> = {
       { title: 'Business verification (KYB) included' },
       { title: 'Cross-border payments' },
     ],
-    cta_label:          'Requires minimum $50 balance',
+    cta_label:          'Verify business',
     is_default:         false,
     is_activated:       true,
   },
@@ -134,12 +126,12 @@ export function getPlan(key: PlanKey): PlanDef {
   return PLANS[key];
 }
 
-/** Free default plan auto-assigned at signup for an account type. */
+/** Default compatibility row auto-assigned at signup for an account type. */
 export function getDefaultPlanFor(accountType: AccountType): PlanDef {
   return accountType === 'business' ? PLANS.business_starter : PLANS.individual_starter;
 }
 
-/** The paid, activated plan an account type upgrades into. */
+/** Legacy verified-state row for an account type. */
 export function getActivatedPlanFor(accountType: AccountType): PlanDef {
   return accountType === 'business' ? PLANS.business_activated : PLANS.individual_activated;
 }
@@ -148,7 +140,7 @@ export function listPlansFor(accountType: AccountType): readonly PlanDef[] {
   return Object.values(PLANS).filter(p => p.account_type === accountType);
 }
 
-/** True for the paid activated state (the gate for money movement / KYC-KYB). */
+/** Legacy helper. Customer access is governed by verification, not payment. */
 export function isActivatedPlanKey(planKey: string | null | undefined): boolean {
   const p = PLANS[planKey as PlanKey];
   return !!p && p.is_activated;
