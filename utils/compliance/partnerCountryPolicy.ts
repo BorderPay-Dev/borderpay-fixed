@@ -174,10 +174,64 @@ export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
 
 export type PartnerCountryStatus = 'prohibited' | 'unavailable' | 'controlled' | 'supported';
 
+const ISO3_TO_ISO2: Record<string, string> = {
+  AFG: 'AF',
+  AUS: 'AU',
+  BGD: 'BD',
+  BTN: 'BT',
+  BDI: 'BI',
+  CAF: 'CF',
+  CHN: 'CN',
+  CUB: 'CU',
+  DZA: 'DZ',
+  ERI: 'ER',
+  GNB: 'GW',
+  HTI: 'HT',
+  IDN: 'ID',
+  IRN: 'IR',
+  IRQ: 'IQ',
+  JPN: 'JP',
+  KEN: 'KE',
+  LBN: 'LB',
+  LBY: 'LY',
+  MAR: 'MA',
+  MLI: 'ML',
+  MMR: 'MM',
+  MOZ: 'MZ',
+  MYS: 'MY',
+  NER: 'NE',
+  NPL: 'NP',
+  NZL: 'NZ',
+  PAK: 'PK',
+  PHL: 'PH',
+  PRK: 'KP',
+  PSE: 'PS',
+  QAT: 'QA',
+  RUS: 'RU',
+  SDN: 'SD',
+  SGP: 'SG',
+  SOM: 'SO',
+  SSD: 'SS',
+  SYR: 'SY',
+  THA: 'TH',
+  TUN: 'TN',
+  VEN: 'VE',
+  VNM: 'VN',
+  YEM: 'YE',
+  ZWE: 'ZW',
+};
+
+export function normalizeBridgeCountryCode(countryCode: string | null | undefined): string | null {
+  if (!countryCode) return null;
+  const upper = String(countryCode).trim().toUpperCase();
+  if (!upper) return null;
+  return ISO3_TO_ISO2[upper] || upper;
+}
+
 /** Returns the Bridge tier for a country code. */
 export function partnerCountryTier(countryCode: string | null | undefined): PartnerCountryStatus {
-  if (!countryCode) return 'supported';
-  const upper = countryCode.toUpperCase();
+  const upper = normalizeBridgeCountryCode(countryCode);
+  if (!upper) return 'supported';
   if (BRIDGE_PROHIBITED_COUNTRIES.has(upper))   return 'prohibited';
   if (BRIDGE_UNAVAILABLE_COUNTRIES.has(upper))  return 'unavailable';
   if (BRIDGE_CONTROLLED_COUNTRIES.has(upper))   return 'controlled';
@@ -187,23 +241,23 @@ export function partnerCountryTier(countryCode: string | null | undefined): Part
 /** True if Bridge customer creation will be hard-blocked server-side
  *  due to sanctions. */
 export function isBridgeProhibited(countryCode: string | null | undefined): boolean {
-  if (!countryCode) return false;
-  return BRIDGE_PROHIBITED_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && BRIDGE_PROHIBITED_COUNTRIES.has(upper);
 }
 
 /** True if Bridge has marked the country as Unavailable
  *  (commercial/regulatory; hard-blocked server-side). */
 export function isBridgeUnavailable(countryCode: string | null | undefined): boolean {
-  if (!countryCode) return false;
-  return BRIDGE_UNAVAILABLE_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && BRIDGE_UNAVAILABLE_COUNTRIES.has(upper);
 }
 
 /** True if Bridge classifies the country as Controlled / High Risk.
  *  Server does NOT hard-block these per round-9 policy; UI may surface
  *  a "limited support" hint. */
 export function isBridgeControlled(countryCode: string | null | undefined): boolean {
-  if (!countryCode) return false;
-  return BRIDGE_CONTROLLED_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && BRIDGE_CONTROLLED_COUNTRIES.has(upper);
 }
 
 /** Convenience predicate matching the server's `isBridgeBlocked`. */
@@ -273,7 +327,8 @@ export function bridgeVirtualAccountCurrenciesForCountry(
   countryCode: string | null | undefined,
 ): BridgeVirtualAccountCurrency[] {
   if (!countryCode || isBridgeBlocked(countryCode)) return [];
-  const upper = countryCode.toUpperCase();
+  const upper = normalizeBridgeCountryCode(countryCode);
+  if (!upper) return [];
   const currencies: BridgeVirtualAccountCurrency[] = [];
   if (!BRIDGE_VA_NO_US_RAIL.has(upper)) currencies.push('USD');
   if (!BRIDGE_VA_NO_SEPA_FPS_RAIL.has(upper)) currencies.push('EUR', 'GBP');
@@ -292,7 +347,8 @@ export function isBridgeVirtualAccountCurrencyAvailable(
 
 export function isBridgeCustodialWalletSupported(countryCode: string | null | undefined): boolean {
   if (!countryCode || isBridgeBlocked(countryCode)) return false;
-  return !BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && !BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES.has(upper);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -371,13 +427,13 @@ export const PROHIBITED_COUNTRY_ENTRIES: readonly PartnerCountryEntry[] = [
  *  For "any country the Bridge server would hard-block", use
  *  isBridgeBlocked (covers Prohibited + Unavailable). */
 export function isComingSoon(countryCode: string | null | undefined): boolean {
-  if (!countryCode) return false;
-  const upper = countryCode.toUpperCase();
+  const upper = normalizeBridgeCountryCode(countryCode);
+  if (!upper) return false;
   return COMING_SOON_COUNTRIES.some(c => c.code === upper);
 }
 
 export function partnerCountryEntry(countryCode: string | null | undefined): PartnerCountryEntry | null {
-  if (!countryCode) return null;
-  const upper = countryCode.toUpperCase();
+  const upper = normalizeBridgeCountryCode(countryCode);
+  if (!upper) return null;
   return COMING_SOON_COUNTRIES.find(c => c.code === upper) ?? null;
 }

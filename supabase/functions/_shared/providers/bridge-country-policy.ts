@@ -210,24 +210,78 @@ export const BRIDGE_CONTROLLED_COUNTRIES: ReadonlySet<string> = new Set([
   "ZW",   // Zimbabwe (no ACH)
 ]);
 
+const ISO3_TO_ISO2: Record<string, string> = {
+  AFG: "AF",
+  AUS: "AU",
+  BGD: "BD",
+  BTN: "BT",
+  BDI: "BI",
+  CAF: "CF",
+  CHN: "CN",
+  CUB: "CU",
+  DZA: "DZ",
+  ERI: "ER",
+  GNB: "GW",
+  HTI: "HT",
+  IDN: "ID",
+  IRN: "IR",
+  IRQ: "IQ",
+  JPN: "JP",
+  KEN: "KE",
+  LBN: "LB",
+  LBY: "LY",
+  MAR: "MA",
+  MLI: "ML",
+  MMR: "MM",
+  MOZ: "MZ",
+  MYS: "MY",
+  NER: "NE",
+  NPL: "NP",
+  NZL: "NZ",
+  PAK: "PK",
+  PHL: "PH",
+  PRK: "KP",
+  PSE: "PS",
+  QAT: "QA",
+  RUS: "RU",
+  SDN: "SD",
+  SGP: "SG",
+  SOM: "SO",
+  SSD: "SS",
+  SYR: "SY",
+  THA: "TH",
+  TUN: "TN",
+  VEN: "VE",
+  VNM: "VN",
+  YEM: "YE",
+  ZWE: "ZW",
+};
+
+export function normalizeBridgeCountryCode(countryCode: string | null | undefined): string | null {
+  if (!countryCode) return null;
+  const upper = String(countryCode).trim().toUpperCase();
+  if (!upper) return null;
+  return ISO3_TO_ISO2[upper] || upper;
+}
+
 /** Returns true if Bridge classifies the country as Prohibited (sanctions). */
 export function isBridgeProhibited(countryCode: string | null | undefined): boolean {
-  if (!countryCode) return false;
-  return BRIDGE_PROHIBITED_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && BRIDGE_PROHIBITED_COUNTRIES.has(upper);
 }
 
 /** Returns true if Bridge has marked the country as Unavailable
  *  (commercial/regulatory, not sanctions). */
 export function isBridgeUnavailable(countryCode: string | null | undefined): boolean {
-  if (!countryCode) return false;
-  return BRIDGE_UNAVAILABLE_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && BRIDGE_UNAVAILABLE_COUNTRIES.has(upper);
 }
 
 /** Returns true if Bridge classifies the country as Controlled / High Risk.
  *  Used by the observability logger; NOT a blocker per round-9 policy. */
 export function isBridgeControlled(countryCode: string | null | undefined): boolean {
-  if (!countryCode) return false;
-  return BRIDGE_CONTROLLED_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && BRIDGE_CONTROLLED_COUNTRIES.has(upper);
 }
 
 /** AUTHORITATIVE gate. Returns true for Prohibited OR Unavailable.
@@ -301,7 +355,8 @@ export function bridgeVirtualAccountCurrenciesForCountry(
   countryCode: string | null | undefined,
 ): BridgeVirtualAccountCurrency[] {
   if (!countryCode || isBridgeBlocked(countryCode)) return [];
-  const upper = countryCode.toUpperCase();
+  const upper = normalizeBridgeCountryCode(countryCode);
+  if (!upper) return [];
   const currencies: BridgeVirtualAccountCurrency[] = [];
   if (!BRIDGE_VA_NO_US_RAIL.has(upper)) currencies.push("USD");
   if (!BRIDGE_VA_NO_SEPA_FPS_RAIL.has(upper)) currencies.push("EUR", "GBP");
@@ -320,7 +375,8 @@ export function isBridgeVirtualAccountCurrencyAvailable(
 
 export function isBridgeCustodialWalletSupported(countryCode: string | null | undefined): boolean {
   if (!countryCode || isBridgeBlocked(countryCode)) return false;
-  return !BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES.has(countryCode.toUpperCase());
+  const upper = normalizeBridgeCountryCode(countryCode);
+  return !!upper && !BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES.has(upper);
 }
 
 /** Tier classification for a country code (mirrors frontend
@@ -328,8 +384,8 @@ export function isBridgeCustodialWalletSupported(countryCode: string | null | un
 export type BridgeCountryTier = "prohibited" | "unavailable" | "controlled" | "supported";
 
 export function bridgeCountryTier(countryCode: string | null | undefined): BridgeCountryTier {
-  if (!countryCode) return "supported";
-  const upper = countryCode.toUpperCase();
+  const upper = normalizeBridgeCountryCode(countryCode);
+  if (!upper) return "supported";
   if (BRIDGE_PROHIBITED_COUNTRIES.has(upper))   return "prohibited";
   if (BRIDGE_UNAVAILABLE_COUNTRIES.has(upper))  return "unavailable";
   if (BRIDGE_CONTROLLED_COUNTRIES.has(upper))   return "controlled";
@@ -354,7 +410,7 @@ export function bridgeCountryTier(countryCode: string | null | undefined): Bridg
  *  Controlled and Supported never reach this function (gate doesn't
  *  fire for them). */
 export function bridgeCountryBlockResponse(countryCode: string) {
-  const upper = countryCode.toUpperCase();
+  const upper = normalizeBridgeCountryCode(countryCode) || String(countryCode || "").toUpperCase();
   const tier  = bridgeCountryTier(upper);
   // Tier is narrowed to the blocked tiers because callers should only
   // invoke this after isBridgeBlocked returned true; the fallback
