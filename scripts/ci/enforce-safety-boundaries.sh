@@ -174,6 +174,9 @@ python3 "$ROOT/tests/audit/bridge_country_policy_audit.py" >/dev/null \
 python3 "$ROOT/tests/audit/dashboard_spendable_wallet_chips_audit.py" >/dev/null \
   || fail "Dashboard spendable wallet chip audit failed."
 
+python3 "$ROOT/tests/audit/current_access_model_regression_audit.py" >/dev/null \
+  || fail "Current access model regression audit failed."
+
 # 10) Pricing route/runtime guard:
 #    PricingScreen and /pricing route are retired. Any reintroduction must fail CI.
 if [ -f "$ROOT/components/pricing/PricingScreen.tsx" ]; then
