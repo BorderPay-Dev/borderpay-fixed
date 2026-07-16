@@ -30,8 +30,8 @@ jobs:
       BUNDLE_ID: com.borderpayafrica.app
       XCODE_PROJECT: ios/App/App.xcodeproj
       XCODE_SCHEME: App
-      ARCHIVE_PATH: ${{ runner.temp }}/BorderPayAfrica.xcarchive
-      EXPORT_PATH: ${{ github.workspace }}/build/ios
+      ARCHIVE_NAME: BorderPayAfrica.xcarchive
+      EXPORT_DIR: build/ios
       APP_VERSION: ${{ inputs.app_version }}
       BUILD_NUMBER: ${{ github.run_number }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -132,7 +132,7 @@ jobs:
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath "$ARCHIVE_PATH" \
+            -archivePath "$RUNNER_TEMP/$ARCHIVE_NAME" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "${{ steps.asc-key.outputs.key-path }}" \
             -authenticationKeyID "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
@@ -146,9 +146,10 @@ jobs:
       - name: Export signed IPA
         run: |
           set -euo pipefail
+          EXPORT_PATH="$GITHUB_WORKSPACE/$EXPORT_DIR"
           mkdir -p "$EXPORT_PATH"
           xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
+            -archivePath "$RUNNER_TEMP/$ARCHIVE_NAME" \
             -exportPath "$EXPORT_PATH" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -allowProvisioningUpdates \
@@ -169,9 +170,9 @@ jobs:
         if: ${{ inputs.upload_to_testflight }}
         run: |
           set -euo pipefail
-          IPA_PATH="$(find "$EXPORT_PATH" -maxdepth 1 -name '*.ipa' | head -n 1)"
+          IPA_PATH="$(find "$GITHUB_WORKSPACE/$EXPORT_DIR" -maxdepth 1 -name '*.ipa' | head -n 1)"
           if [ -z "$IPA_PATH" ]; then
-            echo "No IPA found in $EXPORT_PATH"
+            echo "No IPA found in $GITHUB_WORKSPACE/$EXPORT_DIR"
             exit 1
           fi
           xcrun altool --upload-app \
