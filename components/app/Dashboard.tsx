@@ -134,6 +134,23 @@ const STABLE_ICON_URL: Record<string, string> = {
   EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
+type DashboardWalletRow = { currency: string; balance: number; symbol: string; color: string };
+
+function isSpendableDashboardWallet(row: { balance?: number }): boolean {
+  const balance = Number(row?.balance || 0);
+  return Number.isFinite(balance) && balance > 0;
+}
+
+function formatDashboardWalletBalance(row: { currency: string; balance: number }): string {
+  const code = String(row.currency || '').toUpperCase();
+  const symbol = CURRENCY_CONFIG[code]?.symbol;
+  const formatted = Number(row.balance || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return symbol ? `${symbol}${formatted}` : `${formatted} ${code}`;
+}
+
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {
   // Synchronous read — no flicker between "unconfirmed/starter" and the real
   // status. If we have a cached profile, derive everything at first render.
@@ -196,13 +213,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     [userId],
   );
   const cachedWallets = useMemo(
-    () => readJSON<Array<{ currency: string; balance: number; symbol: string; color: string }>>(dashWalletsKey, []),
+    () => readJSON<DashboardWalletRow[]>(dashWalletsKey, []),
     [dashWalletsKey],
   );
   const cachedRecent = useMemo(() => readJSON<any[]>(dashRecentKey, []), [dashRecentKey]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
     ws.reduce((s, w) => s + Number(w.balance || 0), 0);
   const [wallets, setWallets]             = useState(cachedWallets);
+  const spendableWallets = useMemo(
+    () => wallets.filter(isSpendableDashboardWallet),
+    [wallets],
+  );
   const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
   const [walletsLoaded, setWalletsLoaded] = useState<boolean>(cachedWallets.length > 0);
   const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() =>
@@ -327,10 +348,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       // Spendable balances are wallet-settled only. Virtual accounts are
       // receive rails and tracked separately via snapshotData.virtual_accounts.
       {
-        type Row = { currency: string; balance: number; symbol: string; color: string };
         if (Array.isArray(snapshotData?.wallets)) {
           const raw = snapshotData.wallets || [];
-          const rows: Row[] = raw.map((w: any) => {
+          const rows: DashboardWalletRow[] = raw.map((w: any) => {
             const c = String(w?.currency || '').toUpperCase();
             return {
               currency: c,
@@ -338,7 +358,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               symbol: CURRENCY_CONFIG[c]?.symbol || c,
               color: CURRENCY_CONFIG[c]?.color || '#666',
             };
-          });
+          }).filter(isSpendableDashboardWallet);
           setWallets(rows);
           setTotalBalance(usdLikeTotal(rows));
           writeJSON(dashWalletsKey, rows);
@@ -572,8 +592,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               </button>
             </div>
             <p className="text-[11px] text-white/40 mt-1.5">
-              {wallets.length > 0
-                ? `${tt('dashboard.across', 'Across')} ${wallets.length} ${wallets.length === 1 ? 'account' : 'accounts'}`
+              {spendableWallets.length > 0
+                ? `${tt('dashboard.across', 'Across')} ${spendableWallets.length} ${spendableWallets.length === 1 ? 'account' : 'accounts'}`
                 : tt('dashboard.empty.subtitle', 'Open your first account to start.')}
             </p>
           </div>
@@ -712,7 +732,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>
             {tt('dashboard.wallets', 'Accounts')}
           </h3>
-          {wallets.length > 0 && (
+          {spendableWallets.length > 0 && (
             <button
               onPointerDown={() => prefetchScreen('wallet-detail')}
               onMouseEnter={() => prefetchScreen('wallet-detail')}
@@ -730,7 +750,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
         <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-            {wallets.length === 0 ? (
+            {spendableWallets.length === 0 ? (
               <button
                 onPointerDown={() => prefetchScreen('add-wallet')}
                 onMouseEnter={() => prefetchScreen('add-wallet')}
@@ -750,7 +770,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               </button>
             ) : (
               <>
-                {wallets.map((w) => (
+                {spendableWallets.map((w) => (
                   <button
                     key={w.currency}
                     onPointerDown={() => prefetchScreen('wallet-detail')}
@@ -765,6 +785,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     </p>
                     <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
                       {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
+                    </p>
+                    <p className={`text-[12px] font-semibold ${tc.text} mt-1 tabular-nums`}>
+                      {balanceHidden ? '••••' : formatDashboardWalletBalance(w)}
                     </p>
                   </button>
                 ))}
@@ -948,7 +971,7 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
   if (flag[code]) {
     return (
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[18px] leading-none"
+        className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[30px] leading-none"
         aria-hidden
       >
         {flag[code]}
@@ -958,11 +981,11 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
 
   if (iconUrl && !imgFailed) {
     return (
-      <div className="w-8 h-8 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
+      <div className="w-12 h-12 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
         <img
           src={iconUrl}
           alt=""
-          className="w-7 h-7 object-contain"
+          className="w-10 h-10 object-contain"
           onError={() => setImgFailed(true)}
           loading="lazy"
           decoding="async"
@@ -974,7 +997,7 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
 
   return (
     <div
-      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+      className="w-12 h-12 rounded-full flex items-center justify-center font-mono text-[12px] font-bold"
       style={{ backgroundColor: `${color}26`, color }}
       aria-hidden
     >

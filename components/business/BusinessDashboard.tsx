@@ -89,6 +89,21 @@ const STABLE_ICON_URL: Record<string, string> = {
   USDT: 'https://cryptologos.cc/logos/tether-usdt-logo.png?v=040',
 };
 
+function isSpendableBusinessWallet(row: { balance?: number }): boolean {
+  const balance = Number(row?.balance || 0);
+  return Number.isFinite(balance) && balance > 0;
+}
+
+function formatBusinessWalletBalance(row: { currency: string; balance: number }): string {
+  const code = String(row.currency || '').toUpperCase();
+  const symbol = code === 'EUR' ? '€' : code === 'GBP' ? '£' : code === 'USDT' ? '₮' : '$';
+  const formatted = Number(row.balance || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${symbol}${formatted}`;
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((resolve) => {
@@ -190,11 +205,15 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
                  .reduce((s, w) => s + (w.balance || 0), 0),
     [wallets],
   );
+  const spendableWallets = useMemo(
+    () => wallets.filter(isSpendableBusinessWallet),
+    [wallets],
+  );
 
   const toWalletRows = (raw: any[]): WalletRow[] => raw.map((w: any) => ({
     currency: String(w?.currency || '').toUpperCase(),
     balance: parseFloat(w?.balance) || 0,
-  })).filter((w: WalletRow) => !!w.currency);
+  })).filter((w: WalletRow) => !!w.currency && isSpendableBusinessWallet(w));
 
   const loadWallets = async (force = false) => {
     if (walletsLoadInFlightRef.current) {
@@ -539,7 +558,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
         <section>
           <div className="px-4 sm:px-5 flex items-center justify-between mb-3">
             <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>Accounts</h3>
-            {wallets.length > 0 && (
+            {spendableWallets.length > 0 && (
               <button
                 onPointerDown={() => prefetchScreen('wallet-detail')}
                 onMouseEnter={() => prefetchScreen('wallet-detail')}
@@ -557,7 +576,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
 
           <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-              {wallets.length === 0 ? (
+              {spendableWallets.length === 0 ? (
                 <button
                   onPointerDown={() => prefetchScreen('add-wallet')}
                   onMouseEnter={() => prefetchScreen('add-wallet')}
@@ -573,7 +592,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
                 </button>
               ) : (
                 <>
-                  {wallets.map((w) => (
+                  {spendableWallets.map((w) => (
                     <button
                       key={w.currency}
                       onPointerDown={() => prefetchScreen('wallet-detail')}
@@ -588,6 +607,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
                       </p>
                       <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
                         {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
+                      </p>
+                      <p className={`text-[12px] font-semibold ${tc.text} mt-1 tabular-nums`}>
+                        {formatBusinessWalletBalance(w)}
                       </p>
                     </button>
                   ))}
@@ -768,7 +790,7 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
   if (flag[code]) {
     return (
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[18px] leading-none"
+        className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[30px] leading-none"
         aria-hidden
       >
         {flag[code]}
@@ -778,11 +800,11 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
 
   if (iconUrl && !imgFailed) {
     return (
-      <div className="w-8 h-8 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
+      <div className="w-12 h-12 rounded-full overflow-hidden bg-white/5 flex items-center justify-center" aria-hidden>
         <img
           src={iconUrl}
           alt=""
-          className="w-7 h-7 object-contain"
+          className="w-10 h-10 object-contain"
           onError={() => setImgFailed(true)}
           loading="lazy"
           decoding="async"
@@ -794,7 +816,7 @@ function BizCurrencyIcon({ currency }: { currency: string }) {
 
   return (
     <div
-      className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+      className="w-12 h-12 rounded-full flex items-center justify-center font-mono text-[12px] font-bold"
       style={{ backgroundColor: `${CURRENCY_COLOR[code] || '#666666'}26`, color: CURRENCY_COLOR[code] || '#666666' }}
       aria-hidden
     >
