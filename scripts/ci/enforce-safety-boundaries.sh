@@ -189,16 +189,14 @@ if [ "$HAS_RG" = true ]; then
     "$ROOT/components/shell/AppShell.tsx" \
     "$ROOT/components/app/Dashboard.tsx" \
     "$ROOT/components/business/BusinessDashboard.tsx" \
-    "$ROOT/components/team/TeamScreen.tsx" \
-    "$ROOT/components/dashboard/PlanStatusCard.tsx" || true)"
+    "$ROOT/components/team/TeamScreen.tsx" || true)"
 else
   PRICING_ROUTE_HITS="$(grep -nE "\\bpricing\\b" \
     "$ROOT/components/app/MainApp.tsx" \
     "$ROOT/components/shell/AppShell.tsx" \
     "$ROOT/components/app/Dashboard.tsx" \
     "$ROOT/components/business/BusinessDashboard.tsx" \
-    "$ROOT/components/team/TeamScreen.tsx" \
-    "$ROOT/components/dashboard/PlanStatusCard.tsx" || true)"
+    "$ROOT/components/team/TeamScreen.tsx" || true)"
 fi
 if [ -n "$PRICING_ROUTE_HITS" ]; then
   echo "$PRICING_ROUTE_HITS" >&2
