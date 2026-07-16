@@ -159,7 +159,10 @@ export function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowProps) {
       </div>
 
       {/* Bottom Controls */}
-      <div className="pb-safe px-6 py-8 relative z-[2]">
+      <div
+        className="px-6 pt-8 relative z-[2]"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 44px)' }}
+      >
         {/* Progress Dots */}
         <div className="flex justify-center gap-2 mb-8">
           {slides.map((_, index) => (
