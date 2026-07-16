@@ -10,7 +10,7 @@
  * Server-driven authorisation: the edge functions enforce role + seat-cap
  * rules and return structured codes. This screen renders those codes
  * cleanly:
- *   • 402 plan_required → opens Upgrade UX with a clear inline message.
+ *   • Seat-cap errors render inline with a clear message.
  *   • 403 forbidden_role → renders inline as a disabled-form notice.
  *
  * Account-type guard:
@@ -271,10 +271,9 @@ function BusinessTeamPanel({
         setInviteOpen(false);
         await load(true);
       } else {
-        // 402 plan_required is auto-intercepted globally → UpgradeModal opens.
-        // Surface other errors inline.
         const code = (r as any)?.code;
-        if (code !== 'plan_required') setError(friendlyError(r.error, 'Could not send invite'));
+        void code;
+        setError(friendlyError(r.error, 'Could not send invite'));
       }
     } catch (e: any) {
       setError(friendlyError(e, 'Could not send invite'));
@@ -340,7 +339,7 @@ function BusinessTeamPanel({
               <p className={`text-xs ${tc.text}`}>{error}</p>
               <button
                 type="button"
-                onClick={load}
+                onClick={() => void load(true)}
                 className="mt-2 text-xs font-semibold text-red-200 hover:text-white"
               >
                 Retry

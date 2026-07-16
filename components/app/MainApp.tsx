@@ -43,9 +43,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../common/ErrorBoundary';
-import { FundWalletSheet } from '../activation/FundWalletSheet';
-import { getDefaultPlanFor, getActivatedPlanFor, getPlan, type PlanKey } from '../../utils/subscriptions/plans';
-import { AppShell, type AppRoute, type ShellSubscription } from '../shell/AppShell';
+import { AppShell, type AppRoute } from '../shell/AppShell';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import {
   TRANSFERS_LIVE,
@@ -457,16 +455,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { sessionStorage.removeItem('borderpay_module_reload_once_v1'); } catch { /* noop */ }
   }, []);
 
-  // ─── Subscription state ────────────────────────────────────────────────
-  // Loaded once on mount; refreshed after a successful upgrade. Determines
-  // which paid features (EUR/GBP virtual accounts, team seats, future cards)
-  // are enabled in the UI.
-  const [currentPlanKey, setCurrentPlanKey] = useState<PlanKey | null>(null);
-
-  // ─── Upgrade paywall ──────────────────────────────────────────────────
-  // `upgradeTarget` holds the plan_key the user is being asked to upgrade to.
-  // null = modal closed. Triggered by manual upgrade CTAs only.
-  
   // ─── Shell display props (avatar / name / unread bell badge) ───────────
   // Hydrated from cache for first paint, then refreshed by the
   // get-profile + notifications calls below.
@@ -637,59 +625,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [userId, accountType, refreshKey, updateUnreadCount]);
-
-  // ─── Load subscription row once per session ────────────────────────────
-  // Reads user_subscriptions via the subscription-current edge function. If
-  // the user has no row (shouldn't happen post-Day-2 since auth-signup seeds
-  // a starter row), we fall back to the account-type default.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await backendAPI.subscription.current();
-        if (cancelled) return;
-        const planKey = r?.success && r.data?.subscription?.plan_key
-          ? (r.data.subscription.plan_key as PlanKey)
-          : getDefaultPlanFor(accountType).key;
-        setCurrentPlanKey(planKey);
-        // Cache for synchronous activation checks in standalone screens.
-        try { localStorage.setItem('borderpay_plan_key', planKey); } catch { /* noop */ }
-      } catch {
-        setCurrentPlanKey(getDefaultPlanFor(accountType).key);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [userId, accountType, refreshKey]);
-
-  // ─── Funding gate: open FundWalletSheet on 402 funding_required ────────
-  const [fundCurrentUsd, setFundCurrentUsd] = useState<number | undefined>(undefined);
-  const [fundMinUsd, setFundMinUsd] = useState<number | undefined>(undefined);
-  const [fundOpen, setFundOpen] = useState(false);
-  useEffect(() => {
-    const onFundingRequired = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
-      setFundCurrentUsd(typeof detail.current_balance_usd === 'number' ? detail.current_balance_usd : undefined);
-      setFundMinUsd(typeof detail.minimum_usd === 'number' ? detail.minimum_usd : undefined);
-      setFundOpen(true);
-    };
-    window.addEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-    return () => {
-      window.removeEventListener('borderpay:funding_required', onFundingRequired as EventListener);
-    };
-  }, []);
-
-  // Public helper any screen can call to open the Fund Wallet sheet manually.
-  // `__borderpay_open_upgrade` kept as a legacy alias so older CTAs still work
-  // — both now route to the same FundWalletSheet (no more activation modal).
-  useEffect(() => {
-    const opener = () => { setFundCurrentUsd(undefined); setFundOpen(true); };
-    (window as any).__borderpay_open_upgrade = opener;
-    (window as any).__borderpay_open_fund_wallet = opener;
-    return () => {
-      delete (window as any).__borderpay_open_upgrade;
-      delete (window as any).__borderpay_open_fund_wallet;
-    };
-  }, []);
 
   const scrollToTop = useCallback(() => {
     if (scrollContainerRef.current) {
@@ -928,18 +863,17 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     setRefreshKey(prev => prev + 1);
   };
 
-  // Returned from the hosted activation checkout (?activation=return). The
-  // webhook activates server-side; we just confirm + refresh so the dashboard
-  // reflects it, then strip the params so a reload doesn't re-trigger.
+  // Legacy hosted callback (?activation=return). We keep the handler only to
+  // strip old params and refresh state without showing activation language.
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get('activation') !== 'return') return;
       const status = (params.get('status') || '').toLowerCase();
       if (status === 'cancelled' || status === 'failed') {
-        toast.message('Activation was not completed. You can try again anytime.');
+        toast.message('Verification was not completed. You can try again anytime.');
       } else {
-        toast.success('Payment received — confirming your activation…');
+        toast.success('Account status updated.');
         handleRefresh();
       }
       const url = new URL(window.location.href);
@@ -1123,7 +1057,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <TeamScreen
             accountType={isBusinessAccount ? 'business' : 'individual'}
             onBack={navigateBack}
-            onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
+            onManagePlans={() => navigateTo('kyc')}
           />
         );
 
@@ -1139,8 +1073,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
               userId={userId}
               onLogout={onLogout}
               onNavigate={navigateTo as (s: string) => void}
-              planKey={currentPlanKey}
-              onUpgrade={() => (window as any).__borderpay_open_fund_wallet?.()}
             />
           );
         }
@@ -1150,8 +1082,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onLogout={onLogout}
             onNavigate={navigateTo}
             currentScreen={currentScreen}
-            planKey={currentPlanKey}
-            onUpgrade={() => (window as any).__borderpay_open_fund_wallet?.()}
           />
         );
     }
@@ -1172,11 +1102,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                 userName={shellUserName}
                 avatarUrl={shellAvatarUrl}
                 unreadCount={unreadCount}
-                subscription={currentPlanKey ? ({
-                  plan_key:     currentPlanKey,
-                  display_name: getPlan(currentPlanKey).display_name,
-                  is_paid:      getPlan(currentPlanKey).is_activated,
-                } as ShellSubscription) : null}
                 isBusinessAccount={accountType === 'business' || hasBusinessAccountCached()}
                 onSignOut={onLogout}
                 onLock={onLock}
@@ -1200,21 +1125,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           </Suspense>
         </ErrorBoundary>
       </div>
-
-      {/* ── Funding gate (replaces the prior activation paywall) ──────────
-          Opens on any 402 funding_required response or via
-          window.__borderpay_open_fund_wallet(). Funds remain the user's;
-          $20 USD-equivalent minimum balance unlocks money movement + VAs. */}
-      <FundWalletSheet
-        open={fundOpen}
-        onClose={() => setFundOpen(false)}
-        currentUsd={fundCurrentUsd}
-        minUsd={fundMinUsd}
-        accountType={accountType}
-        onOpenWallet={() => navigateTo('wallet-detail')}
-        onOpenReceive={() => navigateTo('receive-money')}
-        userId={userId}
-      />
 
       {/* New Device / IP Security Alert */}
       <AnimatePresence>
