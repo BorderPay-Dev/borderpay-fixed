@@ -45,12 +45,12 @@ import { usePreferences } from '../../utils/hooks/usePreferences';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
-import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
+import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED } from '../../utils/featureFlags';
@@ -102,10 +102,6 @@ interface DashboardProps {
   onLogout: () => void;
   onNavigate?: (screen: string) => void;
   currentScreen?: string;
-  /** Hydrated by MainApp from `subscription-current`. null while loading. */
-  planKey?: import('../../utils/subscriptions/plans').PlanKey | null;
-  /** Opens the UpgradeModal at MainApp level for the appropriate paid tier. */
-  onUpgrade?: () => void;
 }
 
 const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
@@ -151,7 +147,7 @@ function formatDashboardWalletBalance(row: { currency: string; balance: number }
   return symbol ? `${symbol}${formatted}` : `${formatted} ${code}`;
 }
 
-export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, planKey, onUpgrade }: DashboardProps) {
+export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen }: DashboardProps) {
   // Synchronous read — no flicker between "unconfirmed/starter" and the real
   // status. If we have a cached profile, derive everything at first render.
   const cachedProfile = useMemo(() => readCachedProfile(), []);
@@ -181,6 +177,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   const [isVerified, setIsVerified]       = useState<boolean>(!!isCachedVerified);
   const [kycStatus, setKycStatus]         = useState(cachedKycStatus);
+  const [verificationResolved, setVerificationResolved] = useState<boolean>(isCachedVerified);
   const { prefs, updatePrefs } = usePreferences();
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
@@ -304,7 +301,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           readJSON<any[]>(dashWalletsKey, []).length > 0 ||
           readJSON<any[]>(dashRecentKey, []).length > 0;
         const last = Number(localStorage.getItem(dashRefreshTsKey) || '0');
-        if (hasCached && Number.isFinite(last) && Date.now() - last < 30_000) {
+        if (verificationResolved && hasCached && Number.isFinite(last) && Date.now() - last < 30_000) {
           setLoading(false);
           return;
         }
@@ -337,6 +334,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           // (and visible flicker) when nothing's actually different.
           setIsVerified(prev => prev === verified ? prev : verified);
           setKycStatus(prev => prev === nextKycStatus ? prev : nextKycStatus);
+          setVerificationResolved(true);
           if (p.profile_picture_url) setProfilePicUrl(p.profile_picture_url);
           if (p.full_name) setUserFullName(p.full_name);
           if (p.email) setUserEmail(p.email);
@@ -424,7 +422,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         dashboardLoadInFlightRef.current = null;
       }
     }
-  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey]);
+  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey, verificationResolved, userId]);
 
   useEffect(() => {
     loadDashboardData();
@@ -510,6 +508,15 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     try {
       return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     } catch { return ''; }
+  };
+  const formatReceiptMoney = (amount: number, currency: string) => {
+    const c = String(currency || 'USD').toUpperCase();
+    const sym = CURRENCY_CONFIG[c]?.symbol;
+    const formatted = Number(amount || 0).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: ['USDC', 'USDT'].includes(c) ? 6 : 2,
+    });
+    return sym ? `${sym}${formatted}` : `${formatted} ${c}`;
   };
 
   // i18n with English fallback. The translation function returns the key
@@ -629,20 +636,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         </div>
       </section>
 
-      {/* ── 4. Plan status card ────────────────────────────────────── */}
-      <section className="px-5 sm:px-6 mt-6">
-        <PlanStatusCard
-          planKey={planKey ?? null}
-          accountType="individual"
-          userId={userId}
-          onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
-          onUpgrade={onUpgrade}
-          hasVirtualAccounts={hasVirtualAccounts}
-        />
-      </section>
-
       {/* ── 5. Setup checklist (compact, dismissible) ──────────────── */}
-      {accountStatus !== 'active' && !allStepsComplete && !loading && showSetupBanner && (
+      {verificationResolved && accountStatus !== 'active' && !allStepsComplete && !loading && showSetupBanner && (
         <section className="px-5 sm:px-6 mt-6">
           <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5`}>
             <div className="flex items-center justify-between mb-3">
@@ -822,7 +817,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           the home stays scannable. The KYC card stays inline only when
           verification is not approved, since it's a call-to-action. */}
       <section className="px-4 sm:px-5 mt-6 space-y-2.5">
-        {!isVerified && (
+        {verificationResolved && !isVerified && (
           <BridgeKycStatusCard userId={userId} onStartVerification={() => handleNavigate('kyc')} />
         )}
         <button
@@ -889,34 +884,58 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
             {recentTransactions.map((txn, i) => {
               const isCredit = txDirection(txn) === 'credit';
               const sym = CURRENCY_CONFIG[txn.currency]?.symbol || txn.currency || '$';
-              const amt = parseFloat(txn.amount || 0).toFixed(2);
+              const receipt = txn.receipt || normalizeTransactionReceipt({ amount: txn.amount, metadata: txn.metadata });
+              const displayAmount = Number(receipt?.finalAmount ?? txn.amount ?? 0);
+              const amt = displayAmount.toFixed(2);
               return (
                 <div
                   key={txn.id || i}
-                  className={`px-4 py-3.5 flex items-center gap-3 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
+                  className={`px-4 py-3.5 ${i > 0 ? `border-t ${tc.borderLight}` : ''}`}
                 >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isCredit ? 'bg-emerald-500/10' : tc.bgAlt}`}>
-                    {isCredit
-                      ? <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
-                      : <ArrowUpRight className={`w-3.5 h-3.5 ${tc.text}`} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium ${tc.text} truncate`}>
-                      {sanitizeCustomerFacingText(txn.description || txn.type || 'Transaction')}
-                    </p>
-                    <div className={`flex items-center gap-2 text-[11px] ${tc.textMuted} mt-0.5`}>
-                      <span>{formatTxDate(txn.created_at)}</span>
-                      {txn.status === 'pending' && (
-                        <span className="px-1.5 py-px rounded-full bg-amber-500/15 text-amber-300 text-[10px] font-semibold uppercase tracking-wider">Pending</span>
-                      )}
-                      {txn.status === 'failed' && (
-                        <span className="px-1.5 py-px rounded-full bg-red-500/15 text-red-400 text-[10px] font-semibold uppercase tracking-wider">Failed</span>
-                      )}
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isCredit ? 'bg-emerald-500/10' : tc.bgAlt}`}>
+                      {isCredit
+                        ? <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
+                        : <ArrowUpRight className={`w-3.5 h-3.5 ${tc.text}`} />}
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${tc.text} truncate`}>
+                        {sanitizeCustomerFacingText(txn.description || txn.type || 'Transaction')}
+                      </p>
+                      <div className={`flex items-center gap-2 text-[11px] ${tc.textMuted} mt-0.5`}>
+                        <span>{formatTxDate(txn.created_at)}</span>
+                        {txn.status === 'pending' && (
+                          <span className="px-1.5 py-px rounded-full bg-amber-500/15 text-amber-300 text-[10px] font-semibold uppercase tracking-wider">Pending</span>
+                        )}
+                        {txn.status === 'failed' && (
+                          <span className="px-1.5 py-px rounded-full bg-red-500/15 text-red-400 text-[10px] font-semibold uppercase tracking-wider">Failed</span>
+                        )}
+                      </div>
+                    </div>
+                    <p className={`text-sm font-semibold tabular-nums font-mono flex-shrink-0 ${isCredit ? 'text-emerald-400' : tc.text}`}>
+                      {isCredit ? '+' : '−'}{sym}{amt}
+                    </p>
                   </div>
-                  <p className={`text-sm font-semibold tabular-nums font-mono flex-shrink-0 ${isCredit ? 'text-emerald-400' : tc.text}`}>
-                    {isCredit ? '+' : '−'}{sym}{amt}
-                  </p>
+                  {receipt?.hasFees && (
+                    <div className={`ml-11 mt-2 grid grid-cols-2 gap-y-1 text-[11px] ${tc.textMuted}`}>
+                      <span>{isCredit ? 'Received' : 'Sent'}</span>
+                      <span className="text-right font-mono">{formatReceiptMoney(receipt.initialAmount, txn.currency)}</span>
+                      {receipt.developerFeeAmount > 0 && (
+                        <>
+                          <span>Service fee</span>
+                          <span className="text-right font-mono">-{formatReceiptMoney(receipt.developerFeeAmount, txn.currency)}</span>
+                        </>
+                      )}
+                      {receipt.exchangeFeeAmount > 0 && (
+                        <>
+                          <span>Exchange fee</span>
+                          <span className="text-right font-mono">-{formatReceiptMoney(receipt.exchangeFeeAmount, txn.currency)}</span>
+                        </>
+                      )}
+                      <span className={tc.text}>{isCredit ? 'You receive' : 'Net delivered'}</span>
+                      <span className={`text-right font-mono ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, txn.currency)}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -929,7 +948,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
       {/* ── 11. Affiliate banner (footer position) ─────────────────── */}
       <section className="px-5 sm:px-6 mt-6 pb-2">
-        <AffiliateBanner kycStatus={isVerified ? 'verified' : 'pending'} />
+        <AffiliateBanner kycStatus={verificationResolved && isVerified ? 'verified' : 'pending'} />
       </section>
 
       {/* Bottom navigation lives in AppShell (mounted by MainApp). */}
@@ -937,7 +956,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       {/* KYC reminder — nudges unverified users to verify (free); opens the
           Identity & KYC screen. Once-per-session; disappears when verified. */}
       <KycReminderPopup
-        open={!isVerified}
+        open={verificationResolved && !isVerified}
         isBusiness={false}
         onVerify={() => handleNavigate('kyc')}
         onClose={() => { /* dismissed for this session inside the popup */ }}
