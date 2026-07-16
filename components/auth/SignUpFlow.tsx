@@ -161,7 +161,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     let cancelled = false;
     (async () => {
       setBridgeCountriesLoading(true);
-      const result = await backendAPI.auth.getBridgeSupportedCountries();
+      const result = await backendAPI.auth.getProviderSupportedCountries();
       if (cancelled) return;
       if (!result.success) {
         setBridgeSignupCountries([]);
@@ -304,9 +304,13 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         formData.poaFile.name
       );
       if (!uploadUrlData.success) throw new Error(uploadUrlData.error || 'Failed to get upload URL');
+      if (!uploadUrlData.data?.upload_url || !uploadUrlData.data?.path) {
+        throw new Error('Failed to prepare file upload');
+      }
+      const uploadData = uploadUrlData.data;
 
       // Step 2: Upload the file
-      const uploadRes = await fetch(uploadUrlData.data.upload_url, {
+      const uploadRes = await fetch(uploadData.upload_url, {
         method: 'PUT',
         headers: { 'Content-Type': formData.poaFile.type },
         body: formData.poaFile,
@@ -316,7 +320,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
 
       // Step 3: Submit for review
       const submitData = await backendAPI.proofOfAddress.submit(
-        uploadUrlData.data.path,
+        uploadData.path,
         formData.poaDocumentType
       );
       if (!submitData.success) throw new Error(submitData.error || 'Submission failed');
@@ -336,11 +340,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   // ============================================================================
 
   const handleEnrollCustomer = async () => {
-    // No legacy enrollment endpoint here — signup is provider-neutral.
-    // Bridge customer creation happens later, only when the user clicks
-    // Start KYC/KYB in KYCVerification (via bridge-customer / bridge-kyc-link
-    // / bridge-kyb-link). This handler just transitions the UI into the
-    // pending-review state.
+    // The Bridge customer id is created by auth-signup. This handler only
+    // transitions the individual flow into the pending-review state; hosted
+    // KYC/KYB remains a later verification step.
     setIsLoading(true);
     try {
       toast.success('Registration complete! Your account is under review.');
@@ -499,7 +501,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         // Per the locked-down RLS model, authenticated users
                         // cannot INSERT into business_profiles directly.
                         // The canonical path is for `auth-signup` (running
-                        // as service_role) to create the row at signup.
+                        // as service_role) to create the row and Bridge
+                        // customer id at signup.
                         //
                         // Strategy:
                         //   1. VERIFY: call getProfile() to see if the row

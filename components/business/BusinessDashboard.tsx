@@ -13,18 +13,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
   AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
+  BookOpen, ExternalLink, KeyRound,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
-import { PlanStatusCard } from '../dashboard/PlanStatusCard';
 import { TreasuryCard } from './TreasuryCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import type { PlanKey } from '../../utils/subscriptions/plans';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
@@ -63,10 +62,6 @@ interface BusinessDashboardProps {
   userId:    string;
   onLogout:  () => void;
   onNavigate: (screen: string) => void;
-  /** Hydrated by MainApp from `subscription-current`. null while loading. */
-  planKey?:  PlanKey | null;
-  /** Opens the UpgradeModal at MainApp level for the appropriate paid tier. */
-  onUpgrade?: () => void;
 }
 
 interface WalletRow {
@@ -107,7 +102,7 @@ function prefetchScreen(screen: string): void {
   try { (window as any).__borderpay_prefetch?.(screen); } catch { /* noop */ }
 }
 
-export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpgrade }: BusinessDashboardProps) {
+export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDashboardProps) {
   const tc = useThemeClasses();
   const navigate = React.useCallback((screen: string) => {
     try {
@@ -143,7 +138,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   const [registrationNumber, setRegistrationNumber] = useState<string | null>(null);
   const [country, setCountry]                       = useState<string | null>(initialCountry);
   const [profileError, setProfileError]             = useState<string | null>(null);
-  const [affiliateKycStatus, setAffiliateKycStatus] = useState<'verified' | 'pending'>(() => {
+  const initialAffiliateKycStatus = useMemo<'verified' | 'pending'>(() => {
     const raw = String(
       stored?.bridge_kyb_status ||
       stored?.bridge_verification_status ||
@@ -151,7 +146,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
       '',
     ).toLowerCase();
     return (raw === 'approved' || raw === 'verified' || raw === 'active') ? 'verified' : 'pending';
-  });
+  }, [stored]);
+  const [affiliateKycStatus, setAffiliateKycStatus] = useState<'verified' | 'pending'>(initialAffiliateKycStatus);
+  const [verificationResolved, setVerificationResolved] = useState<boolean>(initialAffiliateKycStatus === 'verified');
 
   // Seed wallets from cache so the balance + treasury paint instantly.
   const bizWalletsCacheKey = useMemo(
@@ -217,7 +214,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     try {
       const refreshTsKey = financialCacheKey(BIZ_DASH_REFRESH_TS_KEY, { userId, accountType: 'business' });
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (!force && seededWallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (verificationResolved && !force && seededWallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
       const walletRouteRes: any = await withTimeout(
@@ -333,6 +330,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
               ? 'verified'
               : 'pending',
           );
+          setVerificationResolved(true);
           setProfileError(null);
           try {
             const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
@@ -429,6 +427,13 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
   }, [userId]);
 
   const refreshAll = () => { loadWallets(true); };
+  const openDeveloperDocs = () => {
+    try {
+      window.open('https://docs.borderpayafrica.com', '_blank', 'noopener,noreferrer');
+    } catch {
+      window.location.href = 'https://docs.borderpayafrica.com';
+    }
+  };
   const openWalletForCurrency = (currency: string) => {
     try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
     navigate('wallet-detail');
@@ -440,14 +445,15 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
     { id: 'kyb', label: 'Complete business verification', completed: kybVerified, screen: 'kyc' },
   ];
   const showSetupBanner = !setupSteps.every((s) => s.completed);
-  const effectiveShowSetupBanner = showSetupBanner && !setupBannerDismissed;
+  const effectiveShowSetupBanner = verificationResolved && showSetupBanner && !setupBannerDismissed;
 
   const initials = (companyName || 'B').slice(0, 2).toUpperCase();
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
+      <div className="mx-auto w-full max-w-screen-xl">
       {/* ── 1. Business identity row ─────────────────────────────────── */}
-      <section className="flex items-center justify-between px-5 sm:px-6 pt-5 gap-3">
+      <section className="flex items-center justify-between px-5 sm:px-6 pt-5 gap-3 md:pt-2">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-[#C7FF00] flex items-center justify-center text-black font-bold text-sm flex-shrink-0">
             {initials}
@@ -470,29 +476,33 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
         </button>
       </section>
 
-      <div className="space-y-6 pb-6">
+      <div className="space-y-6 pb-6 md:pb-10">
         {/* ── 2. Hero balance ───────────────────────────────────────── */}
         <section className="px-5 sm:px-6 pt-6">
-          <p className={`text-[10px] ${tc.textMuted} uppercase tracking-[0.18em] font-semibold mb-2`}>
-            Total balance · USD
-          </p>
-          <div className="flex items-end gap-2">
-            <h2 className={`${tc.text} font-semibold tracking-tight tabular-nums leading-none text-[44px] sm:text-[56px]`}>
-              <span className={`text-2xl sm:text-3xl ${tc.textMuted} mr-1 align-top`}>$</span>
-              {usdLikeTotal.toFixed(2).split('.')[0]}
-              <span className={`text-2xl sm:text-3xl ${tc.textMuted}`}>.{usdLikeTotal.toFixed(2).split('.')[1]}</span>
-            </h2>
+          <div className={`md:rounded-2xl md:border ${tc.cardBorder} ${tc.card} md:px-5 md:py-4 md:flex md:items-end md:justify-between md:gap-6`}>
+            <div className="min-w-0">
+              <p className={`text-[10px] ${tc.textMuted} uppercase tracking-[0.18em] font-semibold mb-2`}>
+                Total balance · USD
+              </p>
+              <div className="flex items-end gap-2">
+                <h2 className={`${tc.text} font-semibold tracking-tight tabular-nums leading-none text-[44px] sm:text-[56px]`}>
+                  <span className={`text-2xl sm:text-3xl ${tc.textMuted} mr-1 align-top`}>$</span>
+                  {usdLikeTotal.toFixed(2).split('.')[0]}
+                  <span className={`text-2xl sm:text-3xl ${tc.textMuted}`}>.{usdLikeTotal.toFixed(2).split('.')[1]}</span>
+                </h2>
+              </div>
+              <p className={`text-[11px] ${tc.textMuted} mt-1.5`}>
+                {wallets.length === 0
+                  ? 'No accounts yet. Open one to start.'
+                  : `Across ${wallets.length} ${wallets.length === 1 ? 'account' : 'accounts'}`}
+              </p>
+            </div>
+            {(registrationNumber || country) && (
+              <p className={`text-[10px] ${tc.textMuted} mt-3 md:mt-0 font-mono uppercase tracking-wide truncate md:text-right`}>
+                {[registrationNumber, country].filter(Boolean).join(' · ')}
+              </p>
+            )}
           </div>
-          <p className={`text-[11px] ${tc.textMuted} mt-1.5`}>
-            {wallets.length === 0
-              ? 'No accounts yet. Open one to start.'
-              : `Across ${wallets.length} ${wallets.length === 1 ? 'account' : 'accounts'}`}
-          </p>
-          {(registrationNumber || country) && (
-            <p className={`text-[10px] ${tc.textMuted} mt-3 font-mono uppercase tracking-wide truncate`}>
-              {[registrationNumber, country].filter(Boolean).join(' · ')}
-            </p>
-          )}
         </section>
 
         {effectiveShowSetupBanner && (
@@ -626,7 +636,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
 
         {/* ── 4. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
             <BizChip label="Send"    Icon={Send}     onPrefetch={() => prefetchScreen('send-money')}       onClick={() => navigate('send-money')}    tc={tc} />
             <BizChip label="Receive" Icon={Download} onPrefetch={() => prefetchScreen('receive-money')}    onClick={() => navigate('receive-money')} tc={tc} />
             <BizChip label="Activity" Icon={FileText} onPrefetch={() => prefetchScreen('transactions')}    onClick={() => navigate('transactions')} tc={tc} />
@@ -651,6 +661,40 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           </div>
         </section>
 
+        {/* ── Developer API access ─────────────────────────────────── */}
+        <section className="px-5 sm:px-6">
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 md:px-5 md:py-4 md:flex md:items-center md:justify-between md:gap-6`}>
+            <div className="flex items-start gap-3 min-w-0">
+              <div className={`w-10 h-10 rounded-xl ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
+                <KeyRound className={`w-5 h-5 ${tc.text}`} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className={`text-sm font-semibold ${tc.text}`}>Developer API</h3>
+                  <span className="rounded-full bg-[#C7FF00]/15 px-2 py-0.5 text-[10px] font-semibold text-[#C7FF00]">
+                    Issued by BorderPay
+                  </span>
+                </div>
+                <p className={`text-xs ${tc.textMuted} mt-1 leading-relaxed`}>
+                  API keys are created by BorderPay from the admin workspace. Business developers can use the docs,
+                  OpenAPI contract, Postman collection, curl examples, SDK starter, and webhook mocks while access is issued.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 md:mt-0 flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={openDeveloperDocs}
+                className="h-10 rounded-xl bg-[#C7FF00] px-4 text-sm font-semibold text-black inline-flex items-center gap-2 hover:brightness-95"
+              >
+                <BookOpen className="w-4 h-4" />
+                Docs
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* ── Treasury management ─────────────────────────────────── */}
         <TreasuryCard totalUsd={usdLikeTotal} wallets={wallets} transactions={transactions} userId={userId} />
 
@@ -664,24 +708,14 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           </section>
         )}
 
-        {/* ── 5. Plan + seats ──────────────────────────────────────── */}
-        <section className="px-5 sm:px-6">
-          <PlanStatusCard
-            planKey={planKey ?? null}
-            accountType="business"
-            userId={userId}
-            hasVirtualAccounts={hasVirtualAccounts}
-            onManagePlans={() => (window as any).__borderpay_open_fund_wallet?.()}
-            onUpgrade={onUpgrade}
-          />
-        </section>
-
         {/* ── 6. BorderPay infrastructure ──────────────────────────── */}
         <section className="px-5 sm:px-6 space-y-2.5">
           <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em] mb-3`}>
             Business infrastructure
           </h2>
-          <BridgeKycStatusCard userId={userId} onStartVerification={() => onNavigate('kyc')} />
+          {verificationResolved && !kybVerified && (
+            <BridgeKycStatusCard userId={userId} onStartVerification={() => onNavigate('kyc')} />
+          )}
           <CardsLockedCard />
         </section>
 
@@ -698,6 +732,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, planKey, onUpg
           <ShieldCheck className="w-3 h-3 text-[#C7FF00]" />
           <span className={`text-[10px] ${tc.textMuted}`}>Secured by BorderPay Africa</span>
         </section>
+      </div>
       </div>
     </div>
   );

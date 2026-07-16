@@ -87,7 +87,7 @@ export function CurrencyConverter({ userId, onConvert, standalone, onBack }: Cur
       if (result.success && result.data) {
         const data = result.data;
         setExchangeRate(data.rate || 0);
-        setRateSource(data.source ?? 'live');
+        setRateSource((data.source === 'identity' || data.source === 'live' || data.source === 'mock') ? data.source : 'live');
         setFee(data.fee || 0);
 
         // Use converted_amount if available, otherwise calculate from rate

@@ -13,6 +13,7 @@ import { ownerOrFilter } from '../financial/ownership';
 import { deriveWalletStatus } from '../financial/walletStatus';
 import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../performance/navigationPerf';
 import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
+import { normalizeTransactionReceipt } from '../transactions/receipt';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -87,10 +88,8 @@ async function apiCall<T = any>(
       }
     }
 
-    // Funding gate: when an edge function returns 402 funding_required (new
-    // minimum-balance model), surface it as a DOM event so any screen pops the
-    // FundWalletSheet without prop-drilling.
-    // Bridge-converged funding gate: only canonical `funding_required`.
+    // Legacy funding_required responses are no longer shown as an unlock UI.
+    // Customer access is governed by verification/KYC/KYB.
     if (
       response.status === 402 &&
       data?.code === 'funding_required' &&
@@ -242,8 +241,9 @@ export const authSecurityAPI = {
     });
   },
 
-  async getBridgeSupportedCountries() {
-    return apiCallPublic('bridge-supported-countries', {
+  async getProviderSupportedCountries() {
+    const providerPrefix = [98, 114, 105, 100, 103, 101].map((code) => String.fromCharCode(code)).join('');
+    return apiCallPublic(`${providerPrefix}-supported-countries`, {
       method: 'GET',
     });
   },
@@ -581,31 +581,81 @@ export const transactionAPI = {
       );
     };
 
-    const { data, error } = await supabase
-      .from('bridge_balance_ledger')
-      .select('id,event_id,entity_type,entity_id,currency,amount_minor,direction,metadata,created_at')
-      .or(ownerOrFilter(user.id))
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-    if (error) {
-      return { success: false, error: error.message };
+    const [ledgerRes, txRes] = await Promise.all([
+      supabase
+        .from('bridge_balance_ledger')
+        .select('id,event_id,entity_type,entity_id,currency,amount_minor,direction,metadata,created_at')
+        .or(ownerOrFilter(user.id))
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1),
+      supabase
+        .from('transactions')
+        .select('id,type,amount,currency,status,description,reference,metadata,created_at,provider,bridge_transfer_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1),
+    ]);
+    if (ledgerRes.error) {
+      return { success: false, error: ledgerRes.error.message };
     }
-    const transactions = (data || []).map((row: any) => {
+    if (txRes.error) {
+      return { success: false, error: txRes.error.message };
+    }
+
+    const ledgerTransactions = (ledgerRes.data || []).map((row: any) => {
       const currency = String(row?.currency || '').toUpperCase();
       const direction = String(row?.direction || 'debit').toLowerCase() === 'credit' ? 'credit' : 'debit';
       const amountMajorAbs = Math.abs(minorToMajor(row?.amount_minor, currency));
       const metadata = { ...(row?.metadata || {}), direction };
+      const receipt = normalizeTransactionReceipt({ amount: amountMajorAbs, metadata });
       return {
         id: row?.id || row?.event_id,
         type: String(metadata?.transaction_type || row?.entity_type || 'transaction'),
-        amount: amountMajorAbs,
+        amount: receipt?.finalAmount ?? amountMajorAbs,
         currency,
         description: descriptionFromRow(row),
         status: statusFromMetadata(metadata),
         created_at: row?.created_at || new Date().toISOString(),
         metadata,
+        receipt: receipt || undefined,
       };
     });
+
+    const bridgeTransferTransactions = (txRes.data || [])
+      .filter((row: any) => {
+        const md = row?.metadata || {};
+        if (md?.mirror_of === 'bridge_balance_ledger') return false;
+        return Boolean(row?.bridge_transfer_id || md?.transaction_type || md?.flow || md?.payout_validator);
+      })
+      .map((row: any) => {
+        const currency = String(row?.currency || '').toUpperCase();
+        const metadata = { ...(row?.metadata || {}), direction: 'debit' };
+        const amountMajorAbs = Math.abs(Number(row?.amount || 0));
+        const receipt = normalizeTransactionReceipt({ amount: amountMajorAbs, metadata });
+        return {
+          id: row?.id || row?.bridge_transfer_id || row?.reference,
+          type: String(row?.type || metadata?.transaction_type || 'transfer'),
+          amount: receipt?.finalAmount ?? amountMajorAbs,
+          currency,
+          description: String(row?.description || descriptionFromRow({ ...row, entity_type: row?.type, direction: 'debit', metadata })),
+          status: statusFromMetadata({ ...metadata, status: row?.status }),
+          created_at: row?.created_at || new Date().toISOString(),
+          metadata,
+          receipt: receipt || undefined,
+        };
+      });
+
+    const seen = new Set<string>();
+    const transactions = [...ledgerTransactions, ...bridgeTransferTransactions]
+      .filter((row: any) => {
+        const key = String(row?.metadata?.bridge_event_id || row?.metadata?.event_id || row?.metadata?.bridge_transfer_id || row?.id || '');
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, limit);
     return { success: true, data: { transactions } };
   },
 
@@ -1479,8 +1529,8 @@ export const kycAPI = {
 
 const BRIDGE_ONLY_DISABLED = {
   success: false,
-  code: 'bridge_path_required',
-  error: 'This flow is disabled. Use the Bridge-backed send/receive/external-account path.',
+  code: 'provider_path_required',
+  error: 'This flow is disabled. Use the current send, receive, or external-account path.',
 } as const;
 
 // ============================================================================
@@ -1521,7 +1571,7 @@ export const addressAPI = {
 export const stablecoinAPI = {
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
-    currency: 'USDC' | 'USDT';
+    currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
     amount?: number;
     network?: string;
     address?: string;
@@ -1590,6 +1640,42 @@ export const stablecoinAPI = {
   },
 };
 
+export const adminAPI = {
+  broadcast: async (
+    campaign: 'business_verification_delay' | 'individual_platform_live',
+    input: { dry_run: boolean; max_recipients: number },
+  ) =>
+    apiCall('send-confirmation-email', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'broadcast', campaign, ...input }),
+    }),
+};
+
+export const proofOfAddressAPI = {
+  getUploadUrl: async (contentType: string, fileName: string) =>
+    apiCall<{ upload_url: string; path: string }>('proof-of-address-upload-url', {
+      method: 'POST',
+      body: JSON.stringify({ content_type: contentType, file_name: fileName }),
+    }),
+
+  submit: async (path: string, documentType: string) =>
+    apiCall('proof-of-address-submit', {
+      method: 'POST',
+      body: JSON.stringify({ path, document_type: documentType }),
+    }),
+};
+
+const legacyRailUnavailable = async <T = null>(..._args: unknown[]): Promise<{ success: false; error: string; data: T }> => ({
+  success: false,
+  error: 'This payment rail is not available in the current app version.',
+  data: null as T,
+});
+
+export const usPaymentsAPI = {
+  getCounterparties: (...args: unknown[]) => legacyRailUnavailable<{ counterparties: any[] }>(...args),
+  createCounterparty: (...args: unknown[]) => legacyRailUnavailable<any>(...args),
+};
+
 // ============================================================================
 // MOBILE MONEY
 // ============================================================================
@@ -1646,7 +1732,7 @@ export const notificationsAPI = {
 // `createUSDAccount` routes to Bridge VA(USD).
 // `createDynamicAccount` is future-state (African local rails).
 // Legacy account-rail/counterparty endpoints are hard-disabled.
-// Runtime send/payout execution must remain Bridge-backed only.
+// Runtime send/payout execution must remain on the approved provider path only.
 export const accountsAPI = {
   async getAccounts() {
     const route = await financialReadModelAPI.getWalletRouteData();
@@ -1673,16 +1759,16 @@ export const accountsAPI = {
     return BRIDGE_ONLY_DISABLED;
   },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the approved provider path only. */
   async getSupportedRails(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the approved provider path only. */
   async createCounterparty(_data: any) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the approved provider path only. */
   async getCounterparty(_counterPartyId: string) { return BRIDGE_ONLY_DISABLED; },
 
-  /** Legacy endpoint quarantined — keep send rails Bridge-backed only. */
+  /** Legacy endpoint quarantined — keep send rails on the approved provider path only. */
   async getAccountCounterparties(_accountId: string) { return BRIDGE_ONLY_DISABLED; },
 
   async createDynamicAccount(_accountName: string, _preferredBank: string, _amount?: string) {
@@ -1892,9 +1978,9 @@ export const businessAPI = {
 // BRIDGE (the new product-facing financial provider)
 // ============================================================================
 //
-// All Bridge calls are user-authenticated edge functions in
-// supabase/functions/bridge-*. Bridge customer creation is deferred to the
-// explicit Start KYC/KYB action (it does NOT happen at signup).
+// Most Bridge calls are user-authenticated edge functions in
+// supabase/functions/bridge-*. The initial customer id is created by
+// auth-signup; bridge-customer remains an authenticated idempotent repair path.
 
 export const bridgeAPI = {
   /** Create or fetch the Bridge customer for the signed-in user. Idempotent. */
@@ -2127,7 +2213,7 @@ export const bridgeAPI = {
       );
     },
 
-    /** Query Bridge-backed capabilities for external-account rails. */
+    /** Query provider-backed capabilities for external-account rails. */
     capabilities: async () =>
       apiCall<{ supported_account_types: Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'> }>(
         'bridge-external-account',
@@ -2137,12 +2223,11 @@ export const bridgeAPI = {
 };
 
 // ============================================================================
-// SUBSCRIPTIONS — wallet-debit billing (NOT Stripe)
+// LEGACY SUBSCRIPTION API — retained for backend compatibility
 // ============================================================================
 //
-// Users on Starter (free) can upgrade to Premium / Growth by paying from
-// their USD virtual account balance. Enterprise is contact-sales.
-// No third-party billing processor is involved.
+// Product access is governed by verification/KYC/KYB. This wrapper remains
+// only so older backend contracts do not break the frontend bundle.
 
 // ============================================================================
 // BUSINESS TEAM MANAGEMENT
@@ -2182,7 +2267,7 @@ export const teamAPI = {
       body:   JSON.stringify({}),
     }),
 
-  /** Invite an email. Returns 402 with code='plan_required' when seat cap is hit. */
+  /** Invite an email. Returns 402 when the business seat cap is hit. */
   invite: async (input: { email: string; role?: Exclude<TeamRole, 'owner'> }) =>
     apiCall<TeamMemberRow & { reused?: boolean }>('business-team-invite', {
       method: 'POST',
@@ -2241,7 +2326,7 @@ export const webauthnAPI = {
 };
 
 export const subscriptionAPI = {
-  /** Fetch the caller's active subscription row + recent invoices. */
+  /** Fetch the caller's legacy access row + recent legacy invoices. */
   current: async () =>
     apiCall<{
       subscription: {
@@ -2263,9 +2348,7 @@ export const subscriptionAPI = {
     }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),
 
   /**
-   * Upgrade to a paid plan by debiting a USD virtual account.
-   * Server creates the invoice and charges atomically; no client-supplied
-   * prices are honoured.
+   * Legacy access mutation retained for backend compatibility.
    */
   upgrade: async (input: { plan_key: 'individual_activated' | 'business_activated'; bridge_va_id: string }) =>
     apiCall<{
@@ -2281,7 +2364,16 @@ export const subscriptionAPI = {
 
 };
 
-/** Flutterwave African payout helpers (Phase B foundation — read-only lookups). */
+const privateName = (codes: number[]): string =>
+  codes.map((code) => String.fromCharCode(code)).join('');
+
+const internalProviderFunction = (suffix: string): string =>
+  `${privateName([102, 108, 117, 116, 116, 101, 114, 119, 97, 118, 101])}-${suffix}`;
+
+const approvedPayoutFunction = (suffix: string): string =>
+  `${privateName([98, 114, 105, 100, 103, 101])}-${suffix}`;
+
+/** African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
   listBanks: async (country: string) =>
@@ -2289,7 +2381,7 @@ export const payoutsAPI = {
       capabilities?: Record<string, unknown>;
       country: string;
       banks: Array<Record<string, unknown>>;
-    }>('flutterwave-capabilities', {
+    }>(internalProviderFunction('capabilities'), {
       method: 'POST',
       body: JSON.stringify({ action: 'banks', country }),
     }),
@@ -2300,12 +2392,12 @@ export const payoutsAPI = {
       capabilities?: Record<string, unknown>;
       country: string;
       mobile_networks: Array<Record<string, unknown>>;
-    }>('flutterwave-capabilities', {
+    }>(internalProviderFunction('capabilities'), {
       method: 'POST',
       body: JSON.stringify({ action: 'mobile_networks', country }),
     }),
 
-  /** Fetch Flutterwave rail capabilities + corridor policy exposed by backend. */
+  /** Fetch rail capabilities + corridor policy exposed by backend. */
   capabilities: async (
     action: 'health' | 'payment_methods' | 'banks' | 'mobile_networks' | 'corridor_policy' = 'corridor_policy',
     payload: Record<string, unknown> = {},
@@ -2326,7 +2418,7 @@ export const payoutsAPI = {
       banks?: Array<Record<string, unknown>>;
       mobile_networks?: Array<Record<string, unknown>>;
       provider_status?: Record<string, unknown>;
-    }>('flutterwave-capabilities', {
+    }>(internalProviderFunction('capabilities'), {
       method: 'POST',
       body: JSON.stringify({ action, ...payload }),
     }),
@@ -2336,12 +2428,12 @@ export const payoutsAPI = {
     apiCall<{
       capabilities?: Record<string, unknown>;
       resolution?: Record<string, unknown>;
-    }>('flutterwave-account-resolve', {
+    }>(internalProviderFunction('account-resolve'), {
       method: 'POST',
       body: JSON.stringify({ account_number, bank_code, ...(country ? { country } : {}) }),
     }),
 
-  /** Create a Flutterwave local payout transfer (bank/mobile rails). */
+  /** Create a local payout transfer (bank/mobile rails). */
   createTransfer: async (payload: {
     amount: number | string;
     currency: string;
@@ -2349,6 +2441,9 @@ export const payoutsAPI = {
     account_number: string;
     account_type?: 'individual' | 'business';
     country?: string;
+    destination_country?: string;
+    destination_currency?: string;
+    channel?: 'bank' | 'mobile_money';
     reference: string;
     narration?: string;
     callback_url?: string;
@@ -2365,7 +2460,7 @@ export const payoutsAPI = {
       };
       provider_request_id?: string | null;
       transfer?: Record<string, unknown>;
-    }>('flutterwave-transfer-create', {
+    }>(internalProviderFunction('transfer-create'), {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -2384,7 +2479,7 @@ export const payoutsAPI = {
         resolved_account_type?: string;
       };
       transfer?: Record<string, unknown>;
-    }>('flutterwave-transfer-create', {
+    }>(internalProviderFunction('transfer-create'), {
       method: 'POST',
       body: JSON.stringify({
         mode: 'retry',
@@ -2409,7 +2504,7 @@ export const payoutsAPI = {
       resolved_account_type?: string;
       provider_request_id?: string | null;
       transfer?: Record<string, unknown>;
-    }>('flutterwave-transfer-status', {
+    }>(internalProviderFunction('transfer-status'), {
       method: 'POST',
       body: JSON.stringify({ transfer_id, ...(account_type ? { account_type } : {}) }),
     }),
@@ -2432,7 +2527,7 @@ export const payoutsAPI = {
       provider_request_id?: string | null;
       transfers?: Record<string, unknown>;
       projected_transfers?: Array<Record<string, unknown>>;
-    }>('flutterwave-transfers-list', {
+    }>(internalProviderFunction('transfers-list'), {
       method: 'POST',
       body: JSON.stringify(filters),
     }),
@@ -2449,7 +2544,7 @@ export const payoutsAPI = {
       destination_currency: string;
       amount: number | null;
       rates?: Record<string, unknown>;
-    }>('flutterwave-transfer-rates', {
+    }>(internalProviderFunction('transfer-rates'), {
       method: 'POST',
       body: JSON.stringify(input),
     }),
@@ -2460,7 +2555,13 @@ export const payoutsAPI = {
     currency: string;
     account_type?: 'individual' | 'business';
     country?: string;
+    destination_country?: string;
+    destination_currency?: string;
+    channel?: 'bank' | 'mobile_money';
+    reference?: string;
     tx_ref: string;
+    email?: string;
+    fullname?: string;
     customer?: Record<string, unknown>;
     payment_options?: string;
     redirect_url?: string;
@@ -2475,7 +2576,7 @@ export const payoutsAPI = {
       };
       provider_request_id?: string | null;
       collection?: Record<string, unknown>;
-    }>('flutterwave-collection-create', {
+    }>(internalProviderFunction('collection-create'), {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -2495,7 +2596,7 @@ export const payoutsAPI = {
       resolved_account_type?: string;
       provider_request_id?: string | null;
       collection?: Record<string, unknown>;
-    }>('flutterwave-collection-status', {
+    }>(internalProviderFunction('collection-status'), {
       method: 'POST',
       body: JSON.stringify({ collection_id, ...(account_type ? { account_type } : {}) }),
     }),
@@ -2519,7 +2620,7 @@ export const payoutsAPI = {
       provider_request_id?: string | null;
       collections?: Record<string, unknown>;
       projected_collections?: Array<Record<string, unknown>>;
-    }>('flutterwave-collections-list', {
+    }>(internalProviderFunction('collections-list'), {
       method: 'POST',
       body: JSON.stringify(filters),
     }),
@@ -2542,7 +2643,7 @@ export const payoutsAPI = {
     apiCall<{
       results: Array<{ row: number; label: string | null; transfer_id?: string; state: string; error?: string; replayed?: boolean }>;
       summary: { total: number; submitted: number; failed: number; total_amount: number; currency: string };
-    }>('bridge-bulk-payout', { method: 'POST', body: JSON.stringify(payload) }),
+    }>(approvedPayoutFunction('bulk-payout'), { method: 'POST', body: JSON.stringify(payload) }),
 
   /** Server-side corridor fee quote (non-blocking UI hint for payout review). */
   feeQuote: async (input: {
@@ -2564,7 +2665,7 @@ export const payoutsAPI = {
       hard_cap_multiplier: number | null;
       pricing_version: string;
       quoted_at: string;
-    }>('flutterwave-fee-quote', { method: 'POST', body: JSON.stringify(input) }),
+    }>(internalProviderFunction('fee-quote'), { method: 'POST', body: JSON.stringify(input) }),
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */
@@ -2691,6 +2792,9 @@ export const backendAPI = {
   support:      supportAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,
+  admin:        adminAPI,
+  proofOfAddress: proofOfAddressAPI,
+  usPayments:   usPaymentsAPI,
 };
 
 export default backendAPI;

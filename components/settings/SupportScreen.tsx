@@ -198,7 +198,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     <div className={`min-h-screen ${tc.bg} pb-24`}>
       <div className="max-w-5xl mx-auto px-4 pt-6">
         <div className="flex items-center gap-3 mb-4">
-          <FloatingBackButton onBack={onBack} position="relative" />
+          <FloatingBackButton onBack={onBack} />
           <div>
             <h1 className={`text-2xl font-bold ${tc.text}`}>Support</h1>
             <p className={`text-sm ${tc.textSecondary}`}>Open a ticket and chat with BorderPay support.</p>
