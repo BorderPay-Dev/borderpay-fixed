@@ -6,6 +6,8 @@ Checks:
   S1 migration includes signup_abuse_events + enforce_signup_abuse_protection RPC.
   S2 auth-signup calls abuse RPC before user creation and maps denial to 429.
   S3 CAPTCHA hook exists (env-gated secret + token validation path).
+  S4 narrow backfill migration exists so production schema drift cannot leave
+     auth-signup calling a missing RPC.
 """
 from __future__ import annotations
 import sys
@@ -13,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIG = ROOT / "supabase" / "migrations" / "20260619103000_security_abuse_and_reconciliation_hardening.sql"
+BACKFILL_MIG = ROOT / "supabase" / "migrations" / "20260717222800_signup_abuse_protection_rpc_backfill.sql"
 AUTH_SIGNUP = ROOT / "supabase" / "functions" / "auth-signup" / "index.ts"
 
 
@@ -22,6 +25,7 @@ def read(p: Path) -> str:
 
 def main() -> int:
     mig = read(MIG)
+    backfill = read(BACKFILL_MIG)
     signup = read(AUTH_SIGNUP)
 
     checks: list[tuple[str, bool, str]] = []
@@ -51,6 +55,14 @@ def main() -> int:
         "missing env-gated CAPTCHA verification hook in auth-signup",
     ))
 
+    checks.append((
+        "S4 production backfill migration has abuse RPC",
+        ("create table if not exists public.signup_abuse_events" in backfill and
+         "create or replace function public.enforce_signup_abuse_protection(" in backfill and
+         "grant execute on function public.enforce_signup_abuse_protection" in backfill),
+        "missing narrow signup abuse-protection backfill migration",
+    ))
+
     print("signup_abuse_protection_audit:")
     ok = True
     for name, passed, detail in checks:
@@ -62,4 +74,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
