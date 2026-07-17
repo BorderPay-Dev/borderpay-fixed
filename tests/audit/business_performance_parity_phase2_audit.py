@@ -88,7 +88,8 @@ def main() -> int:
     # Notifications parity: background refresh should not blank cached list.
     check(
         "P6 Notifications keeps cached rows visible while refreshing",
-        "if (rows.length === 0) setLoading(true);" in notifications,
+        "const hasCachedRows = rowsRef.current.length > 0;" in notifications
+        and "if (!hasCachedRows) setLoading(true);" in notifications,
         "NotificationsScreen load() must only set loading on cold start",
         failures,
     )

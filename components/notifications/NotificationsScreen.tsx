@@ -1,9 +1,9 @@
 /**
  * NotificationsScreen — full-page notification inbox.
  *
- * Reads via canonical notifications endpoints (`get-notifications`,
- * `mark-notification-read`, `mark-all-notifications-read`, `delete-notification`)
- * so the screen is isolated from financial snapshot latency.
+ * Reads financial activity from the same transaction caches used by Dashboard,
+ * Recent Activity, and Transactions, then merges non-financial notification
+ * endpoint rows on top.
  *
  * AppShell owns the top chrome on top-level routes; this renders body-only.
  */
@@ -20,6 +20,8 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
+import { txDirection } from '../../utils/transactions/direction';
 
 interface NotificationRow {
   id:           string;
@@ -52,6 +54,19 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
 }
 
 const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
+const TX_CACHE_KEY = 'borderpay_tx_history_v1';
+const DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1';
+const BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1';
+
+function readJSONRows(key: string | null): any[] {
+  if (!key) return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 function currentNotificationCacheKey(): string | null {
   try {
@@ -92,6 +107,84 @@ function writeCachedNotifications(rows: NotificationRow[]): void {
   } catch { /* ignore notification cache write */ }
 }
 
+function transactionTitle(tx: any): string {
+  const raw = String(tx?.description || tx?.memo || tx?.type || tx?.transaction_type || 'Transaction').trim();
+  return raw ? raw.replace(/_/g, ' ') : 'Transaction';
+}
+
+function transactionToNotification(tx: any): NotificationRow | null {
+  const id = String(tx?.id || tx?.bridge_transfer_id || tx?.transfer_id || '').trim();
+  if (!id) return null;
+  const metadata = tx?.metadata && typeof tx.metadata === 'object' ? tx.metadata : {};
+  const currency = String(tx?.currency || metadata?.currency || 'USD').toUpperCase();
+  const receipt = tx?.receipt || normalizeTransactionReceipt({ amount: tx?.amount, metadata });
+  const amount = Number(receipt?.finalAmount ?? tx?.amount ?? metadata?.amount ?? metadata?.net_amount ?? 0);
+  const status = String(tx?.status || 'pending').toLowerCase();
+  const direction = txDirection({
+    ...tx,
+    type: tx?.type || tx?.transaction_type,
+    metadata,
+  } as any);
+  const createdAt = String(tx?.created_at || tx?.updated_at || new Date().toISOString());
+  return {
+    id: `tx:${id}`,
+    title: transactionTitle(tx),
+    body: `${direction === 'credit' ? 'Received' : 'Sent'} ${formatReceiptMoney(amount, currency)} · ${status}`,
+    type: direction === 'credit' ? 'transaction_credit' : 'transaction_debit',
+    category: 'transaction',
+    read: true,
+    created_at: createdAt,
+    metadata: {
+      ...metadata,
+      amount,
+      currency,
+      direction,
+      status,
+      __activity_source: 'transactions',
+      transaction_id: id,
+    },
+  };
+}
+
+function readCachedActivityNotifications(): NotificationRow[] {
+  const uid = currentUserId();
+  if (!uid) return [];
+  const keys = [
+    financialCacheKey(TX_CACHE_KEY, { userId: uid }),
+    financialCacheKey(DASH_RECENT_TX_KEY, { userId: uid }),
+    DASH_RECENT_TX_KEY,
+    financialCacheKey(BIZ_DASH_TX_KEY, { userId: uid, accountType: 'business' }),
+  ];
+  const seen = new Set<string>();
+  const rows: NotificationRow[] = [];
+  keys.forEach((key) => {
+    readJSONRows(key).forEach((tx) => {
+      const row = transactionToNotification(tx);
+      if (!row || seen.has(row.id)) return;
+      seen.add(row.id);
+      rows.push(row);
+    });
+  });
+  return rows;
+}
+
+function composeNotificationRows(notificationRows: NotificationRow[], activityRows: NotificationRow[]): NotificationRow[] {
+  const byId = new Map<string, NotificationRow>();
+  activityRows.forEach((row) => byId.set(row.id, row));
+  notificationRows.forEach((row) => {
+    const id = String(row?.id || '').trim();
+    if (!id) return;
+    byId.set(id, row);
+  });
+  return Array.from(byId.values())
+    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+    .slice(0, 100);
+}
+
+function unreadNotificationCount(rows: NotificationRow[]): number {
+  return rows.filter((n) => !n.read && n.metadata?.__activity_source !== 'transactions').length;
+}
+
 function notifIcon(type?: string | null) {
   const t = (type || '').toLowerCase();
   if (t.includes('credit') || t.includes('deposit') || t.includes('received')) return ArrowDownLeft;
@@ -120,12 +213,27 @@ function relativeTime(iso: string): string {
   }
 }
 
+function formatReceiptMoney(amount: number, currency: string): string {
+  const c = String(currency || 'USD').toUpperCase();
+  const formatted = Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: ['USDC', 'USDT'].includes(c) ? 6 : 2,
+  });
+  if (c === 'USD' || c === 'USDC') return `$${formatted}`;
+  if (c === 'EUR') return `€${formatted}`;
+  if (c === 'GBP') return `£${formatted}`;
+  return `${formatted} ${c}`;
+}
+
 export function NotificationsScreen({ onBack, onUnreadCountChange }: NotificationsScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const initialRows = useMemo(() => readCachedNotifications(), []);
+  const initialRows = useMemo(
+    () => composeNotificationRows(readCachedNotifications(), readCachedActivityNotifications()),
+    [],
+  );
   const refreshTsKey = useMemo(() => {
     const uid = currentUserId() || 'anon';
     return financialCacheKey('borderpay_notifications_refresh_ts_v1', { userId: uid });
@@ -149,6 +257,15 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
     // Keep first paint instant; refresh in background and throttle fast re-entry.
     setError(null);
     try {
+      const cachedActivityRows = readCachedActivityNotifications();
+      if (cachedActivityRows.length > 0) {
+        const merged = composeNotificationRows(
+          rowsRef.current.filter((n) => n.metadata?.__activity_source !== 'transactions'),
+          cachedActivityRows,
+        );
+        rowsRef.current = merged;
+        setRows(merged);
+      }
       const hasCachedRows = rowsRef.current.length > 0;
       if (!hasCachedRows) setLoading(true);
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
@@ -162,19 +279,43 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         onUnreadCountChange?.(0);
         return;
       }
-      const r: any = await withTimeout(
-        backendAPI.notifications.getNotifications(50),
-        NOTIFICATION_FETCH_TIMEOUT_MS,
-        { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rowsRef.current : [] } } as any,
-      );
-      if (r?.success) {
-        const data = Array.isArray((r as any)?.data?.notifications)
-          ? (r as any).data.notifications
-          : (Array.isArray((r as any)?.data) ? (r as any).data : []);
+      const [notifResult, txResult] = await Promise.all([
+        withTimeout(
+          backendAPI.notifications.getNotifications(50),
+          NOTIFICATION_FETCH_TIMEOUT_MS,
+          { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rowsRef.current.filter((n) => n.metadata?.__activity_source !== 'transactions') : [] } } as any,
+        ),
+        withTimeout(
+          backendAPI.transactions.getTransactions(100, 0),
+          NOTIFICATION_FETCH_TIMEOUT_MS,
+          { success: false, error: 'transactions_timeout', data: { transactions: [] } } as any,
+        ),
+      ]);
+      const r: any = notifResult;
+      let activityRows = readCachedActivityNotifications();
+      if ((txResult as any)?.success) {
+        const txRows = Array.isArray((txResult as any)?.data?.transactions)
+          ? (txResult as any).data.transactions
+          : [];
+        try {
+          localStorage.setItem(financialCacheKey(TX_CACHE_KEY, { userId: uid }), JSON.stringify(txRows));
+        } catch { /* noop */ }
+        activityRows = txRows
+          .map(transactionToNotification)
+          .filter((row: NotificationRow | null): row is NotificationRow => !!row);
+      }
+      if (r?.success || activityRows.length > 0) {
+        const notificationRows = r?.success
+          ? (Array.isArray((r as any)?.data?.notifications)
+            ? (r as any).data.notifications
+            : (Array.isArray((r as any)?.data) ? (r as any).data : []))
+          : rowsRef.current.filter((n) => n.metadata?.__activity_source !== 'transactions');
+        const data = composeNotificationRows(notificationRows, activityRows);
+        rowsRef.current = data;
         setRows(data);
-        writeCachedNotifications(data);
+        writeCachedNotifications(notificationRows);
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-        onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length);
+        onUnreadCountChange?.(unreadNotificationCount(data));
       } else if (!hasCachedRows) {
         setError(
           friendlyError(
@@ -184,7 +325,9 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         );
       }
     } catch (e: any) {
-      setError(friendlyError(e, "Notifications couldn't be loaded right now."));
+      if (rowsRef.current.length === 0) {
+        setError(friendlyError(e, "Notifications couldn't be loaded right now."));
+      }
     } finally {
       setLoading(false);
     }
@@ -231,15 +374,16 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   }, [load, prewarmTsKey]);
   useEffect(() => { rowsRef.current = rows; }, [rows]);
 
-  const unreadCount = useMemo(() => rows.filter(n => !n.read).length, [rows]);
+  const unreadCount = useMemo(() => unreadNotificationCount(rows), [rows]);
 
   const handleMarkRead = async (n: NotificationRow) => {
     if (n.read) return;
+    if (n.metadata?.__activity_source === 'transactions') return;
     setBusyId(n.id);
     setRows(prev => {
       const next = prev.map(r => r.id === n.id ? { ...r, read: true } : r);
-      writeCachedNotifications(next);
-      onUnreadCountChange?.(next.filter(r => !r.read).length);
+      writeCachedNotifications(next.filter((r) => r.metadata?.__activity_source !== 'transactions'));
+      onUnreadCountChange?.(unreadNotificationCount(next));
       return next;
     });
     try {
@@ -251,7 +395,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   const handleMarkAllRead = async () => {
     setRows(prev => {
       const next = prev.map(r => ({ ...r, read: true }));
-      writeCachedNotifications(next);
+      writeCachedNotifications(next.filter((r) => r.metadata?.__activity_source !== 'transactions'));
       onUnreadCountChange?.(0);
       return next;
     });
@@ -259,11 +403,12 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
   };
 
   const handleDelete = async (n: NotificationRow) => {
+    if (n.metadata?.__activity_source === 'transactions') return;
     setBusyId(n.id);
     setRows(prev => {
       const next = prev.filter(r => r.id !== n.id);
-      writeCachedNotifications(next);
-      onUnreadCountChange?.(next.filter(r => !r.read).length);
+      writeCachedNotifications(next.filter((r) => r.metadata?.__activity_source !== 'transactions'));
+      onUnreadCountChange?.(unreadNotificationCount(next));
       return next;
     });
     try { await backendAPI.notifications.deleteNotification(n.id); } catch { /* ignore */ }
@@ -326,7 +471,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
             </div>
             <p className={`text-sm font-semibold ${tc.text} mb-1`}>You're all caught up</p>
             <p className={`text-xs ${tc.textMuted}`}>
-              Transaction updates, security alerts, and plan changes will appear here.
+              Transaction updates, security alerts, and account updates will appear here.
             </p>
           </div>
         ) : (
@@ -338,6 +483,14 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
                 const title = sanitizeCustomerFacingText(
                   n.title || (n.type ? n.type.replace(/_/g, ' ') : 'Notification')
                 );
+                const receipt = normalizeTransactionReceipt({
+                  amount: n.metadata?.amount ?? n.metadata?.net_amount,
+                  metadata: n.metadata,
+                });
+                const direction = String(n.metadata?.direction || '').toLowerCase();
+                const isCredit = direction === 'credit' || /received|deposit|credit/i.test(title);
+                const currency = String(n.metadata?.currency || 'USD').toUpperCase();
+                const isActivityRow = n.metadata?.__activity_source === 'transactions';
                 return (
                   <motion.div
                     key={n.id}
@@ -366,19 +519,41 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
                           {message}
                         </p>
                       )}
+                      {receipt?.hasFees && (
+                        <div className={`mt-2 grid grid-cols-2 gap-y-1 text-[11px] ${tc.textMuted}`}>
+                          <span>{isCredit ? 'Received' : 'Sent'}</span>
+                          <span className="text-right font-mono">{formatReceiptMoney(receipt.initialAmount, currency)}</span>
+                          {receipt.developerFeeAmount > 0 && (
+                            <>
+                              <span>Service fee</span>
+                              <span className="text-right font-mono">-{formatReceiptMoney(receipt.developerFeeAmount, currency)}</span>
+                            </>
+                          )}
+                          {receipt.exchangeFeeAmount > 0 && (
+                            <>
+                              <span>Exchange fee</span>
+                              <span className="text-right font-mono">-{formatReceiptMoney(receipt.exchangeFeeAmount, currency)}</span>
+                            </>
+                          )}
+                          <span className={`font-semibold ${tc.text}`}>{isCredit ? 'You receive' : 'Net delivered'}</span>
+                          <span className={`text-right font-mono font-semibold ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, currency)}</span>
+                        </div>
+                      )}
                       <p className={`text-[10px] ${tc.textMuted} mt-1`}>{relativeTime(n.created_at)}</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleDelete(n); }}
-                      disabled={busyId === n.id}
-                      aria-label="Delete notification"
-                      className={`p-1.5 rounded-full ${tc.hoverBg} text-red-400 flex-shrink-0`}
-                    >
-                      {busyId === n.id
-                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        : <Trash2 className="w-3.5 h-3.5" />}
-                    </button>
+                    {!isActivityRow && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(n); }}
+                        disabled={busyId === n.id}
+                        aria-label="Delete notification"
+                        className={`p-1.5 rounded-full ${tc.hoverBg} text-red-400 flex-shrink-0`}
+                      >
+                        {busyId === n.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
                   </motion.div>
                 );
               })}

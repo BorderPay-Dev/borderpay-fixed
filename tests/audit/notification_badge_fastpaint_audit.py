@@ -8,6 +8,8 @@ Locks the AppShell notification badge contract:
   N3 NotificationsScreen reports row changes back to MainApp so mark-read/delete
      actions update the shell badge immediately.
   N4 Cached notification rows are per-user, never global.
+  N5 NotificationsScreen financial rows are sourced from the same transaction
+     caches as Dashboard, Recent Activity, and Transactions.
 
 Non-runtime: parses source as text. No deploy, DB, or network.
 
@@ -53,7 +55,7 @@ def main() -> int:
     checks.append((
         "N3 notification screen actions update shell badge",
         "onUnreadCountChange?: (count: number) => void" in notifications
-        and "onUnreadCountChange?.(data.filter((n: NotificationRow) => !n.read).length)" in notifications
+        and "onUnreadCountChange?.(unreadNotificationCount(data))" in notifications
         and notifications.count("onUnreadCountChange?.(") >= 4
         and "<NotificationsScreen onBack={navigateBack} onUnreadCountChange={updateUnreadCount} />" in main_app,
         "NotificationsScreen must publish unread changes back to MainApp for load, mark-read, mark-all-read, and delete",
@@ -63,10 +65,22 @@ def main() -> int:
         "N4 notification rows cache is per-user",
         "NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:'" in notifications
         and "currentNotificationCacheKey()" in notifications
-        and "user?.id ? `${NOTIFICATIONS_CACHE_PREFIX}${user.id}` : null" in notifications
+        and "financialCacheKey(NOTIFICATIONS_CACHE_PREFIX, { userId: String(user.id) })" in notifications
         and "localStorage.setItem(key" in notifications
         and "borderpay_notifications_cache'" not in notifications,
         "Notification row cache must be keyed by user id, never a shared device-wide key",
+    ))
+
+    checks.append((
+        "N5 notification inbox shares activity caches",
+        "TX_CACHE_KEY = 'borderpay_tx_history_v1'" in notifications
+        and "DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1'" in notifications
+        and "BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1'" in notifications
+        and "readCachedActivityNotifications()" in notifications
+        and "composeNotificationRows(readCachedNotifications(), readCachedActivityNotifications())" in notifications
+        and "backendAPI.transactions.getTransactions(100, 0)" in notifications
+        and "__activity_source: 'transactions'" in notifications,
+        "NotificationsScreen must first-paint from the same transaction/recent activity caches used by Dashboard and Transactions",
     ))
 
     print("notification_badge_fastpaint_audit:")
