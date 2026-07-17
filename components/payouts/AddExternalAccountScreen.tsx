@@ -36,16 +36,6 @@ interface AddExternalAccountScreenProps {
   onAdded?: () => void;
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<T>((resolve) => {
-    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    if (timeoutId) clearTimeout(timeoutId);
-  });
-}
-
 export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccountScreenProps) {
   const tc = useThemeClasses();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
@@ -139,11 +129,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (!force && seeded.length > 0 && Number.isFinite(last) && Date.now() - last < 60_000) return;
       } catch { /* noop */ }
       try {
-        const r: any = await withTimeout(
-          backendAPI.bridge.externalAccount.capabilities(),
-          1400,
-          { success: false, error: 'request_timeout' } as any,
-        );
+        const r: any = await backendAPI.bridge.externalAccount.capabilities();
         if (r?.success) {
           const types = Array.isArray(r?.data?.supported_account_types) ? r.data.supported_account_types : [];
           const filtered = types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix');
@@ -153,7 +139,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
             try { localStorage.setItem(capabilityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
           }
           if (filtered.length > 0) setAccountType(filtered[0] as AccountType);
-        } else if (r?.error !== 'request_timeout' && seeded.length === 0) {
+        } else if (seeded.length === 0) {
           // Keep screen interactive with cached/default options on transient timeout.
           setSupportedAccountTypes(initialCapabilityTypes);
           setAccountType((prev) => prev || (initialCapabilityTypes[0] || 'us'));

@@ -89,20 +89,17 @@ interface ExternalAccountsScreenProps {
 // Native-app pattern: cache the last-loaded list so the screen mounts INSTANTLY
 // with known data on the next visit, then refreshes in the background.
 const CACHE_KEY = 'borderpay_payout_accounts_v1';
-const EXTERNAL_ACCOUNTS_FETCH_TIMEOUT_MS = 1400;
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  return Promise.race<T>([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
-  ]);
-}
 
 function readCache(cacheKey: string): ExternalAccountRow[] {
   try {
     const scoped = JSON.parse(localStorage.getItem(cacheKey) || '[]');
     return Array.isArray(scoped) ? scoped : [];
   } catch { return []; }
+}
+
+function isRequestTimeout(value: unknown): boolean {
+  const raw = typeof value === 'string' ? value : JSON.stringify(value || '');
+  return /request_timeout|timed out|timeout|aborted/i.test(raw);
 }
 
 export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
@@ -146,21 +143,17 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
-      const r: any = await withTimeout(
-        backendAPI.bridge.externalAccount.list(),
-        EXTERNAL_ACCOUNTS_FETCH_TIMEOUT_MS,
-        { success: false, error: 'request_timeout' } as any
-      );
+      const r: any = await backendAPI.bridge.externalAccount.list();
       if (r?.success) {
         const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
         setRows(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (seededRows.length === 0) {
+      } else if (seededRows.length === 0 && !isRequestTimeout(r?.error)) {
         setError(friendlyError(r?.error, 'Could not load payout accounts'));
       }
     } catch (e: any) {
-      if (seededRows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
+      if (seededRows.length === 0 && !isRequestTimeout(e)) setError(friendlyError(e, 'Could not load payout accounts'));
     }
     })();
     loadInFlightRef.current = run;

@@ -40,9 +40,12 @@ def main() -> int:
     require("navPerfTrackCache('external-accounts'" in accounts, "External accounts must emit cache hit/miss telemetry")
     require("SkeletonRows" not in accounts and "const [loading" not in accounts and "setLoading(false)" not in accounts, "External account list must not block first paint")
     require("no setLoading(true) here" in accounts, "External account background refresh invariant comment missing")
+    require("withTimeout(" not in accounts, "External account list must not race background refresh against a short artificial timeout")
+    require("isRequestTimeout" in accounts, "External account list must suppress transient timeout errors")
 
     require("DEFAULT_ACCOUNT_TYPES" in add_account, "Add payout account must have immediate default account types")
     require("SkeletonRows" not in add_account and "capabilityLoading" not in add_account, "Add payout account must not block on capabilities")
+    require("withTimeout(" not in add_account and "request_timeout" not in add_account, "Add payout account capabilities must not use an artificial short timeout")
 
     print("external_destinations_native_fast_audit: PASS")
     return 0
