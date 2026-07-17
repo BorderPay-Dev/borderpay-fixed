@@ -13,6 +13,7 @@
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --app-height: 100vh;
   
   /* Safe Area Insets for notched devices */
   --sat: env(safe-area-inset-top, 0px);
@@ -363,6 +364,8 @@
   #root {
     height: 100%;
     height: 100dvh;
+    height: var(--app-height);
+    min-height: var(--app-height);
     width: 100%;
     max-width: 100vw;
     position: fixed;
@@ -491,6 +494,7 @@
     width: 100%;
     height: 100vh;
     height: 100dvh;
+    height: var(--app-height);
     max-width: 100vw;
     overflow-x: hidden;
     overflow-y: auto;
@@ -919,17 +923,20 @@
   .min-h-screen-safe {
     min-height: 100vh;
     min-height: 100dvh;
+    min-height: var(--app-height);
   }
   
   .h-screen-safe {
     height: 100vh;
     height: 100dvh;
+    height: var(--app-height);
   }
   
   /* Proper screen containers — no bounce */
   .screen-container {
     min-height: 100vh;
     min-height: 100dvh;
+    min-height: var(--app-height);
     width: 100%;
     max-width: 100vw;
     overflow-x: hidden;

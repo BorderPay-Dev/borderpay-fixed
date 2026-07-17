@@ -1107,7 +1107,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   };
 
   return (
-    <div className={`min-h-[100dvh] max-h-[100dvh] overflow-hidden fixed inset-0 ${tc.bg}`}>
+    <div
+      className={`overflow-hidden fixed inset-0 ${tc.bg}`}
+      style={{ minHeight: 'var(--app-height)', height: 'var(--app-height)', maxHeight: 'var(--app-height)' }}
+    >
       <div className="glass-gradient-bg" />
       <div className="glass-noise-overlay" />
 

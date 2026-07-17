@@ -123,7 +123,10 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
   };
 
   return (
-    <div className="fixed inset-0 bg-[#0B0E11] flex flex-col overflow-hidden">
+    <div
+      className="fixed inset-0 bg-[#0B0E11] flex flex-col overflow-hidden"
+      style={{ minHeight: 'var(--app-height)', height: 'var(--app-height)' }}
+    >
       <div className="glass-gradient-bg" />
       <div className="glass-noise-overlay" />
 

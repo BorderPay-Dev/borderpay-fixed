@@ -7,6 +7,26 @@ import '../styles/globals.css';
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');
 
+function syncAppViewportHeight(): void {
+  try {
+    const height = Math.ceil(Math.max(
+      window.visualViewport?.height || 0,
+      window.innerHeight || 0,
+      document.documentElement.clientHeight || 0,
+    ));
+    if (height > 0) {
+      document.documentElement.style.setProperty('--app-height', `${height}px`);
+    }
+  } catch {
+    // noop
+  }
+}
+
+syncAppViewportHeight();
+window.addEventListener('resize', syncAppViewportHeight, { passive: true });
+window.visualViewport?.addEventListener('resize', syncAppViewportHeight, { passive: true });
+window.visualViewport?.addEventListener('scroll', syncAppViewportHeight, { passive: true });
+
 // Boot marker used by index.html emergency recovery guard.
 try {
   (window as any).__BORDERPAY_BOOT_OK__ = true;
