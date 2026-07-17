@@ -249,9 +249,23 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
         // Do not block first paint on business-profile enrichment.
         setLoading(false);
 
-        // Keep profile on the canonical user-profile read path for both
-        // individual and business accounts. Avoid a second business-only
-        // network request that can delay route stabilization.
+        // Business profile enrichment is deliberately background-only: the
+        // profile route already painted from cached/user-profile data above.
+        // The business profile table remains the canonical company-name source.
+        if (profileData.account_type === 'business') {
+          void (async () => {
+            try {
+              const biz = await backendAPI.business.getProfile();
+              const company_name = String((biz as any)?.data?.company_name || '').trim();
+              if ((biz as any)?.success && company_name) {
+                setProfile((p) => ({ ...p, company_name }));
+                setEditedProfile((p) => ({ ...p, company_name }));
+                mergeProfileCache({ company_name, account_type: 'business' });
+                try { localStorage.setItem(`borderpay_business_name_v1:${userId}`, company_name); } catch { /* ignore */ }
+              }
+            } catch { /* background enrichment only */ }
+          })();
+        }
       }
       // No error toast — screen already shows cached or default data
     } catch (_) {
