@@ -11,8 +11,7 @@
  *     Home, Send, Receive, Wallet, Account. Business accounts see Home,
  *     Send, Receive, Team, Account.
  *     The bar is semitransparent, rounded, and safe-area aware.
- *   • Lime CTA accent (#C7FF00) only on primary CTAs, plan-active state, and
- *     subscription badges.
+ *   • Lime CTA accent (#C7FF00) only on primary CTAs and active navigation.
  *   • Subtle motion: 220ms ease-out on overlay; reduced-motion respected.
  *
  * Routing model — pure SPA, no external router:
@@ -20,9 +19,6 @@
  *     <ScreenSwitch route={current} ... />
  *   </AppShell>
  *
- * Premium / plan badge: drawn next to the user avatar in the header. Reads
- * the subscription row passed by the parent via `subscription` prop so the
- * shell stays presentational.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -30,7 +26,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import {
   Menu, X, Home, ArrowUpRight, ArrowDownLeft, User as UserIcon,
-  Bell, ChevronRight, Sparkles, CreditCard, Wallet, Globe2, ArrowLeft,
+  Bell, ChevronRight, CreditCard, Wallet, Globe2, ArrowLeft,
   Settings, FileText, ShieldCheck, LogOut, Banknote, Lock, Users,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -48,12 +44,6 @@ export type AppRoute =
   | 'notifications'
   | 'team';
 
-export interface ShellSubscription {
-  plan_key: string;
-  display_name: string;
-  is_paid: boolean;
-}
-
 export interface AppShellProps {
   route:              AppRoute;
   onRoute:            (next: AppRoute) => void;
@@ -61,7 +51,6 @@ export interface AppShellProps {
   userInitials?:      string;
   avatarUrl?:         string | null;
   unreadCount?:       number;
-  subscription?:      ShellSubscription | null;
   isBusinessAccount?: boolean;
   onSignOut?:         () => void;
   /** "Lock app" — local-only lock that keeps a refreshable session behind
@@ -80,6 +69,7 @@ export interface AppShellProps {
   verificationFocusTitle?: string;
   verificationReturnEnabled?: boolean;
   onVerificationReturn?: () => void;
+  suppressHeaderChrome?: boolean;
   children:           React.ReactNode;
 }
 
@@ -108,13 +98,14 @@ const PREFETCH_BY_ROUTE: Record<AppRoute, string> = {
 
 export function AppShell({
   route, onRoute, userName, userInitials, avatarUrl,
-  unreadCount = 0, subscription, isBusinessAccount, onSignOut, onLock,
+  unreadCount = 0, isBusinessAccount, onSignOut, onLock,
   onOpenPayoutAccounts,
   onOpenWithdrawalWallets,
   verificationFocus = false,
   verificationFocusTitle,
   verificationReturnEnabled = true,
   onVerificationReturn,
+  suppressHeaderChrome = false,
   children,
 }: AppShellProps) {
   const { t } = useThemeLanguage();
@@ -131,6 +122,7 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
+  const headerChromeHidden = suppressHeaderChrome && !verificationFocus;
 
   // Esc closes the drawer.
   useEffect(() => {
@@ -330,14 +322,16 @@ export function AppShell({
       <main
         className="relative z-0"
         style={{
-          paddingTop:    `calc(env(safe-area-inset-top, 0px) + ${HEADER_BAR_PX + HEADER_TOP_GAP_PX + 16}px)`,
+          paddingTop: headerChromeHidden
+            ? `calc(env(safe-area-inset-top, 0px) + 16px)`
+            : `calc(env(safe-area-inset-top, 0px) + ${HEADER_BAR_PX + HEADER_TOP_GAP_PX + 16}px)`,
           paddingBottom: verificationFocus
             ? `calc(env(safe-area-inset-bottom, 0px) + 16px)`
             : `calc(env(safe-area-inset-bottom, 0px) + ${FOOTER_HEIGHT_PX + 16}px)`,
         }}
       >
         {/* Desktop-only horizontal app nav (mobile remains unchanged). */}
-        <section className={`hidden md:block px-6 pb-4 ${verificationFocus ? 'opacity-0 pointer-events-none h-0 p-0 overflow-hidden' : ''}`}>
+        <section className={`hidden md:block px-6 pb-4 ${(verificationFocus || headerChromeHidden) ? 'opacity-0 pointer-events-none h-0 p-0 overflow-hidden' : ''}`}>
           <div className="max-w-screen-xl mx-auto">
             <div className={`rounded-2xl border ${tc.borderLight} ${tc.headerBg} backdrop-blur-2xl shadow-[0_12px_30px_rgba(0,0,0,0.22)] p-2`}>
               <div className="grid grid-cols-6 gap-1">
@@ -376,21 +370,22 @@ export function AppShell({
           shadow), not joined into a single bar. The whole row is sticky,
           hides on scroll-down and reveals on scroll-up, with NO full-width
           divider line. Renders inside the iOS / Android safe-area (notch). */}
-      <header
-        className="fixed top-0 inset-x-0 z-30 pointer-events-none px-3 will-change-transform"
-        style={{
-          paddingTop: verificationFocus
-            ? 'max(env(safe-area-inset-top, 0px), 8px)'
-            : `calc(env(safe-area-inset-top, 0px) + ${HEADER_TOP_GAP_PX}px)`,
-          // Instagram-style: hide on scroll-down, reveal on scroll-up. Driven
-          // by a raw CSS transform (not framer-motion) for a direct, snappy
-          // translate. headerHidden is also forced false on route change and
-          // when the drawer opens (see effects above).
-          transform: verificationFocus ? 'translateY(0)' : (headerHidden ? 'translateY(-100%)' : 'translateY(0)'),
-          transition: 'transform 0.2s ease',
-        }}
-        aria-label={tt('shell.header', 'App header')}
-      >
+      {!headerChromeHidden && (
+        <header
+          className="fixed top-0 inset-x-0 z-30 pointer-events-none px-3 will-change-transform"
+          style={{
+            paddingTop: verificationFocus
+              ? 'max(env(safe-area-inset-top, 0px), 8px)'
+              : `calc(env(safe-area-inset-top, 0px) + ${HEADER_TOP_GAP_PX}px)`,
+            // Instagram-style: hide on scroll-down, reveal on scroll-up. Driven
+            // by a raw CSS transform (not framer-motion) for a direct, snappy
+            // translate. headerHidden is also forced false on route change and
+            // when the drawer opens (see effects above).
+            transform: verificationFocus ? 'translateY(0)' : (headerHidden ? 'translateY(-100%)' : 'translateY(0)'),
+            transition: 'transform 0.2s ease',
+          }}
+          aria-label={tt('shell.header', 'App header')}
+        >
         {/* Instagram-style: each control is its OWN floating circular chip
             (separate glass background + shadow), not joined into one bar. */}
         <div
@@ -429,14 +424,6 @@ export function AppShell({
                 {verificationFocusTitle || tt('shell.verification.title', 'Continue verification')}
               </p>
             </div>
-          )}
-
-          {/* Plan badge — own floating chip, only when paid */}
-          {!verificationFocus && subscription?.is_paid && (
-            <span className="pointer-events-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-[#C7FF00] text-black text-[10px] font-bold tracking-wider uppercase shadow-[0_10px_30px_rgba(0,0,0,0.30)]">
-              <Sparkles className="w-2.5 h-2.5" />
-              {subscription.display_name}
-            </span>
           )}
 
           <div className="flex-1" />
@@ -484,7 +471,8 @@ export function AppShell({
             )}
           </button>
         </div>
-      </header>
+        </header>
+      )}
 
       {/* ── Floating primary tab bar ─────────────────────────────────────── */}
       {verificationFocus ? null : (() => {

@@ -1116,6 +1116,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                   } catch { /* noop */ }
                   navigateTo('kyc');
                 }}
+                suppressHeaderChrome={currentScreen === 'wallet-detail'}
               >
                 {renderScreen()}
               </AppShell>

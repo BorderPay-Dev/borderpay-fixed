@@ -19,6 +19,8 @@ WALLET = ROOT / "components/wallet/WalletScreen.tsx"
 ADD_WALLET = ROOT / "components/wallet/AddWalletScreen.tsx"
 DASHBOARD = ROOT / "components/app/Dashboard.tsx"
 BUSINESS_DASHBOARD = ROOT / "components/business/BusinessDashboard.tsx"
+APP_SHELL = ROOT / "components/shell/AppShell.tsx"
+MAIN_APP = ROOT / "components/app/MainApp.tsx"
 
 
 def fail(message: str) -> None:
@@ -107,8 +109,15 @@ def assert_dashboard_chips(src: str, label: str, formatter: str) -> None:
     reject(va_accounts, "text-[18px] font-bold", f"{label} VA cards")
 
 
+def assert_wallet_detail_chrome(app_shell: str, main_app: str) -> None:
+    require(app_shell, "suppressHeaderChrome?: boolean", "AppShell wallet-detail chrome")
+    require(app_shell, "const headerChromeHidden = suppressHeaderChrome && !verificationFocus", "AppShell wallet-detail chrome")
+    require(app_shell, "{!headerChromeHidden && (", "AppShell wallet-detail chrome")
+    require(main_app, "suppressHeaderChrome={currentScreen === 'wallet-detail'}", "MainApp wallet-detail chrome")
+
+
 def main() -> int:
-    for path in [WALLET, ADD_WALLET, DASHBOARD, BUSINESS_DASHBOARD]:
+    for path in [WALLET, ADD_WALLET, DASHBOARD, BUSINESS_DASHBOARD, APP_SHELL, MAIN_APP]:
         if not path.is_file():
             fail(f"missing file: {path.relative_to(ROOT)}")
 
@@ -116,12 +125,14 @@ def main() -> int:
     assert_add_wallet_screen(ADD_WALLET.read_text())
     assert_dashboard_chips(DASHBOARD.read_text(), "individual dashboard wallet chips", "formatDashboardWalletBalance(w)")
     assert_dashboard_chips(BUSINESS_DASHBOARD.read_text(), "business dashboard wallet chips", "formatBusinessWalletBalance(w)")
+    assert_wallet_detail_chrome(APP_SHELL.read_text(), MAIN_APP.read_text())
 
     print("PASS: wallet active-row regression audit")
     print()
     print("  wallet tab:      active supported rows only")
     print("  add-wallet tab:  unavailable options remain visible")
     print("  dashboard chips: centered wallet balances; no-balance VA account chips")
+    print("  wallet detail:   top shell chrome suppressed")
     return 0
 
 
