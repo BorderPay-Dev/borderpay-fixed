@@ -30,6 +30,7 @@ jobs:
       PACKAGE_NAME: com.borderpayafrica.app
       APP_VERSION: ${{ inputs.app_version }}
       BUILD_NUMBER: ${{ github.run_number }}
+      UPLOAD_TO_PLAY: ${{ inputs.upload_to_play }}
       ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
       ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
       ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
@@ -81,15 +82,29 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Verify Android signing secrets
+      - name: Check Android signing secrets
+        id: android-signing
         run: |
           set -euo pipefail
-          : "${ANDROID_UPLOAD_KEYSTORE_BASE64:?Missing ANDROID_UPLOAD_KEYSTORE_BASE64 GitHub secret}"
-          : "${ANDROID_UPLOAD_KEYSTORE_PASSWORD:?Missing ANDROID_UPLOAD_KEYSTORE_PASSWORD GitHub secret}"
-          : "${ANDROID_UPLOAD_KEY_ALIAS:?Missing ANDROID_UPLOAD_KEY_ALIAS GitHub secret}"
-          : "${ANDROID_UPLOAD_KEY_PASSWORD:?Missing ANDROID_UPLOAD_KEY_PASSWORD GitHub secret}"
+          if [ -n "$ANDROID_UPLOAD_KEYSTORE_BASE64" ] \
+            && [ -n "$ANDROID_UPLOAD_KEYSTORE_PASSWORD" ] \
+            && [ -n "$ANDROID_UPLOAD_KEY_ALIAS" ] \
+            && [ -n "$ANDROID_UPLOAD_KEY_PASSWORD" ]; then
+            echo "has-signing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has-signing=false" >> "$GITHUB_OUTPUT"
+          if [ "$UPLOAD_TO_PLAY" = "true" ]; then
+            echo "Missing Android signing secrets required for Google Play upload." >&2
+            echo "Required: ANDROID_UPLOAD_KEYSTORE_BASE64, ANDROID_UPLOAD_KEYSTORE_PASSWORD, ANDROID_UPLOAD_KEY_ALIAS, ANDROID_UPLOAD_KEY_PASSWORD" >&2
+            exit 1
+          fi
+
+          echo "Android signing secrets are not configured. Debug APK was built; signed AAB will be skipped."
 
       - name: Install Android upload keystore
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
         run: |
           set -euo pipefail
           echo "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
@@ -101,6 +116,7 @@ jobs:
           EOF
 
       - name: Build signed Android App Bundle
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
         run: |
           set -euo pipefail
           cd android
@@ -109,6 +125,7 @@ jobs:
             -PVERSION_CODE="$BUILD_NUMBER"
 
       - name: Upload AAB artifact
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: borderpay-android-aab
@@ -117,14 +134,14 @@ jobs:
           retention-days: 14
 
       - name: Verify Google Play service account
-        if: ${{ inputs.upload_to_play }}
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
         run: |
           set -euo pipefail
           : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON GitHub secret}"
           echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/google-play-service-account.json"
 
       - name: Upload to Google Play internal testing
-        if: ${{ inputs.upload_to_play }}
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJson: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
