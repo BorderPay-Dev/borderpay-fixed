@@ -1,19 +1,21 @@
-// auth-signup v90 — provider-neutral signup with subscription scaffold.
+// auth-signup v92 — signup creates the app account before hosted verification.
 //
 // Differences vs v89:
 //   • After core rows persist, calls `ensure_starter_subscription(userId,
 //     account_type)` to seed a free-tier `user_subscriptions` row
 //     (individual_starter / business_starter). Business signups also get a
 //     seed row in `business_team_members` with role='owner', status='active'.
-//   • All other behaviour identical to v89: no Bridge customer creation,
-//     no legacy provider customer creation, verification email + token
-//     semantics unchanged.
+//   • Country compliance is checked at signup, but provider customer creation
+//     stays in the hosted KYC/KYB flow. Creating a provider customer here is
+//     incompatible with the minimal fields collected on signup and can block
+//     valid users before email verification.
 //
 // Deploy:
 //   supabase functions deploy auth-signup --project-ref orwrcpwsffjlvzuraxjc
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { isBridgeBlocked } from "../_shared/providers/bridge-country-policy.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // Service-role: used ONLY for the admin client (createUser + table upserts).
@@ -93,6 +95,14 @@ Deno.serve(async (req: Request) => {
     if (normalizedAccountType === "business" && !company_name) {
       return json({ success: false, error: "company_name is required for business accounts" }, 400);
     }
+    const normalizedCountryCode = String(country_code || "NG").trim().toUpperCase();
+    if (isBridgeBlocked(normalizedCountryCode)) {
+      return json({
+        success: false,
+        code: "country_not_supported",
+        error: "BorderPay is not available in your country yet.",
+      }, 403);
+    }
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -164,9 +174,6 @@ Deno.serve(async (req: Request) => {
     };
 
     // ── Persist legacy users + canonical user_profiles, atomically ───────
-    // Provider-neutral: NO provider customer creation here.
-    // Bridge customer creation happens later, only when the user clicks
-    // Start KYC/KYB (bridge-customer + bridge-kyc-link / bridge-kyb-link).
     {
       // Columns must match the current public.users schema exactly. Legacy
       // onboarding/payment fields were dropped; writing to them causes
@@ -176,7 +183,7 @@ Deno.serve(async (req: Request) => {
       const { error: usersErr } = await supabaseAdmin.from("users").upsert({
         id: userId, email, full_name,
         phone:            phone_number || "",
-        country:          country_code || "",
+        country:          normalizedCountryCode,
         account_type:     normalizedAccountType,
         kyc_status:       "unverified",
         wallet_activated: false,
@@ -189,7 +196,7 @@ Deno.serve(async (req: Request) => {
       const { error: profileErr } = await supabaseAdmin.from("user_profiles").upsert({
         id: userId, email, full_name,
         phone:                       phone_number || "",
-        country:                     country_code || "",
+        country:                     normalizedCountryCode,
         account_type:                normalizedAccountType,
         kyc_status:                  "unverified",
         kyc_level:                   0,
@@ -217,7 +224,7 @@ Deno.serve(async (req: Request) => {
           user_id:             userId,
           company_name:        company_name!,
           registration_number: registration_number || null,
-          country:             (country_code || "NG").toUpperCase(),
+          country:             normalizedCountryCode,
           status:              "active",
           bridge_customer_id:  null,
           bridge_kyb_status:   "not_started",
@@ -226,6 +233,8 @@ Deno.serve(async (req: Request) => {
       );
       if (bizErr) return rollbackAuthUser(`business_profiles create failed: ${bizErr.message}`);
     }
+
+    const bridgeCustomerId: string | null = null;
 
     // ── Seed the free-tier subscription + owner team-membership ────────
     // Failure here is non-fatal for signup itself — the user gets a verified
@@ -302,7 +311,7 @@ Deno.serve(async (req: Request) => {
               id: userId, email, full_name,
               account_type:       normalizedAccountType,
               kyc_status:         "not_started",
-              bridge_customer_id: null,
+              bridge_customer_id: bridgeCustomerId,
               email_verified:     false,
             },
             email_sent:  false,
@@ -319,7 +328,7 @@ Deno.serve(async (req: Request) => {
             id: userId, email, full_name,
             account_type:       normalizedAccountType,
             kyc_status:         "not_started",
-            bridge_customer_id: null,
+            bridge_customer_id: bridgeCustomerId,
             email_verified:     false,
           },
           email_sent:  false,
@@ -336,7 +345,7 @@ Deno.serve(async (req: Request) => {
           id: userId, email, full_name,
           account_type:       normalizedAccountType,
           kyc_status:         "not_started",
-          bridge_customer_id: null,
+          bridge_customer_id: bridgeCustomerId,
           email_verified:     false,
         },
         email_sent:   true,
