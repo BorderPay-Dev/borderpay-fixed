@@ -532,11 +532,26 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           let cached: any = {};
           try { cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}'); } catch { cached = {}; }
           const cachedBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
-          const hasBusinessSignal =
+          let hasBusinessSignal =
             u.account_type === 'business' ||
             String(cached?.account_type || '').toLowerCase() === 'business' ||
             String(cached?.company_name || '').trim().length > 0 ||
             cachedBusinessName.length > 0;
+          if (!hasBusinessSignal) {
+            try {
+              const roster = await backendAPI.team.list();
+              if (roster?.success && roster.data?.business_user_id) {
+                hasBusinessSignal = true;
+                const company_name = String((roster.data as any)?.company_name || '').trim();
+                if (company_name) {
+                  u.company_name = company_name;
+                  try {
+                    localStorage.setItem(`borderpay_business_name_v1:${userId}`, company_name);
+                  } catch { /* noop */ }
+                }
+              }
+            } catch { /* individual account or offline */ }
+          }
           const t: 'individual' | 'business' = hasBusinessSignal ? 'business' : 'individual';
           if (t === 'business' && !u.company_name && cached?.company_name) {
             u.company_name = cached.company_name;

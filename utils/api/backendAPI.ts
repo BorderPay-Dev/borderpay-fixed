@@ -20,6 +20,7 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   // provider-side orchestration and/or email delivery.
   if (endpoint === 'auth-signup') return 45000;
   if (endpoint === 'auth-resend-verification') return 20000;
+  if (endpoint === 'business-team-invite') return 20000;
   if (endpoint === 'bridge-kyc-link' || endpoint === 'bridge-kyb-link') return 45000;
   if (endpoint === 'bridge-customer') return 30000;
   return 8000;
@@ -2253,6 +2254,7 @@ export interface TeamMemberRow {
 
 export interface TeamRosterResponse {
   business_user_id: string;
+  company_name?:     string;
   caller_role:      TeamRole;
   plan:             { plan_key: string; max_team_members: number | null };
   seats:            { used: number; cap: number | null };
@@ -2269,9 +2271,16 @@ export const teamAPI = {
 
   /** Invite an email. Returns 402 when the business seat cap is hit. */
   invite: async (input: { email: string; role?: Exclude<TeamRole, 'owner'> }) =>
-    apiCall<TeamMemberRow & { reused?: boolean }>('business-team-invite', {
+    apiCall<TeamMemberRow & { reused?: boolean; email_sent?: boolean; email_error?: string }>('business-team-invite', {
       method: 'POST',
       body:   JSON.stringify(input),
+    }),
+
+  /** Accept a signed email invite for the authenticated user. */
+  acceptInvite: async (token: string) =>
+    apiCall<TeamMemberRow & { business_user_id: string; company_name?: string; already_accepted?: boolean }>('business-team-accept', {
+      method: 'POST',
+      body:   JSON.stringify({ token }),
     }),
 
   /** Soft-remove a seat. The owner row cannot be removed. */

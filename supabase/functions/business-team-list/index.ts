@@ -106,6 +106,13 @@ Deno.serve(async (req) => {
   const planKey = sub?.plan_key ?? "business_starter";
   const cap     = PLAN_MAX_SEATS[planKey] ?? null;
 
+  const { data: businessProfile } = await supa
+    .from("business_profiles")
+    .select("company_name")
+    .eq("user_id", businessUserId)
+    .maybeSingle();
+  const companyName = String((businessProfile as any)?.company_name || "Business account").trim();
+
   // Members roster (exclude soft-deleted rows by default)
   const { data: members, error: membersErr } = await supa
     .from("business_team_members")
@@ -127,6 +134,7 @@ Deno.serve(async (req) => {
     success: true,
     data: {
       business_user_id: businessUserId,
+      company_name:      companyName,
       caller_role:      callerRole,
       plan:             { plan_key: planKey, max_team_members: cap },
       seats:            { used, cap },

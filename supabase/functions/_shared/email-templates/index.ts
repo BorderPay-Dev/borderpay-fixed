@@ -39,6 +39,7 @@ import { render as businessPaymentReceived }           from "./business/payment-
 import { render as businessFounderWelcome }            from "./business/founder-welcome.ts";
 import { render as businessAccountSuspended }          from "./business/account-suspended.ts";
 import { render as businessRequestAccountReminder }    from "./business/request-account-reminder.ts";
+import { render as businessTeamInvite }                from "./business/team-invite.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -67,7 +68,8 @@ export type TemplateName =
   | "business.payment_received"
   | "business.founder_welcome"
   | "business.account_suspended"
-  | "business.request_account_reminder";
+  | "business.request_account_reminder"
+  | "business.team_invite";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -99,6 +101,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.founder_welcome":           businessFounderWelcome,
   "business.account_suspended":         businessAccountSuspended,
   "business.request_account_reminder":   businessRequestAccountReminder,
+  "business.team_invite":                businessTeamInvite,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {

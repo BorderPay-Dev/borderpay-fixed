@@ -10,6 +10,7 @@ import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { ResetPinScreen } from './components/auth/ResetPinScreen';
 import { isPasswordRecovery, isBiometricLoginPending, isAppLocked, authAPI } from './utils/supabase/client';
 import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
+import { TeamInviteLanding } from './components/auth/TeamInviteLanding';
 import { MainApp } from './components/app/MainApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { sessionAPI } from './utils/api/sessionAPI';
@@ -21,6 +22,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useInactivityTimer } from './utils/auth/useInactivityTimer';
 import { PINManager } from './utils/security/SecurityManager';
 import { AppLockScreen } from './components/security/AppLockScreen';
+import { isNativeRuntime } from './utils/native/mobileRuntime';
 
 type AppState =
   | 'splash'
@@ -33,7 +35,8 @@ type AppState =
   | 'reset-pin'
   | 'dashboard'
   | 'loading'
-  | 'verify-email';
+  | 'verify-email'
+  | 'team-invite';
 
 // ── Device fingerprinting ──
 // Uses a persistent random device ID (survives IP/UA changes) combined with
@@ -51,11 +54,13 @@ function getOrCreateDeviceId(): string {
 
 async function getDeviceFingerprint(): Promise<{ ip: string; ua: string; deviceId: string }> {
   let ip = 'unknown';
-  try {
-    const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
-    const data = await res.json();
-    ip = data.ip || 'unknown';
-  } catch { /* silent */ }
+  if (!isNativeRuntime()) {
+    try {
+      const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+      const data = await res.json();
+      ip = data.ip || 'unknown';
+    } catch { /* silent */ }
+  }
   return { ip, ua: navigator.userAgent, deviceId: getOrCreateDeviceId() };
 }
 
@@ -145,6 +150,7 @@ function AppContent() {
 
   // ── Android PWA Install Prompt ──
   useEffect(() => {
+    if (isNativeRuntime()) return;
     const isAndroid = /android/i.test(navigator.userAgent);
     if (!isAndroid) return;
 
@@ -216,6 +222,9 @@ function AppContent() {
   // forwarded to <EmailVerificationLanding>. Stored in state so we don't
   // re-parse the URL on every render.
   const [pendingVerify, setPendingVerify] = useState<{ token: string; purpose: 'signup_individual' | 'signup_business' | 'password_reset' | 'email_change' } | null>(null);
+  const [pendingTeamInvite, setPendingTeamInvite] = useState<string | null>(() => {
+    try { return sessionStorage.getItem('borderpay_pending_team_invite_token') || null; } catch { return null; }
+  });
 
   useEffect(() => {
     // ── Verify-link hardening ────────────────────────────────────────────
@@ -232,6 +241,7 @@ function AppContent() {
     const queryParams = new URLSearchParams(window.location.search);
 
     const isVerifyRoute = window.location.pathname === '/auth/verify';
+    const isTeamInviteRoute = window.location.pathname === '/team/invite';
     const verifyToken =
       (isVerifyRoute ? (queryParams.get('token') || hashParams.get('token')) : '') || '';
     const verifyPurpose =
@@ -240,6 +250,12 @@ function AppContent() {
 
     if (isVerifyRoute && verifyToken) {
       setPendingVerify({ token: verifyToken, purpose: verifyPurpose });
+    }
+
+    const teamInviteToken = isTeamInviteRoute ? (queryParams.get('token') || hashParams.get('token') || '') : '';
+    if (isTeamInviteRoute && teamInviteToken) {
+      setPendingTeamInvite(teamInviteToken);
+      try { sessionStorage.setItem('borderpay_pending_team_invite_token', teamInviteToken); } catch { /* noop */ }
     }
 
     // Password-reset detection (hash #access_token=… from Supabase recovery).
@@ -271,6 +287,12 @@ function AppContent() {
       setAppState('verify-email');
     }
   }, [pendingVerify, showSplash, effectiveAuthLoading]);
+
+  useEffect(() => {
+    if (pendingTeamInvite && !showSplash && !effectiveAuthLoading) {
+      setAppState('team-invite');
+    }
+  }, [pendingTeamInvite, showSplash, effectiveAuthLoading]);
 
   // Apply pending reset-password state only after splash + auth have finished
   useEffect(() => {
@@ -352,6 +374,7 @@ function AppContent() {
     //     The appState check is the only correct guard for them.
     if (
       appState === 'verify-email'   ||
+      appState === 'team-invite'    ||
       appState === 'reset-password' ||
       appState === 'reset-pin'      ||
       appState === 'signup'         ||
@@ -376,6 +399,7 @@ function AppContent() {
     // setAppState('login') would land in the same batch and clobber the
     // 'reset-password' the sibling effect just scheduled.
     if (pendingVerify)        return;
+    if (pendingTeamInvite)    return;
     if (pendingResetPassword) return;
     if (pendingResetPin)      return;
 
@@ -453,7 +477,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingResetPassword, pendingResetPin, appState]);
+  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingTeamInvite, pendingResetPassword, pendingResetPin, appState]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -519,7 +543,7 @@ function AppContent() {
         }));
       } catch { /* ignore cache write */ }
 
-      setAppState('dashboard');
+      setAppState(pendingTeamInvite ? 'team-invite' : 'dashboard');
 
       // Background-only enrich (no UI blocking).
       void (async () => {
@@ -549,7 +573,7 @@ function AppContent() {
       });
     } catch {
       // Non-critical — Supabase auth already succeeded
-      setAppState('dashboard');
+      setAppState(pendingTeamInvite ? 'team-invite' : 'dashboard');
     }
   };
 
@@ -560,9 +584,9 @@ function AppContent() {
         email: signupUser.email,
         full_name: signupUser.full_name || signupUser.user_metadata?.full_name || signupUser.email?.split('@')[0] || 'User',
       });
-      setAppState('dashboard');
+      setAppState(pendingTeamInvite ? 'team-invite' : 'dashboard');
     } catch {
-      setAppState('dashboard');
+      setAppState(pendingTeamInvite ? 'team-invite' : 'dashboard');
     }
   };
 
@@ -742,6 +766,25 @@ function AppContent() {
           // Clean the URL so a refresh doesn't re-trigger verification.
           try { window.history.replaceState({}, '', '/'); } catch { /* ignore */ }
           handleNavigateToLogin();
+        }}
+      />
+    );
+  }
+
+  if (appState === 'team-invite' && pendingTeamInvite) {
+    return (
+      <TeamInviteLanding
+        token={pendingTeamInvite}
+        isAuthenticated={isAuthenticated}
+        onNavigateToLogin={handleNavigateToLogin}
+        onNavigateToSignUp={handleNavigateToSignUp}
+        onAccepted={() => {
+          setPendingTeamInvite(null);
+          try {
+            sessionStorage.removeItem('borderpay_pending_team_invite_token');
+            window.history.replaceState({}, '', '/');
+          } catch { /* ignore */ }
+          setAppState('dashboard');
         }}
       />
     );

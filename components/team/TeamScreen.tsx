@@ -29,6 +29,7 @@ import {
 import { backendAPI, type TeamMemberRow, type TeamRosterResponse, type TeamRole } from '../../utils/api/backendAPI';
 import { useThemeClasses, useThemeLanguage } from '../../utils/i18n/ThemeLanguageContext';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { toast } from 'sonner';
 
 export interface TeamScreenProps {
   onBack: () => void;
@@ -259,6 +260,11 @@ function BusinessTeamPanel({
       if (r.success) {
         setEmail('');
         setInviteOpen(false);
+        if ((r.data as any)?.email_sent === false) {
+          toast.warning('Invite saved, but the email was not sent. Try resending in a moment.');
+        } else {
+          toast.success((r.data as any)?.reused ? 'Invite resent.' : 'Invite email sent.');
+        }
         await load(true);
       } else {
         const code = (r as any)?.code;
