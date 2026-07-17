@@ -70,6 +70,7 @@ export interface AppShellProps {
   verificationReturnEnabled?: boolean;
   onVerificationReturn?: () => void;
   suppressHeaderChrome?: boolean;
+  suppressBottomChrome?: boolean;
   children:           React.ReactNode;
 }
 
@@ -106,6 +107,7 @@ export function AppShell({
   verificationReturnEnabled = true,
   onVerificationReturn,
   suppressHeaderChrome = false,
+  suppressBottomChrome = false,
   children,
 }: AppShellProps) {
   const { t } = useThemeLanguage();
@@ -475,7 +477,7 @@ export function AppShell({
       )}
 
       {/* ── Floating primary tab bar ─────────────────────────────────────── */}
-      {verificationFocus ? null : (() => {
+      {verificationFocus || suppressBottomChrome ? null : (() => {
         const tabBar = (
           <nav
             className="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3 md:hidden"

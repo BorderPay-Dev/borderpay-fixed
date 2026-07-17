@@ -21,6 +21,7 @@ DASHBOARD = ROOT / "components/app/Dashboard.tsx"
 BUSINESS_DASHBOARD = ROOT / "components/business/BusinessDashboard.tsx"
 APP_SHELL = ROOT / "components/shell/AppShell.tsx"
 MAIN_APP = ROOT / "components/app/MainApp.tsx"
+WALLET_VISUALS = ROOT / "components/dashboard/bridge/WalletVisuals.tsx"
 
 
 def fail(message: str) -> None:
@@ -118,11 +119,19 @@ def assert_dashboard_chips(src: str, label: str, formatter: str) -> None:
     reject(va_accounts, "text-[18px] font-bold", f"{label} VA cards")
 
 
-def assert_wallet_detail_chrome(app_shell: str, main_app: str) -> None:
+def assert_wallet_detail_chrome(app_shell: str, main_app: str, wallet_visuals: str) -> None:
     require(app_shell, "suppressHeaderChrome?: boolean", "AppShell wallet-detail chrome")
+    require(app_shell, "suppressBottomChrome?: boolean", "AppShell wallet-detail chrome")
     require(app_shell, "const headerChromeHidden = suppressHeaderChrome && !verificationFocus", "AppShell wallet-detail chrome")
     require(app_shell, "{!headerChromeHidden && (", "AppShell wallet-detail chrome")
-    require(main_app, "suppressHeaderChrome={currentScreen === 'wallet-detail'}", "MainApp wallet-detail chrome")
+    require(app_shell, "verificationFocus || suppressBottomChrome ? null", "AppShell wallet-detail chrome")
+    require(main_app, "const detailSheetIdsRef = useRef<Set<string>>(new Set())", "MainApp wallet-detail chrome")
+    require(main_app, "borderpay:wallet_detail_sheet_visibility", "MainApp wallet-detail chrome")
+    require(main_app, "suppressHeaderChrome={currentScreen === 'wallet-detail' || detailSheetOpen}", "MainApp wallet-detail chrome")
+    require(main_app, "suppressBottomChrome={detailSheetOpen}", "MainApp wallet-detail chrome")
+    require(wallet_visuals, "const sheetId = React.useId()", "WalletVisuals detail sheet chrome event")
+    require(wallet_visuals, "borderpay:wallet_detail_sheet_visibility", "WalletVisuals detail sheet chrome event")
+    require(wallet_visuals, "z-[2147483601]", "WalletVisuals detail sheet chrome event")
 
 
 def assert_dashboard_va_cache_contract(dashboard: str, business_dashboard: str) -> None:
@@ -133,7 +142,7 @@ def assert_dashboard_va_cache_contract(dashboard: str, business_dashboard: str) 
 
 
 def main() -> int:
-    for path in [WALLET, ADD_WALLET, DASHBOARD, BUSINESS_DASHBOARD, APP_SHELL, MAIN_APP]:
+    for path in [WALLET, ADD_WALLET, DASHBOARD, BUSINESS_DASHBOARD, APP_SHELL, MAIN_APP, WALLET_VISUALS]:
         if not path.is_file():
             fail(f"missing file: {path.relative_to(ROOT)}")
 
@@ -141,7 +150,7 @@ def main() -> int:
     assert_add_wallet_screen(ADD_WALLET.read_text())
     assert_dashboard_chips(DASHBOARD.read_text(), "individual dashboard wallet chips", "formatDashboardWalletBalance(w)")
     assert_dashboard_chips(BUSINESS_DASHBOARD.read_text(), "business dashboard wallet chips", "formatBusinessWalletBalance(w)")
-    assert_wallet_detail_chrome(APP_SHELL.read_text(), MAIN_APP.read_text())
+    assert_wallet_detail_chrome(APP_SHELL.read_text(), MAIN_APP.read_text(), WALLET_VISUALS.read_text())
     assert_dashboard_va_cache_contract(DASHBOARD.read_text(), BUSINESS_DASHBOARD.read_text())
 
     print("PASS: wallet active-row regression audit")

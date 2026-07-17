@@ -195,16 +195,26 @@ function CopyRow({ label, value, tc }: { label: string; value?: string | null; t
 // ── Bottom sheet shell ──────────────────────────────────────────────────────
 function Sheet({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
   const tc = useThemeClasses();
+  const sheetId = React.useId();
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (!open) return undefined;
+    window.dispatchEvent(new CustomEvent('borderpay:wallet_detail_sheet_visibility', { detail: { open: true, id: sheetId } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent('borderpay:wallet_detail_sheet_visibility', { detail: { open: false, id: sheetId } }));
+    };
+  }, [open, sheetId]);
+
   return (
     <AnimatePresence>
       {open && (
         <>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={onClose} className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-sm" />
+            onClick={onClose} className="fixed inset-0 z-[2147483600] bg-black/70 backdrop-blur-sm" />
           <motion.div
             initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            className="fixed inset-x-0 bottom-0 z-[9999] sm:inset-0 sm:m-auto sm:h-fit sm:max-w-md">
+            className="fixed inset-x-0 bottom-0 z-[2147483601] sm:inset-0 sm:m-auto sm:h-fit sm:max-w-md">
             <div className={`mx-auto w-full max-w-md ${tc.card} border ${tc.cardBorder} rounded-t-3xl sm:rounded-3xl overflow-y-auto overscroll-contain`}
               style={{
                 // Make the sheet scrollable AND clear of the floating tab bar

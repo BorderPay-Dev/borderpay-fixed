@@ -439,6 +439,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const detailSheetIdsRef = useRef<Set<string>>(new Set());
   const [stablecoinConfirmData, setStablecoinConfirmData] = useState<StablecoinConfirmData | null>(null);
   const [verificationEmbedOpen, setVerificationEmbedOpen] = useState<boolean>(() => {
     try { return sessionStorage.getItem('borderpay_verification_embed_open') === '1'; } catch { return false; }
@@ -449,6 +450,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [verificationEmbedReturnEnabled, setVerificationEmbedReturnEnabled] = useState<boolean>(() => {
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   // Clear one-time module-reload fuse once the app boots successfully.
   useEffect(() => {
@@ -691,6 +693,23 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     };
     window.addEventListener('borderpay:verification_embed_visibility', handler as EventListener);
     return () => window.removeEventListener('borderpay:verification_embed_visibility', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ open?: boolean; id?: string }>;
+      const id = ce?.detail?.id;
+      if (id) {
+        if (ce.detail.open) detailSheetIdsRef.current.add(id);
+        else detailSheetIdsRef.current.delete(id);
+        setDetailSheetOpen(detailSheetIdsRef.current.size > 0);
+        return;
+      }
+      detailSheetIdsRef.current.clear();
+      setDetailSheetOpen(Boolean(ce?.detail?.open));
+    };
+    window.addEventListener('borderpay:wallet_detail_sheet_visibility', handler as EventListener);
+    return () => window.removeEventListener('borderpay:wallet_detail_sheet_visibility', handler as EventListener);
   }, []);
 
   // Hosted verification callback deep-link:
@@ -1116,7 +1135,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
                   } catch { /* noop */ }
                   navigateTo('kyc');
                 }}
-                suppressHeaderChrome={currentScreen === 'wallet-detail'}
+                suppressHeaderChrome={currentScreen === 'wallet-detail' || detailSheetOpen}
+                suppressBottomChrome={detailSheetOpen}
               >
                 {renderScreen()}
               </AppShell>
