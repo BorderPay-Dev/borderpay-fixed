@@ -16,6 +16,7 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { normalizeTransactionReceipt, TransactionReceiptBreakdown } from '../../utils/transactions/receipt';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -36,35 +37,38 @@ interface Transaction {
   recipient?: string;
   sender?: string;
   metadata?: any;
+  receipt?: TransactionReceiptBreakdown;
 }
 
 const TX_CACHE_KEY = 'borderpay_tx_history_v1';
 const TX_REFRESH_TS_KEY = 'borderpay_tx_refresh_ts_v1';
 const DASH_RECENT_TX_KEY = 'borderpay_dash_recent_tx_v1';
 const BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1';
-const TX_FETCH_TIMEOUT_MS = 1400;
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  return Promise.race<T>([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
-  ]);
+function isRequestTimeout(error: unknown): boolean {
+  const msg = String((error as any)?.message || error || '').toLowerCase();
+  return msg.includes('timeout') || msg.includes('timed out') || msg.includes('request_timeout');
 }
 
 function normalizeTxRows(rows: any[]): Transaction[] {
   return rows
-    .map((r: any) => ({
-      id: String(r?.id || ''),
-      type: String(r?.type || r?.transaction_type || ''),
-      amount: Number(r?.amount || 0),
-      currency: String(r?.currency || '').toUpperCase(),
-      description: String(r?.description || r?.memo || 'Transaction'),
-      status: (String(r?.status || 'pending').toLowerCase() as Transaction['status']),
-      created_at: String(r?.created_at || new Date().toISOString()),
-      recipient: r?.recipient || undefined,
-      sender: r?.sender || undefined,
-      metadata: r?.metadata || undefined,
-    }))
+    .map((r: any) => {
+      const metadata = r?.metadata || undefined;
+      const receipt = r?.receipt || normalizeTransactionReceipt({ amount: r?.amount, metadata }) || undefined;
+      return {
+        id: String(r?.id || ''),
+        type: String(r?.type || r?.transaction_type || ''),
+        amount: Number(receipt?.finalAmount ?? r?.amount ?? 0),
+        currency: String(r?.currency || '').toUpperCase(),
+        description: String(r?.description || r?.memo || 'Transaction'),
+        status: (String(r?.status || 'pending').toLowerCase() as Transaction['status']),
+        created_at: String(r?.created_at || new Date().toISOString()),
+        recipient: r?.recipient || undefined,
+        sender: r?.sender || undefined,
+        metadata,
+        receipt,
+      };
+    })
     .filter((r: Transaction) => !!r.id);
 }
 function readTxCache(cacheKey: string, userId: string): Transaction[] {
@@ -140,6 +144,10 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    transactionsRef.current = transactions;
+  }, [transactions]);
+
   const loadTransactions = async (force = false) => {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
@@ -166,23 +174,19 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
       // round-trip before falling back. Filtering by `filterType`
       // happens client-side alongside the existing search filter
       // (same idiom as `filteredTransactions` below).
-      const result = await withTimeout(
-        backendAPI.transactions.getTransactions(100, 0),
-        TX_FETCH_TIMEOUT_MS,
-        { success: false, error: 'request_timeout' } as any
-      );
+      const result = await backendAPI.transactions.getTransactions(100, 0);
       if (result.success && result.data) {
         const txns = (result.data as any).transactions || [];
         const list = Array.isArray(txns) ? txns : [];
         setTransactions(list);
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (transactionsRef.current.length === 0) {
+      } else if (transactionsRef.current.length === 0 && !isRequestTimeout((result as any)?.error)) {
         // Only surface an error if we have nothing cached to show.
         setLoadError(true);
       }
     } catch (error) {
-      if (transactionsRef.current.length === 0) setLoadError(true);
+      if (transactionsRef.current.length === 0 && !isRequestTimeout(error)) setLoadError(true);
     } finally {
       setLoading(false);
       refreshInFlightRef.current = false;
@@ -220,6 +224,24 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     en: 'en-US', fr: 'fr-FR', es: 'es-ES', pt: 'pt-BR', sw: 'sw-KE',
   };
   const dateLocale = localeMap[language] || 'en-US';
+  const formatMoney = (amount: number, currency: string) => {
+    const code = String(currency || 'USD').toUpperCase();
+    const supportedCurrency = /^[A-Z]{3}$/.test(code) && !['USDC', 'USDT'].includes(code);
+    try {
+      if (supportedCurrency) {
+        return new Intl.NumberFormat(dateLocale, {
+          style: 'currency',
+          currency: code,
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(amount);
+      }
+    } catch { /* fall through to code format */ }
+    return `${amount.toLocaleString(dateLocale, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    })} ${code}`;
+  };
 
   const groupedTransactions = filteredTransactions.reduce((groups, txn) => {
     const date = new Date(txn.created_at).toLocaleDateString(dateLocale, {
@@ -367,51 +389,80 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
                 <h3 className={`bp-text-small ${tc.textSecondary} mb-3`}>{date}</h3>
                 <div className="space-y-2">
                   {txns.map((txn) => (
-                    <div
-                      key={txn.id}
-                      className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 ${tc.hoverBg} transition-colors cursor-pointer`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                          txDirection(txn) === 'credit'
-                            ? 'bg-green-500/20'
-                            : 'bg-red-500/20'
-                        }`}>
-                          {txDirection(txn) === 'credit' ? (
-                            <ArrowDownLeft size={20} className="text-green-500" />
-                          ) : (
-                            <ArrowUpRight size={20} className="text-red-500" />
+                    (() => {
+                      const direction = txDirection(txn);
+                      const receipt = txn.receipt;
+                      return (
+                        <div
+                          key={txn.id}
+                          className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 ${tc.hoverBg} transition-colors`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                              direction === 'credit'
+                                ? 'bg-green-500/20'
+                                : 'bg-red-500/20'
+                            }`}>
+                              {direction === 'credit' ? (
+                                <ArrowDownLeft size={20} className="text-green-500" />
+                              ) : (
+                                <ArrowUpRight size={20} className="text-red-500" />
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <p className={`bp-text-body font-semibold ${tc.text} truncate`}>
+                                {sanitizeCustomerFacingText(txn.description)}
+                              </p>
+                              <p className={`bp-text-small ${tc.textSecondary}`}>
+                                {new Date(txn.created_at).toLocaleTimeString(dateLocale, {
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                            </div>
+
+                            <div className="text-right">
+                              <p className={`bp-text-body font-bold ${
+                                direction === 'credit' ? 'text-green-500' : 'text-red-500'
+                              }`}>
+                                {direction === 'credit' ? '+' : '-'}{formatMoney(txn.amount, txn.currency)}
+                              </p>
+                              <p className={`bp-text-small ${
+                                txn.status === 'completed' ? 'text-green-400' :
+                                txn.status === 'pending' ? 'text-yellow-400' :
+                                'text-red-400'
+                              }`}>
+                                {getStatusLabel(txn.status)}
+                              </p>
+                            </div>
+                          </div>
+
+                          {receipt?.hasFees && (
+                            <div className={`mt-4 pt-3 border-t ${tc.borderLight} grid grid-cols-2 gap-y-2 text-[12px]`}>
+                              <span className={tc.textSecondary}>{direction === 'credit' ? 'Received' : 'Sent'}</span>
+                              <span className={`text-right font-mono ${tc.text}`}>{formatMoney(receipt.initialAmount, txn.currency)}</span>
+                              {receipt.developerFeeAmount > 0 && (
+                                <>
+                                  <span className={tc.textSecondary}>Service fee</span>
+                                  <span className={`text-right font-mono ${tc.text}`}>-{formatMoney(receipt.developerFeeAmount, txn.currency)}</span>
+                                </>
+                              )}
+                              {receipt.exchangeFeeAmount > 0 && (
+                                <>
+                                  <span className={tc.textSecondary}>Exchange fee</span>
+                                  <span className={`text-right font-mono ${tc.text}`}>-{formatMoney(receipt.exchangeFeeAmount, txn.currency)}</span>
+                                </>
+                              )}
+                              <span className={`font-semibold ${tc.text}`}>{direction === 'credit' ? 'You receive' : 'Net delivered'}</span>
+                              <span className={`text-right font-mono font-semibold ${direction === 'credit' ? 'text-green-500' : tc.text}`}>
+                                {formatMoney(receipt.finalAmount, txn.currency)}
+                              </span>
+                            </div>
                           )}
                         </div>
-
-                        <div className="flex-1">
-                          <p className={`bp-text-body font-semibold ${tc.text}`}>
-                            {sanitizeCustomerFacingText(txn.description)}
-                          </p>
-                          <p className={`bp-text-small ${tc.textSecondary}`}>
-                            {new Date(txn.created_at).toLocaleTimeString(dateLocale, {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
-                        </div>
-
-                        <div className="text-right">
-                          <p className={`bp-text-body font-bold ${
-                            txDirection(txn) === 'credit' ? 'text-green-500' : 'text-red-500'
-                          }`}>
-                            {txDirection(txn) === 'credit' ? '+' : '-'}${txn.amount.toFixed(2)}
-                          </p>
-                          <p className={`bp-text-small ${
-                            txn.status === 'completed' ? 'text-green-400' :
-                            txn.status === 'pending' ? 'text-yellow-400' :
-                            'text-red-400'
-                          }`}>
-                            {getStatusLabel(txn.status)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })()
                   ))}
                 </div>
               </div>

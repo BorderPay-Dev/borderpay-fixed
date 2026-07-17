@@ -23,6 +23,9 @@ import {
   Mail,
   MessageSquare,
   Users,
+  KeyRound,
+  BookOpen,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
@@ -54,6 +57,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const SHOW_ADMIN_EMAIL_OPS = false;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [suspending, setSuspending] = useState(false);
+  const [requestingDeletion, setRequestingDeletion] = useState(false);
   const [has2FA, setHas2FA] = useState(false);
   const [hasPIN, setHasPIN] = useState(false);
   const { t } = useThemeLanguage();
@@ -210,6 +214,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     {
       title: t('settings.accountManagement'),
       items: [
+        { icon: Trash2, label: 'Delete account request', action: 'delete-account', color: 'text-red-400' },
         { icon: Trash2, label: t('settings.suspendAccount'), action: 'suspend', color: 'text-red-400' },
         // "Lock app" sits beside Log out so a user wanting a quick biometric
         // return doesn't full-logout by habit. Only shown when onLock is wired.
@@ -270,6 +275,44 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     }
   };
 
+  const handleDeleteAccountRequest = async () => {
+    if (!confirm(
+      'Request account deletion?\n\n' +
+      'BorderPay will open a deletion request with support. Some financial, fraud-prevention, and compliance records may need to be retained where required by law.'
+    )) {
+      return;
+    }
+
+    setRequestingDeletion(true);
+    try {
+      const result = await backendAPI.support.createTicket({
+        issue_type: 'general',
+        subject: 'Account deletion request',
+        message:
+          'I want to initiate deletion of my BorderPay account. Please confirm the next compliance steps and any required retention period.',
+        source: 'app',
+      });
+      if (result.success) {
+        toast.success('Account deletion request submitted');
+        onNavigate('support');
+      } else {
+        toast.error(friendlyError(result.error, 'Could not submit deletion request'));
+      }
+    } catch (error) {
+      toast.error('Could not submit deletion request');
+    } finally {
+      setRequestingDeletion(false);
+    }
+  };
+
+  const openDeveloperDocs = () => {
+    try {
+      window.open('https://docs.borderpayafrica.com', '_blank', 'noopener,noreferrer');
+    } catch {
+      window.location.href = 'https://docs.borderpayafrica.com';
+    }
+  };
+
 
   const handleDisable2FA = async () => {
     const password = prompt(t('settings.enterPasswordFor2fa'));
@@ -305,6 +348,8 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
       onLock?.();
     } else if (item.action === 'suspend') {
       handleSuspendAccount();
+    } else if (item.action === 'delete-account') {
+      void handleDeleteAccountRequest();
     } else if (item.action === 'disable-2fa') {
       handleDisable2FA();
     } else if (item.action === 'email-support') {
@@ -324,6 +369,36 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
           {t('settings.title')}
         </p>
 
+        {isBusinessAccount && (
+          <div className={`mb-7 rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4`}>
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
+                <KeyRound className={`w-5 h-5 ${tc.text}`} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className={`text-sm font-semibold ${tc.text}`}>Developer API</h2>
+                  <span className="rounded-full bg-[#C7FF00]/15 px-2 py-0.5 text-[10px] font-semibold text-[#C7FF00]">
+                    Private access
+                  </span>
+                </div>
+                <p className={`text-xs ${tc.textMuted} mt-1.5 leading-relaxed`}>
+                  API access, docs, references, webhook mocks, and SDK starter resources for approved business developers.
+                </p>
+                <button
+                  type="button"
+                  onClick={openDeveloperDocs}
+                  className="mt-3 h-10 rounded-xl bg-[#C7FF00] px-4 text-sm font-semibold text-black inline-flex items-center gap-2 hover:brightness-95"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  Docs
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Sections */}
         <div className="space-y-7">
           {settingsSections.map((section, index) => (
@@ -341,10 +416,10 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
                       onPointerDown={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
                       onMouseEnter={() => { if (item.screen) (window as any).__borderpay_prefetch?.(item.screen); }}
                       onClick={() => handleItemClick(item)}
-                      disabled={suspending}
+                      disabled={suspending || requestingDeletion}
                       className={`w-full flex items-center gap-3 px-4 py-3 ${tc.hoverBg} transition-colors ${
                         itemIndex !== section.items.length - 1 ? `border-b ${tc.borderLight}` : ''
-                      } ${suspending ? 'opacity-50' : ''}`}
+                      } ${suspending || requestingDeletion ? 'opacity-50' : ''}`}
                     >
                       <div className={`w-9 h-9 rounded-full ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
                         <Icon size={16} className={item.color} />

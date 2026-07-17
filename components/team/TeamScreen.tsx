@@ -50,17 +50,11 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: 'Suspended',
   removed:   'Removed',
 };
-const TEAM_LOAD_TIMEOUT_MS = 10_000;
 const TEAM_REFRESH_TS_KEY_PREFIX = 'borderpay_team_refresh_ts_v1';
 
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(message)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timeoutId) clearTimeout(timeoutId);
-  });
+function isRequestTimeout(error: unknown): boolean {
+  const msg = String((error as any)?.message || error || '').toLowerCase();
+  return msg.includes('timeout') || msg.includes('timed out') || msg.includes('request_timeout');
 }
 
 // Roster cache — instant mount on revisit, refreshed in the background.
@@ -152,7 +146,7 @@ function BusinessTeamPanel({
   // Native-app pattern: seed the roster from the last-loaded cache so the panel
   // mounts INSTANTLY, then refresh in the background.
   const cachedRoster = readRosterCache();
-  const [loading, setLoading]   = useState(!cachedRoster);
+  const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
 
   useEffect(() => {
@@ -187,23 +181,19 @@ function BusinessTeamPanel({
       if (!force && seededRoster && Number.isFinite(last) && Date.now() - last < 45_000) return;
     } catch { /* noop */ }
 
-    if (!seededRoster) setLoading(true);
+    if (seededRoster) setLoading(true);
     setError(null);
     try {
-      const r = await withTimeout(
-        backendAPI.team.list(),
-        TEAM_LOAD_TIMEOUT_MS,
-        'Team is taking longer than expected. Please try again.'
-      );
+      const r = await backendAPI.team.list();
       if (r.success && r.data) {
         setRoster(r.data);
         writeRosterCache(r.data);
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (!seededRoster) {
+      } else if (!seededRoster && !isRequestTimeout((r as any)?.error)) {
         setError(friendlyError(r.error, 'Could not load team'));
       }
     } catch (e: any) {
-      if (!seededRoster) setError(friendlyError(e, 'Could not load team'));
+      if (!seededRoster && !isRequestTimeout(e)) setError(friendlyError(e, 'Could not load team'));
     } finally {
       setLoading(false);
     }
@@ -422,14 +412,23 @@ function BusinessTeamPanel({
         )}
 
         {/* Background sync hint (non-blocking) */}
-        {loading && (
+        {loading && roster && (
           <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3`}> 
-            <p className={`text-xs ${tc.textMuted}`}>Syncing team…</p>
+            <p className={`text-xs ${tc.textMuted}`}>Refreshing team…</p>
+          </div>
+        )}
+
+        {!roster && !error && (
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4`}>
+            <p className={`text-sm font-semibold ${tc.text}`}>Team members</p>
+            <p className={`text-xs ${tc.textMuted} mt-1`}>
+              Your business team will appear here once it has synced.
+            </p>
           </div>
         )}
 
         {/* Member list, grouped */}
-        {!loading && roster && (
+        {roster && (
           <>
             <MemberGroup label="Active" rows={grouped.active} tc={tc} canManage={canManage} busyId={busyId} onRemove={submitRemove} />
             <MemberGroup label="Invited" rows={grouped.invited} tc={tc} canManage={canManage} busyId={busyId} onRemove={submitRemove} />

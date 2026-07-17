@@ -4,7 +4,7 @@ Business frontend triage audit.
 
 This locks the narrow production fixes for the reported business-account UI
 issues: business-specific KYB/profile labels, a dependency-light Cards coming
-soon screen, and a bounded Team load with retry.
+soon screen, and non-blocking Team first paint with retryable real errors.
 
 Non-runtime: parses source as text. No deploy, DB, or network.
 
@@ -79,14 +79,15 @@ def main() -> int:
     ))
 
     checks.append((
-        "B5 team screen load is bounded and retryable",
-        "TEAM_LOAD_TIMEOUT_MS = 10_000" in team
-        and "withTimeout(" in team
+        "B5 team screen load is non-blocking and retryable",
+        "TEAM_LOAD_TIMEOUT_MS" not in team
+        and "withTimeout(" not in team
         and "backendAPI.team.list()" in team
-        and "Team is taking longer than expected. Please try again." in team
-        and "onClick={load}" in team
+        and "const [loading, setLoading]   = useState(false);" in team
+        and "isRequestTimeout" in team
+        and "onClick={() => void load(true)}" in team
         and "Retry" in team,
-        "TeamScreen must timeout the roster call and show a Retry action",
+        "TeamScreen must first-paint without artificial timeout races and keep real errors retryable",
     ))
 
     checks.append((

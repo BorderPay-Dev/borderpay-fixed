@@ -41,16 +41,10 @@ interface NotificationsScreenProps {
   onBack: () => void;
   onUnreadCountChange?: (count: number) => void;
 }
-const NOTIFICATION_FETCH_TIMEOUT_MS = 1400;
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<T>((resolve) => {
-    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    if (timeoutId) clearTimeout(timeoutId);
-  });
+function isRequestTimeout(error: unknown): boolean {
+  const msg = String((error as any)?.message || error || '').toLowerCase();
+  return msg.includes('timeout') || msg.includes('timed out') || msg.includes('request_timeout');
 }
 
 const NOTIFICATIONS_CACHE_PREFIX = 'borderpay_notifications_cache:';
@@ -279,23 +273,20 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         onUnreadCountChange?.(0);
         return;
       }
-      const [notifResult, txResult] = await Promise.all([
-        withTimeout(
-          backendAPI.notifications.getNotifications(50),
-          NOTIFICATION_FETCH_TIMEOUT_MS,
-          { success: false, error: 'notifications_timeout', data: { notifications: hasCachedRows ? rowsRef.current.filter((n) => n.metadata?.__activity_source !== 'transactions') : [] } } as any,
-        ),
-        withTimeout(
-          backendAPI.transactions.getTransactions(100, 0),
-          NOTIFICATION_FETCH_TIMEOUT_MS,
-          { success: false, error: 'transactions_timeout', data: { transactions: [] } } as any,
-        ),
+      const [notifSettled, txSettled] = await Promise.allSettled([
+        backendAPI.notifications.getNotifications(50),
+        backendAPI.transactions.getTransactions(100, 0),
       ]);
-      const r: any = notifResult;
+      const r: any = notifSettled.status === 'fulfilled'
+        ? notifSettled.value
+        : { success: false, error: notifSettled.reason };
+      const txResult: any = txSettled.status === 'fulfilled'
+        ? txSettled.value
+        : { success: false, error: txSettled.reason };
       let activityRows = readCachedActivityNotifications();
-      if ((txResult as any)?.success) {
-        const txRows = Array.isArray((txResult as any)?.data?.transactions)
-          ? (txResult as any).data.transactions
+      if (txResult?.success) {
+        const txRows = Array.isArray(txResult?.data?.transactions)
+          ? txResult.data.transactions
           : [];
         try {
           localStorage.setItem(financialCacheKey(TX_CACHE_KEY, { userId: uid }), JSON.stringify(txRows));
@@ -317,15 +308,20 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
         onUnreadCountChange?.(unreadNotificationCount(data));
       } else if (!hasCachedRows) {
-        setError(
-          friendlyError(
-            r?.error || 'notifications_unavailable',
-            "Notifications couldn't be loaded right now."
-          ),
-        );
+        const notificationTimeout = isRequestTimeout(r?.error);
+        const activityTimeout = isRequestTimeout(txResult?.error);
+        const transientTimeout = notificationTimeout && (!txResult?.error || activityTimeout);
+        if (!transientTimeout) {
+          setError(
+            friendlyError(
+              r?.error || txResult?.error || 'notifications_unavailable',
+              "Notifications couldn't be loaded right now."
+            ),
+          );
+        }
       }
     } catch (e: any) {
-      if (rowsRef.current.length === 0) {
+      if (rowsRef.current.length === 0 && !isRequestTimeout(e)) {
         setError(friendlyError(e, "Notifications couldn't be loaded right now."));
       }
     } finally {

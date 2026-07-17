@@ -13,7 +13,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
   AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
-  BookOpen, ExternalLink, KeyRound,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -480,13 +479,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   }, [userId]);
 
   const refreshAll = () => { loadWallets(true); };
-  const openDeveloperDocs = () => {
-    try {
-      window.open('https://docs.borderpayafrica.com', '_blank', 'noopener,noreferrer');
-    } catch {
-      window.location.href = 'https://docs.borderpayafrica.com';
-    }
-  };
   const openWalletForCurrency = (currency: string) => {
     try { sessionStorage.setItem('borderpay_open_wallet_currency', String(currency || '').toUpperCase()); } catch { /* noop */ }
     navigate('wallet-detail');
@@ -532,29 +524,32 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
       <div className="space-y-6 pb-6 md:pb-10">
         {/* ── 2. Hero balance ───────────────────────────────────────── */}
         <section className="px-5 sm:px-6 pt-6">
-          <div className={`md:rounded-2xl md:border ${tc.cardBorder} ${tc.card} md:px-5 md:py-4 md:flex md:items-end md:justify-between md:gap-6`}>
-            <div className="min-w-0">
-              <p className={`text-[10px] ${tc.textMuted} uppercase tracking-[0.18em] font-semibold mb-2`}>
-                Total balance · USD
-              </p>
-              <div className="flex items-end gap-2">
-                <h2 className={`${tc.text} font-semibold tracking-tight tabular-nums leading-none text-[44px] sm:text-[56px]`}>
-                  <span className={`text-2xl sm:text-3xl ${tc.textMuted} mr-1 align-top`}>$</span>
-                  {usdLikeTotal.toFixed(2).split('.')[0]}
-                  <span className={`text-2xl sm:text-3xl ${tc.textMuted}`}>.{usdLikeTotal.toFixed(2).split('.')[1]}</span>
-                </h2>
+          <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#15191F] via-[#0F1216] to-[#0B0E11] px-5 pt-5 pb-6 shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
+            <div className="pointer-events-none absolute -top-24 -right-24 w-64 h-64 rounded-full bg-[#C7FF00] opacity-[0.06] blur-3xl" />
+            <div className="relative flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[10px] text-white/40 uppercase tracking-[0.2em] font-semibold mb-3">
+                  Total balance · USD
+                </p>
+                <div className="flex items-end gap-2">
+                  <h2 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[44px] sm:text-[56px]">
+                    <span className="text-2xl sm:text-3xl text-white/50 mr-1 align-top">$</span>
+                    {usdLikeTotal.toFixed(2).split('.')[0]}
+                    <span className="text-2xl sm:text-3xl text-white/50">.{usdLikeTotal.toFixed(2).split('.')[1]}</span>
+                  </h2>
+                </div>
+                <p className="text-[11px] text-white/40 mt-2">
+                  {wallets.length === 0
+                    ? 'No accounts yet. Open one to start.'
+                    : `Across ${wallets.length} ${wallets.length === 1 ? 'account' : 'accounts'}`}
+                </p>
               </div>
-              <p className={`text-[11px] ${tc.textMuted} mt-1.5`}>
-                {wallets.length === 0
-                  ? 'No accounts yet. Open one to start.'
-                  : `Across ${wallets.length} ${wallets.length === 1 ? 'account' : 'accounts'}`}
-              </p>
+              {(registrationNumber || country) && (
+                <p className="max-w-[42%] text-[10px] text-white/40 font-mono uppercase tracking-wide truncate text-right">
+                  {[registrationNumber, country].filter(Boolean).join(' · ')}
+                </p>
+              )}
             </div>
-            {(registrationNumber || country) && (
-              <p className={`text-[10px] ${tc.textMuted} mt-3 md:mt-0 font-mono uppercase tracking-wide truncate md:text-right`}>
-                {[registrationNumber, country].filter(Boolean).join(' · ')}
-              </p>
-            )}
           </div>
         </section>
 
@@ -726,40 +721,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
               tc={tc}
             />
             <BizChip label="Cards" Icon={CreditCard} onPrefetch={() => prefetchScreen('cards')} onClick={() => onNavigate('cards')} tc={tc} />
-          </div>
-        </section>
-
-        {/* ── Developer API access ─────────────────────────────────── */}
-        <section className="px-5 sm:px-6">
-          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 md:px-5 md:py-4 md:flex md:items-center md:justify-between md:gap-6`}>
-            <div className="flex items-start gap-3 min-w-0">
-              <div className={`w-10 h-10 rounded-xl ${tc.bgAlt} flex items-center justify-center flex-shrink-0`}>
-                <KeyRound className={`w-5 h-5 ${tc.text}`} />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className={`text-sm font-semibold ${tc.text}`}>Developer API</h3>
-                  <span className="rounded-full bg-[#C7FF00]/15 px-2 py-0.5 text-[10px] font-semibold text-[#C7FF00]">
-                    Issued by BorderPay
-                  </span>
-                </div>
-                <p className={`text-xs ${tc.textMuted} mt-1 leading-relaxed`}>
-                  API keys are created by BorderPay from the admin workspace. Business developers can use the docs,
-                  OpenAPI contract, Postman collection, curl examples, SDK starter, and webhook mocks while access is issued.
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 md:mt-0 flex items-center gap-2 flex-shrink-0">
-              <button
-                type="button"
-                onClick={openDeveloperDocs}
-                className="h-10 rounded-xl bg-[#C7FF00] px-4 text-sm font-semibold text-black inline-flex items-center gap-2 hover:brightness-95"
-              >
-                <BookOpen className="w-4 h-4" />
-                Docs
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-            </div>
           </div>
         </section>
 

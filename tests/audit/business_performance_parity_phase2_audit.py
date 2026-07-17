@@ -96,9 +96,13 @@ def main() -> int:
 
     # Team/external/profile are expected to remain cache-first patterns.
     check(
-        "P7 Team remains cache-first with bounded fetch",
-        "cachedRoster" in team and "TEAM_LOAD_TIMEOUT_MS" in team and "withTimeout(" in team,
-        "TeamScreen must keep cache-first bounded-load behaviour",
+        "P7 Team remains cache-first without cold-start blocking",
+        "cachedRoster" in team
+        and "const [loading, setLoading]   = useState(false);" in team
+        and "TEAM_LOAD_TIMEOUT_MS" not in team
+        and "withTimeout(" not in team
+        and "isRequestTimeout" in team,
+        "TeamScreen must not block first paint behind an artificial timeout wrapper",
         failures,
     )
 
