@@ -29,12 +29,51 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
+import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
 const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v1';
 const VA_LIST_CACHE_KEY = 'borderpay_va_v1';
+const ACTIVE_BIZ_VA_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
+
+type BusinessVaRow = {
+  id: string;
+  currency: string;
+  rail?: string | null;
+  status?: string;
+  account_details: any;
+  bridge_virtual_account_id?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+function normalizeBusinessVaRows(raw: unknown, country: string | null | undefined): BusinessVaRow[] {
+  if (!Array.isArray(raw)) return [];
+  const allowed = bridgeVirtualAccountCurrenciesForCountry(country);
+  const byCurrency = new Map<string, BusinessVaRow>();
+  raw.forEach((row: any) => {
+    const currency = String(row?.currency || '').toUpperCase();
+    const status = String(row?.status || '').trim().toLowerCase();
+    if (!allowed.includes(currency as any)) return;
+    if (!ACTIVE_BIZ_VA_STATUSES.has(status)) return;
+    const next: BusinessVaRow = {
+      ...row,
+      id: String(row?.id || row?.bridge_virtual_account_id || `va:${currency}`),
+      currency,
+      rail: row?.rail ?? row?.payment_rail ?? null,
+      account_details: row?.account_details || {},
+    };
+    const existing = byCurrency.get(currency);
+    const existingTs = Date.parse(String(existing?.updated_at || existing?.created_at || '')) || 0;
+    const nextTs = Date.parse(String(next.updated_at || next.created_at || '')) || 0;
+    if (!existing || nextTs >= existingTs) byCurrency.set(currency, next);
+  });
+  return Array.from(byCurrency.values());
+}
+
 function readBizWallets(cacheKey: string): WalletRow[] {
   try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
@@ -47,13 +86,7 @@ function hasActiveCachedVa(userId: string): boolean {
   try {
     const raw = localStorage.getItem(financialCacheKey(VA_LIST_CACHE_KEY, { userId }));
     const rows = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(rows)) return false;
-    return rows.some((va: any) => {
-      const cur = String(va?.currency || '').toUpperCase();
-      const status = String(va?.status || '').toLowerCase();
-      const active = status === '' || ['active', 'provisioned', 'ready', 'enabled'].includes(status);
-      return ['USD', 'EUR', 'GBP'].includes(cur) && active;
-    });
+    return normalizeBusinessVaRows(rows, authAPI.getStoredUser()?.country).length > 0;
   } catch {
     return false;
   }
@@ -166,12 +199,26 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
     [userId],
   );
   const cachedBizWallets = useMemo(() => readBizWallets(bizWalletsCacheKey), [bizWalletsCacheKey]);
+  const bizVaCacheKey = useMemo(
+    () => financialCacheKey(VA_LIST_CACHE_KEY, { userId }),
+    [userId],
+  );
+  const cachedBizVirtualAccounts = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(bizVaCacheKey);
+      return normalizeBusinessVaRows(raw ? JSON.parse(raw) : [], initialCountry);
+    } catch {
+      return [];
+    }
+  }, [bizVaCacheKey, initialCountry]);
   const bizTxCacheKey = useMemo(
     () => financialCacheKey(BIZ_TX_KEY, { userId, accountType: 'business' }),
     [userId],
   );
   const cachedBizTransactions = useMemo(() => readBizTx(bizTxCacheKey), [bizTxCacheKey]);
   const [wallets, setWallets]             = useState<WalletRow[]>(cachedBizWallets);
+  const [virtualAccounts, setVirtualAccounts] = useState<BusinessVaRow[]>(cachedBizVirtualAccounts);
+  const [selectedVa, setSelectedVa] = useState<BusinessVaRow | null>(null);
   const walletsRef = useRef<WalletRow[]>(cachedBizWallets);
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(false);
@@ -209,6 +256,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
     () => wallets.filter(isSpendableBusinessWallet),
     [wallets],
   );
+  const accountChipCount = spendableWallets.length + virtualAccounts.length;
 
   const toWalletRows = (raw: any[]): WalletRow[] => raw.map((w: any) => ({
     currency: String(w?.currency || '').toUpperCase(),
@@ -242,12 +290,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
         const raw = Array.isArray(walletData?.wallets) ? walletData.wallets : [];
         const formatted = toWalletRows(raw);
         setWallets(formatted);
-        const hasVA = Array.isArray(walletData?.virtual_accounts) && walletData.virtual_accounts.some((va: any) =>
-          ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
-          ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
-        );
-        setHasVirtualAccounts(prev => prev || Boolean(hasVA));
+        const vaRows = normalizeBusinessVaRows(walletData?.virtual_accounts, country);
+        setVirtualAccounts(vaRows);
+        setHasVirtualAccounts(prev => prev || vaRows.length > 0);
         try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
+        try { localStorage.setItem(bizVaCacheKey, JSON.stringify(vaRows)); } catch { /* noop */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
       } else {
         // Fallback path: if wallet route data fails, try canonical snapshot so
@@ -265,11 +312,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
             setWallets(formatted);
             try { localStorage.setItem(bizWalletsCacheKey, JSON.stringify(formatted)); } catch { /* noop */ }
           }
-          const hasVA = Array.isArray(snapshotRes?.data?.virtual_accounts) && snapshotRes.data.virtual_accounts.some((va: any) =>
-            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()) &&
-            ['active', 'provisioned', 'ready', 'enabled', ''].includes(String(va?.status || '').toLowerCase()),
-          );
-          setHasVirtualAccounts(prev => prev || Boolean(hasVA));
+          const vaRows = normalizeBusinessVaRows(snapshotRes?.data?.virtual_accounts, country);
+          setVirtualAccounts(vaRows);
+          setHasVirtualAccounts(prev => prev || vaRows.length > 0);
+          try { localStorage.setItem(bizVaCacheKey, JSON.stringify(vaRows)); } catch { /* noop */ }
         } else if (seededWallets.length === 0) {
           setWalletsError(friendlyError(walletRouteRes?.error || snapshotRes?.error, 'Could not load wallets'));
         }
@@ -558,7 +604,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
         <section>
           <div className="px-4 sm:px-5 flex items-center justify-between mb-3">
             <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>Accounts</h3>
-            {spendableWallets.length > 0 && (
+            {accountChipCount > 0 && (
               <button
                 onPointerDown={() => prefetchScreen('wallet-detail')}
                 onMouseEnter={() => prefetchScreen('wallet-detail')}
@@ -576,7 +622,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
 
           <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-              {spendableWallets.length === 0 ? (
+              {accountChipCount === 0 ? (
                 <button
                   onPointerDown={() => prefetchScreen('add-wallet')}
                   onMouseEnter={() => prefetchScreen('add-wallet')}
@@ -607,6 +653,21 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
                       </p>
                       <p className={`w-full text-[18px] font-bold ${tc.text} mt-2 tabular-nums truncate`}>
                         {formatBusinessWalletBalance(w)}
+                      </p>
+                    </button>
+                  ))}
+                  {virtualAccounts.map((va) => (
+                    <button
+                      key={`va:${va.currency}`}
+                      onPointerDown={() => prefetchScreen('wallet-detail')}
+                      onMouseEnter={() => prefetchScreen('wallet-detail')}
+                      onTouchStart={() => prefetchScreen('wallet-detail')}
+                      onClick={() => setSelectedVa(va)}
+                      className={`flex-shrink-0 w-[164px] min-h-[156px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center flex flex-col items-center justify-center ${tc.hoverBg} transition-colors`}
+                    >
+                      <BizCurrencyIcon currency={va.currency} />
+                      <p className={`w-full text-[14px] font-semibold ${tc.text} mt-3 truncate`}>
+                        {CURRENCY_LABEL[String(va.currency || '').toUpperCase()] || va.currency}
                       </p>
                     </button>
                   ))}
@@ -739,6 +800,16 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
           <span className={`text-[10px] ${tc.textMuted}`}>Secured by BorderPay Africa</span>
         </section>
       </div>
+      <AccountDetailSheet
+        open={!!selectedVa}
+        onClose={() => setSelectedVa(null)}
+        va={selectedVa ? {
+          currency: selectedVa.currency,
+          rail: selectedVa.rail,
+          status: selectedVa.status,
+          account_details: selectedVa.account_details,
+        } : null}
+      />
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ Production contract:
 - WalletScreen shows only active USD/EUR/GBP virtual accounts and USDC/USDT wallets.
 - WalletScreen must not render missing/unavailable account rows.
 - AddWalletScreen is the only place that shows inactive or unavailable wallet options.
-- Dashboard chips keep the centered, large-balance presentation for individual and business.
+- Dashboard wallet chips keep centered balances; dashboard VA chips show no balance.
 """
 from __future__ import annotations
 
@@ -99,6 +99,12 @@ def assert_dashboard_chips(src: str, label: str, formatter: str) -> None:
     require(accounts, "text-[18px] font-bold", label)
     require(accounts, formatter, label)
     reject(accounts, "uppercase tracking-wider", label)
+    va_accounts = block_between(src, "virtualAccounts.map((va)", "</button>", f"{label} VA cards")
+    require(va_accounts, "onClick={() => setSelectedVa(va)}", f"{label} VA cards")
+    require(va_accounts, "min-h-[156px]", f"{label} VA cards")
+    require(va_accounts, "text-center flex flex-col items-center justify-center", f"{label} VA cards")
+    reject(va_accounts, formatter, f"{label} VA cards")
+    reject(va_accounts, "text-[18px] font-bold", f"{label} VA cards")
 
 
 def main() -> int:
@@ -115,7 +121,7 @@ def main() -> int:
     print()
     print("  wallet tab:      active supported rows only")
     print("  add-wallet tab:  unavailable options remain visible")
-    print("  dashboard chips: centered, large balance")
+    print("  dashboard chips: centered wallet balances; no-balance VA account chips")
     return 0
 
 

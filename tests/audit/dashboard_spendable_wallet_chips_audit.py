@@ -4,7 +4,7 @@ Dashboard spendable wallet chip regression audit.
 
 This protects the production dashboard contract:
 - Accounts strips show positive spendable wallet balances only.
-- Virtual-account-only rows with zero balance are not rendered as wallet chips.
+- Active virtual-account rows render as account chips without balances.
 - Empty dashboard account CTAs navigate to add-wallet, not the wallet menu.
 - Individual and business currency marks keep the large Wise-style treatment.
 
@@ -59,9 +59,13 @@ def assert_individual_dashboard(src: str) -> None:
         "{/* \u2500\u2500 BorderPay infrastructure",
         "individual accounts strip",
     )
-    require(accounts, "spendableWallets.length > 0", "individual accounts strip")
-    require(accounts, "spendableWallets.length === 0", "individual accounts strip")
+    require(src, "const accountChipCount = spendableWallets.length + virtualAccounts.length", "individual dashboard")
+    require(src, "AccountDetailSheet", "individual dashboard")
+    require(accounts, "accountChipCount > 0", "individual accounts strip")
+    require(accounts, "accountChipCount === 0", "individual accounts strip")
     require(accounts, "spendableWallets.map((w)", "individual accounts strip")
+    require(accounts, "virtualAccounts.map((va)", "individual accounts strip")
+    require(accounts, "onClick={() => setSelectedVa(va)}", "individual VA account chip")
     require(accounts, "formatDashboardWalletBalance(w)", "individual accounts strip")
     require(accounts, "handleNavigate('add-wallet')", "individual empty/add account CTA")
 
@@ -69,7 +73,7 @@ def assert_individual_dashboard(src: str) -> None:
         fail("individual accounts strip: raw wallets.map((w) would render VA-only rows")
     if "handleNavigate('wallet-detail')" in block_between(
         accounts,
-        "spendableWallets.length === 0",
+        "accountChipCount === 0",
         ") : (",
         "individual empty account CTA",
     ):
@@ -96,9 +100,13 @@ def assert_business_dashboard(src: str) -> None:
         "{/* \u2500\u2500 4. Quick actions",
         "business accounts strip",
     )
-    require(accounts, "spendableWallets.length > 0", "business accounts strip")
-    require(accounts, "spendableWallets.length === 0", "business accounts strip")
+    require(src, "const accountChipCount = spendableWallets.length + virtualAccounts.length", "business dashboard")
+    require(src, "AccountDetailSheet", "business dashboard")
+    require(accounts, "accountChipCount > 0", "business accounts strip")
+    require(accounts, "accountChipCount === 0", "business accounts strip")
     require(accounts, "spendableWallets.map((w)", "business accounts strip")
+    require(accounts, "virtualAccounts.map((va)", "business accounts strip")
+    require(accounts, "onClick={() => setSelectedVa(va)}", "business VA account chip")
     require(accounts, "formatBusinessWalletBalance(w)", "business accounts strip")
     require(accounts, "navigate('add-wallet')", "business empty/add account CTA")
 
@@ -106,7 +114,7 @@ def assert_business_dashboard(src: str) -> None:
         fail("business accounts strip: raw wallets.map((w) would render VA-only rows")
     if "navigate('wallet-detail')" in block_between(
         accounts,
-        "spendableWallets.length === 0",
+        "accountChipCount === 0",
         ") : (",
         "business empty account CTA",
     ):
@@ -130,6 +138,12 @@ def assert_semantic_contract() -> None:
     spendable = [row for row in sample_rows if float(row.get("balance") or 0) > 0]
     if [row["currency"] for row in spendable] != ["USDC"]:
         fail("semantic contract: only positive spendable wallet balances should render as chips")
+    virtual_account_cards = [
+        row for row in sample_rows
+        if row.get("bridge_virtual_account_id") and row["currency"] in ["USD", "EUR", "GBP"]
+    ]
+    if [row["currency"] for row in virtual_account_cards] != ["USD", "EUR"]:
+        fail("semantic contract: active virtual accounts may render as no-balance account chips")
 
 
 def main() -> int:
@@ -144,8 +158,8 @@ def main() -> int:
 
     print("PASS: dashboard spendable wallet chips audit")
     print()
-    print("  individual dashboard: spendable wallet chips only")
-    print("  business dashboard:   spendable wallet chips only")
+    print("  individual dashboard: spendable wallet chips + no-balance VA chips")
+    print("  business dashboard:   spendable wallet chips + no-balance VA chips")
     print("  empty account CTA:    add-wallet")
     print("  account chip mark:    large w-12 h-12 treatment")
     return 0

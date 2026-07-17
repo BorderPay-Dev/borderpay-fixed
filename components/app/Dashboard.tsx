@@ -47,6 +47,7 @@ import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
+import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
 import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
@@ -54,6 +55,7 @@ import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { FX_NAV_ENABLED } from '../../utils/featureFlags';
+import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
 
 // Pull cached profile once at module-eval — every initial-state hook below
 // reads from this synchronously so the dashboard never flickers.
@@ -131,6 +133,41 @@ const STABLE_ICON_URL: Record<string, string> = {
 };
 
 type DashboardWalletRow = { currency: string; balance: number; symbol: string; color: string };
+type DashboardVaRow = {
+  id: string;
+  currency: string;
+  rail?: string | null;
+  status?: string;
+  account_details: any;
+  bridge_virtual_account_id?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+const ACTIVE_DASHBOARD_VA_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
+
+function normalizeDashboardVaRows(raw: unknown, country: string | null | undefined): DashboardVaRow[] {
+  if (!Array.isArray(raw)) return [];
+  const allowed = bridgeVirtualAccountCurrenciesForCountry(country);
+  const byCurrency = new Map<string, DashboardVaRow>();
+  raw.forEach((row: any) => {
+    const currency = String(row?.currency || '').toUpperCase();
+    const status = String(row?.status || '').trim().toLowerCase();
+    if (!allowed.includes(currency as any)) return;
+    if (!ACTIVE_DASHBOARD_VA_STATUSES.has(status)) return;
+    const next: DashboardVaRow = {
+      ...row,
+      id: String(row?.id || row?.bridge_virtual_account_id || `va:${currency}`),
+      currency,
+      rail: row?.rail ?? row?.payment_rail ?? null,
+      account_details: row?.account_details || {},
+    };
+    const existing = byCurrency.get(currency);
+    const existingTs = Date.parse(String(existing?.updated_at || existing?.created_at || '')) || 0;
+    const nextTs = Date.parse(String(next.updated_at || next.created_at || '')) || 0;
+    if (!existing || nextTs >= existingTs) byCurrency.set(currency, next);
+  });
+  return Array.from(byCurrency.values());
+}
 
 function isSpendableDashboardWallet(row: { balance?: number }): boolean {
   const balance = Number(row?.balance || 0);
@@ -183,6 +220,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
   const [profilePicLoaded, setProfilePicLoaded] = useState(false);
   const [userFullName, setUserFullName]   = useState<string>(cachedIdentity.fullName);
+  const [userCountry, setUserCountry]     = useState<string | null>(() =>
+    cachedProfile?.country ? String(cachedProfile.country).toUpperCase() : null,
+  );
   const dashboardLoadInFlightRef = useRef<Promise<void> | null>(null);
   // Derive an initial account status from the cached profile so we never
   // first-paint "starter" on a verified user.
@@ -209,9 +249,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => financialCacheKey('borderpay_dashboard_refresh_ts_v1', { userId }),
     [userId],
   );
+  const dashVaKey = useMemo(
+    () => financialCacheKey('borderpay_va_v1', { userId }),
+    [userId],
+  );
   const cachedWallets = useMemo(
     () => readJSON<DashboardWalletRow[]>(dashWalletsKey, []),
     [dashWalletsKey],
+  );
+  const cachedVirtualAccounts = useMemo(
+    () => normalizeDashboardVaRows(readJSON<any[]>(dashVaKey, []), userCountry),
+    [dashVaKey, userCountry],
   );
   const cachedRecent = useMemo(() => readJSON<any[]>(dashRecentKey, []), [dashRecentKey]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
@@ -221,10 +269,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => wallets.filter(isSpendableDashboardWallet),
     [wallets],
   );
+  const [virtualAccounts, setVirtualAccounts] = useState<DashboardVaRow[]>(cachedVirtualAccounts);
+  const [selectedVa, setSelectedVa] = useState<DashboardVaRow | null>(null);
+  const accountChipCount = spendableWallets.length + virtualAccounts.length;
   const [totalBalance, setTotalBalance]   = useState(() => usdLikeTotal(cachedWallets));
   const [walletsLoaded, setWalletsLoaded] = useState<boolean>(cachedWallets.length > 0);
   const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() =>
-    cachedWallets.some((w) => ['USD', 'EUR', 'GBP'].includes(String(w.currency || '').toUpperCase())),
+    cachedVirtualAccounts.length > 0,
   );
   const [recentTransactions, setRecentTransactions] = useState<any[]>(cachedRecent);
   // True once a network refresh of recent activity has completed at least once;
@@ -338,6 +389,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           if (p.profile_picture_url) setProfilePicUrl(p.profile_picture_url);
           if (p.full_name) setUserFullName(p.full_name);
           if (p.email) setUserEmail(p.email);
+          if (p.country) setUserCountry(String(p.country).toUpperCase());
           storeUserProfile(p);
         }
       }
@@ -362,10 +414,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           writeJSON(dashWalletsKey, rows);
         }
         if (Array.isArray(snapshotData?.virtual_accounts)) {
-          const hasVA = (snapshotData.virtual_accounts as any[]).some((va: any) =>
-            ['USD', 'EUR', 'GBP'].includes(String(va?.currency || '').toUpperCase()),
-          );
-          setHasVirtualAccounts(hasVA);
+          const profileCountry = snapshotData?.profile?.country
+            ? String(snapshotData.profile.country).toUpperCase()
+            : userCountry;
+          const vaRows = normalizeDashboardVaRows(snapshotData.virtual_accounts, profileCountry);
+          setVirtualAccounts(vaRows);
+          setHasVirtualAccounts(vaRows.length > 0);
+          writeJSON(dashVaKey, vaRows);
         }
         // Loading must always terminate even when API fails; empty-state is
         // represented by zero rows, not an infinite loading placeholder.
@@ -422,7 +477,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         dashboardLoadInFlightRef.current = null;
       }
     }
-  }, [dashRecentKey, dashRefreshTsKey, dashWalletsKey, verificationResolved, userId]);
+  }, [dashRecentKey, dashRefreshTsKey, dashVaKey, dashWalletsKey, userCountry, verificationResolved, userId]);
 
   useEffect(() => {
     loadDashboardData();
@@ -599,8 +654,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               </button>
             </div>
             <p className="text-[11px] text-white/40 mt-1.5">
-              {spendableWallets.length > 0
-                ? `${tt('dashboard.across', 'Across')} ${spendableWallets.length} ${spendableWallets.length === 1 ? 'account' : 'accounts'}`
+              {accountChipCount > 0
+                ? `${tt('dashboard.across', 'Across')} ${accountChipCount} ${accountChipCount === 1 ? 'account' : 'accounts'}`
                 : tt('dashboard.empty.subtitle', 'Open your first account to start.')}
             </p>
           </div>
@@ -727,7 +782,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           <h3 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>
             {tt('dashboard.wallets', 'Accounts')}
           </h3>
-          {spendableWallets.length > 0 && (
+          {accountChipCount > 0 && (
             <button
               onPointerDown={() => prefetchScreen('wallet-detail')}
               onMouseEnter={() => prefetchScreen('wallet-detail')}
@@ -745,7 +800,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
         <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-            {spendableWallets.length === 0 ? (
+            {accountChipCount === 0 ? (
               <button
                 onPointerDown={() => prefetchScreen('add-wallet')}
                 onMouseEnter={() => prefetchScreen('add-wallet')}
@@ -780,6 +835,21 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     </p>
                     <p className={`w-full text-[18px] font-bold ${tc.text} mt-2 tabular-nums truncate`}>
                       {balanceHidden ? '••••' : formatDashboardWalletBalance(w)}
+                    </p>
+                  </button>
+                ))}
+                {virtualAccounts.map((va) => (
+                  <button
+                    key={`va:${va.currency}`}
+                    onPointerDown={() => prefetchScreen('wallet-detail')}
+                    onMouseEnter={() => prefetchScreen('wallet-detail')}
+                    onTouchStart={() => prefetchScreen('wallet-detail')}
+                    onClick={() => setSelectedVa(va)}
+                    className={`flex-shrink-0 w-[164px] min-h-[156px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center flex flex-col items-center justify-center ${tc.hoverBg} transition-colors`}
+                  >
+                    <DashboardCurrencyIcon currency={va.currency} color={CURRENCY_CONFIG[va.currency]?.color || '#666'} />
+                    <p className={`w-full text-[14px] font-semibold ${tc.text} mt-3 truncate`}>
+                      {CURRENCY_LABEL[String(va.currency || '').toUpperCase()] || va.currency}
                     </p>
                   </button>
                 ))}
@@ -957,6 +1027,16 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         isBusiness={false}
         onVerify={() => handleNavigate('kyc')}
         onClose={() => { /* dismissed for this session inside the popup */ }}
+      />
+      <AccountDetailSheet
+        open={!!selectedVa}
+        onClose={() => setSelectedVa(null)}
+        va={selectedVa ? {
+          currency: selectedVa.currency,
+          rail: selectedVa.rail,
+          status: selectedVa.status,
+          account_details: selectedVa.account_details,
+        } : null}
       />
     </div>
   );
