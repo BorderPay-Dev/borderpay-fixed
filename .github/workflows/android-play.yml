@@ -1,0 +1,118 @@
+name: Android Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: "Marketing version shown in Google Play"
+        required: true
+        default: "1.0"
+      upload_to_play:
+        description: "Upload the signed AAB to Google Play internal track"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-play-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android-play:
+    name: Build Android AAB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    env:
+      PACKAGE_NAME: com.borderpayafrica.app
+      APP_VERSION: ${{ inputs.app_version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+      ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+      ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+      ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+      ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Verify Android signing secrets
+        run: |
+          set -euo pipefail
+          : "${ANDROID_UPLOAD_KEYSTORE_BASE64:?Missing ANDROID_UPLOAD_KEYSTORE_BASE64 GitHub secret}"
+          : "${ANDROID_UPLOAD_KEYSTORE_PASSWORD:?Missing ANDROID_UPLOAD_KEYSTORE_PASSWORD GitHub secret}"
+          : "${ANDROID_UPLOAD_KEY_ALIAS:?Missing ANDROID_UPLOAD_KEY_ALIAS GitHub secret}"
+          : "${ANDROID_UPLOAD_KEY_PASSWORD:?Missing ANDROID_UPLOAD_KEY_PASSWORD GitHub secret}"
+
+      - name: Install Android upload keystore
+        run: |
+          set -euo pipefail
+          echo "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/keystore.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=${ANDROID_UPLOAD_KEYSTORE_PASSWORD}
+          keyAlias=${ANDROID_UPLOAD_KEY_ALIAS}
+          keyPassword=${ANDROID_UPLOAD_KEY_PASSWORD}
+          EOF
+
+      - name: Build signed Android App Bundle
+        run: |
+          set -euo pipefail
+          cd android
+          ./gradlew bundleRelease \
+            -PVERSION_NAME="$APP_VERSION" \
+            -PVERSION_CODE="$BUILD_NUMBER"
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: borderpay-android-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Verify Google Play service account
+        if: ${{ inputs.upload_to_play }}
+        run: |
+          set -euo pipefail
+          : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON GitHub secret}"
+          echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/google-play-service-account.json"
+
+      - name: Upload to Google Play internal testing
+        if: ${{ inputs.upload_to_play }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ env.PACKAGE_NAME }}
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: draft
