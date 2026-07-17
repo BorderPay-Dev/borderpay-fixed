@@ -174,6 +174,9 @@ python3 "$ROOT/tests/audit/bridge_country_policy_audit.py" >/dev/null \
 python3 "$ROOT/tests/audit/dashboard_spendable_wallet_chips_audit.py" >/dev/null \
   || fail "Dashboard spendable wallet chip audit failed."
 
+python3 "$ROOT/tests/audit/wallet_active_rows_audit.py" >/dev/null \
+  || fail "Wallet active-row regression audit failed."
+
 python3 "$ROOT/tests/audit/current_access_model_regression_audit.py" >/dev/null \
   || fail "Current access model regression audit failed."
 

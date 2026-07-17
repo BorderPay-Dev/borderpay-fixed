@@ -7,8 +7,8 @@
  *     badge, currency name + sub-label (USD, EUR, USDT…), right-aligned big
  *     amount + token amount, chevron → tap opens the existing detail sheet
  *     (account "letter" for VA, deposit address for stablecoin).
- *   • Quick actions row (Send / Receive / Deposit / Convert).
- *   • Deposit chooser (USD-ACH / EUR-SEPA / GBP-FPS) for missing currencies.
+ *   • Wallet tab shows active accounts only; AddWallet owns inactive and
+ *     unavailable account requests.
  *
  * The old two-card stack (BridgeVirtualAccountsCard + BridgeWalletsCard) is
  * collapsed into one unified list to match the marketing posters and remove
@@ -18,8 +18,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Shield, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, Plus, RefreshCw,
-  ChevronRight, Loader2,
+  Shield, Eye, EyeOff, RefreshCw, ChevronRight,
 } from 'lucide-react';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
@@ -32,8 +31,6 @@ import { usePreferences } from '../../utils/hooks/usePreferences';
 import {
   AssetBadge, WalletDetailSheet, AccountDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
-import { friendlyError } from '../../utils/errors/friendlyError';
-import { showToast } from '../common/StatusToast';
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
@@ -53,6 +50,56 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
+const SUPPORTED_STABLES = new Set(['USDC', 'USDT']);
+const SUPPORTED_VA = new Set(['USD', 'EUR', 'GBP']);
+const ACTIVE_WALLET_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
+const ACTIVE_VA_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
+
+function normalizedStatus(row: any): string {
+  return String(row?.status || row?.state || '').trim().toLowerCase();
+}
+
+function latestByCurrency<T extends { currency?: string }>(rows: T[]): T[] {
+  const byCurrency = new Map<string, T>();
+  rows.forEach((row) => {
+    const currency = String(row.currency || '').toUpperCase();
+    if (!currency) return;
+    const existing = byCurrency.get(currency) as any;
+    const current = row as any;
+    const existingTs = Date.parse(String(existing?.updated_at || existing?.created_at || '')) || 0;
+    const currentTs = Date.parse(String(current?.updated_at || current?.created_at || '')) || 0;
+    if (!existing || currentTs >= existingTs) byCurrency.set(currency, row);
+  });
+  return Array.from(byCurrency.values());
+}
+
+function normalizeStableRows(raw: unknown): StableRow[] {
+  if (!Array.isArray(raw)) return [];
+  return latestByCurrency(
+    raw
+      .map((row: any) => ({
+        ...row,
+        currency: String(row?.currency || '').toUpperCase(),
+      }))
+      .filter((row: any) => SUPPORTED_STABLES.has(row.currency))
+      .filter((row: any) => ACTIVE_WALLET_STATUSES.has(normalizedStatus(row))),
+  ) as StableRow[];
+}
+
+function normalizeVaRows(raw: unknown, country: string | null | undefined): VaRow[] {
+  if (!Array.isArray(raw)) return [];
+  const countryAllowed = bridgeVirtualAccountCurrenciesForCountry(country);
+  return latestByCurrency(
+    raw
+      .map((row: any) => ({
+        ...row,
+        currency: String(row?.currency || '').toUpperCase() as BridgeVirtualAccountCurrency,
+      }))
+      .filter((row: any) => SUPPORTED_VA.has(row.currency))
+      .filter((row: any) => countryAllowed.includes(row.currency))
+      .filter((row: any) => ACTIVE_VA_STATUSES.has(normalizedStatus(row))),
+  ) as VaRow[];
+}
 
 function readCachedCountry(): string | null {
   try {
@@ -133,13 +180,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      return Array.isArray(scoped) ? scoped : [];
+      return normalizeStableRows(scoped);
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      return Array.isArray(scoped) ? scoped : [];
+      return normalizeVaRows(scoped, readCachedCountry());
     } catch { return []; }
   });
   const stablesRef = useRef<StableRow[]>(stables);
@@ -153,7 +200,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   });
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [creating, setCreating] = useState<string | null>(null);
 
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
@@ -212,13 +258,13 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        return Array.isArray(scoped) ? scoped : [];
+        return normalizeStableRows(scoped);
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        return Array.isArray(scoped) ? scoped : [];
+        return normalizeVaRows(scoped, country);
       } catch { return []; }
     })();
     const isColdStart = seededStables.length === 0 && seededVas.length === 0;
@@ -229,8 +275,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         return;
       }
       const routeData: any = await backendAPI.financial.getWalletRouteData();
-      const sList = (routeData?.data?.stablecoin_wallets as StableRow[]) ?? [];
-      const vList = (routeData?.data?.virtual_accounts as VaRow[]) ?? [];
+      const sList = normalizeStableRows(routeData?.data?.stablecoin_wallets);
+      const vList = normalizeVaRows(routeData?.data?.virtual_accounts, country);
       setStables(sList);
       setVas(vList);
       try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
@@ -258,8 +304,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         ]).then(async () => {
           try {
             const next: any = await backendAPI.financial.getWalletRouteData();
-            const nextStables = (next?.data?.stablecoin_wallets as StableRow[]) ?? [];
-            const nextVas = (next?.data?.virtual_accounts as VaRow[]) ?? [];
+            const nextStables = normalizeStableRows(next?.data?.stablecoin_wallets);
+            const nextVas = normalizeVaRows(next?.data?.virtual_accounts, country);
             setStables(nextStables);
             setVas(nextVas);
             try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
@@ -356,65 +402,10 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     };
   /* eslint-disable-next-line */ }, [userId, isVerified, walletRefreshTsKey]);
 
-  // ── Missing VA currencies (the "deposit chooser") ────────────────────────
   const visibleVas = useMemo(() => {
-    const countryAllowed = bridgeVirtualAccountCurrenciesForCountry(country);
-    return vas.filter((v) => countryAllowed.includes(String(v.currency || '').toUpperCase() as BridgeVirtualAccountCurrency));
+    return normalizeVaRows(vas, country);
   }, [vas, country]);
-  const haveVa = useMemo(() => new Set(visibleVas.map(v => v.currency)), [visibleVas]);
-  const missingVa = availableVaCurrencies.filter(c => !haveVa.has(c));
-  const haveStable = useMemo(
-    () => new Set(stables.map((s) => String(s.currency || '').toUpperCase()).filter(Boolean)),
-    [stables],
-  );
-  const missingStable = useMemo(
-    () => (['USDC', 'USDT'] as const).filter((s) => !haveStable.has(s)),
-    [haveStable],
-  );
-
-  const handleCreate = async (currency: BridgeVirtualAccountCurrency) => {
-    setCreating(currency);
-    const r = await backendAPI.bridge.virtualAccount.create({ currency });
-    setCreating(null);
-    if (!r.success) {
-      const code = String((r as any)?.code || '').toLowerCase();
-      if (code === 'country_rail_not_supported') {
-        showToast.error(`${currency} is not available in your region yet.`);
-        return;
-      }
-      const lower = String((r as any)?.code || '').toLowerCase();
-      if (currency === 'GBP') {
-        showToast.error(
-          lower.includes('unsupported') || lower.includes('not_enabled') || lower.includes('invalid_destination')
-            ? 'GBP account requests are reviewed manually. Contact support to enable GBP for your profile.'
-            : friendlyError(r.error, 'GBP account is not available yet for this profile. Contact support.'),
-        );
-        return;
-      }
-      showToast.error(friendlyError(r.error, `Could not open ${currency} account. Please try again.`));
-      return;
-    }
-    showToast.success(`${currency} account opened`);
-    refresh();
-  };
-
-  const handleCreateStable = async (symbol: 'USDC' | 'USDT') => {
-    setCreating(symbol);
-    const defaultChain = symbol === 'USDT' ? 'TRON' : 'BASE';
-    const r = await backendAPI.bridge.wallet.create({ symbol, chain: defaultChain });
-    setCreating(null);
-    if (!r.success) {
-      const code = String((r as any)?.code || '').toLowerCase();
-      if (code === 'wallet_country_not_supported' || code === 'country_not_supported') {
-        showToast.error(`${symbol} wallet is not available in your region yet.`);
-        return;
-      }
-      showToast.error(friendlyError(r.error, `Could not add ${symbol} wallet right now.`));
-      return;
-    }
-    showToast.success(`${symbol} wallet added`);
-    refresh(true);
-  };
+  void availableVaCurrencies;
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {
@@ -479,7 +470,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           ) : visibleVas.length === 0 && stables.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <p className={`text-sm ${tc.textMuted}`}>
-                No accounts yet — open one below.
+                No active accounts or wallets yet.
               </p>
             </div>
           ) : (
@@ -539,53 +530,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
           )}
         </div>
 
-        {/* Missing-currency "+ open account" rows now live INLINE at the bottom
-            of the Balances list (one row per currency), so the user has a single
-            unified surface and we don't repeat the promo-card pattern. */}
-        {missingVa.length > 0 && (
-          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-            {missingVa.map((c, i) => (
-              <button key={c} disabled={creating === c} onClick={() => handleCreate(c)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}>
-                <AssetBadge symbol={c} size={40} />
-                <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text}`}>
-                    Open {c} account <span className={`text-xs font-medium ${tc.textMuted}`}>({RAIL_NAME[c]})</span>
-                  </div>
-                  <div className={`text-[11px] ${tc.textMuted}`}>{CURRENCY_FULL_NAME[c] ?? c}</div>
-                </div>
-                {creating === c
-                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {missingStable.length > 0 && (
-          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-            {missingStable.map((sym, i) => (
-              <button
-                key={sym}
-                disabled={creating === sym}
-                onClick={() => handleCreateStable(sym)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 ? `border-t ${tc.borderLight}` : ''} disabled:opacity-60`}
-              >
-                <AssetBadge symbol={sym} size={40} />
-                <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text}`}>
-                    Add {sym} wallet
-                  </div>
-                  <div className={`text-[11px] ${tc.textMuted}`}>Request {sym} deposit wallet from provider</div>
-                </div>
-                {creating === sym
-                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin`} />
-                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />}
-              </button>
-            ))}
-          </div>
-        )}
-
       </div>
 
       {/* Detail sheets */}
@@ -594,18 +538,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       <AccountDetailSheet open={!!selectedVa} onClose={() => setSelectedVa(null)}
         va={selectedVa ? { currency: selectedVa.currency, rail: selectedVa.rail, status: selectedVa.status, account_details: selectedVa.account_details } : null} />
     </div>
-  );
-}
-
-function QuickAction({ icon: Icon, label, onClick, tc }: { icon: any; label: string; onClick: () => void; tc: any }) {
-  return (
-    <button onClick={onClick}
-      className="flex flex-col items-center gap-1.5 py-2 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] transition">
-      <span className="w-9 h-9 rounded-full bg-[#C7FF00] flex items-center justify-center">
-        <Icon className="w-4 h-4 text-black" />
-      </span>
-      <span className="text-[11px] font-semibold text-white/80">{label}</span>
-    </button>
   );
 }
 

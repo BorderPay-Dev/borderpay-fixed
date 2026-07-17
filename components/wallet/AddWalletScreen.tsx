@@ -19,8 +19,8 @@ interface AddWalletScreenProps {
   onBack: () => void;
 }
 
-interface StableRow { id: string; currency: string }
-interface VaRow { id: string; currency: BridgeVirtualAccountCurrency }
+interface StableRow { id: string; currency: string; status?: string }
+interface VaRow { id: string; currency: BridgeVirtualAccountCurrency; status?: string }
 
 type WalletType = 'virtual_account' | 'stablecoin';
 
@@ -48,6 +48,11 @@ const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
 };
+const ACTIVE_ROW_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
+
+function isActiveRow(row: { status?: string }): boolean {
+  return ACTIVE_ROW_STATUSES.has(String(row.status || '').trim().toLowerCase());
+}
 
 function readCachedUser(): any {
   try {
@@ -191,12 +196,20 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     void refresh();
   }, [userId]);
 
-  const existingStable = useMemo(
-    () => new Set(stableRows.map((r) => String(r.currency || '').toUpperCase())),
+  const activeStable = useMemo(
+    () => new Set(stableRows.filter(isActiveRow).map((r) => String(r.currency || '').toUpperCase())),
     [stableRows],
   );
-  const existingVa = useMemo(
-    () => new Set(vaRows.map((r) => String(r.currency || '').toUpperCase())),
+  const inactiveStable = useMemo(
+    () => new Set(stableRows.filter((r) => !isActiveRow(r)).map((r) => String(r.currency || '').toUpperCase())),
+    [stableRows],
+  );
+  const activeVa = useMemo(
+    () => new Set(vaRows.filter(isActiveRow).map((r) => String(r.currency || '').toUpperCase())),
+    [vaRows],
+  );
+  const inactiveVa = useMemo(
+    () => new Set(vaRows.filter((r) => !isActiveRow(r)).map((r) => String(r.currency || '').toUpperCase())),
     [vaRows],
   );
 
@@ -230,10 +243,23 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   };
 
   const renderAction = (card: WalletCard) => {
-    const alreadyExists = card.type === 'virtual_account'
-      ? existingVa.has(card.code)
-      : existingStable.has(card.code);
-    if (alreadyExists) {
+    const alreadyActive = card.type === 'virtual_account'
+      ? activeVa.has(card.code)
+      : activeStable.has(card.code);
+    const deactivated = card.type === 'virtual_account'
+      ? inactiveVa.has(card.code)
+      : inactiveStable.has(card.code);
+    if (deactivated) {
+      return (
+        <button
+          disabled
+          className="h-10 px-4 rounded-xl border border-amber-400/30 text-amber-200/80 text-sm font-semibold"
+        >
+          Deactivated
+        </button>
+      );
+    }
+    if (alreadyActive) {
       return (
         <button
           disabled
@@ -296,15 +322,13 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         </div>
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {CARDS.filter((card) => {
-              if (card.type === 'virtual_account') {
-                return supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
-              }
-              return stableSupported && supportedStableSymbols.includes(card.code);
-            }).map((card, idx) => {
-              const exists = card.type === 'virtual_account'
-                ? existingVa.has(card.code)
-                : existingStable.has(card.code);
+          {CARDS.map((card, idx) => {
+              const active = card.type === 'virtual_account'
+                ? activeVa.has(card.code)
+                : activeStable.has(card.code);
+              const deactivated = card.type === 'virtual_account'
+                ? inactiveVa.has(card.code)
+                : inactiveStable.has(card.code);
               const supported = card.type === 'virtual_account'
                 ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
                 : (stableSupported && supportedStableSymbols.includes(card.code));
@@ -328,15 +352,17 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>
-                      {exists
+                      {active
                         ? `${card.subtitle} · active`
-                        : !supported
-                          ? `${card.subtitle} · not available in your region`
-                          : card.subtitle}
+                        : deactivated
+                          ? `${card.subtitle} · deactivated`
+                          : !supported
+                            ? `${card.subtitle} · not available in your region`
+                            : card.subtitle}
                     </div>
                   </div>
-                  {!supported && <Lock className="w-4 h-4 text-white/45 mr-1" />}
-                  {!exists && supported && <Plus className="w-4 h-4 text-white/45 mr-1" />}
+                  {!supported && !deactivated && <Lock className="w-4 h-4 text-white/45 mr-1" />}
+                  {!active && !deactivated && supported && <Plus className="w-4 h-4 text-white/45 mr-1" />}
                   {renderAction(card)}
                 </div>
               );

@@ -772,16 +772,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     onMouseEnter={() => prefetchScreen('wallet-detail')}
                     onTouchStart={() => prefetchScreen('wallet-detail')}
                     onClick={() => openWalletForCurrency(w.currency)}
-                    className={`flex-shrink-0 w-[160px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3.5 text-left ${tc.hoverBg} transition-colors`}
+                    className={`flex-shrink-0 w-[164px] min-h-[156px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-center flex flex-col items-center justify-center ${tc.hoverBg} transition-colors`}
                   >
                     <DashboardCurrencyIcon currency={w.currency} color={w.color} />
-                    <p className={`text-[11px] ${tc.textMuted} uppercase tracking-wider font-semibold mt-2`}>
-                      {w.currency}
-                    </p>
-                    <p className={`text-[13px] font-semibold ${tc.text} mt-0.5 truncate`}>
+                    <p className={`w-full text-[14px] font-semibold ${tc.text} mt-3 truncate`}>
                       {CURRENCY_LABEL[String(w.currency || '').toUpperCase()] || w.currency}
                     </p>
-                    <p className={`text-[12px] font-semibold ${tc.text} mt-1 tabular-nums`}>
+                    <p className={`w-full text-[18px] font-bold ${tc.text} mt-2 tabular-nums truncate`}>
                       {balanceHidden ? '••••' : formatDashboardWalletBalance(w)}
                     </p>
                   </button>
