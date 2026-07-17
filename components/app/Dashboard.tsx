@@ -250,7 +250,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     [userId],
   );
   const dashVaKey = useMemo(
-    () => financialCacheKey('borderpay_va_v1', { userId }),
+    () => financialCacheKey('borderpay_dashboard_va_v1', { userId }),
     [userId],
   );
   const cachedWallets = useMemo(

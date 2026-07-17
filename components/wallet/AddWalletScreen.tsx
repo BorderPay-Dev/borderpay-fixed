@@ -70,18 +70,6 @@ function countryAllowedVaCurrencies(country: string | null | undefined): BridgeV
   return bridgeVirtualAccountCurrenciesForCountry(country);
 }
 
-function intersectVaCapabilities(
-  supported: unknown,
-  country: string | null | undefined,
-): BridgeVirtualAccountCurrency[] {
-  const countryAllowed = countryAllowedVaCurrencies(country);
-  if (!Array.isArray(supported)) return countryAllowed;
-  const globalSupported = supported
-    .map((c: unknown) => String(c || '').toUpperCase())
-    .filter((c: string): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(c));
-  return countryAllowed.filter((c) => globalSupported.includes(c));
-}
-
 export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
@@ -91,14 +79,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     const cached = readCachedUser();
     return cached?.country ? String(cached.country).toUpperCase() : null;
   });
-  const [supportedVaCurrencies, setSupportedVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(
-    () => countryAllowedVaCurrencies(readCachedUser()?.country ? String(readCachedUser().country).toUpperCase() : null),
-  );
-  const [stableSupported, setStableSupported] = useState<boolean>(
-    () => isBridgeCustodialWalletSupported(readCachedUser()?.country ? String(readCachedUser().country).toUpperCase() : null),
-  );
-  const [supportedStableSymbols, setSupportedStableSymbols] = useState<string[]>(['USDC', 'USDT']);
-
   const [verified, setVerified] = useState<boolean>(() => {
     return isVerifiedProfile(readCachedUser());
   });
@@ -156,37 +136,6 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       } catch {
         // Keep cached identity state.
       }
-
-      try {
-        const [vaCaps, walletCaps] = await Promise.all([
-          backendAPI.bridge.virtualAccount.capabilities(),
-          backendAPI.bridge.wallet.capabilities(),
-        ]);
-        if (vaCaps?.success && Array.isArray(vaCaps?.data?.supported_currencies)) {
-          setSupportedVaCurrencies(intersectVaCapabilities(vaCaps.data.supported_currencies, profileCountry));
-        } else {
-          setSupportedVaCurrencies(countryAllowedVaCurrencies(profileCountry));
-        }
-        if (walletCaps?.success) {
-          setStableSupported(Boolean(walletCaps?.data?.supported) && isBridgeCustodialWalletSupported(profileCountry));
-          if (Array.isArray(walletCaps?.data?.supported_symbols) && walletCaps.data.supported_symbols.length > 0) {
-            const supported = walletCaps.data.supported_symbols
-              .map((s: any) => String(s || '').toUpperCase())
-              .filter((s: string) => s === 'USDC' || s === 'USDT');
-            setSupportedStableSymbols(supported);
-          } else {
-            setSupportedStableSymbols(['USDC', 'USDT']);
-          }
-        } else {
-          setStableSupported(false);
-          setSupportedStableSymbols([]);
-        }
-      } catch {
-        // Fail-closed on capabilities fetch errors.
-        setSupportedVaCurrencies(countryAllowedVaCurrencies(profileCountry));
-        setStableSupported(false);
-        setSupportedStableSymbols([]);
-      }
     } finally {
       refreshInFlightRef.current = false;
     }
@@ -211,6 +160,14 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const inactiveVa = useMemo(
     () => new Set(vaRows.filter((r) => !isActiveRow(r)).map((r) => String(r.currency || '').toUpperCase())),
     [vaRows],
+  );
+  const supportedVaCurrencies = useMemo(
+    () => countryAllowedVaCurrencies(country),
+    [country],
+  );
+  const stableSupported = useMemo(
+    () => isBridgeCustodialWalletSupported(country),
+    [country],
   );
 
   const requestWallet = async (card: WalletCard) => {
@@ -272,7 +229,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
 
     const supported = card.type === 'virtual_account'
       ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
-      : (stableSupported && supportedStableSymbols.includes(card.code));
+      : stableSupported;
 
     if (!supported) {
       return (
@@ -331,7 +288,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                 : inactiveStable.has(card.code);
               const supported = card.type === 'virtual_account'
                 ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
-                : (stableSupported && supportedStableSymbols.includes(card.code));
+                : stableSupported;
               return (
                 <div
                   key={card.code}

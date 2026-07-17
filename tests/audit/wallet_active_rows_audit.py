@@ -63,8 +63,12 @@ def assert_wallet_screen(src: str) -> None:
         "function latestByCurrency",
         "return normalizeStableRows(scoped)",
         "return normalizeVaRows(scoped, readCachedCountry())",
-        "const sList = normalizeStableRows(routeData?.data?.stablecoin_wallets)",
-        "const vList = normalizeVaRows(routeData?.data?.virtual_accounts, country)",
+        "const rawStables = Array.isArray(routeData?.data?.stablecoin_wallets)",
+        "const rawVas = Array.isArray(routeData?.data?.virtual_accounts)",
+        "const sList = normalizeStableRows(rawStables)",
+        "const vList = normalizeVaRows(rawVas, country)",
+        "JSON.stringify(rawStables)",
+        "JSON.stringify(rawVas)",
     ]:
         require(src, marker, "WalletScreen")
 
@@ -87,11 +91,16 @@ def assert_add_wallet_screen(src: str) -> None:
     require(src, "{CARDS.map((card, idx) =>", "AddWalletScreen")
     require(src, "const ACTIVE_ROW_STATUSES", "AddWalletScreen")
     require(src, "function isActiveRow", "AddWalletScreen")
+    require(src, "const supportedVaCurrencies = useMemo", "AddWalletScreen")
+    require(src, "const stableSupported = useMemo", "AddWalletScreen")
     require(src, "not available in your region", "AddWalletScreen")
     require(src, "Unavailable", "AddWalletScreen")
     require(src, "Active", "AddWalletScreen")
     require(src, "Deactivated", "AddWalletScreen")
     reject(src, "CARDS.filter((card)", "AddWalletScreen")
+    reject(src, "backendAPI.bridge.virtualAccount.capabilities()", "AddWalletScreen")
+    reject(src, "backendAPI.bridge.wallet.capabilities()", "AddWalletScreen")
+    reject(src, "supportedStableSymbols", "AddWalletScreen")
 
 
 def assert_dashboard_chips(src: str, label: str, formatter: str) -> None:
@@ -116,6 +125,13 @@ def assert_wallet_detail_chrome(app_shell: str, main_app: str) -> None:
     require(main_app, "suppressHeaderChrome={currentScreen === 'wallet-detail'}", "MainApp wallet-detail chrome")
 
 
+def assert_dashboard_va_cache_contract(dashboard: str, business_dashboard: str) -> None:
+    require(dashboard, "financialCacheKey('borderpay_dashboard_va_v1'", "individual dashboard VA display cache")
+    require(business_dashboard, "const BIZ_DASH_VA_KEY = 'borderpay_business_dash_va_v1'", "business dashboard VA display cache")
+    reject(dashboard, "financialCacheKey('borderpay_va_v1'", "individual dashboard must not overwrite raw VA cache")
+    reject(business_dashboard, "financialCacheKey(VA_LIST_CACHE_KEY, { userId, accountType: 'business' })", "business dashboard must not overwrite raw VA cache")
+
+
 def main() -> int:
     for path in [WALLET, ADD_WALLET, DASHBOARD, BUSINESS_DASHBOARD, APP_SHELL, MAIN_APP]:
         if not path.is_file():
@@ -126,6 +142,7 @@ def main() -> int:
     assert_dashboard_chips(DASHBOARD.read_text(), "individual dashboard wallet chips", "formatDashboardWalletBalance(w)")
     assert_dashboard_chips(BUSINESS_DASHBOARD.read_text(), "business dashboard wallet chips", "formatBusinessWalletBalance(w)")
     assert_wallet_detail_chrome(APP_SHELL.read_text(), MAIN_APP.read_text())
+    assert_dashboard_va_cache_contract(DASHBOARD.read_text(), BUSINESS_DASHBOARD.read_text())
 
     print("PASS: wallet active-row regression audit")
     print()
@@ -133,6 +150,7 @@ def main() -> int:
     print("  add-wallet tab:  unavailable options remain visible")
     print("  dashboard chips: centered wallet balances; no-balance VA account chips")
     print("  wallet detail:   top shell chrome suppressed")
+    print("  shared cache:    raw wallet/VA rows preserved for add-wallet")
     return 0
 
 

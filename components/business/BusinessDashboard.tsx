@@ -37,6 +37,7 @@ const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
 const BIZ_NAME_KEY_PREFIX = 'borderpay_business_name_v1:';
 const BIZ_DASH_REFRESH_TS_KEY = 'borderpay_business_dash_refresh_ts_v1';
 const VA_LIST_CACHE_KEY = 'borderpay_va_v1';
+const BIZ_DASH_VA_KEY = 'borderpay_business_dash_va_v1';
 const ACTIVE_BIZ_VA_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 
 type BusinessVaRow = {
@@ -200,7 +201,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   );
   const cachedBizWallets = useMemo(() => readBizWallets(bizWalletsCacheKey), [bizWalletsCacheKey]);
   const bizVaCacheKey = useMemo(
-    () => financialCacheKey(VA_LIST_CACHE_KEY, { userId }),
+    () => financialCacheKey(BIZ_DASH_VA_KEY, { userId, accountType: 'business' }),
     [userId],
   );
   const cachedBizVirtualAccounts = useMemo(() => {

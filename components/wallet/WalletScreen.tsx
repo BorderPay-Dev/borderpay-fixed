@@ -275,12 +275,14 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         return;
       }
       const routeData: any = await backendAPI.financial.getWalletRouteData();
-      const sList = normalizeStableRows(routeData?.data?.stablecoin_wallets);
-      const vList = normalizeVaRows(routeData?.data?.virtual_accounts, country);
+      const rawStables = Array.isArray(routeData?.data?.stablecoin_wallets) ? routeData.data.stablecoin_wallets : [];
+      const rawVas = Array.isArray(routeData?.data?.virtual_accounts) ? routeData.data.virtual_accounts : [];
+      const sList = normalizeStableRows(rawStables);
+      const vList = normalizeVaRows(rawVas, country);
       setStables(sList);
       setVas(vList);
-      try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(sList)); } catch { /* noop */ }
-      try { localStorage.setItem(vaCacheKey, JSON.stringify(vList)); } catch { /* noop */ }
+      try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(rawStables)); } catch { /* noop */ }
+      try { localStorage.setItem(vaCacheKey, JSON.stringify(rawVas)); } catch { /* noop */ }
       try { localStorage.setItem(walletRefreshTsKey, String(Date.now())); } catch { /* noop */ }
 
       const rows: any[] = Array.isArray(routeData?.data?.wallets) ? routeData.data.wallets : [];
@@ -304,12 +306,14 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         ]).then(async () => {
           try {
             const next: any = await backendAPI.financial.getWalletRouteData();
-            const nextStables = normalizeStableRows(next?.data?.stablecoin_wallets);
-            const nextVas = normalizeVaRows(next?.data?.virtual_accounts, country);
+            const rawNextStables = Array.isArray(next?.data?.stablecoin_wallets) ? next.data.stablecoin_wallets : [];
+            const rawNextVas = Array.isArray(next?.data?.virtual_accounts) ? next.data.virtual_accounts : [];
+            const nextStables = normalizeStableRows(rawNextStables);
+            const nextVas = normalizeVaRows(rawNextVas, country);
             setStables(nextStables);
             setVas(nextVas);
-            try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(nextStables)); } catch { /* noop */ }
-            try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVas)); } catch { /* noop */ }
+            try { localStorage.setItem(stableWalletsCacheKey, JSON.stringify(rawNextStables)); } catch { /* noop */ }
+            try { localStorage.setItem(vaCacheKey, JSON.stringify(rawNextVas)); } catch { /* noop */ }
             const nextRows: any[] = Array.isArray(next?.data?.wallets) ? next.data.wallets : [];
             if (nextRows.length > 0) {
               const mapped = nextRows.reduce((acc: Record<string, number>, w: any) => {
