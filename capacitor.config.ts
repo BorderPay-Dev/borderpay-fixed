@@ -5,11 +5,12 @@ const config: CapacitorConfig = {
   appName: 'BorderPay Africa',
   webDir: 'dist',
   bundledWebRuntime: false,
+  backgroundColor: '#0B0E11',
   server: {
     androidScheme: 'https',
   },
   ios: {
-    contentInset: 'always',
+    contentInset: 'never',
   },
   android: {
     allowMixedContent: false,

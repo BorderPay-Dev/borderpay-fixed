@@ -18,6 +18,8 @@ MAIN = ROOT / "src/main.tsx"
 GLOBALS = ROOT / "styles/globals.css"
 MAIN_APP = ROOT / "components/app/MainApp.tsx"
 LOCK_SCREEN = ROOT / "components/security/AppLockScreen.tsx"
+INDEX_HTML = ROOT / "index.html"
+CAPACITOR_CONFIG = ROOT / "capacitor.config.ts"
 
 
 def fail(message: str) -> None:
@@ -33,7 +35,7 @@ def require(src: str, marker: str, label: str) -> None:
 
 
 def main() -> int:
-    for path in [MAIN, GLOBALS, MAIN_APP, LOCK_SCREEN]:
+    for path in [MAIN, GLOBALS, MAIN_APP, LOCK_SCREEN, INDEX_HTML, CAPACITOR_CONFIG]:
         if not path.is_file():
             fail(f"missing file: {path.relative_to(ROOT)}")
 
@@ -41,6 +43,8 @@ def main() -> int:
     globals_css = GLOBALS.read_text()
     main_app = MAIN_APP.read_text()
     lock_screen = LOCK_SCREEN.read_text()
+    index_html = INDEX_HTML.read_text()
+    capacitor_config = CAPACITOR_CONFIG.read_text()
 
     require(main, "function syncAppViewportHeight", "src/main viewport sync")
     require(main, "window.visualViewport?.height", "src/main viewport sync")
@@ -55,10 +59,14 @@ def main() -> int:
     require(main_app, "height: 'var(--app-height)'", "MainApp native viewport")
     require(main_app, "maxHeight: 'var(--app-height)'", "MainApp native viewport")
     require(lock_screen, "height: 'var(--app-height)'", "PIN lock native viewport")
+    require(index_html, "viewport-fit=cover", "HTML edge-to-edge viewport")
+    require(capacitor_config, "backgroundColor: '#0B0E11'", "Capacitor native background")
+    require(capacitor_config, "contentInset: 'never'", "Capacitor iOS edge-to-edge viewport")
 
     print("PASS: capacitor viewport audit")
     print()
     print("  native viewport: measured --app-height drives full-screen app roots")
+    print("  iOS webview:     viewport-fit=cover with contentInset disabled")
     return 0
 
 
