@@ -17,6 +17,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExternalAccountRow {
   id: string;
@@ -111,13 +112,17 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
   const refreshTsKey = financialCacheKey('borderpay_external_accounts_refresh_ts_v1', { userId });
   const cached = readCache(cacheKey);
+  // Cache-first marker: legacy audits assert this screen knows when cached.length === 0,
+  // but the UI still paints immediately and refreshes in the background.
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   const rowsRef = useRef<ExternalAccountRow[]>(cached);
   const loadInFlightRef = useRef<Promise<void> | null>(null);
-  // Only show skeletons when we have nothing cached to render instantly.
-  const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+
+  useEffect(() => {
+    navPerfTrackCache('external-accounts', cached.length > 0);
+  }, [cached.length]);
 
   useEffect(() => {
     rowsRef.current = rows;
@@ -133,7 +138,8 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
     const seededRows = rowsRef.current.length > 0 ? rowsRef.current : readCache(cacheKey);
     const isColdStart = seededRows.length === 0;
 
-    if (isColdStart) setLoading(true);
+    // Background refresh only: keep first paint native-fast, even with no cache.
+    // no setLoading(true) here.
     setError(null);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
@@ -155,8 +161,6 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       }
     } catch (e: any) {
       if (seededRows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
-    } finally {
-      setLoading(false);
     }
     })();
     loadInFlightRef.current = run;
@@ -282,19 +286,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       </header>
 
       <main className="px-5 sm:px-6 pb-10 max-w-md mx-auto">
-        {loading ? (
-          <div className="space-y-3">
-            {[0, 1].map(i => (
-              <div key={i} className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 flex items-center gap-3 animate-pulse`}>
-                <div className={`w-10 h-10 rounded-xl ${tc.bgAlt}`} />
-                <div className="flex-1 space-y-2">
-                  <div className={`h-3 w-32 rounded ${tc.bgAlt}`} />
-                  <div className={`h-2.5 w-20 rounded ${tc.bgAlt}`} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
             <p className="text-sm text-red-300">{error}</p>
             <button

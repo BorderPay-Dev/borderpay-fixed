@@ -26,10 +26,10 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 type AccountType = 'us' | 'iban' | 'gb' | 'clabe' | 'pix';
+const DEFAULT_ACCOUNT_TYPES: Array<AccountType> = ['us', 'iban', 'gb', 'clabe', 'pix'];
 
 interface AddExternalAccountScreenProps {
   onBack: () => void;
@@ -62,10 +62,10 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
     }
   };
   const cachedCapabilities = readCachedCapabilities();
-  const [supportedAccountTypes, setSupportedAccountTypes] = useState<Array<AccountType>>(cachedCapabilities);
-  const supportedAccountTypesRef = useRef<Array<AccountType>>(cachedCapabilities);
+  const initialCapabilityTypes = cachedCapabilities.length > 0 ? cachedCapabilities : DEFAULT_ACCOUNT_TYPES;
+  const [supportedAccountTypes, setSupportedAccountTypes] = useState<Array<AccountType>>(initialCapabilityTypes);
+  const supportedAccountTypesRef = useRef<Array<AccountType>>(initialCapabilityTypes);
   const capabilityLoadInFlightRef = useRef<Promise<void> | null>(null);
-  const [capabilityLoading, setCapabilityLoading] = useState(cachedCapabilities.length === 0);
   const capabilityRefreshTsKey = financialCacheKey('borderpay_external_account_capabilities_refresh_ts_v1', { userId });
   const defaultType: AccountType = supportedAccountTypes[0] || 'us';
   const [accountType, setAccountType] = useState<AccountType>(defaultType);
@@ -133,8 +133,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         return;
       }
       const run = (async () => {
-      const seeded = supportedAccountTypesRef.current.length > 0 ? supportedAccountTypesRef.current : readCachedCapabilities();
-      if (seeded.length === 0) setCapabilityLoading(true);
+      const seeded = supportedAccountTypesRef.current.length > 0 ? supportedAccountTypesRef.current : initialCapabilityTypes;
       try {
         const last = Number(localStorage.getItem(capabilityRefreshTsKey) || '0');
         if (!force && seeded.length > 0 && Number.isFinite(last) && Date.now() - last < 60_000) return;
@@ -156,17 +155,15 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
           if (filtered.length > 0) setAccountType(filtered[0] as AccountType);
         } else if (r?.error !== 'request_timeout' && seeded.length === 0) {
           // Keep screen interactive with cached/default options on transient timeout.
-          setSupportedAccountTypes(cachedCapabilities.length > 0 ? cachedCapabilities : ['us']);
-          setAccountType((prev) => prev || (cachedCapabilities[0] || 'us'));
+          setSupportedAccountTypes(initialCapabilityTypes);
+          setAccountType((prev) => prev || (initialCapabilityTypes[0] || 'us'));
         }
       } catch {
         // Keep cached capabilities on transient network failures.
         if (seeded.length === 0) {
-          setSupportedAccountTypes(cachedCapabilities.length > 0 ? cachedCapabilities : ['us']);
-          setAccountType((prev) => prev || (cachedCapabilities[0] || 'us'));
+          setSupportedAccountTypes(initialCapabilityTypes);
+          setAccountType((prev) => prev || (initialCapabilityTypes[0] || 'us'));
         }
-      } finally {
-        setCapabilityLoading(false);
       }
       })();
       capabilityLoadInFlightRef.current = run;
@@ -350,12 +347,6 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
       </header>
 
       <main className="px-5 sm:px-6 pb-10 max-w-md mx-auto space-y-4">
-        {capabilityLoading ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <SkeletonRows count={3} />
-          </div>
-        ) : (
-          <>
         <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <Banknote className="w-5 h-5 text-[#C7FF00]" />
           <p className={`text-xs ${tc.textMuted} leading-relaxed`}>
@@ -652,8 +643,6 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
           {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Add payout account'}
         </button>
         <button onClick={onBack} className={`w-full py-2.5 text-xs ${tc.textMuted}`}>Cancel</button>
-          </>
-        )}
       </main>
     </div>
   );

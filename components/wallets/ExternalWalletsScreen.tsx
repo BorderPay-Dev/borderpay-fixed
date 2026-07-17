@@ -4,18 +4,16 @@
  * Save your own wallet address once (e.g. your Binance USDC/Base address), then
  * withdraw to it from inside the app — gated by passcode/biometric in the send
  * flow. Native-app feel: floating back, cache-seeded list (instant mount, no
- * loading), skeleton only on a cold first load.
+ * blocking loader.
  */
 
 import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2, Sparkles } from 'lucide-react';
+import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI, type ExternalWallet } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
-import { SkeletonRows } from '../common/Skeleton';
 import { useVerification } from '../../utils/verification/useVerification';
-import { isAccountActivated } from '../../utils/subscriptions/gate';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
@@ -30,25 +28,28 @@ const CACHE_KEY = 'borderpay_external_wallets_v1';
 const EXTERNAL_WALLETS_FETCH_TIMEOUT_MS = 1400;
 const PREFILL_KEY = 'borderpay_prefill_withdraw';   // read by SendMoneyFlow
 
-const CHAINS = [
-  { code: 'base', name: 'Base' }, { code: 'ethereum', name: 'Ethereum' },
-  { code: 'polygon', name: 'Polygon' }, { code: 'arbitrum', name: 'Arbitrum' },
-  { code: 'optimism', name: 'Optimism' }, { code: 'tron', name: 'Tron' },
-  { code: 'solana', name: 'Solana' },
-];
-const EVM = new Set(['base', 'ethereum', 'polygon', 'arbitrum', 'optimism']);
-const chainName = (c: string) => CHAINS.find(x => x.code === c)?.name || c;
+const WITHDRAWAL_ROUTES = [
+  { key: 'USDC:base', asset: 'USDC', chain: 'base', label: 'USDC · Base' },
+  { key: 'USDT:tron', asset: 'USDT', chain: 'tron', label: 'USDT · Tron' },
+] as const;
+const chainName = (c: string) => c.toLowerCase() === 'base' ? 'Base' : c.toLowerCase() === 'tron' ? 'Tron' : c;
+const walletRouteKey = (asset: string, chain: string) => `${String(asset).toUpperCase()}:${String(chain).toLowerCase()}`;
+const isSupportedWithdrawalWallet = (w: Pick<ExternalWallet, 'asset' | 'chain'>) =>
+  WITHDRAWAL_ROUTES.some(route => route.key === walletRouteKey(w.asset, w.chain));
+const filterSupportedWallets = (wallets: ExternalWallet[]) => wallets.filter(isSupportedWithdrawalWallet);
 
 function validAddress(chain: string, a: string): boolean {
   const v = (a || '').trim();
-  if (EVM.has(chain))     return /^0x[a-fA-F0-9]{40}$/.test(v);
+  if (chain === 'base')   return /^0x[a-fA-F0-9]{40}$/.test(v);
   if (chain === 'tron')   return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(v);
-  if (chain === 'solana') return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v);
   return false;
 }
 
 function readCache(cacheKey: string): ExternalWallet[] {
-  try { const v = JSON.parse(localStorage.getItem(cacheKey) || '[]'); return Array.isArray(v) ? v : []; }
+  try {
+    const v = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+    return Array.isArray(v) ? filterSupportedWallets(v) : [];
+  }
   catch { return []; }
 }
 
@@ -72,7 +73,6 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     navPerfTrackCache('external-wallets', cached.length > 0);
   }, [cached.length]);
   const [wallets, setWallets] = useState<ExternalWallet[]>(cached);
-  const [loading, setLoading] = useState(cached.length === 0);
   const [adding, setAdding]   = useState(false);
   const [saving, setSaving]   = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -82,6 +82,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const [chain, setChain]     = useState('base');
   const [asset, setAsset]     = useState('USDC');
   const [address, setAddress] = useState('');
+  const selectedRouteKey = walletRouteKey(asset, chain);
 
   const load = async () => {
     try {
@@ -91,12 +92,11 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         { success: false, error: 'request_timeout' } as any
       );
       if (r?.success) {
-        const next: ExternalWallet[] = r.data?.wallets || [];
+        const next: ExternalWallet[] = filterSupportedWallets(r.data?.wallets || []);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       }
     } catch { /* keep cache */ }
-    finally { setLoading(false); }
   };
   useEffect(() => {
     const prefetch = (window as any).__borderpay_prefetch;
@@ -126,15 +126,19 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
 
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }
+    if (!WITHDRAWAL_ROUTES.some(route => route.key === selectedRouteKey)) {
+      toast.error('Choose USDC on Base or USDT on Tron.');
+      return;
+    }
     if (!validAddress(chain, address)) { toast.error(`That address isn't valid for ${chainName(chain)}.`); return; }
     setSaving(true);
     try {
       const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() });
       if (r?.success && r.data?.wallet) {
-        const next = [r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)];
+        const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)]);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
-        setAdding(false); setLabel(''); setAddress('');
+        setAdding(false); setLabel(''); setAddress(''); setAsset('USDC'); setChain('base');
         toast.success('Wallet saved.');
       } else {
         toast.error(friendlyError(r?.error, 'Could not save that wallet.'));
@@ -183,10 +187,12 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     );
   }
 
-  // Activation lock — withdrawal wallets unlock only after the one-time
-  // activation is paid (verified users still see this until they activate).
-  if (!isAccountActivated()) {
-    const isBiz = authAPI.getStoredUser()?.account_type === 'business';
+  // Withdrawal wallets require account verification.
+  const storedUser = authAPI.getStoredUser();
+  const verified = ['verified', 'approved', 'active'].includes(
+    String(storedUser?.derived_kyc_status || storedUser?.kyc_status || storedUser?.bridge_kyc_status || storedUser?.bridge_kyb_status || '').toLowerCase(),
+  );
+  if (!verified) {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
         <FloatingBackButton onBack={onBack} />
@@ -194,17 +200,17 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>Withdrawal wallets</p>
           <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-8 text-center`}>
             <div className="w-14 h-14 rounded-2xl bg-[#C7FF00]/15 flex items-center justify-center mx-auto mb-4">
-              <Sparkles className="w-7 h-7 text-[#C7FF00]" />
+              <ShieldCheck className="w-7 h-7 text-[#C7FF00]" />
             </div>
-            <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Activate to unlock withdrawals</h2>
+            <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Verify your account to unlock withdrawals</h2>
             <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto leading-relaxed mb-6`}>
-              Fund your BorderPay wallet ($20 minimum) to save withdrawal addresses and move funds out. Your funds remain yours.
+              Complete verification to save withdrawal addresses and move funds out.
             </p>
             <button
-              onClick={() => (window as any).__borderpay_open_upgrade?.(isBiz ? 'business_activated' : 'individual_activated')}
+              onClick={() => (window as any).__borderpay_navigate?.('kyc')}
               className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[#C7FF00] text-black text-sm font-bold hover:brightness-95 transition"
             >
-              Activate <ArrowUpRight className="w-4 h-4" />
+              Verify now <ArrowUpRight className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -231,9 +237,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
           confirmed with your PIN or biometric.
         </p>
 
-        {loading && wallets.length === 0 ? (
-          <SkeletonRows count={3} />
-        ) : wallets.length === 0 ? (
+        {wallets.length === 0 ? (
           <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-5 py-10 text-center`}>
             <Wallet className={`w-7 h-7 ${tc.textMuted} mx-auto mb-3`} />
             <p className={`text-sm font-medium ${tc.text}`}>No saved wallets yet</p>
@@ -289,16 +293,20 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
               <div className="space-y-3">
                 <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Name (e.g. My Binance)"
                   className={`w-full ${tc.inputBg} border ${tc.cardBorder} rounded-2xl px-4 py-3 text-sm ${tc.text} focus:outline-none focus:border-[#C7FF00]/50`} />
-                <div className="flex gap-2">
-                  <select value={asset} onChange={e => setAsset(e.target.value)}
-                    className={`flex-1 ${tc.inputBg} border ${tc.cardBorder} rounded-2xl px-3 py-3 text-sm ${tc.text} focus:outline-none`}>
-                    <option value="USDC">USDC</option><option value="USDT">USDT</option>
-                  </select>
-                  <select value={chain} onChange={e => setChain(e.target.value)}
-                    className={`flex-1 ${tc.inputBg} border ${tc.cardBorder} rounded-2xl px-3 py-3 text-sm ${tc.text} focus:outline-none`}>
-                    {CHAINS.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
-                  </select>
-                </div>
+                <select
+                  value={selectedRouteKey}
+                  onChange={e => {
+                    const route = WITHDRAWAL_ROUTES.find(x => x.key === e.target.value) || WITHDRAWAL_ROUTES[0];
+                    setAsset(route.asset);
+                    setChain(route.chain);
+                    setAddress('');
+                  }}
+                  className={`w-full ${tc.inputBg} border ${tc.cardBorder} rounded-2xl px-3 py-3 text-sm ${tc.text} focus:outline-none`}
+                >
+                  {WITHDRAWAL_ROUTES.map(route => (
+                    <option key={route.key} value={route.key}>{route.label}</option>
+                  ))}
+                </select>
                 <input value={address} onChange={e => setAddress(e.target.value)} placeholder={`${chainName(chain)} address`}
                   className={`w-full ${tc.inputBg} border ${tc.cardBorder} rounded-2xl px-4 py-3 text-sm font-mono ${tc.text} focus:outline-none focus:border-[#C7FF00]/50`} />
                 <button onClick={save} disabled={saving}
