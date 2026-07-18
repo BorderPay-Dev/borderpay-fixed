@@ -630,7 +630,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
                     <Plus className={`w-4 h-4 ${tc.text}`} />
                   </div>
                   <p className={`text-[13px] font-semibold ${tc.text}`}>Open your first account</p>
-                  <p className={`text-[10px] ${tc.textMuted} mt-0.5`}>Activate available accounts for your business.</p>
+                  <p className={`text-[10px] ${tc.textMuted} mt-0.5`}>Request available accounts for your business.</p>
                 </button>
               ) : (
                 <>

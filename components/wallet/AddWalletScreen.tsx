@@ -179,11 +179,11 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           currency: card.code as BridgeVirtualAccountCurrency,
         });
         if (!res?.success) {
-          const msg = friendlyError(res?.error, `Could not activate ${card.code} account.`);
+          const msg = friendlyError(res?.error, `Could not open ${card.code} account.`);
           showToast.error(msg);
           return;
         }
-        showToast.success(`${card.code} account activated`);
+        showToast.success(`${card.code} account ready`);
       } else {
         const chain = STABLE_CHAIN[card.code] || 'BASE';
         const res: any = await backendAPI.bridge.wallet.create({ symbol: card.code, chain });
