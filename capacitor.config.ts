@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.borderpayafrica.app',
-  appName: 'BorderPay Africa',
+  appName: 'BorderPay',
   webDir: 'dist',
   bundledWebRuntime: false,
   backgroundColor: '#0B0E11',

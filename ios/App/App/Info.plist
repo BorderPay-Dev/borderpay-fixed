@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>BorderPay Africa</string>
+        <string>BorderPay</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
