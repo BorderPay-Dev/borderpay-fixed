@@ -332,6 +332,13 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
       if (result.success && picUrl) {
         setProfile((p) => ({ ...p, profile_picture_url: picUrl }));
         setEditedProfile((p) => ({ ...p, profile_picture_url: picUrl }));
+        try {
+          const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+          localStorage.setItem('borderpay_user', JSON.stringify({ ...cached, profile_picture_url: picUrl }));
+          window.dispatchEvent(new CustomEvent('borderpay:profile_picture_updated', {
+            detail: { profile_picture_url: picUrl },
+          }));
+        } catch { /* keep local screen state even if cache update fails */ }
         toast.success('Profile picture updated');
       } else {
         toast.error(friendlyError(result.error, 'Failed to upload picture'));

@@ -49,7 +49,6 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
-const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
 const SUPPORTED_STABLES = new Set(['USDC', 'USDT']);
 const SUPPORTED_VA = new Set(['USD', 'EUR', 'GBP']);
 const ACTIVE_WALLET_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
@@ -482,7 +481,6 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
               {/* Fiat virtual accounts first */}
               {visibleVas.map((v, i) => {
                 const cur = String(v.currency).toUpperCase();
-                const curBalance = Number(balanceByCurrency[cur] || 0);
                 return (
                   <button key={v.id} onClick={() => setSelectedVa(v)}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${i > 0 || stables.length > 0 ? `border-t ${tc.borderLight}` : ''}`}>
@@ -493,11 +491,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                       </div>
                       <div className={`text-[11px] ${tc.textMuted}`}>{cur} account</div>
                     </div>
-                    <div className="text-right">
-                      <div className={`text-[15px] font-bold ${tc.text}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {`${CURRENCY_SYMBOL[cur] || ''}${curBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${CURRENCY_SYMBOL[cur] ? '' : ` ${cur}`}`}
-                      </div>
-                      <div className={`text-[10px] ${tc.textMuted} uppercase tracking-wider`}>View details</div>
+                    <div className={`text-right text-[10px] ${tc.textMuted} uppercase tracking-wider`}>
+                      View details
                     </div>
                     <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
                   </button>

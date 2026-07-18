@@ -29,6 +29,7 @@ import { TwoFactorVerify } from './TwoFactorVerify';
 import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, isAppLocked, setAppLocked, clearAppLocked } from '../../utils/supabase/client';
 import { ENV_CONFIG, isKycVerified } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { bootstrapAppReviewDemoCache, isAppReviewDemoEmail } from '../../utils/review/appReviewDemoBootstrap';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -115,14 +116,24 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         localStorage.setItem('borderpay_token', data.session.access_token);
         localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
 
+        const signedInEmail = data.user.email || email;
+        const reviewDemoProfile = bootstrapAppReviewDemoCache(signedInEmail, data.user.id);
+        let userProfile: any = reviewDemoProfile;
 
-        let userProfile: any = null;
-        try {
-          const profileResult = await backendAPI.user.getProfile();
-          if (profileResult.success && profileResult.data?.user) {
-            userProfile = profileResult.data.user;
+        if (!userProfile) {
+          try {
+            const profileResult = await backendAPI.user.getProfile();
+            if (profileResult.success && profileResult.data?.user) {
+              userProfile = profileResult.data.user;
+            }
+          } catch (profileError) {
           }
-        } catch (profileError) {
+        } else if (isAppReviewDemoEmail(signedInEmail)) {
+          void backendAPI.user.getProfile().then((profileResult: any) => {
+            if (profileResult?.success && profileResult.data?.user) {
+              storeUserProfile({ ...userProfile, ...profileResult.data.user });
+            }
+          }).catch(() => { /* keep seeded review cache */ });
         }
 
         // Auth metadata is the source-of-truth for the user's name

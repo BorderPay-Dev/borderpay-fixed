@@ -482,6 +482,17 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   });
   const [unreadCount, setUnreadCount] = useState<number>(() => readCachedUnreadCount(userId));
 
+  useEffect(() => {
+    const onProfilePictureUpdated = (event: Event) => {
+      const next = String((event as CustomEvent)?.detail?.profile_picture_url || '').trim();
+      setShellAvatarUrl(next || null);
+    };
+    window.addEventListener('borderpay:profile_picture_updated', onProfilePictureUpdated as EventListener);
+    return () => {
+      window.removeEventListener('borderpay:profile_picture_updated', onProfilePictureUpdated as EventListener);
+    };
+  }, []);
+
   const updateUnreadCount = useCallback((count: number) => {
     const next = Math.max(0, Math.floor(Number(count) || 0));
     setUnreadCount(next);
