@@ -70,6 +70,11 @@ export function TeamInviteLanding({
 
   const primaryAction = () => {
     try { sessionStorage.setItem('borderpay_pending_team_invite_token', token); } catch { /* noop */ }
+    onNavigateToSignUp();
+  };
+
+  const signInAction = () => {
+    try { sessionStorage.setItem('borderpay_pending_team_invite_token', token); } catch { /* noop */ }
     onNavigateToLogin();
   };
 
@@ -83,22 +88,19 @@ export function TeamInviteLanding({
             </div>
             <h1 className="text-xl font-bold text-white mb-2">Business team invite</h1>
             <p className="text-sm text-white/60 mb-6">
-              Sign in with the email address that received this invitation to join the business workspace.
+              Create a teammate login with the email address that received this invitation. This joins the business workspace; it does not create a separate business account.
             </p>
             <button
               onClick={primaryAction}
               className="w-full py-3 rounded-xl bg-[#C7FF00] text-black font-bold text-sm mb-2"
             >
-              Sign in to accept
+              Create teammate login
             </button>
             <button
-              onClick={() => {
-                try { sessionStorage.setItem('borderpay_pending_team_invite_token', token); } catch { /* noop */ }
-                onNavigateToSignUp();
-              }}
+              onClick={signInAction}
               className="w-full py-2 text-xs text-white/60 hover:text-white"
             >
-              Create an account with this email
+              Already have a BorderPay account? Sign in
             </button>
           </>
         )}

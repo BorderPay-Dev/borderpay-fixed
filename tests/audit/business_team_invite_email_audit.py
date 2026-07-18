@@ -6,6 +6,8 @@ Invariants:
 - Business team invites send a branded email through the unified send-email path.
 - Invite links are token based, stored as hashes, expire, and require same-email auth.
 - Accepted members are recognized as business workspace users on the frontend.
+- Invite landing supports new teammates with signup as the primary path and
+  makes clear signup joins the existing business workspace.
 - Public templates must not expose infrastructure/provider names.
 """
 from pathlib import Path
@@ -32,6 +34,7 @@ def main() -> int:
     template = read("supabase/functions/_shared/email-templates/business/team-invite.ts")
     registry = read("supabase/functions/_shared/email-templates/index.ts")
     app = read("App.tsx")
+    landing = read("components/auth/TeamInviteLanding.tsx")
     main_app = read("components/app/MainApp.tsx")
     api = read("utils/api/backendAPI.ts")
     migration = read("supabase/migrations/20260718093000_business_team_invite_acceptance.sql")
@@ -53,6 +56,13 @@ def main() -> int:
 
     require("TeamInviteLanding" in app and "/team/invite" in app, "App must route team invite links")
     require("borderpay_pending_team_invite_token" in app, "Invite token must survive sign-in/sign-up")
+    require("Create teammate login" in landing, "Invite landing must offer signup as teammate login")
+    require("Already have a BorderPay account? Sign in" in landing, "Invite landing must keep sign-in path for existing users")
+    require("does not create a separate business account" in landing, "Invite landing must not imply a new business workspace")
+    require(
+        landing.find("onNavigateToSignUp()") < landing.find("onNavigateToLogin()"),
+        "Invite landing primary action must be signup before existing-user sign-in",
+    )
     require("acceptInvite" in api and "business-team-accept" in api, "Frontend API must expose acceptInvite")
     require("backendAPI.team.list()" in main_app and "company_name" in main_app, "MainApp must detect accepted team membership")
 
