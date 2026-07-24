@@ -32,7 +32,11 @@ const CORS = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
-const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") || SUPABASE_SERVICE_ROLE_KEY;
+
+const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
@@ -64,6 +68,72 @@ async function deterministicIdempotencyKey(input: {
   const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(digestInput));
   const hash = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 20);
   return `borderpay:va:${input.customerId}:${input.currency.toLowerCase()}:${hash}`;
+}
+
+function opsAlertRecipients(): string[] {
+  const raw = Deno.env.get("BORDERPAY_OPERATIONS_EMAILS") ||
+    Deno.env.get("BORDERPAY_OPERATIONS_EMAIL") ||
+    Deno.env.get("BORDERPAY_SUPPORT_EMAIL") ||
+    "support@borderpayafrica.com";
+  return raw
+    .split(/[,\s]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s));
+}
+
+async function notifyOpsIncident(input: {
+  title: string;
+  severity?: "high" | "critical";
+  userId: string;
+  accountType?: string | null;
+  currency?: string | null;
+  code: string;
+  providerCode?: string | null;
+  providerRequestId?: string | null;
+  message?: string | null;
+}) {
+  if (!SUPABASE_URL || !SEND_EMAIL_TOKEN) return;
+  const recipients = opsAlertRecipients();
+  if (recipients.length === 0) return;
+  const hour = new Date().toISOString().slice(0, 13);
+  await Promise.allSettled(recipients.map(async (to) => {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        template: "admin.incident_alert",
+        to,
+        idempotency_key: `ops:bridge-va:${input.userId}:${input.currency || "none"}:${input.code}:${hour}:${to}`,
+        props: {
+          severity: input.severity || "high",
+          service: "bridge-virtual-account",
+          title: input.title,
+          user_id: input.userId,
+          account_type: input.accountType || "unknown",
+          currency: input.currency || "n/a",
+          code: input.code,
+          provider_code: input.providerCode || "",
+          provider_request_id: input.providerRequestId || "",
+          message: input.message || "",
+          occurred_at: new Date().toISOString(),
+        },
+      }),
+      signal: AbortSignal.timeout(4500),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(JSON.stringify({
+        tag: "ops_incident_email_failed",
+        status: res.status,
+        to,
+        code: input.code,
+        body: text.slice(0, 300),
+      }));
+    }
+  }));
 }
 
 Deno.serve(async (req) => {
@@ -122,6 +192,12 @@ Deno.serve(async (req) => {
   if (action === "capabilities") {
     const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
     if (!identity.ok) {
+      await notifyOpsIncident({
+        title: "Global account capability check failed",
+        userId: user.id,
+        code: identity.failure.reason,
+        message: identity.failure.error,
+      });
       return json({
         success: false,
         ...identity.failure,
@@ -165,13 +241,24 @@ Deno.serve(async (req) => {
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
+    await notifyOpsIncident({
+      title: "Global account activation blocked by identity state",
+      severity: "critical",
+      userId: user.id,
+      currency,
+      code: identity.failure.reason,
+      message: identity.failure.error,
+    });
     return json({
       success: false,
-      ...identity.failure,
+      code: "account_setup_pending",
+      error: `${currency} account details are being prepared. We will notify you once they are ready.`,
+      internal_code: identity.failure.reason,
       summary: {
-        code: identity.failure.code ?? "identity_invariant_violation",
+        code: "account_setup_pending",
+        currency,
       },
-    }, 409);
+    }, 202);
   }
   const profile = identity.context;
   const isBusiness = profile.account_type === "business";
@@ -196,17 +283,6 @@ Deno.serve(async (req) => {
     }, 403);
   }
   logControlledBridgeTraffic("bridge-virtual-account", productCountry, user.id);
-  if (!profile.bridge_customer_id) {
-    return json({
-      success: false,
-      code: "no_customer",
-      error: "Complete account setup before creating a virtual account",
-      required_state: "bridge_customer_created",
-      summary: {
-        code: "no_customer",
-      },
-    }, 409);
-  }
   if (verificationStatus !== "approved") {
     return json({
       success: false,
@@ -218,10 +294,29 @@ Deno.serve(async (req) => {
       },
     }, 409);
   }
+  if (!profile.bridge_customer_id) {
+    await notifyOpsIncident({
+      title: "Approved user missing Bridge customer id",
+      severity: "critical",
+      userId: user.id,
+      accountType: profile.account_type,
+      currency,
+      code: "approved_without_customer_id",
+      message: "Approved entity reached virtual account creation without a Bridge customer id.",
+    });
+    return json({
+      success: false,
+      code: "account_setup_pending",
+      error: `${currency} account details are being prepared. We will notify you once they are ready.`,
+      required_state: "bridge_customer_created",
+      summary: {
+        code: "account_setup_pending",
+        currency,
+      },
+    }, 202);
+  }
 
-  // Funding gate: replace the prior activation-fee model with a minimum
-  // wallet-balance requirement. The user must hold at least $20 USD-equivalent
-  // across their BorderPay wallets — funds are NOT deducted, they stay theirs.
+  // Legacy minimum-balance gate retained as a compatibility no-op.
   {
     const __fund = await requireMinimumWalletBalance(supa, user.id, {
       isBusiness,
@@ -269,16 +364,57 @@ Deno.serve(async (req) => {
     });
   }
 
-  const destination = await loadVirtualAccountDestinationConfig(supa, currency as VaCurrency);
-  const developerFeePercent = await loadVirtualAccountDeveloperFeePercent(supa);
-  const idempotencyKey = await deterministicIdempotencyKey({
-    customerId: profile.bridge_customer_id,
-    currency: currency as VaCurrency,
-    destinationRail: destination.payment_rail,
-    destinationCurrency: destination.currency,
-    destinationAddress: destination.address,
-    developerFeePercent: developerFeePercent,
-  });
+  let destination: Awaited<ReturnType<typeof loadVirtualAccountDestinationConfig>>;
+  let developerFeePercent: string;
+  let idempotencyKey: string;
+  try {
+    destination = await loadVirtualAccountDestinationConfig(supa, currency as VaCurrency);
+    developerFeePercent = await loadVirtualAccountDeveloperFeePercent(supa);
+    idempotencyKey = await deterministicIdempotencyKey({
+      customerId: profile.bridge_customer_id,
+      currency: currency as VaCurrency,
+      destinationRail: destination.payment_rail,
+      destinationCurrency: destination.currency,
+      destinationAddress: destination.address,
+      developerFeePercent: developerFeePercent,
+    });
+  } catch (e) {
+    console.error(JSON.stringify({
+      tag: "bridge_va_destination_config_missing",
+      user_id: user.id,
+      currency,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    await notifyOpsIncident({
+      title: "Global account destination config missing",
+      severity: "critical",
+      userId: user.id,
+      accountType: profile.account_type,
+      currency,
+      code: "destination_config_pending",
+      message: e instanceof Error ? e.message : String(e),
+    });
+    try {
+      await supa.from("pending_va_requests").upsert({
+        user_id:            user.id,
+        bridge_customer_id: profile.bridge_customer_id,
+        currency,
+        status:             "pending",
+        bridge_error:       "Virtual account destination configuration is pending.",
+        bridge_error_code:  "destination_config_pending",
+      }, { onConflict: "user_id,currency" });
+    } catch { /* best-effort */ }
+    return json({
+      success: false,
+      code: "virtual_account_setup_pending",
+      error: `${currency} account setup is being enabled. We will notify you once it is ready.`,
+      currency,
+      summary: {
+        code: "virtual_account_setup_pending",
+        currency,
+      },
+    }, 202);
+  }
 
   try {
     const result = await bridgeProvider.createVirtualAccount({
@@ -373,6 +509,17 @@ Deno.serve(async (req) => {
         idempotency_key: idempotencyKey,
         bridge_error: e.bridge_error ?? null,
       }));
+      await notifyOpsIncident({
+        title: "Bridge virtual account provider error",
+        severity: e.status && e.status >= 500 ? "critical" : "high",
+        userId: user.id,
+        accountType: profile.account_type,
+        currency,
+        code: "bridge_provider_error",
+        providerCode: e.bridge_code ?? null,
+        providerRequestId: e.request_id ?? null,
+        message: e.bridge_error ?? err.message,
+      });
       const code = String(e.bridge_code || "").toLowerCase();
       if (code === "has_not_accepted_tos") {
         return json({
@@ -425,6 +572,15 @@ Deno.serve(async (req) => {
         idempotency_key: idempotencyKey,
         bridge_error: msg,
       }));
+      await notifyOpsIncident({
+        title: "Global account activation failed",
+        severity: "critical",
+        userId: user.id,
+        accountType: profile.account_type,
+        currency,
+        code: "virtual_account_provision_failed",
+        message: msg,
+      });
     }
     // Bridge returns errors like "endorsement_not_granted" / "capability_not_granted"
     // when the customer hasn't been approved for SEPA / Faster Payments / etc. yet.

@@ -24,6 +24,7 @@ import { render as individualPaymentReceived }         from "./individual/paymen
 import { render as individualFounderWelcome }          from "./individual/founder-welcome.ts";
 import { render as individualAccountSuspended }        from "./individual/account-suspended.ts";
 import { render as individualRequestAccountReminder }  from "./individual/request-account-reminder.ts";
+import { render as individualScheduledMaintenance }     from "./individual/scheduled-maintenance.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessPinResetLink }            from "./business/pin-reset-link.ts";
@@ -39,7 +40,9 @@ import { render as businessPaymentReceived }           from "./business/payment-
 import { render as businessFounderWelcome }            from "./business/founder-welcome.ts";
 import { render as businessAccountSuspended }          from "./business/account-suspended.ts";
 import { render as businessRequestAccountReminder }    from "./business/request-account-reminder.ts";
+import { render as businessScheduledMaintenance }       from "./business/scheduled-maintenance.ts";
 import { render as businessTeamInvite }                from "./business/team-invite.ts";
+import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -55,6 +58,7 @@ export type TemplateName =
   | "individual.founder_welcome"
   | "individual.account_suspended"
   | "individual.request_account_reminder"
+  | "individual.scheduled_maintenance"
   | "business.email_verification"
   | "business.pin_reset_link"
   | "business.kyb_submitted"
@@ -69,7 +73,9 @@ export type TemplateName =
   | "business.founder_welcome"
   | "business.account_suspended"
   | "business.request_account_reminder"
-  | "business.team_invite";
+  | "business.scheduled_maintenance"
+  | "business.team_invite"
+  | "admin.incident_alert";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -87,6 +93,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.founder_welcome":         individualFounderWelcome,
   "individual.account_suspended":       individualAccountSuspended,
   "individual.request_account_reminder": individualRequestAccountReminder,
+  "individual.scheduled_maintenance":   individualScheduledMaintenance,
   "business.email_verification":        businessEmailVerification,
   "business.pin_reset_link":            businessPinResetLink,
   "business.kyb_submitted":             businessKybSubmitted,
@@ -101,7 +108,9 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.founder_welcome":           businessFounderWelcome,
   "business.account_suspended":         businessAccountSuspended,
   "business.request_account_reminder":   businessRequestAccountReminder,
+  "business.scheduled_maintenance":      businessScheduledMaintenance,
   "business.team_invite":                businessTeamInvite,
+  "admin.incident_alert":                adminIncidentAlert,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {

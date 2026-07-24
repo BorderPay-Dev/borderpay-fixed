@@ -13,6 +13,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { showToast } from '../common/StatusToast';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { virtualAccountActivationMessage } from '../../utils/virtualAccountActivationCopy';
 
 interface AddWalletScreenProps {
   userId: string;
@@ -66,6 +67,11 @@ function isVerifiedProfile(profile: any): boolean {
   return deriveKycStatus(profile) === 'verified';
 }
 
+function normalizedCountry(value: unknown): string | null {
+  const s = String(value || '').trim().toUpperCase();
+  return s || null;
+}
+
 function countryAllowedVaCurrencies(country: string | null | undefined): BridgeVirtualAccountCurrency[] {
   return bridgeVirtualAccountCurrenciesForCountry(country);
 }
@@ -108,6 +114,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     }
   });
   const [creating, setCreating] = useState<string | null>(null);
+  const [creatingGlobalAccounts, setCreatingGlobalAccounts] = useState(false);
   const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
@@ -123,15 +130,30 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
 
-      let profileCountry = country;
       try {
         const p = await backendAPI.user.getProfile();
         if (p?.success && p?.data?.user) {
           const u = p.data.user;
-          profileCountry = u?.country ? String(u.country).toUpperCase() : null;
+          let hydrated = u;
+          let profileCountry = normalizedCountry(u?.country);
+          if (String(u?.account_type || '').toLowerCase() === 'business') {
+            try {
+              const br = await backendAPI.business.getProfile();
+              if (br?.success && br?.data) {
+                hydrated = {
+                  ...u,
+                  account_type: 'business',
+                  bridge_kyb_status: br.data.bridge_kyb_status ?? u.bridge_kyb_status ?? null,
+                };
+                profileCountry = normalizedCountry(br.data.country) ?? profileCountry;
+              }
+            } catch {
+              // Keep the user profile payload if the business profile refresh fails.
+            }
+          }
           setCountry(profileCountry);
-          setVerified(isVerifiedProfile(u));
-          try { localStorage.setItem('borderpay_user', JSON.stringify(u)); } catch { /* noop */ }
+          setVerified(isVerifiedProfile(hydrated));
+          try { localStorage.setItem('borderpay_user', JSON.stringify({ ...hydrated, country: profileCountry ?? hydrated.country })); } catch { /* noop */ }
         }
       } catch {
         // Keep cached identity state.
@@ -179,8 +201,9 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           currency: card.code as BridgeVirtualAccountCurrency,
         });
         if (!res?.success) {
-          const msg = friendlyError(res?.error, `Could not open ${card.code} account.`);
-          showToast.error(msg);
+          const mapped = virtualAccountActivationMessage(res, card.code);
+          showToast[mapped.type]({ title: mapped.title, message: mapped.message, duration: 6000 });
+          if (mapped.type === 'info') await refresh();
           return;
         }
         showToast.success(`${card.code} account ready`);
@@ -196,6 +219,45 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       await refresh();
     } finally {
       setCreating(null);
+    }
+  };
+
+  const missingGlobalAccounts = useMemo(
+    () => supportedVaCurrencies.filter((currency) => !activeVa.has(currency) && !inactiveVa.has(currency)),
+    [activeVa, inactiveVa, supportedVaCurrencies],
+  );
+
+  const requestAllGlobalAccounts = async () => {
+    if (!verified || creatingGlobalAccounts || missingGlobalAccounts.length === 0) return;
+    setCreatingGlobalAccounts(true);
+    let created = 0;
+    let pending = 0;
+    let failed = 0;
+    try {
+      for (const currency of missingGlobalAccounts) {
+        const res: any = await backendAPI.bridge.virtualAccount.create({ currency });
+        if (res?.success) {
+          created += 1;
+          continue;
+        }
+        const mapped = virtualAccountActivationMessage(res, currency);
+        if (mapped.type === 'info') pending += 1;
+        else failed += 1;
+      }
+      await refresh();
+      if (created > 0) showToast.success(`${created} global account${created === 1 ? '' : 's'} ready`);
+      if (pending > 0) {
+        showToast.info({
+          title: 'Some accounts are being prepared',
+          message: 'We will notify you when the remaining account details are ready.',
+          duration: 6000,
+        });
+      }
+      if (failed > 0 && created === 0 && pending === 0) {
+        showToast.error('Could not activate global accounts right now. Please try again.');
+      }
+    } finally {
+      setCreatingGlobalAccounts(false);
     }
   };
 
@@ -256,7 +318,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     return (
       <button
         onClick={() => void requestWallet(card)}
-        disabled={creating === card.code}
+        disabled={creatingGlobalAccounts || creating === card.code}
         className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
       >
         {creating === card.code ? 'Adding…' : (card.type === 'virtual_account' ? 'Activate' : 'Add')}
@@ -277,6 +339,17 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
             Add only what you need. Unsupported wallets stay locked for your region.
           </p>
         </div>
+
+        {missingGlobalAccounts.length > 1 && (
+          <button
+            type="button"
+            onClick={requestAllGlobalAccounts}
+            disabled={!verified || creatingGlobalAccounts}
+            className="mb-4 w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {creatingGlobalAccounts ? 'Activating global accounts...' : `Activate ${missingGlobalAccounts.join(', ')} accounts`}
+          </button>
+        )}
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
           {CARDS.map((card, idx) => {

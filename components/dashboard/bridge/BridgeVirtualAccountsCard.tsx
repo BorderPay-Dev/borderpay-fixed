@@ -10,7 +10,6 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { friendlyError } from '../../../utils/errors/friendlyError';
 import { motion } from 'motion/react';
 import { Building2, Plus, Loader2, Lock, ChevronRight } from 'lucide-react';
 import { Skeleton } from '../../common/Skeleton';
@@ -24,6 +23,8 @@ import {
 } from '../../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
+import { virtualAccountActivationMessage } from '../../../utils/virtualAccountActivationCopy';
+import { financialCacheKey } from '../../../utils/financial/cacheScope';
 
 type Currency = BridgeVirtualAccountCurrency;
 
@@ -47,7 +48,10 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const vaCacheKey = `borderpay_va_${isBusiness ? 'biz' : 'ind'}_v1`;
+  const vaCacheKey = useMemo(
+    () => financialCacheKey('borderpay_va_card_v1', { userId, accountType: isBusiness ? 'business' : 'individual' }),
+    [userId, isBusiness],
+  );
   const cachedRows = useMemo<VARow[]>(() => {
     try { const raw = localStorage.getItem(vaCacheKey); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -55,11 +59,12 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const [rows, setRows]       = useState<VARow[]>(cachedRows);
   const [loading, setLoading] = useState(cachedRows.length === 0);
   const [creating, setCreating] = useState<Currency | null>(null);
+  const [creatingAll, setCreatingAll] = useState(false);
   const [derivedApproved, setDerivedApproved] = useState(false);
   const [country, setCountry] = useState<string | null>(() => authAPI.getStoredUser()?.country ?? null);
   const [selected, setSelected] = useState<VARow | null>(null);
 
-  const isApproved = kycApproved ?? derivedApproved;
+  const isApproved = Boolean(kycApproved) || derivedApproved;
   const fallbackCurrencies = useMemo(
     () => bridgeVirtualAccountCurrenciesForCountry(country),
     [country],
@@ -82,7 +87,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   useEffect(() => { refresh(); }, [userId, isBusiness]);
 
   useEffect(() => {
-    if (kycApproved !== undefined) return;
+    if (kycApproved === true) return;
     let alive = true;
     (async () => {
       if (isBusiness) {
@@ -143,11 +148,49 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
     const r = await backendAPI.bridge.virtualAccount.create({ currency });
     setCreating(null);
     if (!r.success) {
-      showToast.error(friendlyError(r.error, tt('dash.va.create.failed', 'Could not create the virtual account.')));
+      const mapped = virtualAccountActivationMessage(r, currency);
+      showToast[mapped.type]({ title: mapped.title, message: mapped.message, duration: 6000 });
+      if (mapped.type === 'info') refresh();
       return;
     }
     showToast.success(tt('dash.va.create.success', `${currency} account created`));
     refresh();
+  };
+
+  const handleCreateAll = async () => {
+    if (!isApproved || creatingAll || missingCurrencies.length === 0) return;
+    setCreatingAll(true);
+    let created = 0;
+    let pending = 0;
+    let failed = 0;
+    try {
+      for (const currency of missingCurrencies) {
+        const r = await backendAPI.bridge.virtualAccount.create({ currency });
+        if (r?.success) {
+          created += 1;
+          continue;
+        }
+        const mapped = virtualAccountActivationMessage(r, currency);
+        if (mapped.type === 'info') pending += 1;
+        else failed += 1;
+      }
+      await refresh();
+      if (created > 0) {
+        showToast.success(`${created} global account${created === 1 ? '' : 's'} activated`);
+      }
+      if (pending > 0) {
+        showToast.info({
+          title: 'Some accounts are being prepared',
+          message: 'We will notify you when the remaining account details are ready.',
+          duration: 6000,
+        });
+      }
+      if (failed > 0 && created === 0 && pending === 0) {
+        showToast.error('Could not activate global accounts right now. Please try again.');
+      }
+    } finally {
+      setCreatingAll(false);
+    }
   };
 
   const railLabel = (c: Currency) => (c === 'EUR' ? 'SEPA · bank transfer' : c === 'GBP' ? 'Faster Payments' : 'ACH / Wire');
@@ -213,11 +256,25 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
           )}
 
           {missingCurrencies.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-3">
+              {missingCurrencies.length > 1 && (
+                <button
+                  disabled={!isApproved || creatingAll}
+                  onClick={handleCreateAll}
+                  className={`w-full h-11 rounded-2xl text-sm font-bold transition ${
+                    isApproved
+                      ? 'bg-[#C7FF00] text-black hover:opacity-90'
+                      : `${tc.bgAlt} ${tc.textMuted} cursor-not-allowed`
+                  } disabled:opacity-60`}
+                >
+                  {creatingAll ? 'Activating global accounts...' : `Activate ${missingCurrencies.join(', ')} accounts`}
+                </button>
+              )}
+              <div className="flex flex-wrap gap-2">
               {missingCurrencies.map(c => (
                 <button
                   key={c}
-                  disabled={!isApproved || creating === c}
+                  disabled={!isApproved || creatingAll || creating === c}
                   onClick={() => handleCreate(c)}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition
                     ${isApproved
@@ -230,6 +287,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
                   {tt('dash.va.add', 'Add')} {c}
                 </button>
               ))}
+              </div>
             </div>
           )}
 

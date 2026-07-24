@@ -12,8 +12,8 @@
  *
  *   • Card                  → Locked. Card issuing is not enabled.
  *
- * Provider errors are surfaced to the user. Only intentional future-state
- * products create `pending_provisioning_requests` rows.
+ * Provider errors are mapped to controlled user copy. Only intentional
+ * future-state products create `pending_provisioning_requests` rows.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -30,6 +30,8 @@ import {
   isBridgeCustodialWalletSupported,
   type BridgeVirtualAccountCurrency,
 } from '../../utils/compliance/partnerCountryPolicy';
+import { showToast } from '../common/StatusToast';
+import { virtualAccountActivationMessage } from '../../utils/virtualAccountActivationCopy';
 
 interface RequestProvisioningModalProps {
   open: boolean;
@@ -55,6 +57,11 @@ const STABLECOIN_NETWORKS: Record<string, string[]> = {
   PYUSD: ['ETH', 'SOLANA'],
   USDB:  ['BASE'],   // Bridge custodial USDB, canonical chain
 };
+
+function normalizedCountry(value: unknown): string | null {
+  const s = String(value || '').trim().toUpperCase();
+  return s || null;
+}
 
 export function RequestProvisioningModal({ open, onClose, onProvisioned }: RequestProvisioningModalProps) {
   const [selection, setSelection]       = useState<Product | null>(null);
@@ -84,16 +91,23 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
         if (cancelled) return;
         if (r?.success && r.data?.user) {
           const user = r.data.user;
-          setVerified(isKycVerified(user));
-          setCountry(user.country ?? cachedUser?.country ?? null);
+          let hydrated = user;
+          let nextCountry = normalizedCountry(user.country) ?? normalizedCountry(cachedUser?.country);
           if (user.account_type === 'business') {
             try {
               const br = await backendAPI.business.getProfile();
               if (!cancelled && br?.success && br.data) {
-                setCountry(br.data.country ?? user.country ?? cachedUser?.country ?? null);
+                hydrated = {
+                  ...user,
+                  account_type: 'business',
+                  bridge_kyb_status: br.data.bridge_kyb_status ?? user.bridge_kyb_status ?? null,
+                };
+                nextCountry = normalizedCountry(br.data.country) ?? nextCountry;
               }
             } catch { /* ignore — keep user profile country */ }
           }
+          setVerified(isKycVerified(hydrated));
+          setCountry(nextCountry);
         }
       } catch { /* ignore — keep cached */ }
     })();
@@ -157,7 +171,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
     setSelection(p);
     setDoneMessage(null);
     setErrMessage(null);
-    if (p.key === 'usd-va')          setCurrency(availableVaCurrencies[0] ?? '');
+    if (p.key === 'usd-va')          setCurrency(availableVaCurrencies.length > 1 ? 'ALL' : (availableVaCurrencies[0] ?? ''));
     else if (p.key === 'african')    setCurrency('NGN');
     else if (p.key === 'stablecoin') { setCurrency('USDC'); setNetwork('SOLANA'); }
   };
@@ -244,6 +258,37 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   // ── Global Account (USD / EUR / GBP) ────────────────────────────────
   const submitUsdVa = async () => {
     const ccy = (currency || 'USD').toUpperCase();
+    if (ccy === 'ALL') {
+      let created = 0;
+      let pending = 0;
+      let failed = 0;
+      for (const cur of availableVaCurrencies) {
+        const res: any = await backendAPI.provisioning.request({
+          type: 'virtual_account',
+          currency: cur,
+        });
+        if (res?.success) {
+          created += 1;
+          continue;
+        }
+        const mapped = virtualAccountActivationMessage(res, cur);
+        if (mapped.type === 'info') pending += 1;
+        else failed += 1;
+      }
+      if (created > 0 || pending > 0) {
+        const parts = [
+          created > 0 ? `${created} ready` : '',
+          pending > 0 ? `${pending} being prepared` : '',
+        ].filter(Boolean).join(', ');
+        const m = `Global accounts requested: ${parts}.`;
+        setDoneMessage(m);
+        toast.success(m);
+        onProvisioned?.();
+        return;
+      }
+      setErrMessage(failed > 0 ? 'Could not activate global accounts right now. Please try again.' : 'No global account currencies are available.');
+      return;
+    }
     if (!availableVaCurrencies.includes(ccy as BridgeVirtualAccountCurrency)) {
       setErrMessage(`${ccy} global accounts are not available for your country.`);
       return;
@@ -263,9 +308,10 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
       setErrMessage('Complete KYC verification before requesting global accounts.');
       return;
     }
-    const detail = r?.error || 'Unable to create this global account right now.';
-    setErrMessage(detail);
-    toast.error(detail);
+    const mapped = virtualAccountActivationMessage(r, ccy);
+    setErrMessage(mapped.message);
+    showToast[mapped.type]({ title: mapped.title, message: mapped.message, duration: 6000 });
+    if (mapped.type === 'info') onProvisioned?.();
   };
 
   // ── African Currency Virtual Account ────────────────────────────────
@@ -384,6 +430,42 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
                     Change
                   </button>
                 </div>
+
+                {/* African currency picker */}
+                {selection.key === 'usd-va' && (
+                  <div>
+                    <label className="text-[11px] uppercase tracking-wider text-white/50">Account currency</label>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {availableVaCurrencies.length > 1 && (
+                        <button
+                          onClick={() => setCurrency('ALL')}
+                          disabled={submitting}
+                          className={`col-span-2 py-2.5 rounded-lg text-xs font-semibold border ${
+                            currency === 'ALL'
+                              ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
+                              : 'bg-white/5 border-white/10 text-white/70 hover:text-white'
+                          }`}
+                        >
+                          Activate all ({availableVaCurrencies.join(', ')})
+                        </button>
+                      )}
+                      {availableVaCurrencies.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => setCurrency(c)}
+                          disabled={submitting}
+                          className={`py-2 rounded-lg text-xs font-semibold border ${
+                            currency === c
+                              ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
+                              : 'bg-white/5 border-white/10 text-white/70 hover:text-white'
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* African currency picker */}
                 {selection.key === 'african' && (
