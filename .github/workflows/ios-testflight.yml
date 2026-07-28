@@ -7,6 +7,10 @@ on:
         description: "Marketing version shown in App Store Connect"
         required: true
         default: "1.0"
+      build_number:
+        description: "App Store build number. Must be higher than the rejected build, e.g. 32."
+        required: false
+        default: ""
       upload_to_testflight:
         description: "Upload the signed IPA to TestFlight"
         required: true
@@ -33,7 +37,7 @@ jobs:
       ARCHIVE_NAME: BorderPayAfrica.xcarchive
       EXPORT_DIR: build/ios
       APP_VERSION: ${{ inputs.app_version }}
-      BUILD_NUMBER: ${{ github.run_number }}
+      REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
@@ -73,6 +77,23 @@ jobs:
 
       - name: Sync Capacitor iOS project
         run: npx cap sync ios
+
+      - name: Resolve App Store build number
+        id: ios-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="${REQUESTED_BUILD_NUMBER:-$GITHUB_RUN_NUMBER}"
+          if ! [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Build number must be a positive integer, got: $BUILD_NUMBER" >&2
+            exit 1
+          fi
+          if [ "$BUILD_NUMBER" -le 31 ]; then
+            echo "Build number must be higher than rejected App Store build 31, got: $BUILD_NUMBER" >&2
+            exit 1
+          fi
+          echo "number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Using iOS build number $BUILD_NUMBER"
 
       - name: Install App Store Connect API key
         id: asc-key
@@ -142,7 +163,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             MARKETING_VERSION="$APP_VERSION" \
-            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CURRENT_PROJECT_VERSION="${{ steps.ios-build.outputs.number }}" \
             clean archive
 
       - name: Export signed IPA
