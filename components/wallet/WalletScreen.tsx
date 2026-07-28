@@ -32,6 +32,7 @@ import {
   AssetBadge, WalletDetailSheet, AccountDetailSheet, chainLabel, assetName,
 } from '../dashboard/bridge/WalletVisuals';
 import { SkeletonRows } from '../common/Skeleton';
+import { FloatingBackButton } from '../common/FloatingBackButton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
@@ -444,7 +445,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-5 pb-28">
+      <FloatingBackButton onBack={onBack} label="Return to main app" />
+      <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-28">
 
         {/* Header row */}
         <div className="flex items-center justify-between mb-4">
