@@ -5,7 +5,7 @@
 // Idempotent: creates a wallet only if that (currency, chain) is missing; if it
 // already exists (incl. created on the Bridge dashboard once synced), it's a
 // no-op. Safe to call on every dashboard load — ineligible users get a silent
-// no-op (NO plan_required 402, so it never triggers the activation popup).
+// no-op for users who are not yet eligible.
 //
 // POST {} → { success, data: { wallets: [{symbol, chain, address, already}] } }
 
@@ -14,6 +14,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+
+const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -41,6 +43,13 @@ Deno.serve(async (req) => {
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
+  let body: { user_id?: string; email?: string } = {};
+  try { body = await req.json(); } catch { /* body optional for normal user path */ }
+
+  if (timingSafeEqualStr(token, SERVICE_ROLE) && (body.user_id || body.email)) {
+    return provisionForOperator(body);
+  }
+
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
@@ -99,3 +108,101 @@ Deno.serve(async (req) => {
 
   return json({ success: true, data: { wallets: out } });
 });
+
+async function provisionForOperator(body: { user_id?: string; email?: string }) {
+  const userId = String(body.user_id || "").trim();
+  const email = String(body.email || "").trim().toLowerCase();
+  if (!userId && !email) return json({ success: false, error: "user_id or email required" }, 400);
+
+  let query = supa
+    .from("user_profiles")
+    .select("id,email,account_type,bridge_customer_id,kyc_status,bridge_kyc_status,country")
+    .limit(1);
+  query = userId ? query.eq("id", userId) : query.ilike("email", email);
+  const { data: rows, error } = await query;
+  if (error) return json({ success: false, error: error.message }, 500);
+  const profile = rows?.[0];
+  if (!profile?.id) return json({ success: false, error: "User not found" }, 404);
+  if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);
+  if (String(profile.bridge_kyc_status || "").toLowerCase() !== "approved" && String(profile.kyc_status || "").toLowerCase() !== "verified") {
+    return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
+  }
+  if (isBridgeBlocked(profile.country)) return json({ success: false, code: "country_blocked", country: profile.country }, 403);
+  if (!isBridgeCustodialWalletSupported(profile.country)) {
+    return json({
+      success: false,
+      code: "wallet_country_not_supported",
+      error: "Bridge custodial wallets are not available for this country. Use a saved external wallet address as the virtual-account destination.",
+      country: profile.country,
+    }, 403);
+  }
+
+  const isBusiness = profile.account_type === "business";
+  const ownerCols: Record<string, unknown> = { user_id: profile.id };
+  if (isBusiness) ownerCols.business_user_id = profile.id;
+  const out: Array<Record<string, unknown>> = [];
+
+  for (const { symbol, chain } of DEFAULTS) {
+    const { data: existing } = await supa
+      .from("bridge_wallets")
+      .select("bridge_wallet_id,address,currency,chain,status")
+      .eq("bridge_customer_id", profile.bridge_customer_id)
+      .ilike("currency", symbol)
+      .ilike("chain", chain)
+      .maybeSingle();
+    if (existing?.bridge_wallet_id) {
+      out.push({ ...existing, symbol, display_chain: chain.toLowerCase(), already: true });
+      continue;
+    }
+
+    try {
+      const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: symbol as any, chain: chain as any });
+      const bridgeWalletRow = {
+        ...ownerCols,
+        bridge_customer_id: profile.bridge_customer_id,
+        bridge_wallet_id: created.wallet_id,
+        currency: symbol,
+        chain: chain.toLowerCase(),
+        address: created.deposit_address,
+        status: "active",
+        updated_at: new Date().toISOString(),
+      };
+      const { error: bwErr } = await supa.from("bridge_wallets").upsert(bridgeWalletRow as Record<string, unknown>, { onConflict: "bridge_wallet_id", ignoreDuplicates: false });
+      const { error: wErr } = await supa.from("wallets").upsert({
+        user_id: profile.id,
+        currency: symbol,
+        provider: "bridge",
+        asset_type: "stablecoin",
+        stablecoin_chain: chain.toLowerCase(),
+        bridge_wallet_id: created.wallet_id,
+        virtual_account_number: created.deposit_address,
+        balance: 0,
+        status: "active",
+      });
+      if (bwErr || wErr) {
+        out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: false, bridge_wallet_id: created.wallet_id, error: (bwErr || wErr)?.message });
+      } else {
+        out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
+      }
+    } catch (e) {
+      out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  return json({
+    success: out.some((row) => row.persisted === true || row.already === true),
+    user: { id: profile.id, email: profile.email, country: profile.country, bridge_customer_id: profile.bridge_customer_id },
+    data: { wallets: out },
+  });
+}
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const enc = new TextEncoder();
+  const aa = enc.encode(a);
+  const bb = enc.encode(b);
+  if (aa.length !== bb.length) return false;
+  let out = 0;
+  for (let i = 0; i < aa.length; i++) out |= aa[i] ^ bb[i];
+  return out === 0;
+}

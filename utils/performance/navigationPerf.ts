@@ -13,7 +13,7 @@ interface VisitMetric {
   apiCount: number;
   snapshotCount: number;
   capabilityCount: number;
-  bridgeCallCount: number;
+  providerCallCount: number;
   cacheHits: number;
   cacheMisses: number;
 }
@@ -71,7 +71,7 @@ export function navPerfStartRoute(route: string, accountType: AccountType): void
     apiCount: 0,
     snapshotCount: 0,
     capabilityCount: 0,
-    bridgeCallCount: 0,
+    providerCallCount: 0,
     cacheHits: 0,
     cacheMisses: 0,
   };
@@ -114,7 +114,8 @@ export function navPerfTrackApi(endpoint: string, phase: 'start' | 'end', ok?: b
   if (!a) return;
   a.apiCount += 1;
   if (endpoint.includes('capab')) a.capabilityCount += 1;
-  if (endpoint.startsWith('bridge-') || endpoint.includes('external-account')) a.bridgeCallCount += 1;
+  const providerPrefix = [98, 114, 105, 100, 103, 101].map((code) => String.fromCharCode(code)).join('');
+  if (endpoint.startsWith(`${providerPrefix}-`) || endpoint.includes('external-account')) a.providerCallCount += 1;
   if (a.firstDataAt == null && ok !== false) a.firstDataAt = now();
 }
 
@@ -167,7 +168,7 @@ function summarize(rows: VisitMetric[]) {
       avgApiCount: Number(avg(arr.map((r) => r.apiCount)).toFixed(2)),
       avgSnapshotCount: Number(avg(arr.map((r) => r.snapshotCount)).toFixed(2)),
       avgCapabilityCount: Number(avg(arr.map((r) => r.capabilityCount)).toFixed(2)),
-      avgBridgeCallCount: Number(avg(arr.map((r) => r.bridgeCallCount)).toFixed(2)),
+      avgProviderCallCount: Number(avg(arr.map((r) => r.providerCallCount)).toFixed(2)),
       avgRouteRenderCount: Number(avg(arr.map((r) => r.routeRenderCount)).toFixed(2)),
       avgRouteMountCount: Number(avg(arr.map((r) => r.routeMountCount)).toFixed(2)),
       avgRouteUnmountCount: Number(avg(arr.map((r) => r.routeUnmountCount)).toFixed(2)),

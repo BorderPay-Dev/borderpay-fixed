@@ -54,9 +54,11 @@ export function isValidCryptoAddress(network: CryptoNetwork, address: string): b
 interface Props {
   values:   CryptoWithdrawalValues;
   onChange: (patch: Partial<CryptoWithdrawalValues>) => void;
+  readOnly?: boolean;
+  routeLabel?: string;
 }
 
-export function ExternalCryptoWithdrawalFields({ values, onChange }: Props) {
+export function ExternalCryptoWithdrawalFields({ values, onChange, readOnly = false, routeLabel }: Props) {
   const tc = useThemeClasses();
   const def = NETWORKS.find((n) => n.id === values.network) || NETWORKS[0];
   const addr = (values.address || '').trim();
@@ -69,6 +71,7 @@ export function ExternalCryptoWithdrawalFields({ values, onChange }: Props) {
         <span className={`block text-[11px] font-semibold uppercase tracking-wider ${tc.textMuted} mb-1.5`}>Network</span>
         <select
           value={values.network}
+          disabled={readOnly}
           onChange={(e) => {
             const next = e.target.value as CryptoNetwork;
             const nd = NETWORKS.find((n) => n.id === next)!;
@@ -76,7 +79,7 @@ export function ExternalCryptoWithdrawalFields({ values, onChange }: Props) {
             const token = nd.tokens.includes(values.token) ? values.token : nd.tokens[0];
             onChange({ network: next, token });
           }}
-          className={`w-full h-11 px-3 rounded-xl border ${tc.inputBg} text-sm outline-none`}
+          className={`w-full h-11 px-3 rounded-xl border ${tc.inputBg} text-sm outline-none disabled:opacity-70`}
         >
           {NETWORKS.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
         </select>
@@ -92,8 +95,9 @@ export function ExternalCryptoWithdrawalFields({ values, onChange }: Props) {
               <button
                 key={t}
                 type="button"
+                disabled={readOnly}
                 onClick={() => onChange({ token: t })}
-                className={`flex-1 h-10 rounded-xl text-sm font-semibold transition-colors ${
+                className={`flex-1 h-10 rounded-xl text-sm font-semibold transition-colors disabled:opacity-70 ${
                   active ? 'bg-[#C7FF00] text-black' : `${tc.card} ${tc.cardBorder} border ${tc.text}`
                 }`}
               >
@@ -113,8 +117,9 @@ export function ExternalCryptoWithdrawalFields({ values, onChange }: Props) {
           <Wallet className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${tc.textMuted}`} />
           <input
             value={values.address}
+            readOnly={readOnly}
             onChange={(e) => onChange({ address: e.target.value })}
-            placeholder={`Paste the recipient ${def.label} address`}
+            placeholder={readOnly ? 'Saved withdrawal wallet address' : `Paste the recipient ${def.label} address`}
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"
@@ -133,7 +138,9 @@ export function ExternalCryptoWithdrawalFields({ values, onChange }: Props) {
         <span className={`block text-[11px] mt-1 ${valid === false ? 'text-red-400' : tc.textMuted}`}>
           {valid === false
             ? `Invalid address for ${def.label}. Expected ${ADDRESS_RULES[def.family].hint}.`
-            : `Send only ${values.token} on ${def.label}. Wrong-network transfers are unrecoverable.`}
+            : readOnly
+              ? routeLabel || `BorderPay route for ${values.token} on ${def.label}.`
+              : `Send only ${values.token} on ${def.label}. Wrong-network transfers are unrecoverable.`}
         </span>
       </label>
     </div>

@@ -1,7 +1,7 @@
 import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, firstName, RenderedEmail } from "../layout.ts";
 
 /**
- * Individual virtual-account / wallet provisioning result — terminal only
+ * Individual global-account / wallet provisioning result — terminal only
  * (provisioned success or failed), per the webhook-email policy. Sent by the
  * worker on the terminal VA/wallet lifecycle outcome.
  */
@@ -16,16 +16,16 @@ export interface IndividualAccountReadyProps {
 export function render(p: IndividualAccountReadyProps): RenderedEmail {
   const name = firstName(p.full_name) || "there";
   const ok   = p.outcome === "provisioned";
-  const productLabel = p.product === "wallet" ? "stablecoin wallet" : "virtual account";
+  const productLabel = p.product === "wallet" ? "digital dollar wallet" : "global account";
   const cur  = p.currency ? `${p.currency.toUpperCase()} ` : "";
 
   const subject = ok
-    ? `Your ${cur}${productLabel} is ready`
+    ? `Your ${cur}${productLabel} is active`
     : `We couldn't set up your ${productLabel}`;
 
-  const heading = ok ? "Account ready" : "Setup didn't complete";
+  const heading = ok ? "Your global account is active" : "Setup didn't complete";
   const introText = ok
-    ? `Hi ${name}, your ${cur}${productLabel} is provisioned and ready to use.`
+    ? `Hi ${name}, your ${cur}${productLabel} is active and ready to receive payments.`
     : `Hi ${name}, we hit a problem setting up your ${cur}${productLabel}.`;
 
   const reasonBlock = !ok && p.reason
@@ -33,7 +33,7 @@ export function render(p: IndividualAccountReadyProps): RenderedEmail {
     : "";
 
   const closing = ok
-    ? "Open BorderPay to see your account details."
+    ? "Open BorderPay to view your account details and share them with clients or partners."
     : `Please try again from the app, or contact ${BORDERPAY_BRAND.supportEmail} if it persists.`;
 
   const body = ok
@@ -51,7 +51,7 @@ export function render(p: IndividualAccountReadyProps): RenderedEmail {
     text: textLayout({
       heading,
       body: ok
-        ? `Your ${cur}${productLabel} is ready.`
+        ? `Your ${cur}${productLabel} is active and ready to receive payments. Open BorderPay to view your account details.`
         : `Setup failed.\nReason: ${p.reason || "—"}\n${closing}`,
       ctaText: "Open BorderPay", ctaUrl: BORDERPAY_BRAND.appUrl,
     }),

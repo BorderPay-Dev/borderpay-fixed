@@ -35,5 +35,5 @@ export function financialCacheKey(
   // One financial engine: cache scope is user-level, not account-type-level.
   // Splitting by account type causes avoidable cache misses and slower route
   // paints for business users even when the underlying snapshot data is shared.
-  return `${base}:${resolved.userId}`;
+  return `${base}:financial-v2:${resolved.userId}`;
 }

@@ -121,7 +121,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("id, email, account_type, country")
+    .select("id, email, account_type, country, bridge_customer_id")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
@@ -162,9 +162,10 @@ Deno.serve(async (req: Request) => {
     endorsements:         body.endorsements ?? ["base"],
     redirect_uri:         body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
   };
-  if (biz.bridge_customer_id) reqBody.customer_id = biz.bridge_customer_id;
+  const existingCustomerId = biz.bridge_customer_id || profile.bridge_customer_id;
+  if (existingCustomerId) reqBody.customer_id = existingCustomerId;
 
-  const idemSource = biz.bridge_customer_id || user.id;
+  const idemSource = existingCustomerId || user.id;
   let r = await bridgePost(
     "/v0/kyc_links",
     reqBody,
@@ -175,7 +176,7 @@ Deno.serve(async (req: Request) => {
 
   // Legacy safety: stale/invalid stored bridge_customer_id can block KYB.
   // Retry once without customer_id so Bridge hosted flow can create/recover.
-  if (!r.ok && !link && biz.bridge_customer_id) {
+  if (!r.ok && !link && existingCustomerId) {
     const fallbackBody = { ...reqBody };
     delete fallbackBody.customer_id;
     r = await bridgePost(
@@ -206,10 +207,11 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
+  const customerId = link.customer_id || existingCustomerId || null;
   const { error: updateErr } = await supa.from("business_profiles").update({
     bridge_kyb_link_id:  link.link_id,
     bridge_kyb_link_url: link.link_url,
-    ...(link.customer_id ? { bridge_customer_id: link.customer_id } : {}),
+    ...(customerId ? { bridge_customer_id: customerId } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("user_id", user.id);
   if (updateErr) {
@@ -219,6 +221,21 @@ Deno.serve(async (req: Request) => {
       error:   `business_profiles update failed: ${updateErr.message}`,
       bridge_request_id: r.request_id,
     }, 500);
+  }
+
+  if (customerId) {
+    const { error: profileUpdateErr } = await supa.from("user_profiles").update({
+      bridge_customer_id: customerId,
+      updated_at:         new Date().toISOString(),
+    }).eq("id", user.id);
+    if (profileUpdateErr) {
+      console.error(`bridge-kyb-link: user_profiles customer mirror failed for user=${user.id}: ${profileUpdateErr.message}`);
+      return json({
+        success: false,
+        error:   `user_profiles update failed: ${profileUpdateErr.message}`,
+        bridge_request_id: r.request_id,
+      }, 500);
+    }
   }
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;

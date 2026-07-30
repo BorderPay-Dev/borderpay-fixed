@@ -25,6 +25,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function maskIdNumber(value: unknown): string | null {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  const compact = s.replace(/\s+/g, '');
+  if (compact.length <= 4) return '*'.repeat(compact.length);
+  return `${'*'.repeat(Math.max(4, Math.min(8, compact.length - 4)))}${compact.slice(-4)}`;
+}
+
+function normalizeMetadata(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -48,7 +62,7 @@ serve(async (req) => {
     // ── user_profiles (provider-neutral fields only) ───────────────────
     const { data: profiles, error: dbError } = await supabase
       .from('user_profiles')
-      .select('id, full_name, email, phone, country, account_type, kyc_status, kyc_level, kyc_verified_at, bridge_customer_id, bridge_kyc_status, account_status, created_at, updated_at')
+      .select('id, full_name, email, phone, country, account_type, kyc_status, kyc_level, kyc_verified_at, bridge_customer_id, bridge_kyc_status, account_status, date_of_birth, id_number, id_type, bridge_identity_metadata, bridge_identity_synced_at, created_at, updated_at')
       .order('updated_at', { ascending: false });
 
     if (dbError) {
@@ -61,7 +75,7 @@ serve(async (req) => {
     // ── business_profiles (KYB status for business users) ─────────────
     const { data: businesses } = await supabase
       .from('business_profiles')
-      .select('user_id, bridge_kyb_status, bridge_kyb_completed_at, company_name, registration_number');
+      .select('user_id, bridge_kyb_status, bridge_kyb_completed_at, company_name, registration_number, bridge_identity_metadata, bridge_identity_synced_at');
     const kybByUser: Record<string, any> = {};
     for (const b of (businesses || [])) {
       kybByUser[(b as any).user_id] = b;
@@ -100,6 +114,14 @@ serve(async (req) => {
       const isBusiness        = profile.account_type === 'business';
       const biz               = kybByUser[profile.id] || null;
       const bridgeReviewStatus = isBusiness ? (biz?.bridge_kyb_status ?? null) : (profile.bridge_kyc_status ?? null);
+      const identityMetadata = normalizeMetadata(isBusiness && biz?.bridge_identity_metadata
+        ? biz.bridge_identity_metadata
+        : profile.bridge_identity_metadata);
+      const metadataLast4 = typeof identityMetadata.id_number_last4 === 'string'
+        ? identityMetadata.id_number_last4
+        : null;
+      const idNumberLast4 = metadataLast4 || (profile.id_number ? String(profile.id_number).replace(/\s+/g, '').slice(-4) : null);
+      const idNumberPresent = Boolean(profile.id_number || identityMetadata.id_number_present || idNumberLast4);
 
       return {
         user_id:          profile.id,
@@ -122,6 +144,18 @@ serve(async (req) => {
           kyb_completed_at:   biz?.bridge_kyb_completed_at || null,
           company_name:       biz?.company_name || null,
           registration_number: biz?.registration_number || null,
+          identity: {
+            id_type:                  profile.id_type || null,
+            id_number_present:        idNumberPresent,
+            id_number_masked:         maskIdNumber(profile.id_number) || (idNumberLast4 ? `****${idNumberLast4}` : null),
+            date_of_birth:            profile.date_of_birth || null,
+            bridge_identity_synced_at: (isBusiness ? biz?.bridge_identity_synced_at : profile.bridge_identity_synced_at) || null,
+            source: {
+              id_number:     typeof identityMetadata.id_number_source === 'string' ? identityMetadata.id_number_source : null,
+              id_type:       typeof identityMetadata.id_type_source === 'string' ? identityMetadata.id_type_source : null,
+              date_of_birth: typeof identityMetadata.date_of_birth_source === 'string' ? identityMetadata.date_of_birth_source : null,
+            },
+          },
         },
 
         // Historical verification jobs (pre-Bridge). Provider column is

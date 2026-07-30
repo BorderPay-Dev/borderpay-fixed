@@ -14,8 +14,11 @@
 
 /** Bridge developer-fee percentages. Bridge deducts these from transfers. */
 export const BRIDGE_DEVELOPER_FEE_PERCENT = {
-  virtual_account_fiat:      2.5,
-  external_account_offramp:  1.0,
+  virtual_account_fiat_individual: 2.5,
+  virtual_account_fiat_business:   2.0,
+  external_account_offramp:        1.0,
+  crypto_to_crypto_route:          1.0,
+  crypto_to_crypto_payout:         0.0,
 } as const;
 
 /** Bridge fixed trade-rate config. This is NOT a developer fee. */
@@ -44,7 +47,7 @@ export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
 
 /**
  * African payout markup by ACCOUNT TYPE (current model — flat, plan-independent,
- * since monthly plans are being replaced by a one-time activation fee):
+ * retained for compatibility with older access rows):
  *   • Individual: 0.75%
  *   • Business:   0.50%
  * Stacked on the raw local-currency settlement (pass-through) cost.
@@ -64,10 +67,15 @@ export function africanPayoutMarkupPercentForAccount(accountType: string | null 
 export function bridgeDeveloperFeePercent(
   paymentRail: string | null | undefined,
   _currency: string | null | undefined,
+  accountType?: string | null | undefined,
 ): number {
   const rail = String(paymentRail ?? '').toLowerCase();
   if (rail === 'external_account_offramp') return BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp;
-  return BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat;
+  if (rail === 'crypto_to_crypto_route') return BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_route;
+  if (rail === 'crypto_to_crypto_payout') return BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_payout;
+  return String(accountType ?? '').toLowerCase() === 'business'
+    ? BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_business
+    : BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_individual;
 }
 
 /** BorderPay African payout markup percent for a subscription plan. */

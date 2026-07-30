@@ -116,7 +116,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const ctaLabel =
     status === 'not_started' ? (isBusiness ? tt('dash.kyb.start',     'Start business verification')   : tt('dash.kyc.start',     'Start identity verification'))
   : status === 'pending'     ? (isBusiness ? tt('dash.kyb.continue',  'Continue verification')         : tt('dash.kyc.continue',  'Continue verification'))
-  : status === 'rejected'    ? (isBusiness ? tt('dash.kyb.retry',     'Retry verification')            : tt('dash.kyc.retry',     'Retry verification'))
+  : status === 'rejected'    ? tt('dash.kyc.contactSupport', 'Contact support')
   : null;
 
   const headline =
@@ -128,14 +128,14 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
 
   // Body copy for each status.
   //
-  // Business strings credit Bridge as the verifier, drop any
+  // Business strings avoid naming the verifier, drop any
   // BorderPay-collects-documents framing, and carry NO timeline claims
-  // (Bridge reviews vary by submission). The approved string also drops
+  // (review timelines vary by submission). The approved string also drops
   // the "and transfers" overclaim — transfers stay product-flagged and
   // we don't want to imply availability before the flag flips.
   //
-  // Individual strings preserve the existing Bridge-hosted flow expectation
-  // (ID + selfie ≈ 2-3 minutes) which is a reasonable Bridge UX hint, and
+  // Individual strings preserve the existing hosted-flow expectation
+  // (ID + selfie ≈ 2-3 minutes) which is a reasonable UX hint, and
   // only the "approved" subline is revised to remove the transfers
   // overclaim that is currently misleading for individuals as well.
   const subline =
@@ -148,7 +148,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
           ? tt('dash.kyb.review.body', 'We are reviewing your business submission. Timelines vary depending on the business and required documents.')
           : tt('dash.kyc.review.body', 'Most reviews complete in a few minutes.'))
   : status === 'pending'      ? tt('dash.kyc.pending.body',  'Pick up where you left off.')
-  : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'You can retry, or contact support.')
+  : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'Contact support so our team can review the account and advise the next step.')
   : (isBusiness
       ? tt('dash.kyb.start.body', "Complete business, ownership, and address checks in BorderPay's secure verification flow.")
       : tt('dash.kyc.start.body', 'Provide a government ID and a quick selfie. Takes 2–3 minutes.'));
@@ -186,7 +186,13 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
           <p className={`text-sm ${tc.textSecondary}`}>{subline}</p>
           {ctaLabel && (
             <button
-              onClick={onStartVerification}
+              onClick={() => {
+                if (status === 'rejected') {
+                  window.location.href = 'mailto:support@borderpayafrica.com';
+                  return;
+                }
+                onStartVerification();
+              }}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#C7FF00] text-black text-sm font-semibold hover:opacity-90 transition"
             >
               {ctaLabel}

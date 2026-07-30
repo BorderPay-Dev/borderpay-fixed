@@ -125,7 +125,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
     rowsRef.current = rows;
   }, [rows]);
 
-  // Background refresh — never blanks the cached view; no setLoading(true) here.
+  // Background refresh never blanks the cached view.
   const load = async (force = false) => {
     if (loadInFlightRef.current) {
       await loadInFlightRef.current;
@@ -136,14 +136,13 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
     const isColdStart = seededRows.length === 0;
 
     // Background refresh only: keep first paint native-fast, even with no cache.
-    // no setLoading(true) here.
     setError(null);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
       if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
-      const r: any = await backendAPI.bridge.externalAccount.list();
+      const r: any = await backendAPI.financial.getSnapshot(50);
       if (r?.success) {
         const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
         setRows(next);

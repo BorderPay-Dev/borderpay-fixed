@@ -26,7 +26,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { BRIDGE_PAYOUT_DEVELOPER_FEE_USD } from "../_shared/bridge-payout-validator.ts";
+import { BRIDGE_PAYOUT_DEVELOPER_FEE_PERCENT } from "../_shared/bridge-payout-validator.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -43,6 +43,17 @@ const json = (b: unknown, s = 200) =>
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+function fixedDeveloperFeeForPercent(amountRaw: string, percent: number): string {
+  const amountCents = Math.round(Number(amountRaw) * 100);
+  const feeCents = Math.round((amountCents * percent) / 100);
+  return (feeCents / 100).toFixed(2);
+}
+
+function positiveDeveloperFee(amountRaw: string, percent: number): { flat_amount: string } | undefined {
+  const flatAmount = fixedDeveloperFeeForPercent(amountRaw, percent);
+  return Number(flatAmount) > 0 ? { flat_amount: flatAmount } : undefined;
+}
 
 const MAX_ITEMS = 250;   // batch cap — keeps the function within its time budget
 
@@ -90,6 +101,15 @@ Deno.serve(async (req) => {
   if (!sourceCurrency || items.length === 0) {
     return json({ success: false, error: "source_currency and a non-empty items[] are required" }, 400);
   }
+  const normalizedSourceCurrency = String(sourceCurrency || "").trim().toUpperCase();
+  if (normalizedSourceCurrency !== "USDC" && normalizedSourceCurrency !== "USDT") {
+    return json({
+      success: false,
+      code: "unsupported_source_currency",
+      error: "Bulk payouts must source from USDC or USDT.",
+    }, 400);
+  }
+  const sourceChain = normalizedSourceCurrency === "USDT" ? "TRON" : "BASE";
   if (items.length > MAX_ITEMS) {
     return json({ success: false, code: "batch_too_large",
       error: `Batch exceeds ${MAX_ITEMS} recipients. Split into smaller batches.` }, 400);
@@ -143,6 +163,21 @@ Deno.serve(async (req) => {
     });
     if (!gate.allowed) return json(gate.body, gate.status);
   }
+  const { data: sourceWallet } = await supa
+    .from("bridge_wallets")
+    .select("bridge_wallet_id")
+    .eq("user_id", user.id)
+    .ilike("currency", normalizedSourceCurrency)
+    .ilike("chain", sourceChain)
+    .eq("status", "active")
+    .maybeSingle();
+  if (!sourceWallet?.bridge_wallet_id) {
+    return json({
+      success: false,
+      code: "source_wallet_required",
+      error: `Your ${normalizedSourceCurrency} wallet is not ready for sending yet. Refresh your wallet and try again.`,
+    }, 409);
+  }
 
   // Process each recipient sequentially. A per-item failure is recorded and the
   // batch continues — it never aborts the run or retries a succeeded row.
@@ -170,18 +205,17 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const sourceRail = it.source_payment_rail || "stablecoin";
-
       const result = await bridgeProvider.createTransfer({
+        on_behalf_of: profile.bridge_customer_id,
         source: {
-          customer_id:  profile.bridge_customer_id,
-          payment_rail: sourceRail,
-          currency:     sourceCurrency,
-          chain:        it.source_chain,
+          payment_rail: "bridge_wallet",
+          currency:     normalizedSourceCurrency,
+          chain:        sourceChain,
+          bridge_wallet_id: String(sourceWallet.bridge_wallet_id),
           amount:       it.__parsedAmount.raw,
         },
         destination:     it.destination,
-        developer_fee:   { flat_amount: BRIDGE_PAYOUT_DEVELOPER_FEE_USD },
+        developer_fee:   positiveDeveloperFee(it.__parsedAmount.raw, BRIDGE_PAYOUT_DEVELOPER_FEE_PERCENT),
         idempotency_key: idem,
       });
 
@@ -195,6 +229,11 @@ Deno.serve(async (req) => {
         p_metadata:           {
           idempotency_key: idem,
           bulk: true,
+          direction: "debit",
+          transaction_type: "withdrawal",
+          balance_impact: "debit",
+          source_type: "wallet",
+          destination_type: "external_wallet",
           label: it.label ?? null,
           provider_state: mapped.providerState,
           provider_state_recognized: mapped.recognized,

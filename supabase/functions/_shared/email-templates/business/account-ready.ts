@@ -1,7 +1,7 @@
 import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 /**
- * Business virtual-account / wallet provisioning result — terminal only
+ * Business global-account / wallet provisioning result — terminal only
  * (provisioned success or failed), per the webhook-email policy. Distinct from
  * business.account_activated (whole-business go-live); this is per-product.
  */
@@ -16,16 +16,16 @@ export interface BusinessAccountReadyProps {
 export function render(p: BusinessAccountReadyProps): RenderedEmail {
   const company = p.company_name || "your business";
   const ok      = p.outcome === "provisioned";
-  const productLabel = p.product === "wallet" ? "stablecoin wallet" : "virtual account";
+  const productLabel = p.product === "wallet" ? "digital dollar wallet" : "global account";
   const cur     = p.currency ? `${p.currency.toUpperCase()} ` : "";
 
   const subject = ok
-    ? `${company}: ${cur}${productLabel} is ready`
+    ? `${company}: ${cur}${productLabel} is active`
     : `${company}: ${productLabel} setup didn't complete`;
 
-  const heading = ok ? "Account ready" : "Setup didn't complete";
+  const heading = ok ? "Your global account is active" : "Setup didn't complete";
   const introText = ok
-    ? `${company}'s ${cur}${productLabel} is provisioned and ready to use.`
+    ? `${company}'s ${cur}${productLabel} is active and ready to receive payments.`
     : `We hit a problem setting up a ${cur}${productLabel} for ${company}.`;
 
   const reasonBlock = !ok && p.reason
@@ -33,7 +33,7 @@ export function render(p: BusinessAccountReadyProps): RenderedEmail {
     : "";
 
   const closing = ok
-    ? "Open BorderPay to see the account details."
+    ? "Open BorderPay to view the account details and share them with clients or partners."
     : `Please try again from the app, or contact ${BORDERPAY_BRAND.supportEmail} if it persists.`;
 
   const body = ok
@@ -51,7 +51,7 @@ export function render(p: BusinessAccountReadyProps): RenderedEmail {
     text: textLayout({
       heading,
       body: ok
-        ? `${company}: ${cur}${productLabel} is ready.`
+        ? `${company}: ${cur}${productLabel} is active and ready to receive payments. Open BorderPay to view the account details.`
         : `${company}: setup failed.\nReason: ${p.reason || "—"}\n${closing}`,
       ctaText: "Open BorderPay", ctaUrl: BORDERPAY_BRAND.appUrl,
     }),

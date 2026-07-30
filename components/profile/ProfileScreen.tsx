@@ -195,11 +195,18 @@ export function ProfileScreen({ userId, onBack }: ProfileScreenProps) {
           return '';
         }
       })();
-      const result = await withTimeout(
-        backendAPI.user.getProfile(),
+      const snapshotResult = await withTimeout(
+        backendAPI.financial.getSnapshot(20),
         PROFILE_FETCH_TIMEOUT_MS,
-        { success: false, error: 'profile_timeout' } as any,
+        { success: false, error: 'snapshot_timeout' } as any,
       );
+      const result = snapshotResult?.success && snapshotResult?.data?.profile
+        ? { success: true, data: { user: snapshotResult.data.profile } }
+        : await withTimeout(
+          backendAPI.user.getProfile(),
+          PROFILE_FETCH_TIMEOUT_MS,
+          { success: false, error: 'profile_timeout' } as any,
+        );
 
       if (result.success && result.data?.user) {
         const u = result.data.user as any;

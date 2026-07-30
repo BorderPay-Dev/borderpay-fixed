@@ -214,7 +214,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     {
       title: t('settings.accountManagement'),
       items: [
-        { icon: Trash2, label: 'Delete account request', action: 'delete-account', color: 'text-red-400' },
+        { icon: Trash2, label: 'Delete account', action: 'delete-account', color: 'text-red-400' },
         { icon: Trash2, label: t('settings.suspendAccount'), action: 'suspend', color: 'text-red-400' },
         // "Lock app" sits beside Log out so a user wanting a quick biometric
         // return doesn't full-logout by habit. Only shown when onLock is wired.
@@ -277,29 +277,23 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
 
   const handleDeleteAccountRequest = async () => {
     if (!confirm(
-      'Request account deletion?\n\n' +
-      'BorderPay will open a deletion request with support. Some financial, fraud-prevention, and compliance records may need to be retained where required by law.'
+      'Delete your account?\n\n' +
+      'This will close your BorderPay access and delete your provider customer profile where allowed. Some financial, fraud-prevention, and compliance records may still be retained where required by law.'
     )) {
       return;
     }
 
     setRequestingDeletion(true);
     try {
-      const result = await backendAPI.support.createTicket({
-        issue_type: 'general',
-        subject: 'Account deletion request',
-        message:
-          'I want to initiate deletion of my BorderPay account. Please confirm the next compliance steps and any required retention period.',
-        source: 'app',
-      });
+      const result = await backendAPI.bridge.customer.deleteCurrent();
       if (result.success) {
-        toast.success('Account deletion request submitted');
-        onNavigate('support');
+        toast.success('Account deleted');
+        setTimeout(() => onLogout(), 1000);
       } else {
-        toast.error(friendlyError(result.error, 'Could not submit deletion request'));
+        toast.error(friendlyError(result.error, 'Could not delete account'));
       }
     } catch (error) {
-      toast.error('Could not submit deletion request');
+      toast.error('Could not delete account');
     } finally {
       setRequestingDeletion(false);
     }

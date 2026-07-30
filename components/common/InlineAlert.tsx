@@ -11,6 +11,7 @@ import {
   AlertTriangle, XCircle, Info, CheckCircle, X, ChevronRight,
 } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 type AlertVariant = 'error' | 'warning' | 'info' | 'success';
 
@@ -163,7 +164,7 @@ export function parseAPIError(error: any): { title: string; message: string; var
   if (error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
     return {
       title: 'Connection Error',
-      message: 'Unable to reach our servers. Please check your internet connection.',
+      message: 'Connection error. Please check your internet and try again.',
       variant: 'error',
     };
   }
@@ -180,7 +181,7 @@ export function parseAPIError(error: any): { title: string; message: string; var
   if (status === 404) {
     return {
       title: 'Not Found',
-      message: error?.error || 'The requested resource was not found.',
+      message: friendlyError(error?.error || error?.message, 'The requested resource was not found.'),
       variant: 'warning',
     };
   }
@@ -204,7 +205,7 @@ export function parseAPIError(error: any): { title: string; message: string; var
   if (msg.includes('insufficient')) {
     return {
       title: 'Insufficient Funds',
-      message: error.error || error.message,
+      message: friendlyError(error?.error || error?.message, 'Insufficient balance for this transaction.'),
       variant: 'warning',
     };
   }
@@ -225,7 +226,7 @@ export function parseAPIError(error: any): { title: string; message: string; var
   if (msg.includes('kyc') || msg.includes('verification') || msg.includes('verify')) {
     return {
       title: 'Verification Needed',
-      message: error.error || error.message || 'Complete identity verification to proceed.',
+      message: friendlyError(error?.error || error?.message, 'Complete identity verification to proceed.'),
       variant: 'warning',
     };
   }
@@ -233,7 +234,7 @@ export function parseAPIError(error: any): { title: string; message: string; var
   // Default
   return {
     title: 'Request Could Not Be Completed',
-    message: error?.error || error?.message || 'An unexpected issue occurred. Please try again or contact support if this continues.',
+    message: friendlyError(error?.error || error?.message, 'An unexpected issue occurred. Please try again or contact support if this continues.'),
     variant: 'error',
   };
 }

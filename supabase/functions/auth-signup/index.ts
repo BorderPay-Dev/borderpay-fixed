@@ -46,6 +46,7 @@ interface SignupBody {
   company_name?:        string;
   registration_number?: string;
   captcha_token?:       string;
+  referral_code?:       string;
 }
 
 async function verifySignupCaptcha(
@@ -85,6 +86,8 @@ Deno.serve(async (req: Request) => {
     const body = (await req.json()) as SignupBody;
     const { email, password, full_name, phone_number, country_code,
             account_type, company_name, registration_number, captcha_token } = body;
+    const referralCode = String(body.referral_code || "").trim().toUpperCase();
+    const normalizedPhone = String(phone_number || "").trim();
 
     if (!email || !password || !full_name) {
       return json({ success: false, error: "Email, password, and full name are required" }, 400);
@@ -150,9 +153,10 @@ Deno.serve(async (req: Request) => {
       email_confirm: false,                     // ← critical change vs v87
       user_metadata: {
         full_name,
-        phone:        phone_number,
+        ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         country:      country_code,
         account_type: normalizedAccountType,
+        ...(referralCode ? { referral_code: referralCode } : {}),
         ...(normalizedAccountType === "business"
           ? { company_name, registration_number: registration_number || null }
           : {}),
@@ -182,7 +186,7 @@ Deno.serve(async (req: Request) => {
       // Use `unverified` for new accounts.
       const { error: usersErr } = await supabaseAdmin.from("users").upsert({
         id: userId, email, full_name,
-        phone:            phone_number || "",
+        phone:            normalizedPhone,
         country:          normalizedCountryCode,
         account_type:     normalizedAccountType,
         kyc_status:       "unverified",
@@ -195,7 +199,7 @@ Deno.serve(async (req: Request) => {
       // is a free-form text column so 'not_started' is fine there.
       const { error: profileErr } = await supabaseAdmin.from("user_profiles").upsert({
         id: userId, email, full_name,
-        phone:                       phone_number || "",
+        phone:                       normalizedPhone,
         country:                     normalizedCountryCode,
         account_type:                normalizedAccountType,
         kyc_status:                  "unverified",
@@ -232,6 +236,33 @@ Deno.serve(async (req: Request) => {
         { onConflict: "user_id" },
       );
       if (bizErr) return rollbackAuthUser(`business_profiles create failed: ${bizErr.message}`);
+    }
+
+    if (referralCode) {
+      try {
+        const { data: referralResult, error: referralErr } = await supabaseAdmin.rpc(
+          "track_borderpay_referral_signup",
+          {
+            p_referral_code: referralCode,
+            p_referred_id: userId,
+            p_country: normalizedCountryCode,
+            p_device_hash: null,
+            p_ip_hash: null,
+          },
+        );
+        if (referralErr) {
+          console.warn(`referral attribution failed for ${userId}: ${referralErr.message}`);
+        } else {
+          console.log(JSON.stringify({
+            tag: "referral_attribution_result",
+            user_id: userId,
+            referral_code: referralCode,
+            result: Array.isArray(referralResult) ? referralResult[0] : referralResult,
+          }));
+        }
+      } catch (e) {
+        console.warn(`referral attribution exception for ${userId}: ${(e as Error).message}`);
+      }
     }
 
     const bridgeCustomerId: string | null = null;

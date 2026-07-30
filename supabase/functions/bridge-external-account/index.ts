@@ -49,6 +49,7 @@ interface UsAccountInput {
   account_owner_name: string;
   account_number: string;
   routing_number: string;
+  checking_or_savings?: "checking" | "savings";
   bank_name?: string;
   address: { street_line_1: string; city: string; state?: string; postal_code: string; country: string };
 }
@@ -109,7 +110,7 @@ Deno.serve(async (req) => {
   }
   const customerId = profile.bridge_customer_id;
 
-  // ── delete ────────────────────────────────────────────────────────────
+  // ── delete/deactivate ─────────────────────────────────────────────────
   if (action === "delete") {
     const extId = String(body.external_account_id || "");
     if (!extId) return json({ success: false, error: "external_account_id required" }, 400);
@@ -122,8 +123,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!owned) return json({ success: false, error: "not found", code: "not_found" }, 404);
     const r = await bridgeFetch({
-      method: "DELETE",
-      path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}`,
+      method: "POST",
+      path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}/deactivate`,
     });
     if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
     await supa.from("bridge_external_accounts")
@@ -197,7 +198,11 @@ Deno.serve(async (req) => {
       account_type:       "us",
       account_owner_name: a.account_owner_name,
       ...(a.bank_name ? { bank_name: a.bank_name } : {}),
-      account: { account_number: a.account_number, routing_number: a.routing_number },
+      account: {
+        account_number: a.account_number,
+        routing_number: a.routing_number,
+        checking_or_savings: a.checking_or_savings === "savings" ? "savings" : "checking",
+      },
       address: {
         street_line_1: a.address.street_line_1,
         city:          a.address.city,

@@ -1,25 +1,27 @@
 /**
- * Shared email layout — mobile-responsive, dark-theme, table-based.
+ * Shared email layout — mobile-responsive, Gmail-safe, table-based.
  *
  * Inline styles only (Gmail/Outlook strip <style> tags from <head>).
- * Hero branding is rendered inline (no remote image dependency).
+ * Brand must remain visible even when Gmail blocks remote images.
  */
 
 export const BORDERPAY_BRAND = {
-  bg:        "#000000",
-  card:      "#000000",
-  border:    "#1A1A1A",
+  bg:        "#F4F6F5",
+  card:      "#FFFFFF",
+  header:    "#000000",
+  border:    "#D8DED8",
   accent:    "#C7FF00",
   accent2:   "#C7FF00",
-  text:      "#F3F7FA",
-  textMuted: "#C5CDD5",
-  textFaint: "#8A949E",
-  danger:    "#FF5A5A",
-  success:   "#2FD06E",
-  warning:   "#E8A923",
+  text:      "#111513",
+  textMuted: "#425049",
+  textFaint: "#6B756F",
+  headerText:"#F3F7FA",
+  danger:    "#B42318",
+  success:   "#067647",
+  warning:   "#B54708",
   appUrl:    "https://app.borderpayafrica.com",
   supportEmail: "support@borderpayafrica.com",
-  heroUrl:   "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-white-logo-email.png",
+  heroUrl:   "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-email-logo.png",
 };
 
 export interface RenderedEmail {
@@ -41,10 +43,11 @@ interface LayoutProps {
 
 export function htmlLayout(p: LayoutProps): string {
   const b           = BORDERPAY_BRAND;
+  const toneColor = p.brandTone === "danger" ? b.danger : p.brandTone === "warning" ? b.warning : b.accent;
   const cta = p.ctaText && p.ctaUrl
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;">
          <tr><td align="center">
-           <a href="${escapeHtml(p.ctaUrl)}" target="_blank" style="display:inline-block;padding:14px 36px;background-color:${b.accent};color:#000000;font-size:15px;font-weight:700;text-decoration:none;border-radius:12px;letter-spacing:0.3px;">${escapeHtml(p.ctaText)}</a>
+           <a href="${escapeHtml(p.ctaUrl)}" target="_blank" style="display:inline-block;padding:14px 34px;background-color:${b.accent};color:#000000;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">${escapeHtml(p.ctaText)}</a>
          </td></tr>
        </table>`
     : "";
@@ -55,8 +58,10 @@ export function htmlLayout(p: LayoutProps): string {
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="x-apple-disable-message-reformatting" />
+<meta name="color-scheme" content="light" />
+<meta name="supported-color-schemes" content="light" />
 <title>${escapeHtml(p.heading)}</title>
-<style>body, table, td { margin:0; padding:0; } a { color:${b.accent}; }</style>
+<style>body, table, td { margin:0; padding:0; } a { color:${b.success}; }</style>
 </head>
 <body class="body" style="margin:0;padding:0;background-color:${b.bg};font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${b.text};">
 ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:${b.bg};">${escapeHtml(p.preview)}</div>` : ""}
@@ -64,20 +69,29 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
 <table role="presentation" class="bp-bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.bg}" style="background-color:${b.bg};">
   <tr>
     <td align="center" bgcolor="${b.bg}" style="background-color:${b.bg};padding:36px 16px;">
-      <table role="presentation" class="bp-card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.card}" style="max-width:520px;background-color:${b.card};border:1px solid ${b.border};overflow:hidden;">
-        <tr><td style="height:3px;background:linear-gradient(90deg,#C7FF00,#9ECC00);line-height:3px;font-size:3px;">&nbsp;</td></tr>
+      <table role="presentation" class="bp-card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.card}" style="max-width:560px;background-color:${b.card};border:1px solid ${b.border};overflow:hidden;">
+        <tr><td bgcolor="${toneColor}" style="height:4px;background-color:${toneColor};line-height:4px;font-size:4px;">&nbsp;</td></tr>
         <tr>
-          <td align="center" style="padding:26px 32px 20px;">
-            <img
-              src="${escapeHtml(b.heroUrl)}"
-              width="168"
-              alt="BorderPay Africa"
-              style="display:block;width:168px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;"
-            />
+          <td bgcolor="${b.header}" style="background-color:${b.header};padding:24px 30px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td align="left" valign="middle" style="width:178px;">
+                  <img
+                    src="${escapeHtml(b.heroUrl)}"
+                    width="160"
+                    alt="BorderPay Africa"
+                    style="display:block;width:160px;max-width:160px;height:auto;border:0;outline:none;text-decoration:none;color:${b.headerText};font-size:18px;font-weight:700;"
+                  />
+                </td>
+                <td align="right" valign="middle" style="font-size:13px;line-height:18px;color:${b.headerText};font-weight:700;letter-spacing:0;text-align:right;">
+                  <span style="color:${b.accent};">BorderPay</span> Africa
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>
         <tr>
-          <td bgcolor="${b.card}" style="background-color:${b.card};padding:8px 32px 28px;">
+          <td bgcolor="${b.card}" style="background-color:${b.card};padding:30px 32px 28px;">
             <h1 class="bp-text" style="margin:0 0 14px;font-size:23px;font-weight:700;color:${b.text};text-align:center;line-height:1.3;">${escapeHtml(p.heading)}</h1>
             ${p.introText ? `<p class="bp-muted" style="margin:0 0 20px;font-size:15px;color:${b.textMuted};text-align:center;line-height:1.65;">${escapeHtml(p.introText)}</p>` : ""}
             <div class="bp-muted" style="font-size:15px;color:${b.textMuted};line-height:1.65;">${p.body}</div>
@@ -89,7 +103,7 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
         <tr>
           <td bgcolor="${b.card}" style="background-color:${b.card};padding:20px 32px 32px;">
             <p class="bp-faint" style="margin:0;font-size:12px;color:${b.textFaint};text-align:center;line-height:1.5;">
-              Need help? Email <a href="mailto:${b.supportEmail}" style="color:${b.accent};text-decoration:none;">${b.supportEmail}</a>
+              Need help? Email <a href="mailto:${b.supportEmail}" style="color:${b.success};text-decoration:none;">${b.supportEmail}</a>
             </p>
             <p class="bp-faint" style="margin:8px 0 0;font-size:12px;color:${b.textFaint};text-align:center;">
               &copy; ${new Date().getFullYear()} BorderPay Africa. All rights reserved.

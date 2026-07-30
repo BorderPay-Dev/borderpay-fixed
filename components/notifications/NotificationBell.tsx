@@ -21,6 +21,8 @@ import {
 import { authAPI } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
+import { txDirection } from '../../utils/transactions/direction';
 
 interface Notification {
   id: string;
@@ -28,6 +30,8 @@ interface Notification {
   type: 'transaction' | 'security' | 'account' | 'card' | 'system' | 'announcement';
   title: string;
   room_topic: string;
+  body?: string | null;
+  message?: string | null;
   icon?: string;
   action_url?: string;
   action_label?: string;
@@ -89,7 +93,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       // Skip if signal already aborted (e.g. rapid unmount/remount)
       if (controller.signal.aborted) return;
 
-      const result: any = await backendAPI.notifications.getUnreadCount(controller.signal);
+      const result: any = await backendAPI.financial.getSnapshot(50);
       if (controller.signal.aborted) return;
       if (result.success && result.data) {
         setUnreadCount(Number((result.data as any).notifications_unread_count || 0));
@@ -103,7 +107,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     // Keep existing rows visible; only show spinner on a cold open.
     if (notifications.length === 0) setLoading(true);
     try {
-      const result: any = await backendAPI.notifications.getNotifications(50);
+      const result: any = await backendAPI.financial.getSnapshot(50);
       if (result.success && result.data) {
         const items = Array.isArray((result.data as any)?.notifications)
           ? (result.data as any).notifications
@@ -229,6 +233,18 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     return date.toLocaleDateString();
   };
 
+  const formatReceiptMoney = (amount: number, currency: string) => {
+    const c = String(currency || 'USD').toUpperCase();
+    const formatted = Number(amount || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: ['USDC', 'USDT'].includes(c) ? 6 : 2,
+    });
+    if (c === 'USD' || c === 'USDC') return `$${formatted}`;
+    if (c === 'EUR') return `€${formatted}`;
+    if (c === 'GBP') return `£${formatted}`;
+    return `${formatted} ${c}`;
+  };
+
   return (
     <div className={`relative ${className}`}>
       {/* Bell Icon with Badge */}
@@ -309,61 +325,123 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                   </div>
                 ) : (
                   <div className="divide-y divide-white/5">
-                    {notifications.map((notification) => (
-                      <motion.div
-                        key={notification.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className={`p-4 hover:bg-white/5 transition-colors ${
-                          !notification.read ? 'bg-white/[0.02]' : ''
-                        }`}
-                      >
-                        <div className="flex gap-3">
-                          {/* Icon */}
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${getNotificationColor(notification.type)}`}>
-                            {getNotificationIcon(notification.type)}
-                          </div>
-
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <h4 className="text-white text-sm font-medium">
-                                {notification.title}
-                              </h4>
-                              {!notification.read && (
-                                <div className="w-2 h-2 bg-[#C7FF00] rounded-full flex-shrink-0 mt-1" />
-                              )}
+                    {notifications.map((notification) => {
+                      const receipt = normalizeTransactionReceipt({
+                        amount: notification.metadata?.amount ?? notification.metadata?.net_amount,
+                        metadata: notification.metadata,
+                      });
+                      const direction = txDirection({
+                        type: notification.type,
+                        title: notification.title,
+                        body: notification.body,
+                        message: notification.message,
+                        amount: notification.metadata?.amount ?? notification.metadata?.net_amount,
+                        metadata: notification.metadata,
+                      });
+                      const isCredit = direction === 'credit';
+                      const currency = String(notification.metadata?.currency || 'USD').toUpperCase();
+                      const message = notification.body || notification.message || notification.room_topic;
+                      return (
+                        <motion.div
+                          key={notification.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className={`p-4 hover:bg-white/5 transition-colors ${
+                            !notification.read ? 'bg-white/[0.02]' : ''
+                          }`}
+                        >
+                          <div className="flex gap-3">
+                            {/* Icon */}
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${getNotificationColor(notification.type)}`}>
+                              {getNotificationIcon(notification.type)}
                             </div>
-                            <p className="text-white/60 text-xs mb-2 line-clamp-2">
-                              {notification.room_topic}
-                            </p>
-                            <div className="flex items-center justify-between">
-                              <span className="text-white/40 text-[10px]">
-                                {formatTime(notification.created_at)}
-                              </span>
-                              <div className="flex gap-1">
+
+                            {/* Content */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <h4 className="text-white text-sm font-medium">
+                                  {notification.title}
+                                </h4>
                                 {!notification.read && (
-                                  <button
-                                    onClick={() => markAsRead(notification.id)}
-                                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-                                    title="Mark as read"
-                                  >
-                                    <Check className="w-3 h-3 text-white/60" />
-                                  </button>
+                                  <div className="w-2 h-2 bg-[#C7FF00] rounded-full flex-shrink-0 mt-1" />
                                 )}
-                                <button
-                                  onClick={() => deleteNotification(notification.id)}
-                                  className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3 h-3 text-white/60" />
-                                </button>
+                              </div>
+                              <p className="text-white/60 text-xs mb-2 line-clamp-2">
+                                {message}
+                              </p>
+                              {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
+                                <div className="mb-2 grid grid-cols-2 gap-y-1 text-[10px] text-white/50">
+                                  {receipt.hasBridgeReceipt ? (
+                                    <>
+                                      <span>Incoming funds</span>
+                                      <span className="text-right font-mono">{formatReceiptMoney(receipt.sourceAmount ?? receipt.initialAmount, receipt.sourceCurrency || currency)}</span>
+                                      {(receipt.serviceChargeAmount ?? receipt.developerFeeAmount) > 0 && (
+                                        <>
+                                          <span>Service charge</span>
+                                          <span className="text-right font-mono">-{formatReceiptMoney(receipt.serviceChargeAmount ?? receipt.developerFeeAmount, receipt.sourceCurrency || currency)}</span>
+                                        </>
+                                      )}
+                                      <span>Available for conversion</span>
+                                      <span className="text-right font-mono">{formatReceiptMoney(receipt.availableAmount ?? receipt.finalAmount, receipt.sourceCurrency || currency)}</span>
+                                      {receipt.exchangeRate && receipt.destinationCurrency && (
+                                        <>
+                                          <span>Exchange rate</span>
+                                          <span className="text-right font-mono">1 {receipt.sourceCurrency || currency} = {receipt.exchangeRate} {receipt.destinationCurrency}</span>
+                                        </>
+                                      )}
+                                      <span className="font-semibold text-white/70">Outgoing funds</span>
+                                      <span className="text-right font-mono font-semibold text-white/70">{formatReceiptMoney(receipt.destinationAmount ?? receipt.finalAmount, receipt.destinationCurrency || currency)}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span>{isCredit ? 'Received' : 'Sent'}</span>
+                                      <span className="text-right font-mono">{formatReceiptMoney(receipt.initialAmount, currency)}</span>
+                                      {receipt.developerFeeAmount > 0 && (
+                                        <>
+                                          <span>Transaction fee</span>
+                                          <span className="text-right font-mono">-{formatReceiptMoney(receipt.developerFeeAmount, currency)}</span>
+                                        </>
+                                      )}
+                                      {receipt.exchangeFeeAmount > 0 && (
+                                        <>
+                                          <span>Exchange fee</span>
+                                          <span className="text-right font-mono">-{formatReceiptMoney(receipt.exchangeFeeAmount, currency)}</span>
+                                        </>
+                                      )}
+                                      <span className="font-semibold text-white/70">{isCredit ? 'You receive' : 'Net delivered'}</span>
+                                      <span className="text-right font-mono font-semibold text-white/70">{formatReceiptMoney(receipt.finalAmount, currency)}</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between">
+                                <span className="text-white/40 text-[10px]">
+                                  {formatTime(notification.created_at)}
+                                </span>
+                                <div className="flex gap-1">
+                                  {!notification.read && (
+                                    <button
+                                      onClick={() => markAsRead(notification.id)}
+                                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                                      title="Mark as read"
+                                    >
+                                      <Check className="w-3 h-3 text-white/60" />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => deleteNotification(notification.id)}
+                                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-3 h-3 text-white/60" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </motion.div>
-                    ))}
+                        </motion.div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

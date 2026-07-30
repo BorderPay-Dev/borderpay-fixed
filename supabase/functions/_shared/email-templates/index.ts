@@ -25,6 +25,11 @@ import { render as individualFounderWelcome }          from "./individual/founde
 import { render as individualAccountSuspended }        from "./individual/account-suspended.ts";
 import { render as individualRequestAccountReminder }  from "./individual/request-account-reminder.ts";
 import { render as individualScheduledMaintenance }     from "./individual/scheduled-maintenance.ts";
+import { render as individualVirtualAccountLimits }      from "./individual/virtual-account-limits.ts";
+import { render as individualGlobalAccountInstructions } from "./individual/global-account-instructions.ts";
+import { render as individualBulkPaymentInvite }         from "./individual/bulk-payment-invite.ts";
+import { render as individualAffiliateProgram }           from "./individual/affiliate-program.ts";
+import { render as individualStablecoinFreeAnnouncement } from "./individual/stablecoin-free-announcement.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessPinResetLink }            from "./business/pin-reset-link.ts";
@@ -41,7 +46,11 @@ import { render as businessFounderWelcome }            from "./business/founder-
 import { render as businessAccountSuspended }          from "./business/account-suspended.ts";
 import { render as businessRequestAccountReminder }    from "./business/request-account-reminder.ts";
 import { render as businessScheduledMaintenance }       from "./business/scheduled-maintenance.ts";
+import { render as businessVirtualAccountLimits }        from "./business/virtual-account-limits.ts";
+import { render as businessGlobalAccountInstructions }   from "./business/global-account-instructions.ts";
 import { render as businessTeamInvite }                from "./business/team-invite.ts";
+import { render as businessAffiliateProgram }           from "./business/affiliate-program.ts";
+import { render as businessStablecoinFreeAnnouncement } from "./business/stablecoin-free-announcement.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 
 export type TemplateName =
@@ -59,6 +68,11 @@ export type TemplateName =
   | "individual.account_suspended"
   | "individual.request_account_reminder"
   | "individual.scheduled_maintenance"
+  | "individual.virtual_account_limits"
+  | "individual.global_account_instructions"
+  | "individual.bulk_payment_invite"
+  | "individual.affiliate_program"
+  | "individual.stablecoin_free_announcement"
   | "business.email_verification"
   | "business.pin_reset_link"
   | "business.kyb_submitted"
@@ -74,7 +88,11 @@ export type TemplateName =
   | "business.account_suspended"
   | "business.request_account_reminder"
   | "business.scheduled_maintenance"
+  | "business.virtual_account_limits"
+  | "business.global_account_instructions"
   | "business.team_invite"
+  | "business.affiliate_program"
+  | "business.stablecoin_free_announcement"
   | "admin.incident_alert";
 
 type Renderer = (props: any) => RenderedEmail;
@@ -94,6 +112,11 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.account_suspended":       individualAccountSuspended,
   "individual.request_account_reminder": individualRequestAccountReminder,
   "individual.scheduled_maintenance":   individualScheduledMaintenance,
+  "individual.virtual_account_limits":   individualVirtualAccountLimits,
+  "individual.global_account_instructions": individualGlobalAccountInstructions,
+  "individual.bulk_payment_invite":      individualBulkPaymentInvite,
+  "individual.affiliate_program":        individualAffiliateProgram,
+  "individual.stablecoin_free_announcement": individualStablecoinFreeAnnouncement,
   "business.email_verification":        businessEmailVerification,
   "business.pin_reset_link":            businessPinResetLink,
   "business.kyb_submitted":             businessKybSubmitted,
@@ -109,7 +132,11 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.account_suspended":         businessAccountSuspended,
   "business.request_account_reminder":   businessRequestAccountReminder,
   "business.scheduled_maintenance":      businessScheduledMaintenance,
+  "business.virtual_account_limits":      businessVirtualAccountLimits,
+  "business.global_account_instructions":  businessGlobalAccountInstructions,
   "business.team_invite":                businessTeamInvite,
+  "business.affiliate_program":          businessAffiliateProgram,
+  "business.stablecoin_free_announcement": businessStablecoinFreeAnnouncement,
   "admin.incident_alert":                adminIncidentAlert,
 };
 

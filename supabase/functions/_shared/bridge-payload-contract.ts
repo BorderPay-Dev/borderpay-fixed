@@ -1,8 +1,10 @@
+import { type IngressRoutingTarget } from "./bridge-ingress-evaluator.ts";
 import { type BridgeRouteBucket } from "./bridge-ingress-evaluator.ts";
 
 export interface BridgePayloadContractResult {
   valid: boolean;
   reason_code: string;
+  routing_target?: IngressRoutingTarget;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -32,6 +34,23 @@ function firstNonEmptyString(...vals: unknown[]): string {
   return "";
 }
 
+function boolish(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return false;
+}
+
+function isStaticTransferTemplate(obj: Record<string, unknown>): boolean {
+  const features = asRecord(obj.features);
+  const paymentRoute = asRecord(obj.payment_route);
+  const transferType = firstNonEmptyString(obj.type, obj.transfer_type, obj.kind);
+  return boolish(features.static_template)
+    || boolish(obj.static_template)
+    || !!firstNonEmptyString(paymentRoute.id, obj.payment_route_id)
+    || transferType === "static_template"
+    || transferType === "payment_route";
+}
+
 export function validateBridgePayloadContract(
   routeBucket: BridgeRouteBucket,
   eventTypeRaw: string,
@@ -50,6 +69,8 @@ export function validateBridgePayloadContract(
   const virtualAccountId = firstNonEmptyString(obj.virtual_account_id, payload.event_object_id, obj.id);
   const walletId = firstNonEmptyString(obj.wallet_id, payload.event_object_id, obj.id);
   const externalAccountId = firstNonEmptyString(obj.external_account_id, payload.event_object_id, obj.id);
+  const liquidationAddress = asRecord(obj.liquidation_address);
+  const liquidationAddressId = firstNonEmptyString(obj.liquidation_address_id, liquidationAddress.id, payload.event_object_id, obj.id);
   const status = firstNonEmptyString(obj.status, obj.kyc_status, payload.event_object_status);
   const amount = obj.amount;
   const currency = firstNonEmptyString(obj.currency, (obj.source as Record<string, unknown> | undefined)?.currency);
@@ -76,6 +97,17 @@ export function validateBridgePayloadContract(
       return externalAccountId
         ? { valid: true, reason_code: "payload_contract_ok" }
         : { valid: false, reason_code: "invalid_payload_contract_missing_external_account_id" };
+    case "bridge.liquidation_address":
+      if (!liquidationAddressId) {
+        return { valid: false, reason_code: "invalid_payload_contract_missing_liquidation_address_id" };
+      }
+      if (eventType.includes("drain") && !status) {
+        return { valid: false, reason_code: "invalid_payload_contract_missing_drain_state" };
+      }
+      if (!eventType.includes("drain")) {
+        return { valid: true, reason_code: "payload_contract_liquidation_address_log_only", routing_target: "log_only" };
+      }
+      return { valid: true, reason_code: "payload_contract_ok" };
     case "bridge.transfer":
       if (!transferId) {
         return { valid: false, reason_code: "invalid_payload_contract_missing_transfer_id" };
@@ -84,6 +116,9 @@ export function validateBridgePayloadContract(
         return { valid: false, reason_code: "invalid_payload_contract_missing_transfer_state" };
       }
       if ((eventType.endsWith(".created") || eventType.endsWith(".updated")) && (amount === undefined || amount === null || !currency)) {
+        if (isStaticTransferTemplate(obj)) {
+          return { valid: true, reason_code: "payload_contract_static_template_log_only", routing_target: "log_only" };
+        }
         return { valid: false, reason_code: "invalid_payload_contract_missing_transfer_amount_or_currency" };
       }
       return { valid: true, reason_code: "payload_contract_ok" };

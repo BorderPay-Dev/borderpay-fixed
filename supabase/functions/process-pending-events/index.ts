@@ -54,14 +54,12 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
 
 const WORKER_ID = `worker-${crypto.randomUUID().slice(0, 8)}`;
 
-// ── Webhook-email (KYC/KYB decisions only — v1) ──────────────────────────────
-// Per docs/bridge-webhook-email-policy.md. v1 wires ONLY terminal KYC/KYB
-// decisions (confirmed Bridge vocabulary). VA/wallet/transfer emails are NOT
-// wired — their terminal status vocabulary is unconfirmed from real payloads,
-// and transfer is dark behind TRANSFERS_LIVE regardless. All sends route through
-// the logged `send-email` (never direct Resend) and are BEST-EFFORT: a send
-// failure must never fail webhook processing.
+// ── Webhook-email ────────────────────────────────────────────────────────────
+// All sends route through the logged `send-email` function (Brevo transport) and
+// are BEST-EFFORT: an email failure must never fail webhook processing.
 const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
+type AccountType = "individual" | "business";
+type TransactionEmailStatus = "in_review" | "approved" | "canceled" | "refunded" | "refund_in_flight";
 
 // Suppression config (DB/env only — never decided from the webhook payload).
 // An UNSET env var keeps the default; an explicitly empty value disables it
@@ -155,8 +153,343 @@ async function emailKycDecisionBestEffort(
   }
 }
 
-// NOTE: v1 webhook email policy intentionally sends only KYC/KYB terminal
-// decision emails. Wallet activity emails are out of scope here.
+async function emailTransactionStatusBestEffort(params: {
+  userId: string;
+  accountType: AccountType;
+  status: TransactionEmailStatus;
+  amount: number;
+  currency: string;
+  reference: string;
+  description?: string | null;
+  occurredAt?: string | null;
+  idempotencyKey: string;
+  grossAmount?: number | null;
+  developerFeeAmount?: number | null;
+  exchangeFeeAmount?: number | null;
+  netAmount?: number | null;
+  sourceCurrency?: string | null;
+  sourceAmount?: number | null;
+  serviceChargeAmount?: number | null;
+  availableAmount?: number | null;
+  destinationCurrency?: string | null;
+  destinationAmount?: number | null;
+  exchangeRate?: number | null;
+  destinationAddress?: string | null;
+  sourceRail?: string | null;
+  depositId?: string | null;
+  refundReturnReason?: string | null;
+  refundReturnedAt?: string | null;
+  refundRiskRejectionReason?: string | null;
+  refundRail?: string | null;
+  refundBeneficiaryName?: string | null;
+  refundReferenceId?: string | null;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(params.userId);
+    if (!rcpt) return;
+
+    const template = params.accountType === "business"
+      ? "business.transaction_status"
+      : "individual.transaction_status";
+    let props: Record<string, unknown> = {
+      status: params.status,
+      amount: params.amount,
+      currency: params.currency,
+      reference: params.reference,
+      description: params.description ?? null,
+      occurred_at: params.occurredAt ?? null,
+      gross_amount: params.grossAmount ?? null,
+      developer_fee_amount: params.developerFeeAmount ?? null,
+      exchange_fee_amount: params.exchangeFeeAmount ?? null,
+      net_amount: params.netAmount ?? null,
+      source_currency: params.sourceCurrency ?? null,
+      source_amount: params.sourceAmount ?? null,
+      service_charge_amount: params.serviceChargeAmount ?? params.developerFeeAmount ?? null,
+      available_amount: params.availableAmount ?? params.netAmount ?? null,
+      destination_currency: params.destinationCurrency ?? null,
+      destination_amount: params.destinationAmount ?? null,
+      exchange_rate: params.exchangeRate ?? null,
+      destination_address: params.destinationAddress ?? null,
+      source_rail: params.sourceRail ?? null,
+      deposit_id: params.depositId ?? null,
+      refund_return_reason: params.refundReturnReason ?? null,
+      refund_returned_at: params.refundReturnedAt ?? null,
+      refund_risk_rejection_reason: params.refundRiskRejectionReason ?? null,
+      refund_rail: params.refundRail ?? null,
+      refund_beneficiary_name: params.refundBeneficiaryName ?? null,
+      refund_reference_id: params.refundReferenceId ?? null,
+    };
+    if (params.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", params.userId)
+        .maybeSingle();
+      props = { ...props, company_name: biz?.company_name ?? null };
+    } else {
+      props = { ...props, full_name: rcpt.full_name };
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: rcpt.email,
+        user_id: params.userId,
+        idempotency_key: params.idempotencyKey,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email transaction-status send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email transaction-status best-effort error: ${(e as Error).message}`);
+  }
+}
+
+async function emailWalletActivityBestEffort(params: {
+  userId: string;
+  accountType: AccountType;
+  direction: "credit" | "debit";
+  amount: number;
+  currency: string;
+  reference: string;
+  description?: string | null;
+  occurredAt?: string | null;
+  newBalance?: number | null;
+  idempotencyKey: string;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(params.userId);
+    if (!rcpt) return;
+
+    const template = params.accountType === "business"
+      ? "business.transaction_notification"
+      : "individual.transaction_notification";
+    let props: Record<string, unknown> = {
+      direction: params.direction,
+      amount: params.amount,
+      currency: params.currency,
+      reference: params.reference,
+      description: params.description ?? null,
+      occurred_at: params.occurredAt ?? null,
+      new_balance: params.newBalance ?? null,
+    };
+    if (params.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", params.userId)
+        .maybeSingle();
+      props = { ...props, company_name: biz?.company_name ?? null };
+    } else {
+      props = { ...props, full_name: rcpt.full_name };
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: rcpt.email,
+        user_id: params.userId,
+        idempotency_key: params.idempotencyKey,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email wallet-activity send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email wallet-activity best-effort error: ${(e as Error).message}`);
+  }
+}
+
+async function emailGlobalAccountReadyBestEffort(params: {
+  userId: string;
+  accountType: AccountType;
+  currency: string;
+  virtualAccountId: string;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(params.userId);
+    if (!rcpt) return;
+
+    let template: string;
+    let props: Record<string, unknown>;
+    if (params.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", params.userId)
+        .maybeSingle();
+      template = "business.account_ready";
+      props = {
+        company_name: biz?.company_name ?? null,
+        product: "virtual_account",
+        outcome: "provisioned",
+        currency: params.currency,
+      };
+    } else {
+      template = "individual.account_ready";
+      props = {
+        full_name: rcpt.full_name,
+        product: "virtual_account",
+        outcome: "provisioned",
+        currency: params.currency,
+      };
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: rcpt.email,
+        user_id: params.userId,
+        idempotency_key: `wh:va-ready:${params.userId}:${params.virtualAccountId}:${params.currency}`,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email global-account-ready send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email global-account-ready best-effort error: ${(e as Error).message}`);
+  }
+}
+
+async function emailVirtualAccountLimitsBestEffort(params: {
+  userId: string;
+  accountType: AccountType;
+  bridgeCustomerId: string;
+}): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(params.userId);
+    if (!rcpt) return;
+
+    const { data: vaRows } = await supabase
+      .from("bridge_virtual_accounts")
+      .select("currency,rail,status,account_details")
+      .or(`user_id.eq.${params.userId},business_user_id.eq.${params.userId}`)
+      .eq("status", "active")
+      .in("currency", ["USD", "EUR", "GBP"]);
+
+    const virtualAccounts = (vaRows || []).map((row: Record<string, unknown>) => {
+      const currency = String(row.currency || "").toUpperCase();
+      const accountDetails = row.account_details && typeof row.account_details === "object"
+        ? row.account_details as Record<string, unknown>
+        : {};
+      const source = accountDetails.source_deposit_instructions && typeof accountDetails.source_deposit_instructions === "object"
+        ? accountDetails.source_deposit_instructions as Record<string, unknown>
+        : {};
+      const railRaw = String(row.rail || source.payment_rail || (Array.isArray(source.payment_rails) ? source.payment_rails[0] : "") || "").toLowerCase();
+      const rail = railRaw === "ach" || railRaw === "ach_push"
+        ? "ACH / Wire / FedNow"
+        : railRaw === "sepa"
+          ? "SEPA"
+          : railRaw === "faster_payments"
+            ? "Faster Payments"
+            : currency === "USD"
+              ? "ACH / Wire / FedNow"
+              : currency === "EUR"
+                ? "SEPA"
+                : currency === "GBP"
+                  ? "Faster Payments"
+                  : "Bank transfer";
+      if (currency === "USD") {
+        return {
+          currency,
+          rail,
+          account_label: `${currency} - ${rail}`,
+          minimum: "No published minimum",
+          maximum: "No published standard maximum",
+          accepted_payments: "Own-account payments, business payments, payroll, family payments with the same surname, and eligible person-to-person payments under $4,000.",
+          important_note: "USD person-to-person payments must stay under $4,000 and are not supported from New York or Texas.",
+        };
+      }
+      if (currency === "EUR") {
+        return {
+          currency,
+          rail,
+          account_label: `${currency} - ${rail}`,
+          minimum: "No published minimum",
+          maximum: "No published standard maximum. Payments over EUR 1,000,000 use SEPA Credit and may take 1 business day.",
+          accepted_payments: "Own-account payments and business payments are supported. Contact BorderPay before receiving EUR SEPA from an individual.",
+          important_note: "Individual third-party EUR SEPA payments need support review before use. Contact us first to avoid a preventable refund.",
+        };
+      }
+      return {
+        currency,
+        rail,
+        account_label: `${currency} - ${rail}`,
+        minimum: "No published minimum",
+        maximum: "No published standard maximum. Payments over GBP 1,000,000 use BACS and may take 3 business days.",
+        accepted_payments: "Own-account payments and business payments are supported.",
+        important_note: "GBP does not support incoming payments from individuals. Use GBP for company, employer, platform, or client business payments only.",
+      };
+    });
+
+    const template = params.accountType === "business"
+      ? "business.virtual_account_limits"
+      : "individual.virtual_account_limits";
+    let props: Record<string, unknown> = {
+      full_name: rcpt.full_name,
+      virtual_accounts: virtualAccounts,
+      action_url: `${Deno.env.get("APP_URL") || "https://app.borderpayafrica.com"}/dashboard`,
+    };
+    if (params.accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", params.userId)
+        .maybeSingle();
+      props = {
+        ...props,
+        company_name: biz?.company_name ?? null,
+      };
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: rcpt.email,
+        user_id: params.userId,
+        idempotency_key: `wh:verified-account-limits:${params.userId}:${params.bridgeCustomerId}:v1`,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email virtual-account-limits send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email virtual-account-limits best-effort error: ${(e as Error).message}`);
+  }
+}
 
 interface PendingEvent {
   id:           string;
@@ -523,10 +856,16 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
 
   if (isKyb || account_type === "business") {
     await supabase.from("business_profiles").update({
+      bridge_customer_id:      String(customer),
       bridge_kyb_status:      normalized,
       bridge_kyb_completed_at: normalized === "approved" ? new Date().toISOString() : null,
       updated_at:             new Date().toISOString(),
     }).eq("user_id", resolved);
+    await supabase.from("user_profiles").update({
+      bridge_customer_id: String(customer),
+      kyc_status:         normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : "pending",
+      updated_at:         new Date().toISOString(),
+    }).eq("id", resolved);
   } else {
     await supabase.from("user_profiles").update({
       bridge_kyc_status:        normalized,
@@ -539,10 +878,27 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
   // Product requirement: auto-provision stablecoin wallets after approval.
   // Any failure must surface so the queue retries safely with idempotent keys.
   if (normalized === "approved") {
+    const approvedAccountType = isKyb || account_type === "business" ? "business" : "individual";
     await ensureStablecoinWalletsProvisioned({
       userId: resolved,
       bridgeCustomerId: String(customer),
-      accountType: isKyb || account_type === "business" ? "business" : "individual",
+      accountType: approvedAccountType,
+    });
+    await emailVirtualAccountLimitsBestEffort({
+      userId: resolved,
+      bridgeCustomerId: String(customer),
+      accountType: approvedAccountType,
+    });
+    await supabase.rpc("apply_card_waitlist_referral_approval", {
+      p_event_id: ev.event_id,
+      p_referred_id: resolved,
+      p_spots: 500,
+      p_metadata: {
+        source: "bridge",
+        kind: isKyb ? "kyb" : "kyc",
+        bridge_customer_id: String(customer),
+        bridge_status: normalized,
+      },
     });
   }
 
@@ -650,6 +1006,17 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
         bridgeCustomerId: String(customer),
         accountType: owner.account_type,
       });
+      await supabase.rpc("apply_card_waitlist_referral_approval", {
+        p_event_id: ev.event_id,
+        p_referred_id: owner.resolved,
+        p_spots: 500,
+        p_metadata: {
+          source: "bridge",
+          kind: "customer",
+          bridge_customer_id: String(customer),
+          bridge_status: accountStatus,
+        },
+      });
     }
   }
   await supabase.from("bridge_webhook_events")
@@ -674,7 +1041,12 @@ const CURRENCY_SCALE: Record<string, number> = {
   USDB: 6,
   EURC: 6,
 };
-const DEFAULT_VA_DEVELOPER_FEE_PERCENT = 2.5;
+const FIAT_VA_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
+const BRIDGE_SETTLEMENT_ASSET_CURRENCIES = new Set(["USDC", "USDT", "PYUSD", "USDB", "EURC"]);
+const DEFAULT_VA_DEVELOPER_FEE_PERCENT_BY_ACCOUNT: Record<"individual" | "business", number> = {
+  individual: 2.5,
+  business: 2.0,
+};
 const BRIDGE_COUNTRY_CODE_RE = /^[A-Z]{2}$/;
 
 function normalizeCountryCode(value: unknown): string | null {
@@ -701,23 +1073,558 @@ function toMinorUnits(amount: unknown, currency: string): bigint | null {
   return negative ? -minor : minor;
 }
 
+function formatMinorUnits(amountMinor: bigint, currency: string): string {
+  const scale = CURRENCY_SCALE[currency.toUpperCase()] ?? 2;
+  const negative = amountMinor < 0n;
+  const abs = negative ? -amountMinor : amountMinor;
+  const base = 10n ** BigInt(scale);
+  const whole = abs / base;
+  const frac = abs % base;
+  const numeric = Number(`${negative ? "-" : ""}${whole}.${frac.toString().padStart(scale, "0")}`);
+  return `${numeric.toLocaleString(undefined, { maximumFractionDigits: Math.min(scale, 6) })} ${currency.toUpperCase()}`;
+}
+
+function minorToDecimal(amountMinor: bigint, currency: string): number {
+  return Number(amountMinor) / 10 ** (CURRENCY_SCALE[currency.toUpperCase()] ?? 2);
+}
+
+function absMinor(amountMinor: bigint): bigint {
+  return amountMinor < 0n ? -amountMinor : amountMinor;
+}
+
+function normalizeBridgeEndpointType(value: unknown): "virtual_account" | "wallet" | "external_bank" | "external_wallet" {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "bridge_wallet" || raw === "wallet") return "wallet";
+  if (raw === "virtual_account" || raw === "virtual_account_bank" || raw === "payment_route") return "virtual_account";
+  if (raw === "external_wallet" || raw === "crypto" || raw === "blockchain") return "external_wallet";
+  if (raw === "external_bank" || raw === "ach" || raw === "wire" || raw === "sepa" || raw === "faster_payments") return "external_bank";
+  return "external_bank";
+}
+
+function bridgeTransferDirection(
+  sourceType: "virtual_account" | "wallet" | "external_bank" | "external_wallet",
+  destinationType: "virtual_account" | "wallet" | "external_bank" | "external_wallet",
+): "credit" | "debit" {
+  if (sourceType === "wallet") return "debit";
+  if (destinationType === "wallet") return "credit";
+  if (sourceType === "virtual_account" || sourceType === "external_bank") return "credit";
+  return "debit";
+}
+
+function inferWalletActivityDirection(eventType: string, payload: any, amountMinor: bigint | null): "credit" | "debit" {
+  if (amountMinor !== null && amountMinor < 0n) return "debit";
+  const sourceRail = normalizeBridgeEndpointType(
+    payload?.source?.payment_rail ??
+    payload?.source?.type ??
+    payload?.source_payment_rail ??
+    payload?.source_type,
+  );
+  const destinationRail = normalizeBridgeEndpointType(
+    payload?.destination?.payment_rail ??
+    payload?.destination?.type ??
+    payload?.destination_payment_rail ??
+    payload?.destination_type,
+  );
+  if (sourceRail === "wallet") return "debit";
+  if (destinationRail === "wallet") return "credit";
+  const markers = [
+    eventType,
+    payload?.type,
+    payload?.kind,
+    payload?.direction,
+    payload?.side,
+    payload?.category,
+    payload?.transaction_type,
+    payload?.description,
+    payload?.memo,
+  ].map((v) => String(v ?? "").toLowerCase()).join(" ");
+  if (/\b(debit|withdraw|withdrawal|sent|send|payout|transfer_out|outbound)\b/.test(markers)) return "debit";
+  if (/\b(credit|deposit|received|receive|collection|transfer_in|inbound)\b/.test(markers)) return "credit";
+  return "credit";
+}
+
+function bridgeTransferIdFromPayload(payload: any): string | null {
+  const candidates = [
+    payload?.bridge_transfer_id,
+    payload?.transfer_id,
+    payload?.transfer?.id,
+    payload?.source?.transfer_id,
+    payload?.destination?.transfer_id,
+    payload?.metadata?.bridge_transfer_id,
+    payload?.metadata?.transfer_id,
+  ];
+  for (const candidate of candidates) {
+    const value = String(candidate ?? "").trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+function firstMinorUnitAmount(payload: any, currency: string, keys: string[]): bigint {
+  for (const key of keys) {
+    const raw = payload?.[key];
+    const direct = toMinorUnits(raw, currency);
+    if (direct !== null) return direct < 0n ? -direct : direct;
+    if (raw && typeof raw === "object") {
+      const nested = toMinorUnits(raw.amount, currency);
+      if (nested !== null) return nested < 0n ? -nested : nested;
+    }
+  }
+  return 0n;
+}
+
+function firstNonEmptyText(...values: unknown[]): string | null {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (value && typeof value === "object") {
+      const nested = firstFiniteNumber((value as Record<string, unknown>).amount);
+      if (nested !== null) return nested;
+      continue;
+    }
+    const text = String(value ?? "").replace(/,/g, "").trim();
+    if (!text) continue;
+    const n = Number(text);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function maskAddress(value: string | null): string | null {
+  const text = String(value || "").trim();
+  if (text.length <= 12) return text || null;
+  return `${text.slice(0, 4)}...${text.slice(-4)}`;
+}
+
+function bridgeReceiptId(payload: any, vaId: unknown): string | null {
+  const rawId = firstNonEmptyText(payload?.id);
+  return firstNonEmptyText(
+    payload?.deposit_id,
+    payload?.receipt?.deposit_id,
+    payload?.receipt?.id,
+    payload?.deposit?.id,
+    rawId && rawId !== String(vaId) ? rawId : null,
+    payload?.reference,
+    payload?.source?.tracking_number,
+  );
+}
+
+function normalizeCurrencyCode(value: unknown): string | null {
+  const text = String(value ?? "").trim().toUpperCase();
+  return CURRENCY_SCALE[text] !== undefined ? text : null;
+}
+
+function bridgeVirtualAccountSourceCurrency(payload: any, existingAccountDetails: unknown, existingCurrency: unknown): string {
+  const details = objectValue(existingAccountDetails) ?? {};
+  const payloadDetails = objectValue(payload?.account_details) ?? {};
+  return normalizeCurrencyCode(payload?.source_deposit_instructions?.currency) ??
+    normalizeCurrencyCode(objectValue(payloadDetails.source_deposit_instructions)?.currency) ??
+    normalizeCurrencyCode(objectValue(details.source_deposit_instructions)?.currency) ??
+    normalizeCurrencyCode(existingCurrency) ??
+    normalizeCurrencyCode(payload?.currency) ??
+    "USD";
+}
+
+function isConvertedVirtualAccountSettlementEvent(activityType: string, sourceCurrency: string, eventCurrency: string): boolean {
+  return FIAT_VA_CURRENCIES.has(sourceCurrency) &&
+    BRIDGE_SETTLEMENT_ASSET_CURRENCIES.has(eventCurrency) &&
+    ["payment_submitted", "payment_processed", "processed", "succeeded", "success"].includes(activityType);
+}
+
+function isFiatVirtualAccountCreditEvent(activityType: string, sourceCurrency: string, eventCurrency: string): boolean {
+  return FIAT_VA_CURRENCIES.has(sourceCurrency) &&
+    eventCurrency === sourceCurrency &&
+    ["funds_received", "payment_received", "credit_received"].includes(activityType);
+}
+
+function receivedAmountBreakdown(payload: any, currency: string): {
+  grossMinor: bigint;
+  developerFeeMinor: bigint;
+  exchangeFeeMinor: bigint;
+  netMinor: bigint;
+} | null {
+  const grossMinor = toMinorUnits(payload?.amount, currency);
+  if (grossMinor === null) return null;
+
+  const developerFeeMinor = firstMinorUnitAmount(payload, currency, [
+    "developer_fee_amount",
+    "developerFeeAmount",
+    "developer_fee",
+    "developerFee",
+  ]);
+  const exchangeFeeMinor = firstMinorUnitAmount(payload, currency, [
+    "exchange_fee_amount",
+    "exchangeFeeAmount",
+    "exchange_fee",
+    "exchangeFee",
+  ]);
+  const netMinor = grossMinor - developerFeeMinor - exchangeFeeMinor;
+
+  return {
+    grossMinor,
+    developerFeeMinor,
+    exchangeFeeMinor,
+    netMinor: netMinor > 0n ? netMinor : 0n,
+  };
+}
+
+function bridgeVaReceiptDetails(params: {
+  payload: any;
+  sourceCurrency: string;
+  vaId: unknown;
+  accountDetails: Record<string, unknown>;
+  breakdown: ReturnType<typeof receivedAmountBreakdown>;
+}): Record<string, unknown> {
+  const p = params.payload || {};
+  const receipt = objectValue(p.receipt) ?? {};
+  const destination =
+    objectValue(p.destination) ??
+    objectValue(receipt.destination) ??
+    objectValue(params.accountDetails.destination) ??
+    objectValue(objectValue(p.account_details)?.destination) ??
+    {};
+  const sourceInstructions =
+    objectValue(p.source_deposit_instructions) ??
+    objectValue(params.accountDetails.source_deposit_instructions) ??
+    objectValue(objectValue(p.account_details)?.source_deposit_instructions) ??
+    {};
+  const sourceCurrency = params.sourceCurrency.toUpperCase();
+  const destinationCurrency = firstNonEmptyText(
+    receipt.destination_currency,
+    receipt.outgoing_currency,
+    p.destination_currency,
+    p.to_currency,
+    destination.currency,
+    destination.asset,
+  )?.toUpperCase() ?? null;
+  const destinationAmount = firstFiniteNumber(
+    receipt.destination_amount,
+    receipt.outgoing_amount,
+    receipt.final_destination_amount,
+    p.destination_amount,
+    p.outgoing_amount,
+    p.final_destination_amount,
+    p.net_destination_amount,
+    destination.amount,
+  );
+  const destinationAddress = firstNonEmptyText(
+    receipt.destination_address,
+    p.destination_address,
+    destination.address,
+    destination.to_address,
+  );
+  const exchangeRate = firstFiniteNumber(
+    receipt.exchange_rate,
+    receipt.rate,
+    p.exchange_rate,
+    p.conversion_rate,
+    p.rate,
+  );
+  const breakdown = params.breakdown;
+  return {
+    deposit_id: bridgeReceiptId(p, params.vaId),
+    source_currency: sourceCurrency,
+    source_amount: breakdown ? minorToDecimal(breakdown.grossMinor, sourceCurrency) : firstFiniteNumber(receipt.initial_amount, p.initial_amount, p.amount),
+    service_charge_amount: breakdown ? minorToDecimal(breakdown.developerFeeMinor, sourceCurrency) : firstFiniteNumber(receipt.developer_fee_amount, receipt.developer_fee, p.developer_fee_amount, p.developer_fee),
+    available_amount: breakdown ? minorToDecimal(breakdown.netMinor, sourceCurrency) : firstFiniteNumber(receipt.final_amount, receipt.net_amount, p.final_amount, p.net_amount),
+    destination_currency: destinationCurrency,
+    destination_amount: destinationAmount,
+    exchange_rate: exchangeRate,
+    destination_address: maskAddress(destinationAddress),
+    source_rail: firstNonEmptyText(receipt.source_rail, p.source_rail, sourceInstructions.payment_rail, sourceInstructions.rail),
+  };
+}
+
+function humanizeRail(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  return raw
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.length <= 4 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function bridgeVaRefundDetails(payload: any): Record<string, unknown> {
+  const p = payload || {};
+  const refund = objectValue(p.refund) ?? {};
+  const source = objectValue(p.source) ?? {};
+  return {
+    return_reason: firstNonEmptyText(refund.reason, p.return_reason, p.reason),
+    returned_at: firstNonEmptyText(refund.refunded_at, refund.returned_at, p.returned_at, p.created_at),
+    risk_rejection_reason: firstNonEmptyText(refund.risk_rejection_reason, p.risk_rejection_reason),
+    refund_rail: humanizeRail(firstNonEmptyText(refund.rail, refund.refund_rail, source.payment_rail, source.payment_scheme)),
+    refund_beneficiary_name: firstNonEmptyText(refund.beneficiary_name, refund.refund_beneficiary_name, source.sender_name, source.originator_name),
+    refund_reference_id: firstNonEmptyText(refund.refund_reference_id, refund.reference_id, refund.tracking_number, p.refund_reference_id),
+  };
+}
+
+function transferReceiptBreakdown(payload: any, currency: string): {
+  grossMinor: bigint;
+  developerFeeMinor: bigint;
+  exchangeFeeMinor: bigint;
+  netMinor: bigint;
+} | null {
+  const receipt = payload?.receipt && typeof payload.receipt === "object" ? payload.receipt : {};
+  const grossMinor =
+    toMinorUnits(receipt?.initial_amount, currency) ??
+    toMinorUnits(receipt?.amount, currency) ??
+    toMinorUnits(payload?.initial_amount, currency) ??
+    toMinorUnits(payload?.amount, currency);
+  if (grossMinor === null) return null;
+
+  const developerFeeMinor = firstMinorUnitAmount(receipt, currency, [
+    "developer_fee_amount",
+    "developer_fee",
+  ]) || firstMinorUnitAmount(payload, currency, [
+    "developer_fee_amount",
+    "developer_fee",
+  ]);
+  const exchangeFeeMinor = firstMinorUnitAmount(receipt, currency, [
+    "exchange_fee_amount",
+    "exchange_fee",
+  ]) || firstMinorUnitAmount(payload, currency, [
+    "exchange_fee_amount",
+    "exchange_fee",
+  ]);
+  const explicitFinalMinor =
+    toMinorUnits(receipt?.final_amount, currency) ??
+    toMinorUnits(receipt?.net_amount, currency) ??
+    toMinorUnits(payload?.final_amount, currency) ??
+    toMinorUnits(payload?.net_amount, currency) ??
+    toMinorUnits(payload?.net_destination_amount, currency);
+  const netMinor = explicitFinalMinor ?? (grossMinor - developerFeeMinor - exchangeFeeMinor);
+
+  return {
+    grossMinor,
+    developerFeeMinor,
+    exchangeFeeMinor,
+    netMinor: netMinor > 0n ? netMinor : 0n,
+  };
+}
+
+function normalizeTransactionEmailStatus(raw: string): TransactionEmailStatus | null {
+  const s = raw.trim().toLowerCase();
+  if (["in_review", "under_review", "review", "pending_review", "manual_review"].includes(s)) return "in_review";
+  if (["approved", "completed", "complete", "payment_processed", "processed", "succeeded", "success"].includes(s)) return "approved";
+  if (["canceled", "cancelled", "cancelled_by_customer", "canceled_by_customer"].includes(s)) return "canceled";
+  if (["refund_in_flight", "refund_pending", "return_in_flight"].includes(s)) return "refund_in_flight";
+  if (["refunded", "returned", "refund_complete", "refund_completed"].includes(s)) return "refunded";
+  return null;
+}
+
+function transactionStatusTitle(status: TransactionEmailStatus): string {
+  switch (status) {
+    case "in_review": return "Transaction under review";
+    case "approved": return "Transaction approved";
+    case "canceled": return "Transaction canceled";
+    case "refund_in_flight": return "Refund in progress";
+    case "refunded": return "Transaction refunded";
+  }
+}
+
+function decimalAmountLabel(value: unknown, currency: unknown): string | null {
+  const c = String(currency ?? "").toUpperCase();
+  const n = Number(value);
+  if (!c || !Number.isFinite(n)) return null;
+  const minor = toMinorUnits(String(n), c);
+  return minor === null ? `${n} ${c}` : formatMinorUnits(minor, c);
+}
+
+function transactionStatusBody(status: TransactionEmailStatus, amountLabel: string, metadata?: Record<string, unknown>): string {
+  const currency = metadata?.currency;
+  const grossLabel = decimalAmountLabel(metadata?.gross_amount, currency);
+  const transactionFeeLabel = decimalAmountLabel(metadata?.developer_fee_amount, currency);
+  const exchangeFeeLabel = decimalAmountLabel(metadata?.exchange_fee_amount, currency);
+  const hasFeeBreakdown = Boolean(
+    grossLabel &&
+    ((Number(metadata?.developer_fee_amount ?? 0) > 0) || (Number(metadata?.exchange_fee_amount ?? 0) > 0)),
+  );
+  const receiptPrefix = hasFeeBreakdown
+    ? `Full amount received: ${grossLabel}. ${transactionFeeLabel ? `Transaction fee: -${transactionFeeLabel}. ` : ""}${exchangeFeeLabel ? `Exchange fee: -${exchangeFeeLabel}. ` : ""}Net amount: ${amountLabel}. `
+    : "";
+  switch (status) {
+    case "in_review":
+      return `${receiptPrefix || `${amountLabel} transaction `}${receiptPrefix ? "This transaction is" : "is"} under compliance review. We will notify you when the status changes.`;
+    case "approved":
+      return `${receiptPrefix || `${amountLabel} transaction `}${receiptPrefix ? "This transaction has" : "has"} been approved.`;
+    case "canceled":
+      return `${receiptPrefix || `${amountLabel} transaction `}${receiptPrefix ? "This transaction was" : "was"} canceled. No funds were made available.`;
+    case "refund_in_flight":
+      return `${receiptPrefix || `${amountLabel} refund `}${receiptPrefix ? "Refund is" : "is"} in progress. We will notify you when it is complete.`;
+    case "refunded":
+      return `${receiptPrefix || `${amountLabel} transaction `}${receiptPrefix ? "This transaction was" : "was"} refunded. Funds are no longer available.`;
+  }
+}
+
+async function insertTransactionStatusNotification(params: {
+  userId: string;
+  status: TransactionEmailStatus;
+  amountLabel: string;
+  metadata: Record<string, unknown>;
+  idempotencyMatch: Record<string, unknown>;
+}): Promise<boolean> {
+  const { data: existingNotification } = await supabase
+    .from("notifications")
+    .select("id")
+    .eq("user_id", params.userId)
+    .eq("type", "transaction")
+    .contains("metadata", params.idempotencyMatch)
+    .maybeSingle();
+  if (existingNotification?.id) return false;
+  await supabase.from("notifications").insert({
+    user_id: params.userId,
+    type: "transaction",
+    title: transactionStatusTitle(params.status),
+    body: transactionStatusBody(params.status, params.amountLabel, params.metadata),
+    metadata: params.metadata,
+  });
+  return true;
+}
+
+function publicTransactionStatus(status: TransactionEmailStatus): "completed" | "pending" | "failed" {
+  if (status === "approved") return "completed";
+  if (status === "in_review" || status === "refund_in_flight") return "pending";
+  return "failed";
+}
+
+function transactionStatusDescription(status: TransactionEmailStatus): string {
+  switch (status) {
+    case "in_review": return "Deposit under compliance review";
+    case "approved": return "Deposit approved";
+    case "canceled": return "Deposit canceled";
+    case "refund_in_flight": return "Deposit refund in progress";
+    case "refunded": return "Deposit refunded";
+  }
+}
+
+async function upsertVirtualAccountStatusTransaction(params: {
+  userId: string;
+  accountType: AccountType;
+  status: TransactionEmailStatus;
+  amount: number;
+  currency: string;
+  reference: string;
+  description: string;
+  metadata: Record<string, unknown>;
+  occurredAt?: string | null;
+}): Promise<void> {
+  const { error } = await supabase
+    .from("transactions")
+    .upsert({
+      user_id: params.userId,
+      type: "deposit",
+      amount: params.amount,
+      currency: params.currency,
+      status: publicTransactionStatus(params.status),
+      reference: params.reference,
+      description: params.description,
+      metadata: {
+        ...params.metadata,
+        account_type: params.accountType,
+        direction: "credit",
+        transaction_type: "virtual_account_deposit",
+      },
+      provider: "bridge",
+      created_at: params.occurredAt ?? new Date().toISOString(),
+    }, { onConflict: "reference" });
+  if (error) throw new Error(`upsert VA status transaction failed: ${error.message}`);
+}
+
 function normalizeDeveloperFeePercent(value: unknown): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0 || n > 100) return null;
   return Number(n.toFixed(4));
 }
 
-let cachedCanonicalVaDeveloperFeePercent: number | null = null;
-async function getCanonicalVaDeveloperFeePercent(): Promise<number> {
-  if (cachedCanonicalVaDeveloperFeePercent !== null) return cachedCanonicalVaDeveloperFeePercent;
+function normalizeBridgeVirtualAccountRail(value: unknown): string | null {
+  const rail = String(value ?? "").trim().toLowerCase();
+  if (!rail) return null;
+  if (rail === "ach") return "ach_push";
+  if (["ach_push", "ach_pull", "wire", "sepa", "faster_payments"].includes(rail)) return rail;
+  return null;
+}
+
+function normalizeBridgeVirtualAccountStatus(value: unknown): "active" | "suspended" | "closed" {
+  const status = String(value ?? "").trim().toLowerCase();
+  if (["closed", "deleted", "disabled", "deactivated", "inactive"].includes(status)) return "closed";
+  if (["suspended", "paused"].includes(status)) return "suspended";
+  return "active";
+}
+
+function normalizedText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+async function resolvesToSavedExternalWallet(params: {
+  userId: string;
+  accountDetails: Record<string, unknown>;
+  payload: Record<string, unknown>;
+}): Promise<boolean> {
+  const destination =
+    objectValue(params.accountDetails.destination) ??
+    objectValue(params.payload.destination) ??
+    objectValue(objectValue(params.payload.account_details)?.destination);
+  if (!destination) return false;
+
+  const markedSource = normalizedText(destination.source).toLowerCase();
+  if (markedSource === "external_wallet") return true;
+  if (normalizedText(destination.external_wallet_id)) return true;
+
+  const address = normalizedText(destination.address).toLowerCase();
+  const asset = normalizedText(destination.currency).toUpperCase();
+  const chain = normalizedText(destination.payment_rail || destination.chain).toLowerCase();
+  if (!address || !asset || !chain) return false;
+
+  const { data } = await supabase
+    .from("external_wallets")
+    .select("id,address")
+    .eq("user_id", params.userId)
+    .ilike("asset", asset)
+    .ilike("chain", chain)
+    .eq("status", "active")
+    .limit(20);
+  return (data || []).some((row: Record<string, unknown>) =>
+    normalizedText(row?.address).toLowerCase() === address
+  );
+}
+
+const cachedCanonicalVaDeveloperFeePercentByAccount: Partial<Record<"individual" | "business", number>> = {};
+async function getCanonicalVaDeveloperFeePercent(accountType: "individual" | "business"): Promise<number> {
+  if (cachedCanonicalVaDeveloperFeePercentByAccount[accountType] !== undefined) {
+    return cachedCanonicalVaDeveloperFeePercentByAccount[accountType]!;
+  }
+  const settingKey = accountType === "business"
+    ? "bridge.virtual_account.business.developer_fee_percent"
+    : "bridge.virtual_account.individual.developer_fee_percent";
+  const { data: typedSetting } = await supabase
+    .from("provider_settings")
+    .select("value")
+    .eq("key", settingKey)
+    .maybeSingle();
   const { data: setting } = await supabase
     .from("provider_settings")
     .select("value")
     .eq("key", "bridge.virtual_account.developer_fee_percent")
     .maybeSingle();
-  cachedCanonicalVaDeveloperFeePercent =
-    normalizeDeveloperFeePercent(setting?.value) ?? DEFAULT_VA_DEVELOPER_FEE_PERCENT;
-  return cachedCanonicalVaDeveloperFeePercent;
+  const fee =
+    normalizeDeveloperFeePercent(typedSetting?.value) ??
+    normalizeDeveloperFeePercent(setting?.value) ??
+    DEFAULT_VA_DEVELOPER_FEE_PERCENT_BY_ACCOUNT[accountType];
+  cachedCanonicalVaDeveloperFeePercentByAccount[accountType] = fee;
+  return fee;
 }
 
 async function upsertBridgeVirtualAccountProjection(params: {
@@ -726,9 +1633,10 @@ async function upsertBridgeVirtualAccountProjection(params: {
   payload: any;
   currency: string;
   existingFeePercent?: unknown;
+  existingAccountDetails?: unknown;
 }) {
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(params.customer);
-  const canonicalFee = await getCanonicalVaDeveloperFeePercent();
+  const canonicalFee = await getCanonicalVaDeveloperFeePercent(account_type);
   const payloadFee =
     normalizeDeveloperFeePercent(params.payload?.developer_fee_percent) ??
     normalizeDeveloperFeePercent(params.payload?.virtual_account?.developer_fee_percent);
@@ -736,6 +1644,32 @@ async function upsertBridgeVirtualAccountProjection(params: {
     payloadFee ??
     normalizeDeveloperFeePercent(params.existingFeePercent) ??
     canonicalFee;
+  const status = normalizeBridgeVirtualAccountStatus(params.payload?.status);
+  const existingDetails = params.existingAccountDetails && typeof params.existingAccountDetails === "object"
+    ? params.existingAccountDetails as Record<string, unknown>
+    : {};
+  const payloadDetails = params.payload && typeof params.payload === "object"
+    ? params.payload as Record<string, unknown>
+    : {};
+  const destinationDetails =
+    existingDetails.destination && typeof existingDetails.destination === "object"
+      ? existingDetails.destination
+      : payloadDetails.destination && typeof payloadDetails.destination === "object"
+        ? payloadDetails.destination
+        : null;
+  const destinationSource = destinationDetails && typeof destinationDetails === "object"
+    ? String((destinationDetails as Record<string, unknown>).source || "").trim().toLowerCase()
+    : "";
+  const mergedAccountDetails = {
+    ...existingDetails,
+    ...payloadDetails,
+    ...(destinationDetails ? { destination: destinationDetails } : {}),
+    source_deposit_instructions:
+      params.payload?.source_deposit_instructions ??
+      params.payload?.account_details?.source_deposit_instructions ??
+      existingDetails.source_deposit_instructions ??
+      null,
+  };
 
   await supabase.from("bridge_virtual_accounts").upsert({
     bridge_virtual_account_id: String(params.vaId),
@@ -743,14 +1677,42 @@ async function upsertBridgeVirtualAccountProjection(params: {
     user_id:                   account_type === "individual" ? resolved : null,
     business_user_id:          account_type === "business"   ? resolved : null,
     currency:                  params.currency,
-    rail:                      params.payload?.rail ?? params.payload?.payment_rail ?? null,
-    account_details:           params.payload?.source_deposit_instructions ?? params.payload?.account_details ?? {},
-    status:                    String(params.payload?.status ?? "active").toLowerCase(),
+    rail:                      normalizeBridgeVirtualAccountRail(
+      params.payload?.source_deposit_instructions?.payment_rail ??
+      params.payload?.rail ??
+      params.payload?.payment_rail,
+    ),
+    account_details:           mergedAccountDetails,
+    status,
     developer_fee_percent:     effectiveFee,
     updated_at:                new Date().toISOString(),
   }, { onConflict: "bridge_virtual_account_id" });
 
-  return { resolved, account_type, developer_fee_percent: effectiveFee };
+  if (status === "active") {
+    await supabase.from("pending_va_requests")
+      .update({
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+        resolution_note: `Resolved by Bridge virtual account ${params.vaId}.`,
+      })
+      .eq(account_type === "business" ? "bridge_customer_id" : "user_id", account_type === "business" ? String(params.customer) : resolved)
+      .eq("currency", params.currency)
+      .eq("status", "pending");
+  }
+
+  const inferredExternalDestination = await resolvesToSavedExternalWallet({
+    userId: resolved,
+    accountDetails: mergedAccountDetails,
+    payload: payloadDetails,
+  });
+
+  return {
+    resolved,
+    account_type,
+    developer_fee_percent: effectiveFee,
+    status,
+    destination_source: inferredExternalDestination ? "external_wallet" : destinationSource,
+  };
 }
 
 async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
@@ -762,37 +1724,341 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   const payloadCustomer = d?.customer_id ?? d?.customer?.id;
   const { data: existingVa } = await supabase
     .from("bridge_virtual_accounts")
-    .select("bridge_customer_id,developer_fee_percent")
+    .select("bridge_customer_id,developer_fee_percent,account_details,currency")
     .eq("bridge_virtual_account_id", String(vaId))
     .maybeSingle();
   const customer = payloadCustomer ?? existingVa?.bridge_customer_id;
   if (!customer) throw new Error("bridge virtual_account event missing customer_id and VA mapping");
 
   const t = ev.event_type.toLowerCase();
-  const isActivity = t.includes("activity") || t.includes("deposit") || t.includes("credit");
-  const currency   = String(d?.currency ?? "USD").toUpperCase();
+  const isActivity =
+    t.includes("activity") ||
+    t.includes("deposit") ||
+    t.includes("credit") ||
+    t.includes("debit") ||
+    t.includes("withdraw") ||
+    t.includes("transfer");
+  const currency = bridgeVirtualAccountSourceCurrency(d, existingVa?.account_details, existingVa?.currency);
+  const eventCurrency = normalizeCurrencyCode(d?.currency) ?? currency;
   const owner = await upsertBridgeVirtualAccountProjection({
     vaId: String(vaId),
     customer: String(customer),
     payload: d,
     currency,
     existingFeePercent: existingVa?.developer_fee_percent,
+    existingAccountDetails: existingVa?.account_details,
   });
+  const deliversToExternalWallet = owner.destination_source === "external_wallet";
+  const accountDetails = objectValue(existingVa?.account_details) ?? {};
 
   // Lifecycle event (created/updated/etc): projection already upserted above.
   if (!isActivity) {
+    const { resolved, account_type } = owner;
+    if (owner.status !== "active") {
+      await supabase.from("bridge_webhook_events")
+        .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
+        .eq("event_id", ev.event_id);
+      await supabase.rpc("complete_pending_event", {
+        p_event_id: ev.event_id,
+        p_summary:  { source: "bridge", kind: "virtual_account", virtual_account_id: vaId, status: owner.status, notified: false },
+      });
+      return;
+    }
+    const notificationMatch = {
+      kind: "global_account_ready",
+      virtual_account_id: String(vaId),
+      currency,
+    };
+    const { data: existingNotification } = await supabase
+      .from("notifications")
+      .select("id")
+      .eq("user_id", resolved)
+      .eq("type", "account")
+      .contains("metadata", notificationMatch)
+      .maybeSingle();
+    if (!existingNotification?.id) {
+      await supabase.from("notifications").insert({
+        user_id: resolved,
+        type: "account",
+        title: `${currency} global account active`,
+        body: `Your ${currency} global account is active and ready to receive payments.`,
+        metadata: {
+          ...notificationMatch,
+          source: "bridge",
+          bridge_event_id: ev.event_id,
+        },
+      });
+    }
+    await emailGlobalAccountReadyBestEffort({
+      userId: resolved,
+      accountType: account_type,
+      currency,
+      virtualAccountId: String(vaId),
+    });
+
     await supabase.from("bridge_webhook_events")
       .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
       .eq("event_id", ev.event_id);
     await supabase.rpc("complete_pending_event", {
       p_event_id: ev.event_id,
-      p_summary:  { source: "bridge", kind: "virtual_account", virtual_account_id: vaId },
+      p_summary:  { source: "bridge", kind: "virtual_account", virtual_account_id: vaId, notified: true },
     });
     return;
   }
 
   // Activity / deposit / credit event.
-  const amountMinor = toMinorUnits(d?.amount, currency);
+  const activityType = String(d?.status ?? d?.type ?? "").trim().toLowerCase();
+  const nonCreditStatus = normalizeTransactionEmailStatus(activityType);
+  if (nonCreditStatus && nonCreditStatus !== "approved") {
+    const depositId = String(d?.deposit_id ?? "").trim();
+    const statusBreakdown = receivedAmountBreakdown(d, currency);
+    const statusReceipt = bridgeVaReceiptDetails({
+      payload: d,
+      sourceCurrency: currency,
+      vaId,
+      accountDetails,
+      breakdown: statusBreakdown,
+    });
+    const refundDetails = bridgeVaRefundDetails(d);
+    const receiptDepositId = String(statusReceipt.deposit_id || depositId || "").trim();
+    const statusAmountMinor = statusBreakdown?.netMinor ?? toMinorUnits(d?.amount, currency);
+    const amountLabel = statusAmountMinor == null
+      ? `${String(d?.amount ?? "").trim() || "Your"} ${currency}`.trim()
+      : formatMinorUnits(statusAmountMinor, currency);
+    let reversal: Record<string, unknown> | null = null;
+    if (!deliversToExternalWallet && (nonCreditStatus === "refunded" || nonCreditStatus === "canceled") && statusAmountMinor !== null && statusAmountMinor > 0n) {
+      const reversalEventId = depositId
+        ? `bridge:va:${String(vaId)}:deposit:${depositId}:reversal`
+        : `bridge:va:${String(vaId)}:event:${ev.event_id}:reversal`;
+      const { data: reversalResult, error: reversalErr } = await supabase.rpc("apply_bridge_va_debit", {
+        p_event_id:         reversalEventId,
+        p_bridge_va_id:     String(vaId),
+        p_user_id:          owner.account_type === "individual" ? owner.resolved : null,
+        p_business_user_id: owner.account_type === "business"   ? owner.resolved : null,
+        p_currency:         currency,
+        p_amount_minor:     statusAmountMinor.toString(),
+        p_metadata: {
+          source: "bridge",
+          kind: "virtual_account_deposit_reversal",
+          webhook_event_id: ev.event_id,
+          reversal_event_id: reversalEventId,
+          virtual_account: vaId,
+          bridge_customer: customer,
+          deposit_id: depositId || null,
+          description: transactionStatusDescription(nonCreditStatus),
+          status: nonCreditStatus,
+          activity_type: activityType,
+          gross_amount: statusBreakdown ? minorToDecimal(statusBreakdown.grossMinor, currency) : null,
+          developer_fee_amount: statusBreakdown ? minorToDecimal(statusBreakdown.developerFeeMinor, currency) : null,
+          exchange_fee_amount: statusBreakdown ? minorToDecimal(statusBreakdown.exchangeFeeMinor, currency) : null,
+          net_amount: statusBreakdown ? minorToDecimal(statusBreakdown.netMinor, currency) : null,
+          raw: d,
+        },
+      });
+      if (reversalErr) {
+        throw new Error(`apply_bridge_va_debit failed: ${reversalErr.message}`);
+      }
+      const reversalRow = Array.isArray(reversalResult) ? reversalResult[0] : reversalResult;
+      reversal = {
+        applied: reversalRow?.applied ?? false,
+        debited_amount_minor: reversalRow?.debited_amount_minor ?? null,
+        new_balance_minor: reversalRow?.new_balance_minor ?? null,
+      };
+    }
+
+    const statusMetadata = {
+      source: "bridge",
+      kind: "virtual_account_deposit_status",
+      bridge_event_id: ev.event_id,
+      virtual_account_id: String(vaId),
+      deposit_id: receiptDepositId || null,
+      status: nonCreditStatus,
+      activity_type: activityType,
+      amount: statusAmountMinor == null ? d?.amount ?? null : minorToDecimal(statusAmountMinor, currency),
+      gross_amount: statusBreakdown ? minorToDecimal(statusBreakdown.grossMinor, currency) : null,
+      developer_fee_amount: statusBreakdown ? minorToDecimal(statusBreakdown.developerFeeMinor, currency) : null,
+      exchange_fee_amount: statusBreakdown ? minorToDecimal(statusBreakdown.exchangeFeeMinor, currency) : null,
+      net_amount: statusBreakdown ? minorToDecimal(statusBreakdown.netMinor, currency) : null,
+      currency,
+      direction: "credit",
+      ...(deliversToExternalWallet ? { delivery: "external_wallet", balance_impact: "none" } : {}),
+      receipt: statusReceipt,
+      refund_details: refundDetails,
+      reversal,
+    };
+    const { resolved, account_type } = owner;
+    const statusReference = receiptDepositId
+      ? `bridge:va:${String(vaId)}:deposit:${receiptDepositId}`
+      : `bridge:va:${String(vaId)}:event:${ev.event_id}`;
+    if (statusAmountMinor !== null) {
+      await upsertVirtualAccountStatusTransaction({
+        userId: resolved,
+        accountType: account_type,
+        status: nonCreditStatus,
+        amount: statusBreakdown ? minorToDecimal(statusBreakdown.netMinor, currency) : minorToDecimal(statusAmountMinor, currency),
+        currency,
+        reference: statusReference,
+        description: transactionStatusDescription(nonCreditStatus),
+        metadata: statusMetadata,
+        occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
+      });
+    }
+    const notified = await insertTransactionStatusNotification({
+      userId: resolved,
+      status: nonCreditStatus,
+      amountLabel,
+      metadata: statusMetadata,
+      idempotencyMatch: receiptDepositId || depositId
+        ? { deposit_id: receiptDepositId || depositId, kind: "virtual_account_deposit_status", status: nonCreditStatus }
+        : { bridge_event_id: ev.event_id, kind: "virtual_account_deposit_status", status: nonCreditStatus },
+    });
+    if (statusAmountMinor !== null) {
+      await emailTransactionStatusBestEffort({
+        userId: resolved,
+        accountType: account_type,
+        status: nonCreditStatus,
+        amount: minorToDecimal(statusAmountMinor, currency),
+        currency,
+        reference: receiptDepositId || String(d?.reference ?? d?.source?.tracking_number ?? ev.event_id),
+        description: nonCreditStatus === "in_review" ? "Deposit under compliance review" : String(refundDetails.return_reason || d?.refund?.reason || ""),
+        occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
+        idempotencyKey: `wh:tx-status:${resolved}:va:${receiptDepositId || ev.event_id}:${nonCreditStatus}${nonCreditStatus === "refunded" ? ":refund-receipt-v2" : ""}`,
+        grossAmount: statusBreakdown ? minorToDecimal(statusBreakdown.grossMinor, currency) : null,
+        developerFeeAmount: statusBreakdown ? minorToDecimal(statusBreakdown.developerFeeMinor, currency) : null,
+        exchangeFeeAmount: statusBreakdown ? minorToDecimal(statusBreakdown.exchangeFeeMinor, currency) : null,
+        netAmount: statusBreakdown ? minorToDecimal(statusBreakdown.netMinor, currency) : null,
+        sourceCurrency: String(statusReceipt.source_currency || currency),
+        sourceAmount: Number(statusReceipt.source_amount ?? NaN),
+        serviceChargeAmount: Number(statusReceipt.service_charge_amount ?? NaN),
+        availableAmount: Number(statusReceipt.available_amount ?? NaN),
+        destinationCurrency: String(statusReceipt.destination_currency || ""),
+        destinationAmount: Number(statusReceipt.destination_amount ?? NaN),
+        exchangeRate: Number(statusReceipt.exchange_rate ?? NaN),
+        destinationAddress: String(statusReceipt.destination_address || ""),
+        sourceRail: String(statusReceipt.source_rail || ""),
+        depositId: receiptDepositId || null,
+        refundReturnReason: String(refundDetails.return_reason || ""),
+        refundReturnedAt: String(refundDetails.returned_at || ""),
+        refundRiskRejectionReason: String(refundDetails.risk_rejection_reason || ""),
+        refundRail: String(refundDetails.refund_rail || ""),
+        refundBeneficiaryName: String(refundDetails.refund_beneficiary_name || ""),
+        refundReferenceId: String(refundDetails.refund_reference_id || ""),
+      });
+    }
+
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
+      .eq("event_id", ev.event_id);
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary:  {
+        source: "bridge",
+        kind: "virtual_account",
+        virtual_account_id: vaId,
+        skipped: "non_credit_activity_status",
+        activity_type: activityType,
+        deposit_id: receiptDepositId || depositId || null,
+        status: nonCreditStatus,
+        notified,
+        reversal,
+      },
+    });
+    return;
+  }
+
+  if (!isFiatVirtualAccountCreditEvent(activityType, currency, eventCurrency)) {
+    const isConvertedSettlement = isConvertedVirtualAccountSettlementEvent(activityType, currency, eventCurrency);
+    const depositId = String(d?.deposit_id ?? "").trim();
+    const statusBreakdown = receivedAmountBreakdown(d, currency);
+    const statusReceipt = bridgeVaReceiptDetails({
+      payload: d,
+      sourceCurrency: currency,
+      vaId,
+      accountDetails,
+      breakdown: statusBreakdown,
+    });
+    const receiptDepositId = String(statusReceipt.deposit_id || depositId || "").trim();
+    const approvedStatus = normalizeTransactionEmailStatus(activityType) === "approved" || activityType === "payment_processed";
+    if (isConvertedSettlement && approvedStatus && statusBreakdown?.netMinor && statusBreakdown.netMinor > 0n) {
+      const amountDecimal = minorToDecimal(statusBreakdown.netMinor, currency);
+      const amountLabel = formatMinorUnits(statusBreakdown.netMinor, currency);
+      const statusMetadata = {
+        source: "bridge",
+        kind: "virtual_account_deposit_status",
+        bridge_event_id: ev.event_id,
+        virtual_account_id: String(vaId),
+        deposit_id: receiptDepositId || depositId || null,
+        status: "approved",
+        activity_type: activityType,
+        amount: amountDecimal,
+        gross_amount: minorToDecimal(statusBreakdown.grossMinor, currency),
+        developer_fee_amount: minorToDecimal(statusBreakdown.developerFeeMinor, currency),
+        exchange_fee_amount: minorToDecimal(statusBreakdown.exchangeFeeMinor, currency),
+        net_amount: amountDecimal,
+        currency,
+        direction: "credit",
+        converted_currency: eventCurrency,
+        balance_impact: "none",
+        receipt: statusReceipt,
+      };
+      const { resolved, account_type } = owner;
+      await insertTransactionStatusNotification({
+        userId: resolved,
+        status: "approved",
+        amountLabel,
+        metadata: statusMetadata,
+        idempotencyMatch: receiptDepositId || depositId
+          ? { deposit_id: receiptDepositId || depositId, kind: "virtual_account_deposit_status", status: "approved" }
+          : { bridge_event_id: ev.event_id, kind: "virtual_account_deposit_status", status: "approved" },
+      });
+      await emailTransactionStatusBestEffort({
+        userId: resolved,
+        accountType: account_type,
+        status: "approved",
+        amount: amountDecimal,
+        currency,
+        reference: receiptDepositId || String(d?.reference ?? d?.source?.tracking_number ?? ev.event_id),
+        description: "Deposit processed",
+        occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
+        idempotencyKey: `wh:tx-status:${resolved}:va:${receiptDepositId || ev.event_id}:approved`,
+        grossAmount: minorToDecimal(statusBreakdown.grossMinor, currency),
+        developerFeeAmount: minorToDecimal(statusBreakdown.developerFeeMinor, currency),
+        exchangeFeeAmount: minorToDecimal(statusBreakdown.exchangeFeeMinor, currency),
+        netAmount: amountDecimal,
+        sourceCurrency: String(statusReceipt.source_currency || currency),
+        sourceAmount: Number(statusReceipt.source_amount ?? NaN),
+        serviceChargeAmount: Number(statusReceipt.service_charge_amount ?? NaN),
+        availableAmount: Number(statusReceipt.available_amount ?? NaN),
+        destinationCurrency: String(statusReceipt.destination_currency || eventCurrency),
+        destinationAmount: Number(statusReceipt.destination_amount ?? NaN),
+        exchangeRate: Number(statusReceipt.exchange_rate ?? NaN),
+        destinationAddress: String(statusReceipt.destination_address || ""),
+        sourceRail: String(statusReceipt.source_rail || ""),
+        depositId: receiptDepositId || null,
+      });
+    }
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
+      .eq("event_id", ev.event_id);
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        source: "bridge",
+        kind: "virtual_account",
+        virtual_account_id: vaId,
+        deposit_id: depositId || null,
+        activity_type: activityType,
+        source_currency: currency,
+        event_currency: eventCurrency,
+        credited: false,
+        skipped: isConvertedSettlement ? "converted_settlement_status_only" : "non_credit_activity_status",
+      },
+    });
+    return;
+  }
+
+  const approvedBreakdown = receivedAmountBreakdown(d, currency);
+  const amountMinor = approvedBreakdown?.netMinor ?? toMinorUnits(d?.amount, currency);
   if (amountMinor === null) {
     // Malformed or unsupported currency. Audit + complete; do NOT mutate balance.
     await supabase.from("bridge_webhook_events")
@@ -809,16 +2075,115 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     await supabase.rpc("complete_pending_event", {
       p_event_id: ev.event_id,
       p_summary:  { source: "bridge", kind: "virtual_account", virtual_account_id: vaId,
-                    skipped: "non_positive_amount", amount_minor: amountMinor.toString() },
+                    skipped: "non_positive_net_amount", amount_minor: amountMinor.toString(),
+                    gross_amount_minor: approvedBreakdown ? approvedBreakdown.grossMinor.toString() : null,
+                    developer_fee_minor: approvedBreakdown ? approvedBreakdown.developerFeeMinor.toString() : null,
+                    exchange_fee_minor: approvedBreakdown ? approvedBreakdown.exchangeFeeMinor.toString() : null },
     });
     return;
   }
 
   const { resolved, account_type } = owner;
+  const depositId = String(d?.deposit_id ?? "").trim();
+  const approvedReceipt = bridgeVaReceiptDetails({
+    payload: d,
+    sourceCurrency: currency,
+    vaId,
+    accountDetails,
+    breakdown: approvedBreakdown,
+  });
+  const receiptDepositId = String(approvedReceipt.deposit_id || depositId || "").trim();
+  const creditEventId = receiptDepositId
+    ? `bridge:va:${String(vaId)}:deposit:${receiptDepositId}`
+    : ev.event_id;
+  if (deliversToExternalWallet) {
+    const amountDecimal = minorToDecimal(amountMinor, currency);
+    const amountLabel = formatMinorUnits(amountMinor, currency);
+    const statusMetadata = {
+      source: "bridge",
+      kind: "virtual_account_deposit_status",
+      bridge_event_id: ev.event_id,
+      virtual_account_id: String(vaId),
+      deposit_id: receiptDepositId || depositId || null,
+      status: "approved",
+      activity_type: activityType,
+      amount: amountDecimal,
+      gross_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.grossMinor, currency) : null,
+      developer_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.developerFeeMinor, currency) : null,
+      exchange_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.exchangeFeeMinor, currency) : null,
+      net_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.netMinor, currency) : null,
+      currency,
+      direction: "credit",
+      delivery: "external_wallet",
+      balance_impact: "none",
+      receipt: approvedReceipt,
+    };
+    await upsertVirtualAccountStatusTransaction({
+      userId: resolved,
+      accountType: account_type,
+      status: "approved",
+      amount: amountDecimal,
+      currency,
+      reference: creditEventId,
+      description: "Deposit delivered to external wallet",
+      metadata: statusMetadata,
+      occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
+    });
+    await insertTransactionStatusNotification({
+      userId: resolved,
+      status: "approved",
+      amountLabel,
+      metadata: statusMetadata,
+      idempotencyMatch: receiptDepositId || depositId
+        ? { deposit_id: receiptDepositId || depositId, kind: "virtual_account_deposit_status", status: "approved" }
+        : { bridge_event_id: ev.event_id, kind: "virtual_account_deposit_status", status: "approved" },
+    });
+    await emailTransactionStatusBestEffort({
+      userId: resolved,
+      accountType: account_type,
+      status: "approved",
+      amount: amountDecimal,
+      currency,
+      reference: receiptDepositId || String(d?.reference ?? d?.source?.tracking_number ?? ev.event_id),
+      description: "Deposit delivered to your external wallet",
+      occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
+      idempotencyKey: `wh:tx-status:${resolved}:va:${receiptDepositId || ev.event_id}:approved`,
+      grossAmount: approvedBreakdown ? minorToDecimal(approvedBreakdown.grossMinor, currency) : null,
+      developerFeeAmount: approvedBreakdown ? minorToDecimal(approvedBreakdown.developerFeeMinor, currency) : null,
+      exchangeFeeAmount: approvedBreakdown ? minorToDecimal(approvedBreakdown.exchangeFeeMinor, currency) : null,
+      netAmount: approvedBreakdown ? minorToDecimal(approvedBreakdown.netMinor, currency) : null,
+      sourceCurrency: String(approvedReceipt.source_currency || currency),
+      sourceAmount: Number(approvedReceipt.source_amount ?? NaN),
+      serviceChargeAmount: Number(approvedReceipt.service_charge_amount ?? NaN),
+      availableAmount: Number(approvedReceipt.available_amount ?? NaN),
+      destinationCurrency: String(approvedReceipt.destination_currency || ""),
+      destinationAmount: Number(approvedReceipt.destination_amount ?? NaN),
+      exchangeRate: Number(approvedReceipt.exchange_rate ?? NaN),
+      destinationAddress: String(approvedReceipt.destination_address || ""),
+      sourceRail: String(approvedReceipt.source_rail || ""),
+      depositId: receiptDepositId || null,
+    });
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
+      .eq("event_id", ev.event_id);
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: {
+        source: "bridge",
+        kind: "virtual_account",
+        virtual_account_id: vaId,
+        deposit_id: depositId || null,
+        credited: false,
+        delivered_to: "external_wallet",
+        amount_minor: amountMinor.toString(),
+      },
+    });
+    return;
+  }
 
   // Canonical Bridge balance + auditable ledger. Idempotent on event_id.
   const { data: creditResult, error: creditErr } = await supabase.rpc("apply_bridge_va_credit", {
-    p_event_id:         ev.event_id,
+    p_event_id:         creditEventId,
     p_bridge_va_id:     String(vaId),
     p_user_id:          account_type === "individual" ? resolved : null,
     p_business_user_id: account_type === "business"   ? resolved : null,
@@ -827,10 +2192,18 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     p_amount_minor:     amountMinor.toString(),
     p_metadata: {
       source:           "bridge",
+      webhook_event_id: ev.event_id,
+      credit_event_id:  creditEventId,
       virtual_account:  vaId,
       bridge_customer:  customer,
+      deposit_id:       receiptDepositId || depositId || null,
       developer_fee_percent: owner.developer_fee_percent,
+      gross_amount:     approvedBreakdown ? minorToDecimal(approvedBreakdown.grossMinor, currency) : null,
+      developer_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.developerFeeMinor, currency) : null,
+      exchange_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.exchangeFeeMinor, currency) : null,
+      net_amount:       approvedBreakdown ? minorToDecimal(approvedBreakdown.netMinor, currency) : null,
       reference:        d?.reference ?? null,
+      receipt:          approvedReceipt,
       raw:              d,
     },
   });
@@ -838,6 +2211,44 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     throw new Error(`apply_bridge_va_credit failed: ${creditErr.message}`);
   }
   const creditRow = Array.isArray(creditResult) ? creditResult[0] : creditResult;
+  // Bridge virtual-account credit payloads are not guaranteed to use the same
+  // activity status wording across rails. If we reached this branch, parsed a
+  // positive amount, and the idempotent credit actually applied, the customer
+  // must receive an approved incoming-payment notification even when the raw
+  // activity status is blank or unmapped.
+  if (creditRow?.applied) {
+    const amountDecimal = minorToDecimal(amountMinor, currency);
+    const amountLabel = formatMinorUnits(amountMinor, currency);
+    const statusMetadata = {
+      source: "bridge",
+      kind: "virtual_account_deposit_status",
+      bridge_event_id: ev.event_id,
+      virtual_account_id: String(vaId),
+      deposit_id: receiptDepositId || depositId || null,
+      status: "approved",
+      activity_type: activityType,
+      amount: amountDecimal,
+      gross_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.grossMinor, currency) : null,
+      developer_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.developerFeeMinor, currency) : null,
+      exchange_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.exchangeFeeMinor, currency) : null,
+      net_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.netMinor, currency) : null,
+      currency,
+      receipt: approvedReceipt,
+    };
+    await insertTransactionStatusNotification({
+      userId: resolved,
+      status: "approved",
+      amountLabel,
+      metadata: statusMetadata,
+      idempotencyMatch: receiptDepositId || depositId
+        ? { deposit_id: receiptDepositId || depositId, kind: "virtual_account_deposit_status", status: "approved" }
+        : { bridge_event_id: ev.event_id, kind: "virtual_account_deposit_status", status: "approved" },
+    });
+    // Do not email on the first fiat funds_received leg. Bridge sends a later
+    // converted settlement event with the full receipt (incoming amount,
+    // transaction fee, outgoing asset, destination). That final leg is handled
+    // as status-only above and uses the same deposit id for idempotency.
+  }
 
   // For individuals only, mirror to the legacy wallets table so the existing
   // TransactionsScreen (which reads wallets/transactions) keeps working.
@@ -857,7 +2268,16 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       p_currency:     currency,
       p_amount:       amountDecimal,
       p_tx_reference: `bridge:${ev.event_id}`,
-      p_tx_metadata:  { virtual_account_id: vaId, bridge_reference: d?.reference ?? null, payload: d, mirror_of: "bridge_balance_ledger" },
+      p_tx_metadata:  {
+        virtual_account_id: vaId,
+        bridge_reference: d?.reference ?? null,
+        payload: d,
+        mirror_of: "bridge_balance_ledger",
+        gross_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.grossMinor, currency) : null,
+        developer_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.developerFeeMinor, currency) : null,
+        exchange_fee_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.exchangeFeeMinor, currency) : null,
+        net_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.netMinor, currency) : null,
+      },
     });
     if (mirrorErr) {
       throw new Error(`apply_bridge_wallet_credit_and_complete failed: ${mirrorErr.message}`);
@@ -942,8 +2362,22 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   }
 
   const amountValue = Number(d?.amount);
+  const currency = String(d?.currency ?? "USDC").toUpperCase();
+  const amountMinor = toMinorUnits(d?.amount, currency);
+  const walletActivityDirection = inferWalletActivityDirection(t, d, amountMinor);
+  const walletActivityTransferId = bridgeTransferIdFromPayload(d);
+  const walletActivityType = String(d?.type || "").toLowerCase();
+  const paymentRouteType = String(d?.payment_route?.type || "").toLowerCase();
+  const isDirectWalletDeposit =
+    walletActivityDirection === "credit" &&
+    ["direct_deposit", "deposit"].includes(walletActivityType) &&
+    paymentRouteType !== "virtual_account_event";
+  const walletActivityAmount =
+    amountMinor !== null
+      ? minorToDecimal(absMinor(amountMinor), currency)
+      : Math.abs(amountValue);
   const shouldProjectWalletActivityTx =
-    isActivity && Number.isFinite(amountValue) && amountValue > 0 && !!resolved;
+    isActivity && Number.isFinite(walletActivityAmount) && walletActivityAmount > 0 && !!resolved;
 
   await supabase.from("bridge_wallets").upsert({
     bridge_wallet_id:    String(walletId),
@@ -957,55 +2391,38 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     updated_at:          new Date().toISOString(),
   }, { onConflict: "bridge_wallet_id" });
 
-  // Projection repair/prevention: wallet activity with amount should emit
-  // canonical Bridge transaction + user notification idempotently.
+  // Projection repair/prevention: wallet activity with amount should emit a
+  // canonical ledger/transaction row idempotently. Customer-facing
+  // notifications are owned by the deposit/transfer lifecycle handlers, not
+  // raw wallet activity, otherwise one Bridge movement appears twice.
   if (shouldProjectWalletActivityTx) {
     const txReference = `bridge:${ev.event_id}`;
-    const currency = String(d?.currency ?? "USDC").toUpperCase();
     await supabase.from("transactions").upsert({
       user_id:     resolved,
-      type:        "deposit",
-      amount:      amountValue,
+      type:        walletActivityDirection === "credit" ? "deposit" : "withdrawal",
+      amount:      walletActivityAmount,
       currency,
       status:      "completed",
       reference:   txReference,
       metadata:    {
         source: "bridge",
         kind: "wallet_activity",
+        direction: walletActivityDirection,
+        transaction_type: walletActivityDirection === "credit" ? "deposit" : "withdrawal",
+        balance_impact: walletActivityDirection,
+        signed_amount: amountMinor === null ? amountValue : minorToDecimal(amountMinor, currency),
+        amount_minor: amountMinor === null ? null : absMinor(amountMinor).toString(),
         bridge_event_id: ev.event_id,
         bridge_wallet_id: String(walletId),
+        bridge_transfer_id: walletActivityTransferId,
         bridge_customer_id: String(customer),
         raw: d,
       },
       provider:    "bridge",
-      description: "Wallet deposit credit",
+      description: walletActivityDirection === "credit" ? "Wallet deposit credit" : "Wallet transfer debit",
       updated_at:  new Date().toISOString(),
     }, { onConflict: "reference" });
 
-    const { data: existingNotification } = await supabase
-      .from("notifications")
-      .select("id")
-      .eq("user_id", resolved)
-      .eq("type", "transaction")
-      .contains("metadata", { bridge_event_id: ev.event_id })
-      .maybeSingle();
-    if (!existingNotification?.id) {
-      await supabase.from("notifications").insert({
-        user_id: resolved,
-        type: "transaction",
-        title: "Deposit received",
-        body: `Received ${amountValue} ${currency} via account activity.`,
-        metadata: {
-          bridge_event_id: ev.event_id,
-          bridge_wallet_id: String(walletId),
-          amount: amountValue,
-          currency,
-          source: "bridge",
-        },
-      });
-    }
-
-    const amountMinor = toMinorUnits(d?.amount, currency);
     if (amountMinor !== null) {
       await supabase.from("bridge_balance_ledger").upsert({
         event_id: ev.event_id,
@@ -1015,20 +2432,38 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
         user_id: account_type === "individual" ? resolved : null,
         business_user_id: account_type === "business" ? resolved : null,
         currency,
-        amount_minor: amountMinor.toString(),
-        direction: amountMinor >= 0n ? "credit" : "debit",
+        amount_minor: absMinor(amountMinor).toString(),
+        direction: walletActivityDirection,
         metadata: {
           source: "bridge",
           kind: "wallet_activity",
+          direction: walletActivityDirection,
+          transaction_type: walletActivityDirection === "credit" ? "deposit" : "withdrawal",
+          balance_impact: walletActivityDirection,
           bridge_event_id: ev.event_id,
           bridge_wallet_id: String(walletId),
+          bridge_transfer_id: walletActivityTransferId,
           bridge_customer_id: String(customer),
           raw: d,
         },
       }, { onConflict: "event_id", ignoreDuplicates: true });
     }
 
-    // v1 webhook policy: do not send wallet activity emails here.
+    if (isDirectWalletDeposit) {
+      const availableBalance = Number(d?.available_balance);
+      await emailWalletActivityBestEffort({
+        userId: resolved,
+        accountType: account_type,
+        direction: "credit",
+        amount: walletActivityAmount,
+        currency,
+        reference: walletActivityTransferId || String(d?.id || ev.event_id),
+        description: "Direct wallet deposit",
+        occurredAt: String(d?.created_at || ev.payload?.event_created_at || ""),
+        newBalance: Number.isFinite(availableBalance) ? availableBalance : null,
+        idempotencyKey: `wh:wallet-activity:${resolved}:${walletActivityTransferId || d?.id || ev.event_id}:credit`,
+      });
+    }
   }
 
   await supabase.from("bridge_webhook_events")
@@ -1144,13 +2579,15 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
     }
   }
 
-  const sourceType = String(d?.source?.type ?? d?.source?.payment_rail ?? "external_bank");
-  const destType   = String(d?.destination?.type ?? d?.destination?.payment_rail ?? "external_bank");
-  const normSource = ["virtual_account","wallet","external_bank","external_wallet"].includes(sourceType) ? sourceType : "external_bank";
-  const normDest   = ["virtual_account","wallet","external_bank","external_wallet"].includes(destType)   ? destType   : "external_bank";
+  const normSource = normalizeBridgeEndpointType(d?.source?.type ?? d?.source?.payment_rail ?? "external_bank");
+  const normDest   = normalizeBridgeEndpointType(d?.destination?.type ?? d?.destination?.payment_rail ?? "external_bank");
+  const direction  = bridgeTransferDirection(normSource, normDest);
+  const transactionType = direction === "debit" ? "withdrawal" : "deposit";
 
   const amount   = Number(d?.amount ?? 0);
   const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
+  const receiptBreakdown = transferReceiptBreakdown(d, currency);
+  const displayAmount = receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : amount;
   // 1) Bridge transfer projection + lifecycle state must flow via canonical RPC
   // (no direct runtime upsert on bridge_transfers).
   const transferState = mappedState.recognized
@@ -1206,18 +2643,85 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       p_status:             mappedState.transactionStatus,
       p_metadata: {
         source:           "bridge",
-        transaction_type: "fx_conversion",
-        flow:             "stablecoin_sandwich",
+        transaction_type: transactionType,
+        direction,
+        balance_impact:   direction,
+        flow:             "bridge_transfer",
         account_type:     owner.account_type,
         source_type:      normSource,
         destination_type: normDest,
         bridge_state:     mappedState.providerState,
         bridge_state_recognized: mappedState.recognized,
+        receipt: receiptBreakdown ? {
+          initial_amount: minorToDecimal(receiptBreakdown.grossMinor, currency),
+          developer_fee: minorToDecimal(receiptBreakdown.developerFeeMinor, currency),
+          exchange_fee: minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency),
+          final_amount: minorToDecimal(receiptBreakdown.netMinor, currency),
+        } : d?.receipt ?? null,
+        gross_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.grossMinor, currency) : null,
+        developer_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.developerFeeMinor, currency) : null,
+        exchange_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency) : null,
+        net_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
         raw:              d,
       },
     });
     if (txErr) {
       throw new Error(`upsert_bridge_transaction failed: ${txErr.message}`);
+    }
+
+    if (mappedState.transactionStatus === "completed") {
+      await supabase.rpc("award_growth_first_transaction_from_bridge_event", {
+        p_event_id: ev.event_id,
+        p_bridge_customer_id: customer ? String(customer) : null,
+        p_bridge_transfer_id: String(transferId),
+        p_status: mappedState.transactionStatus,
+        p_payload: d,
+      });
+    }
+
+    const emailStatus = normalizeTransactionEmailStatus(mappedState.providerState);
+    if (emailStatus && Number.isFinite(amount) && amount > 0) {
+      const amountMinor = receiptBreakdown?.netMinor ?? toMinorUnits(String(amount), currency);
+      const amountLabel = amountMinor === null ? `${amount} ${currency}` : formatMinorUnits(amountMinor, currency);
+      const statusMetadata = {
+        source: "bridge",
+        kind: "transfer_status",
+        direction,
+        transaction_type: transactionType,
+        balance_impact: direction,
+        bridge_event_id: ev.event_id,
+        bridge_transfer_id: String(transferId),
+        status: emailStatus,
+        provider_state: mappedState.providerState,
+        amount: displayAmount,
+        gross_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.grossMinor, currency) : null,
+        developer_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.developerFeeMinor, currency) : null,
+        exchange_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency) : null,
+        net_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
+        currency,
+      };
+      await insertTransactionStatusNotification({
+        userId: owner.resolved,
+        status: emailStatus,
+        amountLabel,
+        metadata: statusMetadata,
+        idempotencyMatch: { bridge_transfer_id: String(transferId), kind: "transfer_status", status: emailStatus },
+      });
+      await emailTransactionStatusBestEffort({
+        userId: owner.resolved,
+        accountType: owner.account_type ?? "individual",
+        status: emailStatus,
+        amount: displayAmount,
+        currency,
+        reference: String(transferId),
+        description: `Transfer ${transactionStatusTitle(emailStatus).toLowerCase()}`,
+        occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
+        idempotencyKey: `wh:tx-status:${owner.resolved}:transfer:${String(transferId)}:${emailStatus}`,
+        grossAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.grossMinor, currency) : null,
+        developerFeeAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.developerFeeMinor, currency) : null,
+        exchangeFeeAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency) : null,
+        netAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
+      });
     }
   }
 
@@ -1273,7 +2777,8 @@ async function ensureStablecoinWalletsProvisioned(input: {
     country = String(userProfile?.country || "");
   }
   if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
-  if (String(profile?.[statusCol] || "").toLowerCase() !== "approved") return;
+  const statusValue = (profile as Record<string, unknown> | null)?.[statusCol];
+  if (String(statusValue || "").toLowerCase() !== "approved") return;
 
   for (const { symbol, chain } of DEFAULT_STABLECOIN_WALLETS) {
     const chainLc = chain.toLowerCase();
@@ -1324,13 +2829,13 @@ async function syncCountryFromBridgeCustomer(
   const [{ data: userProfile }, { data: businessProfile }] = await Promise.all([
     supabase
       .from("user_profiles")
-      .select("country, phone, bridge_address_object")
+      .select("country, phone, date_of_birth, id_number, id_type, bridge_address_object, bridge_identity_metadata")
       .eq("id", owner.resolved)
       .maybeSingle(),
     owner.account_type === "business"
       ? supabase
           .from("business_profiles")
-          .select("country, company_phone, address, city, state, postal_code")
+          .select("country, company_phone, address, city, state, postal_code, bridge_identity_metadata")
           .eq("user_id", owner.resolved)
           .maybeSingle()
       : Promise.resolve({ data: null as any }),
@@ -1338,7 +2843,20 @@ async function syncCountryFromBridgeCustomer(
 
   const userCountry = normalizeCountryCode(userProfile?.country);
   const businessCountry = normalizeCountryCode(businessProfile?.country);
-  if (userCountry && (owner.account_type !== "business" || businessCountry)) return;
+  const needsUserIdentity =
+    !userProfile?.date_of_birth ||
+    !userProfile?.id_number ||
+    !userProfile?.id_type;
+  const hasBusinessIdentityMetadata =
+    businessProfile?.bridge_identity_metadata &&
+    typeof businessProfile.bridge_identity_metadata === "object" &&
+    Object.keys(businessProfile.bridge_identity_metadata).length > 0;
+  const needsBusinessIdentity = owner.account_type === "business" && !hasBusinessIdentityMetadata;
+  if (
+    userCountry &&
+    !needsUserIdentity &&
+    (owner.account_type !== "business" || (businessCountry && !needsBusinessIdentity))
+  ) return;
 
   let customer: Awaited<ReturnType<typeof bridgeProvider.getCustomerProfile>> | null = null;
   try {
@@ -1350,30 +2868,62 @@ async function syncCountryFromBridgeCustomer(
     return;
   }
   const bridgeCountry = normalizeCountryCode(customer.country ?? customer.address_object?.country);
-  if (!bridgeCountry) return;
 
   const userUpdate: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
-  if (!userCountry) userUpdate.country = bridgeCountry;
+  if (!userCountry && bridgeCountry) userUpdate.country = bridgeCountry;
   if (!userProfile?.phone && customer.phone) userUpdate.phone = customer.phone;
+  if (!userProfile?.date_of_birth && customer.date_of_birth) userUpdate.date_of_birth = customer.date_of_birth;
+  if (!userProfile?.id_number && customer.id_number) userUpdate.id_number = customer.id_number;
+  if (!userProfile?.id_type && customer.id_type) userUpdate.id_type = customer.id_type;
+  if (
+    customer.id_number ||
+    customer.id_type ||
+    customer.date_of_birth ||
+    customer.identity_metadata.id_number_present
+  ) {
+    userUpdate.bridge_identity_metadata = {
+      ...(userProfile?.bridge_identity_metadata && typeof userProfile.bridge_identity_metadata === "object"
+        ? userProfile.bridge_identity_metadata
+        : {}),
+      ...customer.identity_metadata,
+    };
+    userUpdate.bridge_identity_synced_at = new Date().toISOString();
+  }
   if (customer.address_object && Object.values(customer.address_object).some((v) => String(v ?? "").trim().length > 0)) {
     userUpdate.bridge_address_object = customer.address_object;
-    if (!userProfile?.country) userUpdate.country = bridgeCountry;
+    if (!userProfile?.country && bridgeCountry) userUpdate.country = bridgeCountry;
     const line1 = customer.address_object.street_line_1;
     const line2 = customer.address_object.street_line_2;
     if (line1) userUpdate.address = line2 ? `${line1}, ${line2}` : line1;
     if (customer.address_object.city) userUpdate.city = customer.address_object.city;
     if (customer.address_object.postal_code) userUpdate.postal_code = customer.address_object.postal_code;
   }
-  await supabase.from("user_profiles").update(userUpdate).eq("id", owner.resolved);
+  if (Object.keys(userUpdate).length > 1) {
+    await supabase.from("user_profiles").update(userUpdate).eq("id", owner.resolved);
+  }
 
   if (owner.account_type === "business") {
     const bizUpdate: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
-    if (!businessCountry) bizUpdate.country = bridgeCountry;
+    if (!businessCountry && bridgeCountry) bizUpdate.country = bridgeCountry;
     if (!businessProfile?.company_phone && customer.phone) bizUpdate.company_phone = customer.phone;
+    if (
+      customer.id_number ||
+      customer.id_type ||
+      customer.date_of_birth ||
+      customer.identity_metadata.id_number_present
+    ) {
+      bizUpdate.bridge_identity_metadata = {
+        ...(businessProfile?.bridge_identity_metadata && typeof businessProfile.bridge_identity_metadata === "object"
+          ? businessProfile.bridge_identity_metadata
+          : {}),
+        ...customer.identity_metadata,
+      };
+      bizUpdate.bridge_identity_synced_at = new Date().toISOString();
+    }
     if (customer.address_object?.street_line_1 && !businessProfile?.address) {
       const line1 = customer.address_object.street_line_1;
       const line2 = customer.address_object.street_line_2;
@@ -1382,7 +2932,9 @@ async function syncCountryFromBridgeCustomer(
     if (customer.address_object?.city && !businessProfile?.city) bizUpdate.city = customer.address_object.city;
     if (customer.address_object?.state && !businessProfile?.state) bizUpdate.state = customer.address_object.state;
     if (customer.address_object?.postal_code && !businessProfile?.postal_code) bizUpdate.postal_code = customer.address_object.postal_code;
-    await supabase.from("business_profiles").update(bizUpdate).eq("user_id", owner.resolved);
+    if (Object.keys(bizUpdate).length > 1) {
+      await supabase.from("business_profiles").update(bizUpdate).eq("user_id", owner.resolved);
+    }
   }
 }
 
@@ -1478,17 +3030,17 @@ Deno.serve(async (req) => {
     // We do not issue direct pending_events updates from the worker anymore.
     const result = await drain(1);
     return new Response(JSON.stringify({
+      ...result,
       ok: true,
       mode: "insert_webhook_drain",
       requested_event_id: eventId,
-      ...result,
     }), { status: 200 });
   }
 
   // Path 2: drain mode (pg_cron / manual ops).
   const batch = Math.min(Number(body?.batch_size ?? 25), 100);
   const result = await drain(batch);
-  return new Response(JSON.stringify({ ok: true, worker: WORKER_ID, ...result }), {
+  return new Response(JSON.stringify({ ...result, ok: true, worker: WORKER_ID }), {
     status: 200, headers: { "Content-Type": "application/json" },
   });
 });

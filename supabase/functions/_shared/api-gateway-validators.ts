@@ -26,8 +26,10 @@ const STABLECOIN_CHAINS = new Set([
   "OPTIMISM",
   "ARBITRUM",
 ]);
+const BRIDGE_CHAIN_RAILS = new Set(["base", "tron"]);
 const SOURCE_RAILS = new Set([
-  "stablecoin",
+  "base",
+  "tron",
   "ach",
   "wire",
   "sepa",
@@ -35,7 +37,8 @@ const SOURCE_RAILS = new Set([
   "external_account",
 ]);
 const DEST_RAILS = new Set([
-  "stablecoin",
+  "base",
+  "tron",
   "ach",
   "wire",
   "sepa",
@@ -259,7 +262,6 @@ export function validateVirtualAccountCreate(
 export type TransferInput = {
   source: Record<string, unknown>;
   destination: Record<string, unknown>;
-  developer_fee?: Record<string, unknown>;
   idempotency_key: string;
 };
 
@@ -318,28 +320,22 @@ export function validateTransferOrPayout(
     });
   }
 
-  if (sourceRail === "stablecoin") {
-    const chain = stringField((source as any).chain).toUpperCase();
-    if (!chain) {
-      return invalid("source.chain required for stablecoin source", {
-        field: "source.chain",
+  if (sourceRail === "bridge_wallet") {
+    const bridgeWalletId = stringField((source as any).bridge_wallet_id);
+    if (!bridgeWalletId) {
+      return invalid("source.bridge_wallet_id required for bridge_wallet source", {
+        field: "source.bridge_wallet_id",
       });
     }
   }
 
-  if (destRail === "stablecoin") {
-    const chain = stringField((destination as any).chain).toUpperCase();
-    if (!chain) {
-      return invalid("destination.chain required for stablecoin destination", {
-        field: "destination.chain",
-      });
-    }
+  if (BRIDGE_CHAIN_RAILS.has(destRail)) {
     const toAddress = stringField(
       (destination as any).address || (destination as any).to_address,
     );
     if (!toAddress) {
       return invalid(
-        "destination.address required for stablecoin destination",
+        "destination.address required for chain destination",
         {
           field: "destination.address",
         },
@@ -352,9 +348,6 @@ export function validateTransferOrPayout(
     value: {
       source,
       destination,
-      developer_fee: typeof transfer?.developer_fee === "object"
-        ? transfer.developer_fee
-        : undefined,
       idempotency_key: idem,
     },
   };

@@ -341,8 +341,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
       ]).then(([txRes, profileRes, secRes]) => {
         const txOk = txRes.status === 'fulfilled' && (txRes.value as any)?.success;
         if (txOk) {
-          const tx = Array.isArray((txRes as PromiseFulfilledResult<any>).value?.data?.recent_transactions)
-            ? (txRes as PromiseFulfilledResult<any>).value.data.recent_transactions
+          const txData = (txRes as PromiseFulfilledResult<any>).value?.data || {};
+          const tx = Array.isArray(txData.transactions)
+            ? txData.transactions
+            : Array.isArray(txData.recent_transactions)
+            ? txData.recent_transactions
             : [];
           setTransactions(tx);
           try { localStorage.setItem(bizTxCacheKey, JSON.stringify(tx)); } catch { /* noop */ }

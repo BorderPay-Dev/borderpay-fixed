@@ -310,17 +310,7 @@ const BRIDGE_VA_NO_SEPA_FPS_RAIL: ReadonlySet<string> = new Set([
 ]);
 
 const BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES: ReadonlySet<string> = new Set([
-  'AU', // Australia
-  'GW', // Guinea-Bissau
-  'HK', // Hong Kong
-  'ID', // Indonesia
-  'JP', // Japan
-  'MY', // Malaysia
-  'NZ', // New Zealand
-  'PH', // Philippines
-  'SG', // Singapore
-  'TH', // Thailand
-  'VN', // Vietnam
+  'ID', // Indonesia: VA can settle to a user-owned external wallet address.
 ]);
 
 export function bridgeVirtualAccountCurrenciesForCountry(

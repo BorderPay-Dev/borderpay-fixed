@@ -1,26 +1,36 @@
 import { htmlLayout, textLayout, BORDERPAY_BRAND, firstName, RenderedEmail } from "../layout.ts";
+import { render as renderTransactionStatus, TransactionStatusProps } from "./transaction-status.ts";
 
 /**
- * Sent right after a successful one-time activation payment. Embeds the user's
- * secure hosted identity-verification link so they can verify straight from the
- * email — the in-app KYC screen is read-only status. Fired best-effort by the
- * subscription-upgrade function via the logged send-email path.
+ * Legacy template key retained for compatibility.
  *
- * White-label: never names the underlying verification provider. No
- * money-movement overpromises (the link is for verification only).
+ * If a stale caller still uses `individual.payment_received` for a real
+ * money-in event, render the current Bridge-style transaction receipt instead
+ * of the old verification email. Verification-link callers continue to work
+ * only when they pass `kyc_url`.
  */
-export interface IndividualPaymentReceivedProps {
+export interface IndividualPaymentReceivedProps extends Partial<TransactionStatusProps> {
   full_name?: string;
-  kyc_url:    string;
+  kyc_url?:   string;
 }
 
 export function render(p: IndividualPaymentReceivedProps): RenderedEmail {
+  if (p.amount !== undefined && p.currency && p.reference) {
+    return renderTransactionStatus({
+      ...p,
+      status: p.status || "approved",
+      amount: Number(p.amount),
+      currency: String(p.currency),
+      reference: String(p.reference),
+    } as TransactionStatusProps);
+  }
+
   const name = firstName(p.full_name) || "there";
   const url = p.kyc_url || BORDERPAY_BRAND.appUrl;
-  const subject = "Payment received — verify your identity";
-  const heading = "Payment received";
-  const introText = `Thanks ${name}! Your activation payment was received.`;
-  const closing = "One last step: verify your identity to finish setting up your account. Tap the button below to start your secure verification — it only takes a few minutes.";
+  const subject = "Verify your identity";
+  const heading = "Verify your identity";
+  const introText = `Hi ${name}, your BorderPay account is ready for verification.`;
+  const closing = "Verify your identity to unlock your BorderPay account. Tap the button below to start secure verification — it only takes a few minutes.";
 
   return {
     subject,

@@ -18,14 +18,14 @@ export function render(p: BusinessKybDecisionProps): RenderedEmail {
   const heading = approved ? "KYB approved" : "We need a bit more information";
   const introText = approved
     ? `Great news — ${company} is verified and your business account is fully active. Wallets, transfers, and cards are unlocked.`
-    : `Compliance reviewed your KYB submission for ${company} and couldn't fully verify it. Reviewer notes are below — please re-submit so we can complete activation.`;
+    : `Compliance reviewed your KYB submission for ${company} and couldn't fully verify it. Our team needs to review the account before any next step is opened.`;
 
   const reasonBlock = !approved && p.reason
     ? `<div style="background:${BORDERPAY_BRAND.bg};border-left:3px solid ${BORDERPAY_BRAND.warning};padding:14px 16px;border-radius:6px;margin:12px 0;color:${BORDERPAY_BRAND.text};font-size:14px;line-height:1.55;">${escapeHtml(p.reason)}</div>`
     : "";
 
   const nextSteps = !approved
-    ? (p.next_steps || "Please double-check the document images (all four corners visible, no glare) and re-submit from the KYB screen.")
+    ? (p.next_steps || `Please contact ${BORDERPAY_BRAND.supportEmail}. If additional information is required, our compliance team will send the next secure verification step.`)
     : "";
 
   const body = approved
@@ -35,8 +35,8 @@ export function render(p: BusinessKybDecisionProps): RenderedEmail {
     : `${reasonBlock}
        ${nextSteps ? `<p style="margin:14px 0 0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">${escapeHtml(nextSteps)}</p>` : ""}`;
 
-  const ctaText = approved ? "Open BorderPay" : "Re-submit KYB";
-  const ctaUrl  = approved ? BORDERPAY_BRAND.appUrl : `${BORDERPAY_BRAND.appUrl}/business/kyb`;
+  const ctaText = approved ? "Open BorderPay" : "Contact support";
+  const ctaUrl  = approved ? BORDERPAY_BRAND.appUrl : `mailto:${BORDERPAY_BRAND.supportEmail}`;
 
   return {
     subject,

@@ -36,8 +36,8 @@ const CARDS: WalletCard[] = [
   { code: 'USD', type: 'virtual_account', title: 'US Dollar', subtitle: 'Global receive account' },
   { code: 'EUR', type: 'virtual_account', title: 'Euro', subtitle: 'Global receive account' },
   { code: 'GBP', type: 'virtual_account', title: 'British Pound', subtitle: 'Global receive account' },
-  { code: 'USDC', type: 'stablecoin', title: 'USD Coin', subtitle: 'Stablecoin wallet' },
-  { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Stablecoin wallet' },
+  { code: 'USDC', type: 'stablecoin', title: 'USD Coin', subtitle: 'Digital dollar wallet' },
+  { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Digital dollar wallet' },
 ];
 
 const STABLE_CHAIN: Record<string, string> = {
@@ -115,6 +115,9 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   });
   const [creating, setCreating] = useState<string | null>(null);
   const [creatingGlobalAccounts, setCreatingGlobalAccounts] = useState(false);
+  const [configuredVaCurrencies, setConfiguredVaCurrencies] = useState<BridgeVirtualAccountCurrency[] | null>(null);
+  const [setupPendingVaCurrencies, setSetupPendingVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
+  const [supportRequiredVaCurrencies, setSupportRequiredVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
   const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
@@ -125,8 +128,33 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       const routeData = route?.data || {};
       const nextStable = Array.isArray(routeData?.stablecoin_wallets) ? routeData.stablecoin_wallets : [];
       const nextVa = Array.isArray(routeData?.virtual_accounts) ? routeData.virtual_accounts : [];
+      const vaCaps = routeData?.virtual_account_capabilities || null;
       setStableRows(nextStable);
       setVaRows(nextVa);
+      if (vaCaps) {
+        const operational = Array.isArray(vaCaps?.operational_currencies)
+          ? vaCaps.operational_currencies
+          : Array.isArray(vaCaps?.configured_currencies)
+            ? vaCaps.configured_currencies
+            : null;
+        const pending = Array.isArray(vaCaps?.setup_pending_currencies)
+          ? vaCaps.setup_pending_currencies
+          : [];
+        const providerPending = Array.isArray(vaCaps?.provider_pending_currencies)
+          ? vaCaps.provider_pending_currencies
+          : [];
+        setConfiguredVaCurrencies(
+          operational
+            ? operational.filter((c: unknown): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+            : null,
+        );
+        setSetupPendingVaCurrencies(
+          pending.filter((c: unknown): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c))),
+        );
+        setSupportRequiredVaCurrencies(
+          providerPending.filter((c: unknown): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c))),
+        );
+      }
       try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
 
@@ -187,6 +215,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     () => countryAllowedVaCurrencies(country),
     [country],
   );
+  const operationalVaCurrencies = useMemo(
+    () => configuredVaCurrencies ?? supportedVaCurrencies,
+    [configuredVaCurrencies, supportedVaCurrencies],
+  );
   const stableSupported = useMemo(
     () => isBridgeCustodialWalletSupported(country),
     [country],
@@ -223,8 +255,8 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   };
 
   const missingGlobalAccounts = useMemo(
-    () => supportedVaCurrencies.filter((currency) => !activeVa.has(currency) && !inactiveVa.has(currency)),
-    [activeVa, inactiveVa, supportedVaCurrencies],
+    () => operationalVaCurrencies.filter((currency) => !activeVa.has(currency) && !inactiveVa.has(currency)),
+    [activeVa, inactiveVa, operationalVaCurrencies],
   );
 
   const requestAllGlobalAccounts = async () => {
@@ -292,6 +324,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     const supported = card.type === 'virtual_account'
       ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
       : stableSupported;
+    const setupPending = card.type === 'virtual_account' &&
+      setupPendingVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
+    const supportRequired = card.type === 'virtual_account' &&
+      supportRequiredVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
 
     if (!supported) {
       return (
@@ -300,6 +336,16 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           className="h-10 px-4 rounded-xl border border-white/15 text-white/55 text-sm font-semibold"
         >
           Unavailable
+        </button>
+      );
+    }
+    if (setupPending && !supportRequired) {
+      return (
+        <button
+          disabled
+          className="h-10 px-4 rounded-xl border border-amber-400/30 text-amber-200/80 text-sm font-semibold"
+        >
+          Preparing
         </button>
       );
     }
@@ -319,9 +365,14 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       <button
         onClick={() => void requestWallet(card)}
         disabled={creatingGlobalAccounts || creating === card.code}
-        className="h-10 px-4 rounded-xl bg-[#C7FF00] text-black text-sm font-semibold disabled:opacity-60"
+        title={supportRequired ? `Contact support to activate ${card.code} receiving. Try again after support confirms it is enabled.` : undefined}
+        className={`h-10 px-4 rounded-xl text-sm font-semibold disabled:opacity-60 ${
+          supportRequired
+            ? 'border border-amber-400/30 text-amber-200/90'
+            : 'bg-[#C7FF00] text-black'
+        }`}
       >
-        {creating === card.code ? 'Adding…' : (card.type === 'virtual_account' ? 'Activate' : 'Add')}
+        {creating === card.code ? 'Adding…' : supportRequired ? 'Try again' : (card.type === 'virtual_account' ? 'Activate' : 'Add')}
       </button>
     );
   };
@@ -362,6 +413,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
               const supported = card.type === 'virtual_account'
                 ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
                 : stableSupported;
+              const setupPending = card.type === 'virtual_account' &&
+                setupPendingVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
+              const supportRequired = card.type === 'virtual_account' &&
+                supportRequiredVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
               return (
                 <div
                   key={card.code}
@@ -388,11 +443,15 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                           ? `${card.subtitle} · deactivated`
                           : !supported
                             ? `${card.subtitle} · not available in your region`
+                            : supportRequired
+                              ? `${card.subtitle} · contact support to activate`
+                            : setupPending
+                              ? `${card.subtitle} · being enabled`
                             : card.subtitle}
                     </div>
                   </div>
                   {!supported && !deactivated && <Lock className="w-4 h-4 text-white/45 mr-1" />}
-                  {!active && !deactivated && supported && <Plus className="w-4 h-4 text-white/45 mr-1" />}
+                  {!active && !deactivated && supported && (!setupPending || supportRequired) && <Plus className="w-4 h-4 text-white/45 mr-1" />}
                   {renderAction(card)}
                 </div>
               );

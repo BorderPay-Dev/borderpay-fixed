@@ -53,28 +53,40 @@ function readTreasuryTx(): any[] {
   catch { return []; }
 }
 
-export function TreasuryCard({ totalUsd, wallets }: { totalUsd: number; wallets: WalletRow[]; transactions?: any[]; userId?: string }) {
+export function TreasuryCard({ totalUsd, wallets, transactions }: { totalUsd: number; wallets: WalletRow[]; transactions?: any[]; userId?: string }) {
   const tc = useThemeClasses();
   // Seed the series from cache so the curve is stable/instant on revisit.
-  const [txs, setTxs] = useState<any[]>(() => readTreasuryTx());
+  const [txs, setTxs] = useState<any[]>(() => (Array.isArray(transactions) && transactions.length > 0 ? transactions : readTreasuryTx()));
   const [period, setPeriod] = useState<Period>('1M');
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const transactionCount = Array.isArray(transactions) ? transactions.length : 0;
 
   useEffect(() => {
+    if (!Array.isArray(transactions) || transactions.length === 0) return;
+    setTxs(transactions);
+    try { localStorage.setItem(TREASURY_TX_KEY, JSON.stringify(transactions)); } catch { /* noop */ }
+  }, [transactions]);
+
+  useEffect(() => {
+    if (transactionCount >= 50) return;
     let alive = true;
     (async () => {
       try {
         const r: any = await backendAPI.financial.getSnapshot(250);
-        const list = Array.isArray(r?.data?.recent_transactions) ? r.data.recent_transactions : [];
-        if (alive) {
+        const list = Array.isArray(r?.data?.transactions)
+          ? r.data.transactions
+          : Array.isArray(r?.data?.recent_transactions)
+            ? r.data.recent_transactions
+            : [];
+        if (alive && list.length > transactionCount) {
           setTxs(list);
           try { localStorage.setItem(TREASURY_TX_KEY, JSON.stringify(list)); } catch { /* noop */ }
         }
       } catch { /* keep cached/flat fallback */ }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [transactionCount]);
 
   const cfg = PERIODS.find(p => p.key === period)!;
   const { values, times } = useMemo(

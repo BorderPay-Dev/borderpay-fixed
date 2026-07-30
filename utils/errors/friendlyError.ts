@@ -5,13 +5,14 @@
  * Two jobs:
  *  1. Map known technical errors → calm, actionable copy.
  *  2. NEVER leak internals to users. Anything that names an infrastructure
- *     partner (Bridge, Flutterwave, Stripe, …) or reads like raw
+ *     partner, provider, processor, or reads like raw
  *     backend jargon (customer_id, endorsement, kyc_link, enum, RPC names,
  *     HTTP codes, stack traces) is replaced by the fallback. BorderPay is
  *     white-label: the user must only ever see BorderPay, never a provider.
  */
 
 const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
+  { pattern: /unable\s+to\s+(connect|reach)\s+.*servers?|servers?\s+(are\s+)?not\s+connected|not\s+connected\s+this\s+time|our\s+servers.*not\s+connected/i, message: 'Connection error. Please check your internet and try again.' },
   { pattern: /failed to fetch|networkerror|net::err|econnrefused|load failed/i, message: 'Connection error. Please check your internet and try again.' },
   { pattern: /timeout|timed out|aborted/i, message: 'Request timed out. Please try again.' },
   { pattern: /401|unauthorized|invalid.*token|jwt.*expired/i, message: 'Session expired. Please log in again.' },
@@ -38,7 +39,7 @@ const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
  * of these, we drop the raw text entirely and return the safe fallback — the
  * message is partner/infrastructure detail, not something a user should read.
  */
-const FORBIDDEN = /\b(bridge|flutterwave|stripe|youverify|persona|plaid|resend|supabase|postgres|postgrest|deno|webhook|edge function|rpc|enum|kyc_link|kyb|bvn|sql|constraint|null value|undefined|stack|traceback|payload|deployment_id|referenceerror|navperftrackcache|arrowright)\b/i;
+const FORBIDDEN = /\b(bridge|flutterwave|yellow\s*card|yellowcard|stripe|youverify|persona|plaid|resend|provider|processor|partner|verification vendor|mail vendor|database|supabase|postgres|postgrest|deno|webhook|edge function|rpc|enum|kyc_link|kyb|bvn|sql|constraint|null value|undefined|stack|traceback|payload|deployment_id|referenceerror|navperftrackcache|arrowright)\b/i;
 
 /**
  * Convert a raw error into a user-friendly message.

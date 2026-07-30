@@ -9,6 +9,20 @@ export type VirtualAccountActivationToast = {
 export function virtualAccountActivationMessage(res: any, currency: string): VirtualAccountActivationToast {
   const code = String(res?.code || res?.summary?.code || '').trim();
   const rawError = String(res?.error || '').trim();
+  if (code === 'va_support_required') {
+    return {
+      type: 'warning',
+      title: `${currency} account needs support`,
+      message: rawError || `Contact support to activate ${currency} receiving for your account. Try again after support confirms it is enabled.`,
+    };
+  }
+  if (code === 'external_wallet_required') {
+    return {
+      type: 'warning',
+      title: 'External wallet required',
+      message: rawError || 'Save your external USDC wallet on Base, then request this account again. Funds received through this account will be delivered to that wallet.',
+    };
+  }
   if (
     code === 'va_grant_pending' ||
     code === 'virtual_account_setup_pending' ||

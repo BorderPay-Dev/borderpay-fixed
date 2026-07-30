@@ -1,6 +1,6 @@
 /**
- * BorderPay Africa - Stablecoin Transaction Confirmation Screen
- * Shows after a stablecoin deposit address is generated or a send is initiated.
+ * BorderPay Africa - Digital Dollar Transaction Confirmation Screen
+ * Shows after a digital dollar deposit address is generated or a send is initiated.
  * Logs the transaction to Postgres and shows animated confirmation.
  */
 

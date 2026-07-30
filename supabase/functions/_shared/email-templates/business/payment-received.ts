@@ -1,24 +1,36 @@
 import { htmlLayout, textLayout, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { render as renderTransactionStatus, TransactionStatusProps } from "./transaction-status.ts";
 
 /**
- * Sent right after a successful one-time business activation payment. Embeds the
- * secure hosted business-verification (KYB) link so the user can verify straight
- * from the email — the in-app KYC/KYB screen is read-only status. Fired
- * best-effort by the subscription-upgrade function via the logged send-email
- * path. White-label: never names the underlying verification provider.
+ * Legacy template key retained for compatibility.
+ *
+ * If a stale caller still uses `business.payment_received` for a real money-in
+ * event, render the current Bridge-style transaction receipt instead of the old
+ * verification email. Verification-link callers continue to work only when they
+ * pass `kyc_url`.
  */
-export interface BusinessPaymentReceivedProps {
+export interface BusinessPaymentReceivedProps extends Partial<TransactionStatusProps> {
   company_name?: string;
-  kyc_url:       string;
+  kyc_url?:       string;
 }
 
 export function render(p: BusinessPaymentReceivedProps): RenderedEmail {
+  if (p.amount !== undefined && p.currency && p.reference) {
+    return renderTransactionStatus({
+      ...p,
+      status: p.status || "approved",
+      amount: Number(p.amount),
+      currency: String(p.currency),
+      reference: String(p.reference),
+    } as TransactionStatusProps);
+  }
+
   const name = p.company_name || "there";
   const url = p.kyc_url || BORDERPAY_BRAND.appUrl;
-  const subject = "Payment received — verify your business";
-  const heading = "Payment received";
-  const introText = `Thanks! The activation payment for ${name} was received.`;
-  const closing = "One last step: complete business verification to finish setting up your account. Tap the button below to start your secure verification.";
+  const subject = "Verify your business";
+  const heading = "Verify your business";
+  const introText = `${name} is ready for BorderPay business verification.`;
+  const closing = "Complete business verification to unlock your BorderPay account. Tap the button below to start secure verification.";
 
   return {
     subject,

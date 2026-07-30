@@ -37,6 +37,18 @@ interface KYCJob {
     kyb_completed_at: string | null;
     company_name: string | null;
     registration_number: string | null;
+    identity?: {
+      id_type: string | null;
+      id_number_present: boolean;
+      id_number_masked: string | null;
+      date_of_birth: string | null;
+      bridge_identity_synced_at: string | null;
+      source?: {
+        id_number: string | null;
+        id_type: string | null;
+        date_of_birth: string | null;
+      };
+    };
   };
   legacy_verifications: Array<{
     job_id: string;
@@ -93,6 +105,11 @@ function formatTime(dateStr: string) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatIdentityType(value: string | null | undefined) {
+  if (!value) return '—';
+  return value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
@@ -377,6 +394,19 @@ export function KYCJobsScreen({ onBack }: KYCJobsScreenProps) {
                               <div className="grid grid-cols-2 gap-2">
                                 <MiniStat label="Status" value={job.bridge.review_status || 'not_started'} />
                                 <MiniStat label="Customer ID" value={job.bridge.customer_id?.slice(0, 12) || '—'} />
+                                <MiniStat label="ID Type" value={formatIdentityType(job.bridge.identity?.id_type)} />
+                                <MiniStat
+                                  label="ID Number"
+                                  value={job.bridge.identity?.id_number_masked || (job.bridge.identity?.id_number_present ? 'On file' : '—')}
+                                />
+                                <MiniStat
+                                  label="DOB"
+                                  value={job.bridge.identity?.date_of_birth ? formatDate(job.bridge.identity.date_of_birth) : '—'}
+                                />
+                                <MiniStat
+                                  label="Identity Sync"
+                                  value={job.bridge.identity?.bridge_identity_synced_at ? formatDate(job.bridge.identity.bridge_identity_synced_at) : '—'}
+                                />
                               </div>
                             </div>
                           )}

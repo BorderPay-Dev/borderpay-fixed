@@ -22,6 +22,7 @@ import type {
   VirtualAccountCreateInput, VirtualAccountResult,
   WalletCreateInput,   WalletResult,
   TransferCreateInput, TransferResult,
+  LiquidationAddressCreateInput, LiquidationAddressResult,
 } from "./types.ts";
 
 export class BridgeProviderError extends Error {
@@ -240,16 +241,18 @@ export class BridgeProvider implements PaymentProvider {
         },
       );
     }
-    if (!/^\d+(\.\d+)?$/.test(String(input.developer_fee_percent || "").trim())) {
+    const feePercent = String(input.developer_fee_percent || "").trim();
+    const feePercentNumber = Number(feePercent);
+    const zeroFeeAllowed = input.allow_zero_developer_fee === true && feePercentNumber === 0;
+    if (!/^\d+(\.\d+)?$/.test(feePercent) || !Number.isFinite(feePercentNumber) || (!zeroFeeAllowed && feePercentNumber <= 0) || feePercentNumber > 100) {
       throw new BridgeProviderError(
-        "Bridge createVirtualAccount request invalid: developer_fee_percent must be numeric",
+        "Bridge createVirtualAccount request invalid: developer_fee_percent must be a positive base-100 percentage",
         {
           bridge_code: "invalid_parameters",
-          bridge_error: "virtual account requires developer_fee_percent as numeric string",
+          bridge_error: "virtual account requires developer_fee_percent as a positive base-100 percentage string",
         },
       );
     }
-    const feePercent = String(input.developer_fee_percent).trim();
     const body: Record<string, unknown> = {
       developer_fee_percent: feePercent,
       source:      { currency: input.currency.toLowerCase() },
@@ -304,11 +307,86 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Read-only sync helpers (GET — no money movement) ──────────────────────
+  async findCustomerByEmail(email: string): Promise<{ id: string; email: string | null; raw: unknown } | null> {
+    const target = String(email || "").trim().toLowerCase();
+    if (!target) return null;
+    const matches: Array<{ id: string; email: string | null; raw: unknown }> = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const r = await bridgeFetch({
+        method: "GET",
+        path: "/v0/customers",
+        query: {
+          limit: 100,
+          ...(cursor ? { after: cursor } : {}),
+        },
+      });
+      if (!r.ok) {
+        const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+        const bridgeCode = typeof parsed.code === "string"
+          ? parsed.code
+          : typeof parsed.error_code === "string"
+          ? String(parsed.error_code)
+          : undefined;
+        const bridgeErr = typeof parsed.error === "string"
+          ? parsed.error
+          : typeof parsed.message === "string"
+          ? parsed.message
+          : r.error;
+        throw new BridgeProviderError(
+          `Bridge listCustomers failed [${r.status}]`,
+          {
+            status: r.status,
+            request_id: r.request_id,
+            bridge_code: bridgeCode,
+            bridge_error: bridgeErr,
+            raw_text: r.raw_text?.slice(0, 1000),
+          },
+        );
+      }
+      const data = (r.data as any)?.data ?? r.data;
+      const rows = Array.isArray(data) ? data : Array.isArray((data as any)?.customers) ? (data as any).customers : [];
+      for (const row of rows) {
+        const rowEmail = String(row?.email ?? row?.business_email ?? row?.customer_email ?? "").trim().toLowerCase();
+        if (rowEmail && rowEmail === target) {
+          matches.push({ id: String(row?.id || ""), email: rowEmail, raw: row });
+        }
+      }
+      if (matches.length > 1) {
+        throw new BridgeProviderError("Bridge customer email maps to multiple customers", {
+          status: 409,
+          bridge_code: "ambiguous_customer_email",
+          bridge_error: `Multiple Bridge customers found for ${target}`,
+        });
+      }
+
+      const pagination = (r.data as any)?.pagination ?? (r.data as any)?.data?.pagination ?? {};
+      const next =
+        pagination?.next ??
+        pagination?.next_cursor ??
+        pagination?.after ??
+        ((r.data as any)?.has_more && rows.length ? rows[rows.length - 1]?.id : undefined);
+      if (!next || !rows.length) break;
+      cursor = String(next);
+    }
+    return matches[0] ?? null;
+  }
+
   /** Fetch canonical customer profile fields from Bridge. */
   async getCustomerProfile(customerId: string): Promise<{
     id: string;
     country: string | null;
     phone: string | null;
+    date_of_birth: string | null;
+    id_number: string | null;
+    id_type: string | null;
+    identity_metadata: {
+      id_number_present: boolean;
+      id_number_last4: string | null;
+      id_number_source: string | null;
+      id_type_source: string | null;
+      date_of_birth_source: string | null;
+    };
     address_object: {
       street_line_1: string | null;
       street_line_2: string | null;
@@ -355,10 +433,79 @@ export class BridgeProvider implements PaymentProvider {
       const s = String(v ?? "").trim();
       return s.length ? s.toUpperCase() : null;
     };
+    const stringAt = (obj: unknown, path: string[]): string | null => {
+      let current: unknown = obj;
+      for (const key of path) {
+        if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+        current = (current as Record<string, unknown>)[key];
+      }
+      const s = String(current ?? "").trim();
+      return s.length ? s : null;
+    };
+    const firstString = (paths: string[][]): { value: string | null; source: string | null } => {
+      for (const path of paths) {
+        const value = stringAt(data, path);
+        if (value) return { value, source: path.join(".") };
+      }
+      return { value: null, source: null };
+    };
+    const dateOfBirth = firstString([
+      ["date_of_birth"],
+      ["birth_date"],
+      ["dob"],
+      ["person", "date_of_birth"],
+      ["person", "birth_date"],
+      ["person", "dob"],
+      ["personal_info", "date_of_birth"],
+      ["individual", "date_of_birth"],
+    ]);
+    const idNumber = firstString([
+      ["id_number"],
+      ["identification_number"],
+      ["tax_identification_number"],
+      ["national_id_number"],
+      ["person", "id_number"],
+      ["person", "identification_number"],
+      ["person", "national_id_number"],
+      ["identity_document", "number"],
+      ["identity_document", "id_number"],
+      ["government_id", "number"],
+      ["government_id", "id_number"],
+      ["government_id_document", "number"],
+      ["document", "number"],
+      ["document", "id_number"],
+    ]);
+    const idType = firstString([
+      ["id_type"],
+      ["document_type"],
+      ["identification_type"],
+      ["tax_identification_number_type"],
+      ["person", "id_type"],
+      ["person", "document_type"],
+      ["person", "identification_type"],
+      ["identity_document", "type"],
+      ["identity_document", "document_type"],
+      ["government_id", "type"],
+      ["government_id", "document_type"],
+      ["government_id_document", "type"],
+      ["document", "type"],
+      ["document", "document_type"],
+    ]);
+    const idNumberDigits = (idNumber.value || "").replace(/\s+/g, "");
     return {
       id: String(data?.id ?? customerId),
       country: normalized(countryRaw),
       phone: data?.phone ? String(data.phone) : null,
+      date_of_birth: dateOfBirth.value,
+      id_number: idNumber.value,
+      id_type: idType.value,
+      identity_metadata: {
+        id_number_present: Boolean(idNumber.value),
+        id_number_last4: idNumberDigits ? idNumberDigits.slice(-4) : null,
+        id_number_source: idNumber.source,
+        id_type_source: idType.source,
+        date_of_birth_source: dateOfBirth.source,
+      },
       address_object: {
         street_line_1: addr?.street_line_1 ? String(addr.street_line_1) : null,
         street_line_2: addr?.street_line_2 ? String(addr.street_line_2) : null,
@@ -605,22 +752,22 @@ export class BridgeProvider implements PaymentProvider {
 
   // ── Money movement ────────────────────────────────────────────────────────
   async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
+    const bridgeRail = (rail: string) => String(rail || "").toLowerCase();
     const body: Record<string, unknown> = {
-      amount: input.source.amount,
+      ...(input.source.amount ? { amount: input.source.amount } : {}),
       ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),
       source: {
-        payment_rail: input.source.payment_rail,
+        payment_rail: bridgeRail(input.source.payment_rail),
         currency:     String(input.source.currency).toLowerCase(),
-        ...(input.source.chain ? { chain: input.source.chain.toLowerCase() } : {}),
-        ...(input.source.customer_id ? { customer_id: input.source.customer_id } : {}),
+        ...(input.source.chain ? { chain: String(input.source.chain).toLowerCase() } : {}),
         ...(input.source.from_address ? { from_address: input.source.from_address } : {}),
         ...(input.source.bridge_wallet_id ? { bridge_wallet_id: input.source.bridge_wallet_id } : {}),
         ...(input.source.external_account_id ? { external_account_id: input.source.external_account_id } : {}),
       },
       destination: {
-        payment_rail: input.destination.payment_rail,
+        payment_rail: bridgeRail(input.destination.payment_rail),
         currency:     String(input.destination.currency).toLowerCase(),
-        ...(input.destination.chain    ? { chain:    input.destination.chain.toLowerCase() } : {}),
+        ...(input.destination.chain ? { chain: String(input.destination.chain).toLowerCase() } : {}),
         ...(input.destination.address  ? { to_address: input.destination.address } : {}),
         ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),
         ...(input.destination.external_account_id ? { external_account_id: input.destination.external_account_id } : {}),
@@ -637,8 +784,9 @@ export class BridgeProvider implements PaymentProvider {
           input.developer_fee.percentage == null
             ? undefined
             : String(input.developer_fee.percentage),
-        developer_fee_amount:  input.developer_fee.flat_amount,
+        developer_fee: input.developer_fee.flat_amount,
       } : {}),
+      ...(input.features ? { features: input.features } : {}),
     };
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,
@@ -676,6 +824,57 @@ export class BridgeProvider implements PaymentProvider {
       transfer_id: String(data?.id),
       state,
       raw:         r.data,
+    };
+  }
+
+  async createLiquidationAddress(input: LiquidationAddressCreateInput): Promise<LiquidationAddressResult> {
+    const body: Record<string, unknown> = {
+      currency: String(input.currency).toLowerCase(),
+      chain: String(input.chain).toLowerCase(),
+      destination_payment_rail: String(input.destination_payment_rail).toLowerCase(),
+      destination_currency: String(input.destination_currency).toLowerCase(),
+      destination_address: input.destination_address,
+      return_address: input.return_address,
+      ...(input.developer_fee_percent ? { developer_fee_percent: input.developer_fee_percent } : {}),
+    };
+    const r = await bridgeFetch({
+      method: "POST",
+      path: `/v0/customers/${encodeURIComponent(input.customer_id)}/liquidation_addresses`,
+      body,
+      idempotencyKey: input.idempotency_key,
+    });
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      const bridgeCode =
+        typeof parsed.code === "string"
+          ? parsed.code
+          : typeof parsed.error_code === "string"
+          ? String(parsed.error_code)
+          : undefined;
+      const bridgeErr =
+        typeof parsed.message === "string"
+          ? parsed.message
+          : typeof parsed.error === "string"
+          ? parsed.error
+          : r.error;
+      throw new BridgeProviderError(
+        `Bridge createLiquidationAddress failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: bridgeCode,
+          bridge_error: bridgeErr,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
+    const data = (r.data as any)?.data ?? r.data;
+    return {
+      provider: this.name,
+      liquidation_address_id: String(data?.id || ""),
+      address: String(data?.address || ""),
+      state: String(data?.state || data?.status || "active").toLowerCase(),
+      raw: r.data,
     };
   }
 }

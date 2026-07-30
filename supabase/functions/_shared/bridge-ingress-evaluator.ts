@@ -9,6 +9,7 @@ export type BridgeRouteBucket =
   | "bridge.wallet"
   | "bridge.external_account"
   | "bridge.transfer"
+  | "bridge.liquidation_address"
   | "bridge.customer"
   | "bridge.unknown";
 
@@ -66,6 +67,7 @@ function routeBucketForEventType(eventType: string): BridgeRouteBucket {
   if (t.startsWith("virtual_account.")) return "bridge.virtual_account";
   if (t.startsWith("wallet.") || t.startsWith("bridge_wallet.")) return "bridge.wallet";
   if (t.startsWith("external_account.")) return "bridge.external_account";
+  if (t.startsWith("liquidation_address.") || t.includes("liquidation_address.drain") || t.includes("drain.")) return "bridge.liquidation_address";
   if (t.startsWith("transfer.") || t.startsWith("payout.") || t.startsWith("deposit.")) return "bridge.transfer";
   if (t.startsWith("customer.")) return "bridge.customer";
   return "bridge.unknown";
@@ -144,6 +146,18 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "drop",
+      route_bucket: routeBucket,
+    };
+  }
+  if (contract.routing_target === "log_only") {
+    return {
+      _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
+      decision: "accept",
+      reason_code: contract.reason_code,
+      derived_event_type: eventType,
+      normalized_payload: normalizedPayload,
+      idempotency_key: idempotencyKey,
+      routing_target: "log_only",
       route_bucket: routeBucket,
     };
   }

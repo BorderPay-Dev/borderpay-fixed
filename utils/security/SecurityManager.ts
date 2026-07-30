@@ -11,6 +11,7 @@
  */
 
 import { BASE_URL, ANON_KEY } from '../supabase/client';
+import { isNativeRuntime } from '../native/mobileRuntime';
 
 // ============================================================================
 // TYPES
@@ -542,6 +543,7 @@ function _serializeAssertionResponse(cred: PublicKeyCredential): any {
 export const BiometricManager = {
   /** Platform-authenticator capability check. */
   async isSupported(): Promise<boolean> {
+    if (isNativeRuntime()) return false;
     if (!window.PublicKeyCredential) return false;
     try {
       return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();

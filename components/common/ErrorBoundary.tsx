@@ -6,6 +6,7 @@
 
 import React, { Component, ReactNode } from 'react';
 import { ShieldAlert, RefreshCw, Home, ChevronDown, Copy, CheckCircle } from 'lucide-react';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 interface Props {
   children: ReactNode;
@@ -100,13 +101,11 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   handleCopyError = () => {
-    const { error, errorInfo } = this.state;
+    const { error } = this.state;
     const report = [
-      `BorderPay Error Report`,
+      `BorderPay Support Report`,
       `Date: ${new Date().toISOString()}`,
-      `Error: ${error?.message}`,
-      `Stack: ${error?.stack || 'N/A'}`,
-      `Component: ${errorInfo?.componentStack || 'N/A'}`,
+      `Message: ${friendlyError(error?.message, 'Something went wrong. Please refresh and try again.')}`,
     ].join('\n');
     navigator.clipboard.writeText(report).then(() => {
       this.setState({ copied: true });
@@ -225,16 +224,16 @@ export class ErrorBoundary extends Component<Props, State> {
                         Error
                       </p>
                       <p className="text-xs text-[#FF4D6A] font-mono break-all leading-relaxed pr-8">
-                        {error?.message || 'Unknown error'}
+                        {friendlyError(error?.message, 'Something went wrong. Please refresh and try again.')}
                       </p>
 
                       {error?.stack && (
                         <>
                           <p className="text-[10px] text-white/25 uppercase tracking-wider font-semibold mt-3 mb-1.5">
-                            Stack Trace
+                            Support Reference
                           </p>
                           <pre className="text-[10px] text-white/20 font-mono overflow-x-auto max-h-32 overflow-y-auto leading-relaxed whitespace-pre-wrap break-all">
-                            {error.stack.split('\n').slice(1, 6).join('\n')}
+                            {new Date().toISOString()}
                           </pre>
                         </>
                       )}

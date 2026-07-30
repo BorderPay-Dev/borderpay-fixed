@@ -1,10 +1,9 @@
 /**
  * ExternalWalletsScreen — saved external stablecoin payout addresses.
  *
- * Save your own wallet address once (e.g. your Binance USDC/Base address), then
- * withdraw to it from inside the app — gated by passcode/biometric in the send
- * flow. Native-app feel: floating back, cache-seeded list (instant mount, no
- * blocking loader.
+ * Save your own wallet address once (e.g. your Binance USDC/Base address). The
+ * backend registers the matching Bridge crypto-to-crypto route before the wallet
+ * can be used for withdrawals.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -24,7 +23,7 @@ interface Props {
   onNavigate?: (screen: string) => void;
 }
 
-const CACHE_KEY = 'borderpay_external_wallets_v1';
+const CACHE_KEY = 'borderpay_external_wallets_v2';
 const EXTERNAL_WALLETS_FETCH_TIMEOUT_MS = 1400;
 const PREFILL_KEY = 'borderpay_prefill_withdraw';   // read by SendMoneyFlow
 
@@ -162,7 +161,19 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
 
   const withdraw = (w: ExternalWallet) => {
     // Hand off to the stablecoin send flow with the destination prefilled.
-    try { localStorage.setItem(PREFILL_KEY, JSON.stringify({ address: w.address, chain: w.chain, asset: w.asset })); } catch { /* noop */ }
+    try {
+      localStorage.setItem(PREFILL_KEY, JSON.stringify({
+        address: w.address,
+        chain: w.chain,
+        asset: w.asset,
+        external_wallet_id: w.id,
+        bridge_payment_route_id: w.bridge_payment_route_id,
+        bridge_payment_route_status: w.bridge_payment_route_status,
+        bridge_payment_route_raw: w.bridge_payment_route_raw || null,
+        label: w.label,
+        created_at: w.created_at,
+      }));
+    } catch { /* noop */ }
     onNavigate?.('send-money');
   };
 
@@ -233,7 +244,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
 
       <main className="px-5 sm:px-6 pb-10 max-w-md mx-auto">
         <p className={`text-[12px] ${tc.textMuted} mb-4 leading-snug`}>
-          Save your own stablecoin address (e.g. from an exchange). Withdraw to it anytime —
+          Save your own digital dollar address (e.g. from an exchange). Withdraw to it anytime —
           confirmed with your PIN or biometric.
         </p>
 
@@ -251,9 +262,12 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
                   <div className="w-10 h-10 rounded-xl bg-[#C7FF00]/15 flex items-center justify-center flex-shrink-0">
                     <Wallet className="w-4 h-4 text-[#C7FF00]" />
                   </div>
-                  <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0">
                     <p className={`text-sm font-semibold ${tc.text} truncate`}>{w.label}</p>
                     <p className={`text-[11px] ${tc.textMuted}`}>{w.asset} · {chainName(w.chain)}</p>
+                    <p className={`text-[10px] ${w.bridge_payment_route_id ? 'text-[#C7FF00]' : 'text-amber-400'} truncate`}>
+                      {w.bridge_payment_route_id ? 'BorderPay route active' : 'Saved wallet'}
+                    </p>
                     <p className={`text-[10px] ${tc.textMuted} font-mono truncate`}>{w.address.slice(0, 10)}…{w.address.slice(-8)}</p>
                   </div>
                   <button
@@ -314,7 +328,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
                   {saving && <Loader2 className="w-4 h-4 animate-spin" />} Save wallet
                 </button>
                 <p className={`text-[10px] ${tc.textMuted} text-center`}>
-                  Double-check the address and network. Stablecoin transfers can't be reversed.
+                  Double-check the address and network. Digital dollar transfers can't be reversed.
                 </p>
               </div>
             </div>

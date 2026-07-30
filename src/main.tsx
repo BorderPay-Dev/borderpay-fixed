@@ -2,10 +2,26 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from '../App';
 import { ErrorBoundary } from '../components/common/ErrorBoundary';
+import { isNativeRuntime } from '../utils/native/mobileRuntime';
 import '../styles/globals.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');
+
+function captureReferralCode(): void {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#\/?/, '').split('?')[1] || '');
+    const raw = params.get('ref') || params.get('referral_code') || params.get('affiliate_code') ||
+      hashParams.get('ref') || hashParams.get('referral_code') || hashParams.get('affiliate_code') || '';
+    const code = raw.trim().toUpperCase();
+    if (/^BP[0-9A-F]{6}$/.test(code)) {
+      localStorage.setItem('borderpay_referral_code', code);
+    }
+  } catch {
+    // noop
+  }
+}
 
 function syncAppViewportHeight(): void {
   try {
@@ -22,6 +38,7 @@ function syncAppViewportHeight(): void {
   }
 }
 
+captureReferralCode();
 syncAppViewportHeight();
 window.addEventListener('resize', syncAppViewportHeight, { passive: true });
 window.visualViewport?.addEventListener('resize', syncAppViewportHeight, { passive: true });
@@ -75,7 +92,7 @@ const brevoWidgetObserver = new MutationObserver(() => removeBrevoWidgetArtifact
 brevoWidgetObserver.observe(document.documentElement, { childList: true, subtree: true });
 
 // Sev-1 production safety: disable SW registration and purge stale workers/caches.
-if ('serviceWorker' in navigator) {
+if (!isNativeRuntime() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.getRegistrations()
       .then((regs) => Promise.all(regs.map((r) => r.unregister())))

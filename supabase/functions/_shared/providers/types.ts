@@ -9,7 +9,6 @@ export type FiatCurrency = "USD" | "EUR" | "GBP" | "NGN" | "KES" | "GHS" | "UGX"
 export type StablecoinSymbol = "USDC" | "USDT" | "PYUSD" | "USDB" | "EURC";
 export type StablecoinChain  = "ETH" | "SOL" | "BSC" | "POLYGON" | "TRON" | "BASE" | "OPTIMISM" | "ARBITRUM";
 export type BridgePaymentRail =
-  | "stablecoin"
   | "ach"
   | "wire"
   | "sepa"
@@ -85,6 +84,7 @@ export interface VirtualAccountCreateInput {
     address:         string;          // the wallet address to receive at
   };
   developer_fee_percent?: string;
+  allow_zero_developer_fee?: boolean;
   idempotency_key?: string;
 }
 
@@ -127,11 +127,11 @@ export interface WalletResult {
 export interface TransferCreateInput {
   on_behalf_of?: string;
   source: {
-    customer_id:    string;
+    customer_id?:   string;
     payment_rail:   BridgePaymentRail;
     currency:       StablecoinSymbol | FiatCurrency;
     chain?:         StablecoinChain;
-    amount:         string;            // decimal as string
+    amount?:        string;            // decimal as string; omitted for static-template/flexible routes
     from_address?:  string;
     bridge_wallet_id?: string;
     external_account_id?: string;
@@ -148,6 +148,11 @@ export interface TransferCreateInput {
     mobile_money?:  { provider: string; phone: string };  // future
   };
   developer_fee?:  { percentage?: number; flat_amount?: string };
+  features?: {
+    static_template?: boolean;
+    flexible_amount?: boolean;
+    allow_any_from_address?: boolean;
+  };
   idempotency_key: string;
 }
 
@@ -156,6 +161,26 @@ export interface TransferResult {
   transfer_id:  string;
   state:        string;              // raw provider state (preserved)
   raw:          unknown;
+}
+
+export interface LiquidationAddressCreateInput {
+  customer_id: string;
+  currency: StablecoinSymbol;
+  chain: BridgePaymentRail;
+  destination_payment_rail: BridgePaymentRail;
+  destination_currency: StablecoinSymbol;
+  destination_address: string;
+  return_address: string;
+  developer_fee_percent?: string;
+  idempotency_key: string;
+}
+
+export interface LiquidationAddressResult {
+  provider: ProviderName;
+  liquidation_address_id: string;
+  address: string;
+  state: string;
+  raw: unknown;
 }
 
 /**
@@ -178,6 +203,9 @@ export interface PaymentProvider {
 
   // Money movement
   createTransfer(input: TransferCreateInput): Promise<TransferResult>;
+
+  // Permanent crypto route address.
+  createLiquidationAddress(input: LiquidationAddressCreateInput): Promise<LiquidationAddressResult>;
 }
 
 /** Webhook signature verification — provider-specific. */

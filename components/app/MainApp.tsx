@@ -60,6 +60,8 @@ import {
   navPerfReset,
   navPerfStartRoute,
 } from '../../utils/performance/navigationPerf';
+import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -630,7 +632,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       if (!force && !shouldRunShellSync(userId, 'unread')) return;
       syncInFlight = true;
       try {
-        const unreadRes = await backendAPI.notifications.getUnreadCount();
+        const unreadRes = await backendAPI.financial.getSnapshot(20);
         if (cancelled) return;
 
         if (unreadRes?.success) {
@@ -841,7 +843,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           try { return !!localStorage.getItem(txKey); } catch { return false; }
         })();
         if (!hasTxCache) {
-          const txRes: any = await backendAPI.transactions.getTransactions(100, 0);
+          const txRes: any = await backendAPI.financial.getSnapshot(100);
           if (!cancelled && txRes?.success) {
             const txRows = Array.isArray(txRes?.data?.transactions) ? txRes.data.transactions : [];
             try { localStorage.setItem(txKey, JSON.stringify(txRows)); } catch {}
@@ -890,6 +892,43 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const ric = (window as any).requestIdleCallback;
     if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1800 });
     else setTimeout(() => { void warm(); }, 900);
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // Warm YC/FLW Africa corridor policy at app level. VA/crypto routes are
+  // already instant because MainApp seeds their caches before screen open;
+  // Africa rails need the same treatment instead of waiting for Send/Receive.
+  React.useEffect(() => {
+    let cancelled = false;
+    const warmTsKey = financialCacheKey('borderpay_african_rails_policy_warm_ts_v1', { userId });
+    const canWarmAfrica = (() => {
+      try {
+        const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+        return canUseAfricanRails({ id: userId || cached?.id, email: cached?.email });
+      } catch {
+        return canUseAfricanRails({ id: userId });
+      }
+    })();
+    if (!canWarmAfrica) return () => { cancelled = true; };
+
+    const warm = async () => {
+      try {
+        const last = Number(localStorage.getItem(warmTsKey) || '0');
+        if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
+      } catch { /* noop */ }
+
+      await Promise.allSettled([
+        loadAfricanPolicyRows('payout', { timeoutMs: 6500 }),
+        loadAfricanPolicyRows('receive', { timeoutMs: 6500 }),
+      ]);
+      if (!cancelled) {
+        try { localStorage.setItem(warmTsKey, String(Date.now())); } catch { /* noop */ }
+      }
+    };
+
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1200 });
+    else setTimeout(() => { void warm(); }, 300);
     return () => { cancelled = true; };
   }, [userId]);
 

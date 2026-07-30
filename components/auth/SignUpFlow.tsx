@@ -194,7 +194,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
 
     setFormError('');
 
-    if (!fullName || !email || !phone || !password || !confirmPassword) {
+    if (!fullName || !email || !password || !confirmPassword) {
       const msg = 'Please fill in all fields.';
       setFormError(msg); toast.error(msg); return;
     }
@@ -230,9 +230,16 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         email,
         password,
         full_name:    fullName,
-        phone_number: `${selectedCountry?.dialCode}${phone}`,
+        phone_number: phone ? `${selectedCountry?.dialCode}${phone}` : undefined,
         country_code: selectedCountry?.code,
         account_type: accountType,
+        referral_code: (() => {
+          try {
+            return localStorage.getItem('borderpay_referral_code') || undefined;
+          } catch {
+            return undefined;
+          }
+        })(),
         // Business-only meta (server-side trigger will store these on
         // user_profiles + business_profiles when present)
         ...(accountType === 'business' ? {
@@ -1123,10 +1130,10 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
           )}
         </AnimatePresence>
 
-        {/* Phone Number - dial code auto-synced from country */}
+        {/* Optional phone number - dial code auto-synced from country */}
         <div>
           <label className="block text-xs text-gray-400 uppercase tracking-[0.15em] font-semibold mb-2">
-            Phone Number
+            Phone Number <span className="text-gray-600 normal-case tracking-normal">(optional)</span>
           </label>
           <div className="flex gap-2">
             <div className="flex items-center gap-1.5 px-3 bg-white/[0.04] backdrop-blur-md border border-white/[0.08] rounded-2xl text-white font-medium text-sm min-w-[80px] justify-center">
@@ -1151,6 +1158,9 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
               />
             </div>
           </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Optional at signup. We may ask later only when required for verification or account security.
+          </p>
         </div>
 
         <FormInput
@@ -1703,7 +1713,9 @@ function StepReview({ formData, onSubmit, isLoading }: {
         <h3 className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2">Personal</h3>
         <ReviewRow label="Full Name" value={formData.fullName} icon={User} />
         <ReviewRow label="Email" value={formData.email} icon={Mail} />
-        <ReviewRow label="Phone" value={`${formData.selectedCountry?.dialCode}${formData.phone}`} icon={Phone} />
+        {formData.phone ? (
+          <ReviewRow label="Phone" value={`${formData.selectedCountry?.dialCode}${formData.phone}`} icon={Phone} />
+        ) : null}
         <ReviewRow label="Country" value={`${formData.selectedCountry?.flag} ${formData.selectedCountry?.name}`} icon={Globe} />
         <ReviewRow label="Date of Birth" value={formData.dateOfBirth} icon={Calendar} />
       </div>

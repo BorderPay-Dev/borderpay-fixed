@@ -27,6 +27,27 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+function normalizeBridgeVaRail(value: unknown): string | null {
+  const rail = String(value ?? "").trim().toLowerCase();
+  if (!rail) return null;
+  if (rail === "ach") return "ach_push";
+  if (["ach_push", "ach_pull", "wire", "sepa", "faster_payments"].includes(rail)) return rail;
+  return null;
+}
+
+function normalizeBridgeVaStatus(value: unknown): "active" | "suspended" | "closed" {
+  const status = String(value ?? "").trim().toLowerCase();
+  if (["closed", "deleted", "disabled", "deactivated", "inactive"].includes(status)) return "closed";
+  if (["suspended", "paused"].includes(status)) return "suspended";
+  return "active";
+}
+
+function normalizeDeveloperFeePercent(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return Number(n.toFixed(4));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -49,9 +70,10 @@ Deno.serve(async (req) => {
     return json({ success: true, data: { wallets: [], virtual_accounts: [] } });
   }
 
-  const ownerCols = isBusiness
+  const ownerCols: { user_id: string; business_user_id: string | null } = isBusiness
     ? { user_id: user.id, business_user_id: user.id }
-    : { user_id: user.id };
+    : { user_id: user.id, business_user_id: null };
+  const warnings: string[] = [];
 
   // ── Wallets ───────────────────────────────────────────────────────────────
   try {
@@ -82,6 +104,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     // Non-fatal: still try VAs, surface a soft note.
     console.warn(`bridge-sync-accounts wallets: ${(e as Error).message}`);
+    warnings.push("wallet_sync_failed");
   }
 
   // ── Virtual accounts ───────────────────────────────────────────────────────
@@ -90,15 +113,32 @@ Deno.serve(async (req) => {
     for (const v of bva) {
       if (!v.virtual_account_id) continue;
       const { data: existing } = await supa.from("bridge_virtual_accounts")
-        .select("id").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+        .select("id,account_details").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+      const existingDetails = existing?.account_details && typeof existing.account_details === "object"
+        ? existing.account_details as Record<string, unknown>
+        : {};
+      const providerDetails = v.account_details && typeof v.account_details === "object"
+        ? v.account_details as Record<string, unknown>
+        : {};
+      const preservedDestination = existingDetails.destination && typeof existingDetails.destination === "object"
+        ? existingDetails.destination
+        : providerDetails.destination;
       const row = {
         ...ownerCols,
         bridge_customer_id:        customerId,
         bridge_virtual_account_id: v.virtual_account_id,
         currency:                  v.currency,
-        rail:                      v.rail ?? null,
-        status:                    v.status ?? "active",
-        account_details:           v.account_details ?? null,
+        rail:                      normalizeBridgeVaRail(v.rail),
+        status:                    normalizeBridgeVaStatus(v.status),
+        ...(normalizeDeveloperFeePercent(v.developer_fee_percent) !== null
+          ? { developer_fee_percent: normalizeDeveloperFeePercent(v.developer_fee_percent) }
+          : {}),
+        account_details:           {
+          ...existingDetails,
+          ...providerDetails,
+          ...(preservedDestination ? { destination: preservedDestination } : {}),
+          bridge_sync_raw: providerDetails,
+        },
         updated_at:                new Date().toISOString(),
       };
       if (existing?.id) await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id);
@@ -106,6 +146,7 @@ Deno.serve(async (req) => {
     }
   } catch (e) {
     console.warn(`bridge-sync-accounts virtual_accounts: ${(e as Error).message}`);
+    warnings.push("virtual_account_sync_failed");
   }
 
   // Return internal normalized state (not provider payload) so UI/product
@@ -130,6 +171,6 @@ Deno.serve(async (req) => {
 
   return json({
     success: true,
-    data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [] },
+    data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [], warnings },
   });
 });

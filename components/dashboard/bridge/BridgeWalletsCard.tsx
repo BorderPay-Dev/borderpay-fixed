@@ -19,6 +19,7 @@ import { authAPI } from '../../../utils/supabase/client';
 import { isBridgeCustodialWalletSupported } from '../../../utils/compliance/partnerCountryPolicy';
 import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLanguageContext';
 import { showToast } from '../../common/StatusToast';
+import { financialCacheKey } from '../../../utils/financial/cacheScope';
 
 interface WalletRow {
   id:                 string;
@@ -42,7 +43,10 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const tc = useThemeClasses();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
 
-  const walletCacheKey = `borderpay_wallets_${isBusiness ? 'biz' : 'ind'}_v1`;
+  const walletCacheKey = React.useMemo(
+    () => financialCacheKey('borderpay_wallets_card_v1', { userId, accountType: isBusiness ? 'business' : 'individual' }),
+    [userId, isBusiness],
+  );
   const cachedRows = React.useMemo<WalletRow[]>(() => {
     try { const raw = localStorage.getItem(walletCacheKey); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -58,19 +62,25 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
   const walletsSupported = isBridgeCustodialWalletSupported(country);
 
   const refresh = async () => {
-    // Activated users get their base stablecoins (USDC/USDT) auto-provisioned,
-    // then we mirror everything Bridge has into bridge_wallets so the list
-    // matches Bridge. Both are idempotent + no-op when nothing's needed.
-    try { await backendAPI.bridge.provisionStablecoins(); } catch { /* best-effort */ }
-    try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
-    const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
-    const { data } = isBusiness
-      ? await q.eq('business_user_id', userId)
-      : await q.eq('user_id', userId);
-    const next = (data as WalletRow[]) ?? [];
-    setRows(next);
-    try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
-    setLoading(false);
+    const loadLocal = async () => {
+      const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
+      const { data } = isBusiness
+        ? await q.eq('business_user_id', userId)
+        : await q.eq('user_id', userId);
+      const next = (data as WalletRow[]) ?? [];
+      setRows(next);
+      try { localStorage.setItem(walletCacheKey, JSON.stringify(next)); } catch { /* noop */ }
+      setLoading(false);
+    };
+
+    await loadLocal();
+    // Stablecoin provisioning/reconciliation is background-only. Verified users
+    // should see cached/local rows instantly while Bridge catches up.
+    void backendAPI.bridge.provisionStablecoins()
+      .catch(() => null)
+      .then(() => backendAPI.bridge.syncAccounts())
+      .then(loadLocal)
+      .catch(() => null);
   };
 
   useEffect(() => { refresh(); }, [userId, isBusiness]);
@@ -106,7 +116,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
 
   const handleCreate = async () => {
     if (!walletsSupported) {
-      showToast.error('Stablecoin wallets are not available for your country.');
+      showToast.error('Digital dollar wallets are not available for your country.');
       return;
     }
     setCreating(true);
@@ -133,12 +143,12 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
         </div>
         <div className="flex-1">
           <h3 className={`text-base font-semibold ${tc.text}`}>
-            {tt('dash.wallet.title', 'Stablecoin wallets')}
+            {tt('dash.wallet.title', 'Digital dollar wallets')}
           </h3>
           <p className={`text-xs ${tc.textMuted}`}>
             {walletsSupported
-              ? tt('dash.wallet.subtitle', 'Custodial USDC and other stablecoins.')
-              : tt('dash.wallet.subtitle.unavailable', 'Stablecoin wallets are not available for your country.')}
+              ? tt('dash.wallet.subtitle', 'USDC and USDT digital dollar wallets.')
+              : tt('dash.wallet.subtitle.unavailable', 'Digital dollar wallets are not available for your country.')}
           </p>
         </div>
       </div>
@@ -156,7 +166,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
         <div className={`flex items-center gap-2 p-3 rounded-2xl ${tc.bgAlt} border ${tc.border} mb-3`}>
           <Lock className={`w-4 h-4 ${tc.textMuted}`} />
           <p className={`text-xs ${tc.textMuted}`}>
-            Stablecoin wallets are not currently available for your country.
+            Digital dollar wallets are not currently available for your country.
           </p>
         </div>
       )}

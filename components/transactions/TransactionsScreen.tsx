@@ -165,16 +165,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
     } catch { /* noop */ }
     // Preserve cached rows during refresh; only show skeleton on cold start.
     try {
-      // Phase 2 P1: read directly from `public.transactions` via the
-      // canonical, RLS-safe getTransactions(). The previous "try
-      // get-customer-transactions first, then fall back" dance was
-      // wasted work — `get-customer-transactions` is not deployed
-      // (production logs: `POST 404 .../get-customer-transactions`
-      // with deployment_id=null), so every page-load took the 404
-      // round-trip before falling back. Filtering by `filterType`
-      // happens client-side alongside the existing search filter
-      // (same idiom as `filteredTransactions` below).
-      const result = await backendAPI.transactions.getTransactions(100, 0);
+      const result = await snapshotReader(100);
       if (result.success && result.data) {
         const txns = (result.data as any).transactions || [];
         const list = Array.isArray(txns) ? txns : [];
@@ -438,26 +429,71 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
                             </div>
                           </div>
 
-                          {receipt?.hasFees && (
+                          {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
                             <div className={`mt-4 pt-3 border-t ${tc.borderLight} grid grid-cols-2 gap-y-2 text-[12px]`}>
-                              <span className={tc.textSecondary}>{direction === 'credit' ? 'Received' : 'Sent'}</span>
-                              <span className={`text-right font-mono ${tc.text}`}>{formatMoney(receipt.initialAmount, txn.currency)}</span>
-                              {receipt.developerFeeAmount > 0 && (
+                              {receipt.hasBridgeReceipt ? (
                                 <>
-                                  <span className={tc.textSecondary}>Service fee</span>
-                                  <span className={`text-right font-mono ${tc.text}`}>-{formatMoney(receipt.developerFeeAmount, txn.currency)}</span>
+                                  {receipt.depositId && (
+                                    <>
+                                      <span className={tc.textSecondary}>Deposit ID</span>
+                                      <span className={`text-right font-mono ${tc.text} break-all`}>{receipt.depositId}</span>
+                                    </>
+                                  )}
+                                  <span className={tc.textSecondary}>Incoming funds</span>
+                                  <span className={`text-right font-mono ${tc.text}`}>{formatMoney(receipt.sourceAmount ?? receipt.initialAmount, receipt.sourceCurrency || txn.currency)}</span>
+                                  {receipt.sourceRail && (
+                                    <>
+                                      <span className={tc.textSecondary}>Payment rail</span>
+                                      <span className={`text-right ${tc.text}`}>{receipt.sourceRail.toUpperCase()}</span>
+                                    </>
+                                  )}
+                                  {(receipt.serviceChargeAmount ?? receipt.developerFeeAmount) > 0 && (
+                                    <>
+                                      <span className={tc.textSecondary}>Service charge</span>
+                                      <span className={`text-right font-mono ${tc.text}`}>-{formatMoney(receipt.serviceChargeAmount ?? receipt.developerFeeAmount, receipt.sourceCurrency || txn.currency)}</span>
+                                    </>
+                                  )}
+                                  <span className={tc.textSecondary}>Available for conversion</span>
+                                  <span className={`text-right font-mono ${tc.text}`}>{formatMoney(receipt.availableAmount ?? receipt.finalAmount, receipt.sourceCurrency || txn.currency)}</span>
+                                  {receipt.exchangeRate && receipt.destinationCurrency && (
+                                    <>
+                                      <span className={tc.textSecondary}>Exchange rate</span>
+                                      <span className={`text-right font-mono ${tc.text}`}>1 {receipt.sourceCurrency || txn.currency} = {receipt.exchangeRate} {receipt.destinationCurrency}</span>
+                                    </>
+                                  )}
+                                  <span className={`font-semibold ${tc.text}`}>Outgoing funds</span>
+                                  <span className={`text-right font-mono font-semibold text-green-500`}>
+                                    {formatMoney(receipt.destinationAmount ?? receipt.finalAmount, receipt.destinationCurrency || txn.currency)}
+                                  </span>
+                                  {receipt.destinationAddress && (
+                                    <>
+                                      <span className={tc.textSecondary}>Destination</span>
+                                      <span className={`text-right font-mono ${tc.text} break-all`}>{receipt.destinationAddress}</span>
+                                    </>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <span className={tc.textSecondary}>{direction === 'credit' ? 'Received' : 'Sent'}</span>
+                                  <span className={`text-right font-mono ${tc.text}`}>{formatMoney(receipt.initialAmount, txn.currency)}</span>
+                                  {receipt.developerFeeAmount > 0 && (
+                                    <>
+                                      <span className={tc.textSecondary}>Transaction fee</span>
+                                      <span className={`text-right font-mono ${tc.text}`}>-{formatMoney(receipt.developerFeeAmount, txn.currency)}</span>
+                                    </>
+                                  )}
+                                  {receipt.exchangeFeeAmount > 0 && (
+                                    <>
+                                      <span className={tc.textSecondary}>Exchange fee</span>
+                                      <span className={`text-right font-mono ${tc.text}`}>-{formatMoney(receipt.exchangeFeeAmount, txn.currency)}</span>
+                                    </>
+                                  )}
+                                  <span className={`font-semibold ${tc.text}`}>{direction === 'credit' ? 'You receive' : 'Net delivered'}</span>
+                                  <span className={`text-right font-mono font-semibold ${direction === 'credit' ? 'text-green-500' : tc.text}`}>
+                                    {formatMoney(receipt.finalAmount, txn.currency)}
+                                  </span>
                                 </>
                               )}
-                              {receipt.exchangeFeeAmount > 0 && (
-                                <>
-                                  <span className={tc.textSecondary}>Exchange fee</span>
-                                  <span className={`text-right font-mono ${tc.text}`}>-{formatMoney(receipt.exchangeFeeAmount, txn.currency)}</span>
-                                </>
-                              )}
-                              <span className={`font-semibold ${tc.text}`}>{direction === 'credit' ? 'You receive' : 'Net delivered'}</span>
-                              <span className={`text-right font-mono font-semibold ${direction === 'credit' ? 'text-green-500' : tc.text}`}>
-                                {formatMoney(receipt.finalAmount, txn.currency)}
-                              </span>
                             </div>
                           )}
                         </div>

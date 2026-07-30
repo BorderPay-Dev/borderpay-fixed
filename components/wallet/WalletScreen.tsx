@@ -426,7 +426,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
             </div>
             <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Verification required</h2>
             <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto mb-6 leading-relaxed`}>
-              Complete identity verification to open accounts and stablecoin wallets.
+              Complete identity verification to open accounts and digital dollar wallets.
             </p>
             <button onClick={() => onNavigate?.('kyc')}
               className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-xl bg-[#C7FF00] text-black font-bold text-sm active:scale-[0.98] transition">
@@ -500,7 +500,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                   </button>
                 );
               })}
-              {/* Stablecoins */}
+              {/* Digital dollars */}
               {stables.map((s, i) => {
                 const sym = String(s.currency || '').toUpperCase();
                 const stableBalance = Number(balanceByCurrency[sym] || 0);

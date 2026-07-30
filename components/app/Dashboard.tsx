@@ -70,12 +70,20 @@ function readCachedProfile(): any {
 // open (native-app feel), then refresh in the background. Keys are versioned.
 const DASH_WALLETS_KEY = 'borderpay_dash_wallets_v1';
 const DASH_RECENT_KEY  = 'borderpay_dash_recent_tx_v1';
+const TX_CACHE_KEY     = 'borderpay_tx_history_v1';
 function readJSON<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : fallback; }
   catch { return fallback; }
 }
 function writeJSON(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota/private mode */ }
+}
+function readRecentActivityCache(userId: string, dashKey: string): any[] {
+  const txKey = financialCacheKey(TX_CACHE_KEY, { userId });
+  const primary = readJSON<any[]>(txKey, []);
+  if (Array.isArray(primary) && primary.length > 0) return primary.slice(0, 5);
+  const dash = readJSON<any[]>(dashKey, []);
+  return Array.isArray(dash) ? dash : [];
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -261,7 +269,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => normalizeDashboardVaRows(readJSON<any[]>(dashVaKey, []), userCountry),
     [dashVaKey, userCountry],
   );
-  const cachedRecent = useMemo(() => readJSON<any[]>(dashRecentKey, []), [dashRecentKey]);
+  const cachedRecent = useMemo(() => readRecentActivityCache(userId, dashRecentKey), [dashRecentKey, userId]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
     ws.reduce((s, w) => s + Number(w.balance || 0), 0);
   const [wallets, setWallets]             = useState(cachedWallets);
@@ -454,6 +462,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         const recent = Array.isArray(txns) ? txns.slice(0, 5) : [];
         setRecentTransactions(recent);
         writeJSON(dashRecentKey, recent);
+        writeJSON(financialCacheKey(TX_CACHE_KEY, { userId }), txns);
       }
       // On failure keep cached recent activity rather than blanking it.
       setTxLoaded(true);
@@ -540,7 +549,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   // ─── transaction helpers ──────────────────────────────────────────────────
   const getTxIcon = (txn: any) => {
-    const isCredit = txn.type === 'deposit' || txn.type === 'credit';
+    const isCredit = txDirection(txn) === 'credit';
     return isCredit ? (
       <ArrowDownLeft size={18} className="text-green-500" />
     ) : (
@@ -551,7 +560,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const getTxAmount = (txn: any) => {
     const sym = CURRENCY_CONFIG[txn.currency]?.symbol || txn.currency || '$';
     const amt = parseFloat(txn.amount || 0).toFixed(2);
-    const isCredit = txn.type === 'deposit' || txn.type === 'credit';
+    const isCredit = txDirection(txn) === 'credit';
     return (
       <span className={isCredit ? 'text-green-400' : 'text-red-400'}>
         {isCredit ? '+' : '-'}{sym}{amt}
@@ -902,7 +911,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               {tt('dashboard.manageAccounts', 'Manage accounts & wallets')}
             </p>
             <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
-              {tt('dashboard.manageAccountsSub', 'Virtual accounts, stablecoin wallets, cards.')}
+              {tt('dashboard.manageAccountsSub', 'Virtual accounts, digital dollar wallets, cards.')}
             </p>
           </div>
           <ChevronRight className={`w-4 h-4 ${tc.textMuted}`} />
@@ -983,24 +992,49 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                       {isCredit ? '+' : '−'}{sym}{amt}
                     </p>
                   </div>
-                  {receipt?.hasFees && (
+                  {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
                     <div className={`ml-11 mt-2 grid grid-cols-2 gap-y-1 text-[11px] ${tc.textMuted}`}>
-                      <span>{isCredit ? 'Received' : 'Sent'}</span>
-                      <span className="text-right font-mono">{formatReceiptMoney(receipt.initialAmount, txn.currency)}</span>
-                      {receipt.developerFeeAmount > 0 && (
+                      {receipt.hasBridgeReceipt ? (
                         <>
-                          <span>Service fee</span>
-                          <span className="text-right font-mono">-{formatReceiptMoney(receipt.developerFeeAmount, txn.currency)}</span>
+                          <span>Incoming funds</span>
+                          <span className="text-right font-mono">{formatReceiptMoney(receipt.sourceAmount ?? receipt.initialAmount, receipt.sourceCurrency || txn.currency)}</span>
+                          {(receipt.serviceChargeAmount ?? receipt.developerFeeAmount) > 0 && (
+                            <>
+                              <span>Service charge</span>
+                              <span className="text-right font-mono">-{formatReceiptMoney(receipt.serviceChargeAmount ?? receipt.developerFeeAmount, receipt.sourceCurrency || txn.currency)}</span>
+                            </>
+                          )}
+                          <span>Available for conversion</span>
+                          <span className="text-right font-mono">{formatReceiptMoney(receipt.availableAmount ?? receipt.finalAmount, receipt.sourceCurrency || txn.currency)}</span>
+                          {receipt.exchangeRate && receipt.destinationCurrency && (
+                            <>
+                              <span>Exchange rate</span>
+                              <span className="text-right font-mono">1 {receipt.sourceCurrency || txn.currency} = {receipt.exchangeRate} {receipt.destinationCurrency}</span>
+                            </>
+                          )}
+                          <span className={tc.text}>Outgoing funds</span>
+                          <span className={`text-right font-mono ${tc.text}`}>{formatReceiptMoney(receipt.destinationAmount ?? receipt.finalAmount, receipt.destinationCurrency || txn.currency)}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>{isCredit ? 'Received' : 'Sent'}</span>
+                          <span className="text-right font-mono">{formatReceiptMoney(receipt.initialAmount, txn.currency)}</span>
+                          {receipt.developerFeeAmount > 0 && (
+                            <>
+                              <span>Transaction fee</span>
+                              <span className="text-right font-mono">-{formatReceiptMoney(receipt.developerFeeAmount, txn.currency)}</span>
+                            </>
+                          )}
+                          {receipt.exchangeFeeAmount > 0 && (
+                            <>
+                              <span>Exchange fee</span>
+                              <span className="text-right font-mono">-{formatReceiptMoney(receipt.exchangeFeeAmount, txn.currency)}</span>
+                            </>
+                          )}
+                          <span className={tc.text}>{isCredit ? 'You receive' : 'Net delivered'}</span>
+                          <span className={`text-right font-mono ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, txn.currency)}</span>
                         </>
                       )}
-                      {receipt.exchangeFeeAmount > 0 && (
-                        <>
-                          <span>Exchange fee</span>
-                          <span className="text-right font-mono">-{formatReceiptMoney(receipt.exchangeFeeAmount, txn.currency)}</span>
-                        </>
-                      )}
-                      <span className={tc.text}>{isCredit ? 'You receive' : 'Net delivered'}</span>
-                      <span className={`text-right font-mono ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, txn.currency)}</span>
                     </div>
                   )}
                 </div>

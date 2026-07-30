@@ -102,12 +102,46 @@ function writeCachedNotifications(rows: NotificationRow[]): void {
 }
 
 function transactionTitle(tx: any): string {
+  const metadata = tx?.metadata && typeof tx.metadata === 'object' ? tx.metadata : {};
+  const direction = txDirection({
+    ...tx,
+    type: tx?.type || tx?.transaction_type,
+    metadata,
+  } as any);
+  const status = String(tx?.status || metadata?.status || '').toLowerCase();
+  if (direction === 'debit') {
+    if (status === 'completed' || status === 'succeeded' || status === 'success') return 'Payout completed';
+    if (status === 'failed' || status === 'canceled' || status === 'cancelled') return 'Payout failed';
+    return 'Payout pending';
+  }
+  if (direction === 'credit') {
+    if (status === 'completed' || status === 'approved' || status === 'succeeded' || status === 'success') return 'Payment received';
+    if (status === 'failed' || status === 'refunded' || status === 'returned') return 'Payment not completed';
+    return 'Payment pending';
+  }
   const raw = String(tx?.description || tx?.memo || tx?.type || tx?.transaction_type || 'Transaction').trim();
   return raw ? raw.replace(/_/g, ' ') : 'Transaction';
 }
 
+function transactionCanonicalId(tx: any): string {
+  const metadata = tx?.metadata && typeof tx.metadata === 'object' ? tx.metadata : {};
+  return String(
+    metadata?.bridge_transfer_id ||
+    tx?.bridge_transfer_id ||
+    metadata?.raw?.payment_route?.transfer_id ||
+    metadata?.deposit_id ||
+    metadata?.credit_event_id ||
+    metadata?.bridge_event_id ||
+    metadata?.event_id ||
+    metadata?.raw?.id ||
+    tx?.id ||
+    tx?.transfer_id ||
+    '',
+  ).trim();
+}
+
 function transactionToNotification(tx: any): NotificationRow | null {
-  const id = String(tx?.id || tx?.bridge_transfer_id || tx?.transfer_id || '').trim();
+  const id = transactionCanonicalId(tx);
   if (!id) return null;
   const metadata = tx?.metadata && typeof tx.metadata === 'object' ? tx.metadata : {};
   const currency = String(tx?.currency || metadata?.currency || 'USD').toUpperCase();
@@ -123,7 +157,7 @@ function transactionToNotification(tx: any): NotificationRow | null {
   return {
     id: `tx:${id}`,
     title: transactionTitle(tx),
-    body: `${direction === 'credit' ? 'Received' : 'Sent'} ${formatReceiptMoney(amount, currency)} · ${status}`,
+    body: `${direction === 'credit' ? 'Received' : 'Sent'} ${formatReceiptMoney(amount, currency)} · ${status === 'completed' ? 'completed' : status}`,
     type: direction === 'credit' ? 'transaction_credit' : 'transaction_debit',
     category: 'transaction',
     read: true,
@@ -164,11 +198,46 @@ function readCachedActivityNotifications(): NotificationRow[] {
 
 function composeNotificationRows(notificationRows: NotificationRow[], activityRows: NotificationRow[]): NotificationRow[] {
   const byId = new Map<string, NotificationRow>();
-  activityRows.forEach((row) => byId.set(row.id, row));
+  const keyFor = (row: NotificationRow): string => {
+    const md = row?.metadata || {};
+    return String(
+      md.bridge_transfer_id ||
+      md.transaction_id ||
+      md.deposit_id ||
+      md.credit_event_id ||
+      md.bridge_event_id ||
+      md.event_id ||
+      row.id ||
+      '',
+    );
+  };
+  const statusRank = (row: NotificationRow): number => {
+    const status = String(row?.metadata?.status || row?.metadata?.activity_type || '').toLowerCase();
+    if (['refunded', 'returned', 'failed', 'canceled', 'cancelled'].includes(status)) return 50;
+    if (['refund_in_flight', 'refund_pending', 'return_in_flight'].includes(status)) return 40;
+    if (['in_review', 'under_review', 'review', 'pending_review', 'manual_review'].includes(status)) return 30;
+    if (['approved', 'completed', 'processed', 'payment_processed', 'succeeded', 'success'].includes(status)) return 20;
+    if (['pending', 'submitted', 'funds_received', 'payment_submitted'].includes(status)) return 10;
+    return 0;
+  };
+  const shouldReplace = (previous: NotificationRow | undefined, next: NotificationRow): boolean => {
+    if (!previous) return true;
+    const prevRank = statusRank(previous);
+    const nextRank = statusRank(next);
+    if (nextRank !== prevRank) return nextRank > prevRank;
+    return new Date(next.created_at || 0).getTime() >= new Date(previous.created_at || 0).getTime();
+  };
+  const put = (row: NotificationRow) => {
+    const key = keyFor(row);
+    if (!key) return;
+    const previous = byId.get(key);
+    if (shouldReplace(previous, row)) byId.set(key, row);
+  };
+  activityRows.forEach(put);
   notificationRows.forEach((row) => {
     const id = String(row?.id || '').trim();
     if (!id) return;
-    byId.set(id, row);
+    put(row);
   });
   return Array.from(byId.values())
     .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
@@ -273,17 +342,20 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         onUnreadCountChange?.(0);
         return;
       }
-      const [notifSettled, txSettled] = await Promise.allSettled([
-        backendAPI.notifications.getNotifications(50),
-        backendAPI.transactions.getTransactions(100, 0),
+      const [snapshotSettled] = await Promise.allSettled([
+        backendAPI.financial.getSnapshot(100),
       ]);
-      const r: any = notifSettled.status === 'fulfilled'
-        ? notifSettled.value
-        : { success: false, error: notifSettled.reason };
-      const txResult: any = txSettled.status === 'fulfilled'
-        ? txSettled.value
-        : { success: false, error: txSettled.reason };
+      const snapshotResult: any = snapshotSettled.status === 'fulfilled'
+        ? snapshotSettled.value
+        : { success: false, error: snapshotSettled.reason };
       let activityRows = readCachedActivityNotifications();
+      let txResult: any = { success: false, error: snapshotResult?.error || 'snapshot_unavailable' };
+      const snapshotTxRows = Array.isArray(snapshotResult?.data?.transactions)
+        ? snapshotResult.data.transactions
+        : [];
+      if (snapshotTxRows.length > 0) {
+        txResult = { success: true, data: { transactions: snapshotTxRows } };
+      }
       if (txResult?.success) {
         const txRows = Array.isArray(txResult?.data?.transactions)
           ? txResult.data.transactions
@@ -295,11 +367,12 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
           .map(transactionToNotification)
           .filter((row: NotificationRow | null): row is NotificationRow => !!row);
       }
-      if (r?.success || activityRows.length > 0) {
-        const notificationRows = r?.success
-          ? (Array.isArray((r as any)?.data?.notifications)
-            ? (r as any).data.notifications
-            : (Array.isArray((r as any)?.data) ? (r as any).data : []))
+      if (snapshotResult?.success || activityRows.length > 0) {
+        const snapshotNotifications = Array.isArray(snapshotResult?.data?.notifications)
+          ? snapshotResult.data.notifications
+          : [];
+        const notificationRows = snapshotNotifications.length > 0
+            ? snapshotNotifications
           : rowsRef.current.filter((n) => n.metadata?.__activity_source !== 'transactions');
         const data = composeNotificationRows(notificationRows, activityRows);
         rowsRef.current = data;
@@ -308,13 +381,13 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
         onUnreadCountChange?.(unreadNotificationCount(data));
       } else if (!hasCachedRows) {
-        const notificationTimeout = isRequestTimeout(r?.error);
+        const notificationTimeout = isRequestTimeout(snapshotResult?.error);
         const activityTimeout = isRequestTimeout(txResult?.error);
         const transientTimeout = notificationTimeout && (!txResult?.error || activityTimeout);
         if (!transientTimeout) {
           setError(
             friendlyError(
-              r?.error || txResult?.error || 'notifications_unavailable',
+              snapshotResult?.error || txResult?.error || 'notifications_unavailable',
               "Notifications couldn't be loaded right now."
             ),
           );
@@ -483,8 +556,15 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
                   amount: n.metadata?.amount ?? n.metadata?.net_amount,
                   metadata: n.metadata,
                 });
-                const direction = String(n.metadata?.direction || '').toLowerCase();
-                const isCredit = direction === 'credit' || /received|deposit|credit/i.test(title);
+                const direction = txDirection({
+                  type: n.type,
+                  title,
+                  body: n.body,
+                  message: n.message,
+                  amount: n.metadata?.amount ?? n.metadata?.net_amount,
+                  metadata: n.metadata,
+                });
+                const isCredit = direction === 'credit';
                 const currency = String(n.metadata?.currency || 'USD').toUpperCase();
                 const isActivityRow = n.metadata?.__activity_source === 'transactions';
                 return (
@@ -515,24 +595,49 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
                           {message}
                         </p>
                       )}
-                      {receipt?.hasFees && (
+                      {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
                         <div className={`mt-2 grid grid-cols-2 gap-y-1 text-[11px] ${tc.textMuted}`}>
-                          <span>{isCredit ? 'Received' : 'Sent'}</span>
-                          <span className="text-right font-mono">{formatReceiptMoney(receipt.initialAmount, currency)}</span>
-                          {receipt.developerFeeAmount > 0 && (
+                          {receipt.hasBridgeReceipt ? (
                             <>
-                              <span>Service fee</span>
-                              <span className="text-right font-mono">-{formatReceiptMoney(receipt.developerFeeAmount, currency)}</span>
+                              <span>Incoming funds</span>
+                              <span className="text-right font-mono">{formatReceiptMoney(receipt.sourceAmount ?? receipt.initialAmount, receipt.sourceCurrency || currency)}</span>
+                              {(receipt.serviceChargeAmount ?? receipt.developerFeeAmount) > 0 && (
+                                <>
+                                  <span>Service charge</span>
+                                  <span className="text-right font-mono">-{formatReceiptMoney(receipt.serviceChargeAmount ?? receipt.developerFeeAmount, receipt.sourceCurrency || currency)}</span>
+                                </>
+                              )}
+                              <span>Available for conversion</span>
+                              <span className="text-right font-mono">{formatReceiptMoney(receipt.availableAmount ?? receipt.finalAmount, receipt.sourceCurrency || currency)}</span>
+                              {receipt.exchangeRate && receipt.destinationCurrency && (
+                                <>
+                                  <span>Exchange rate</span>
+                                  <span className="text-right font-mono">1 {receipt.sourceCurrency || currency} = {receipt.exchangeRate} {receipt.destinationCurrency}</span>
+                                </>
+                              )}
+                              <span className={`font-semibold ${tc.text}`}>Outgoing funds</span>
+                              <span className={`text-right font-mono font-semibold ${tc.text}`}>{formatReceiptMoney(receipt.destinationAmount ?? receipt.finalAmount, receipt.destinationCurrency || currency)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>{isCredit ? 'Received' : 'Sent'}</span>
+                              <span className="text-right font-mono">{formatReceiptMoney(receipt.initialAmount, currency)}</span>
+                              {receipt.developerFeeAmount > 0 && (
+                                <>
+                                  <span>Transaction fee</span>
+                                  <span className="text-right font-mono">-{formatReceiptMoney(receipt.developerFeeAmount, currency)}</span>
+                                </>
+                              )}
+                              {receipt.exchangeFeeAmount > 0 && (
+                                <>
+                                  <span>Exchange fee</span>
+                                  <span className="text-right font-mono">-{formatReceiptMoney(receipt.exchangeFeeAmount, currency)}</span>
+                                </>
+                              )}
+                              <span className={`font-semibold ${tc.text}`}>{isCredit ? 'You receive' : 'Net delivered'}</span>
+                              <span className={`text-right font-mono font-semibold ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, currency)}</span>
                             </>
                           )}
-                          {receipt.exchangeFeeAmount > 0 && (
-                            <>
-                              <span>Exchange fee</span>
-                              <span className="text-right font-mono">-{formatReceiptMoney(receipt.exchangeFeeAmount, currency)}</span>
-                            </>
-                          )}
-                          <span className={`font-semibold ${tc.text}`}>{isCredit ? 'You receive' : 'Net delivered'}</span>
-                          <span className={`text-right font-mono font-semibold ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, currency)}</span>
                         </div>
                       )}
                       <p className={`text-[10px] ${tc.textMuted} mt-1`}>{relativeTime(n.created_at)}</p>

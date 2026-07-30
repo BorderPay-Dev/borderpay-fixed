@@ -21,6 +21,7 @@ export interface ApiGatewayContext {
   rateLimitPerMinute: number;
   betaAccessEnabled: boolean;
   maxSingleTransferUsd: number | null;
+  tenantMetadata: Record<string, unknown>;
   scopes: string[];
 }
 
@@ -117,6 +118,9 @@ export async function resolveGatewayContext(
     maxSingleTransferUsd: row.max_single_transfer_usd == null
       ? null
       : Number(row.max_single_transfer_usd),
+    tenantMetadata: row.tenant_metadata && typeof row.tenant_metadata === "object"
+      ? row.tenant_metadata as Record<string, unknown>
+      : {},
     scopes: Array.isArray(row.scopes) ? row.scopes.map(String) : [],
   };
 }

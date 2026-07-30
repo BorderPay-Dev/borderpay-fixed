@@ -569,10 +569,10 @@ const en: TranslationDict = {
   'addMoney.cardIntegration': 'Integration with payment processor needed',
   'addMoney.failedLoadDetails': 'Failed to load account details',
   'addMoney.failedGenAddress': 'Failed to generate address',
-  // ── Stablecoin ──
-  'stablecoin.title': 'Receive Stablecoin',
-  'stablecoin.subtitle': 'Generate a Solana deposit address',
-  'stablecoin.selectCoin': 'Select Stablecoin',
+  // ── Digital dollar wallets ──
+  'stablecoin.title': 'Receive Digital Dollars',
+  'stablecoin.subtitle': 'Generate a digital dollar deposit address',
+  'stablecoin.selectCoin': 'Select Digital Dollar',
   'stablecoin.generating': 'Generating address...',
   'stablecoin.yourAddress': 'Your Deposit Address',
   'stablecoin.network': 'Network',
@@ -598,7 +598,7 @@ const en: TranslationDict = {
   'wallet.goBackDashboard': 'Go Back to Dashboard',
   'wallet.activateMultiWallet': 'Activate Your Multi-Wallet',
   'wallet.currencyWallets': '10+ Currency Wallets',
-  'wallet.currencyWalletsDesc': 'USD, NGN, KES, GHS, TZS, UGX, XOF, XAF + stablecoins (USDT, USDC, PYUSD)',
+  'wallet.currencyWalletsDesc': 'USD, NGN, KES, GHS, TZS, UGX, XOF, XAF + digital dollars (USDT, USDC)',
   'wallet.usBankAccount': 'US Bank Account',
   'wallet.usBankAccountDesc': 'Receive USD with routing number and account number',
   'wallet.globalTransfers': 'Global Transfers',
@@ -713,7 +713,7 @@ const en: TranslationDict = {
   // ── KYC Verification ──
   'kyc.verifyIdentity': 'Verify Your Identity',
   'kyc.quickSecure': 'Quick & secure identity verification',
-  'kyc.unlockPremium': 'Unlock Premium',
+  'kyc.unlockPremium': 'Verify your account',
   'kyc.virtualCards': 'Virtual Cards',
   'kyc.intlTransfers': "Int'l Transfers",
   'kyc.higherLimits': 'Higher Limits',

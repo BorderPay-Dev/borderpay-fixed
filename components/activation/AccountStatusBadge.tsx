@@ -1,6 +1,6 @@
 /**
  * BorderPay Africa - Account Status Badge
- * Shows account tier: Starter → Verified → Active
+ * Shows verification status.
  * In sandbox mode: shows "Beta" badge with neon green styling
  */
 
@@ -17,7 +17,7 @@ interface AccountStatusBadgeProps {
 
 const statusConfig = {
   starter: {
-    label: 'Starter',
+    label: 'Unverified',
     icon: Shield,
     bgColor: 'bg-gray-500/10',
     textColor: 'text-gray-400',
@@ -79,9 +79,8 @@ const sizeConfig = {
 };
 
 export function AccountStatusBadge({ status, size = 'md' }: AccountStatusBadgeProps) {
-  // Wise-style: there is no visible "tier" before activation. The un-activated
-  // ("starter") state shows NO badge — the activation card + setup checklist
-  // are the only prompts, and they disappear once the user is set up.
+  // No public tiering: unverified users should see the verification prompt,
+  // not a plan/subscription/activation tier.
   if (status === 'starter') return null;
 
   const config = statusConfig[status];

@@ -14,6 +14,8 @@ import { deriveWalletStatus } from '../financial/walletStatus';
 import { navPerfTrackApi, navPerfTrackCache, navPerfTrackSnapshot } from '../performance/navigationPerf';
 import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
 import { normalizeTransactionReceipt } from '../transactions/receipt';
+import { txDirection } from '../transactions/direction';
+import { friendlyError } from '../errors/friendlyError';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -23,17 +25,14 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'business-team-invite') return 20000;
   if (endpoint === 'bridge-kyc-link' || endpoint === 'bridge-kyb-link') return 45000;
   if (endpoint === 'bridge-customer') return 30000;
+  if (endpoint === 'bridge-transfer') return 45000;
+  if (endpoint === 'bridge-external-account') return 30000;
   return 8000;
 }
 
 // ── Sanitize error messages to prevent info leakage ──────────────────────────
 function sanitizeError(raw: string | undefined): string {
-  if (!raw) return 'Something went wrong. Please try again.';
-  // Strip anything that looks like a key, URL, or internal path
-  if (/supabase|secret|key|token|password|internal/i.test(raw)) {
-    return 'Something went wrong. Please try again.';
-  }
-  return raw;
+  return friendlyError(raw, 'Something went wrong. Please try again.');
 }
 
 // ── Core API caller with retry for transient network failures ────────────────
@@ -45,7 +44,12 @@ async function apiCall<T = any>(
 ): Promise<{ success: boolean; data?: T; error?: string }> {
   navPerfTrackApi(endpoint, 'start');
   try {
-    const token = authAPI.getToken();
+    let token = authAPI.getToken();
+    if (!token) {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token || null;
+      if (token) localStorage.setItem('borderpay_token', token);
+    }
 
     // When body is FormData, let the browser set Content-Type (multipart boundary)
     const isFormData = options.body instanceof FormData;
@@ -107,6 +111,18 @@ async function apiCall<T = any>(
     }
 
     if (!response.ok) {
+      if (response.status === 401 && retries < 1 && !options.signal?.aborted) {
+        try {
+          const { data } = await supabase.auth.refreshSession();
+          const refreshedToken = data?.session?.access_token || null;
+          if (refreshedToken) {
+            localStorage.setItem('borderpay_token', refreshedToken);
+            return apiCall<T>(endpoint, options, retries + 1);
+          }
+        } catch {
+          // Fall through to the normal sanitized 401 response.
+        }
+      }
       navPerfTrackApi(endpoint, 'end', false);
       return {
         success: false,
@@ -136,7 +152,7 @@ async function apiCall<T = any>(
     }
     return {
       success: false,
-      error: 'Unable to connect to our servers. Please check your internet connection and try again.',
+      error: 'Connection error. Please check your internet and try again.',
     };
   }
 }
@@ -190,7 +206,7 @@ async function apiCallPublic<T = any>(
       // behaviour of the authenticated apiCall path.
       return {
         success: false,
-        error: data.error || data.message || `Request failed: ${response.status}`,
+        error: sanitizeError(data.error || data.message || `Request failed: ${response.status}`),
         ...(data?.code      ? { code:      data.code      } : {}),
         ...(data?.upgrade_to ? { upgrade_to: data.upgrade_to } : {}),
       } as any;
@@ -198,6 +214,7 @@ async function apiCallPublic<T = any>(
 
     if (data && typeof data === 'object' && 'success' in data) {
       navPerfTrackApi(endpoint, 'end', !!data.success);
+      if (!data.success) data.error = sanitizeError(data.error || data.message);
       return data;
     }
     navPerfTrackApi(endpoint, 'end', true);
@@ -207,7 +224,7 @@ async function apiCallPublic<T = any>(
     if (error?.name === 'AbortError') {
       return { success: false, error: 'Request timed out. Please try again.' };
     }
-    return { success: false, error: error.message || 'Unable to connect to our servers.' };
+    return { success: false, error: sanitizeError(error.message || 'Connection error. Please check your internet and try again.') };
   }
 }
 
@@ -253,7 +270,7 @@ export const authSecurityAPI = {
     email:        string;
     password:     string;
     full_name:    string;
-    phone_number: string;
+    phone_number?: string;
     country_code: string;
     /**
      * Optional. Default 'individual' on the server. When 'business', the
@@ -270,6 +287,7 @@ export const authSecurityAPI = {
       role?: 'control_person' | 'beneficial_owner';
     }>;
     captcha_token?:       string;
+    referral_code?:       string;
   }, anonKey: string) {
     return apiCallPublic('auth-signup', {
       method: 'POST',
@@ -568,12 +586,31 @@ export const transactionAPI = {
     };
     const statusFromMetadata = (md: any): 'completed' | 'pending' | 'failed' => {
       const raw = String(md?.state || md?.status || '').toLowerCase();
-      if (raw === 'failed' || raw === 'error' || raw === 'returned' || raw === 'refunded') return 'failed';
-      if (raw === 'pending' || raw === 'processing' || raw === 'queued') return 'pending';
+      if (['failed', 'error', 'returned', 'refunded', 'canceled', 'cancelled'].includes(raw)) return 'failed';
+      if ([
+        'pending',
+        'processing',
+        'queued',
+        'in_review',
+        'under_review',
+        'review',
+        'pending_review',
+        'manual_review',
+        'refund_in_flight',
+        'refund_pending',
+        'return_in_flight',
+      ].includes(raw)) return 'pending';
       return 'completed';
     };
     const descriptionFromRow = (row: any): string => {
       const md = row?.metadata || {};
+      const lifecycle = String(md?.status || md?.activity_type || '').toLowerCase();
+      if (md?.kind === 'virtual_account_deposit_status' || md?.deposit_id) {
+        if (['refunded', 'returned'].includes(lifecycle)) return 'Transaction refunded';
+        if (['refund_in_flight', 'refund_pending', 'return_in_flight'].includes(lifecycle)) return 'Refund in progress';
+        if (['in_review', 'under_review', 'review', 'pending_review', 'manual_review'].includes(lifecycle)) return 'Transaction under review';
+        if (['approved', 'completed', 'funds_received', 'processed', 'payment_processed'].includes(lifecycle)) return 'Payment received';
+      }
       return String(
         md?.description ||
         md?.reason ||
@@ -626,11 +663,18 @@ export const transactionAPI = {
       .filter((row: any) => {
         const md = row?.metadata || {};
         if (md?.mirror_of === 'bridge_balance_ledger') return false;
-        return Boolean(row?.bridge_transfer_id || md?.transaction_type || md?.flow || md?.payout_validator);
+        return Boolean(row?.bridge_transfer_id || md?.transaction_type || md?.flow || md?.payout_validator || md?.kind === 'virtual_account_deposit_status');
       })
       .map((row: any) => {
         const currency = String(row?.currency || '').toUpperCase();
-        const metadata = { ...(row?.metadata || {}), direction: 'debit' };
+        const rowMetadata = row?.metadata || {};
+        const direction = txDirection({
+          type: row?.type || rowMetadata?.transaction_type,
+          amount: row?.amount,
+          metadata: rowMetadata,
+          description: row?.description,
+        });
+        const metadata = { ...rowMetadata, direction };
         const amountMajorAbs = Math.abs(Number(row?.amount || 0));
         const receipt = normalizeTransactionReceipt({ amount: amountMajorAbs, metadata });
         return {
@@ -638,7 +682,7 @@ export const transactionAPI = {
           type: String(row?.type || metadata?.transaction_type || 'transfer'),
           amount: receipt?.finalAmount ?? amountMajorAbs,
           currency,
-          description: String(row?.description || descriptionFromRow({ ...row, entity_type: row?.type, direction: 'debit', metadata })),
+          description: String(row?.description || descriptionFromRow({ ...row, entity_type: row?.type, direction, metadata })),
           status: statusFromMetadata({ ...metadata, status: row?.status }),
           created_at: row?.created_at || new Date().toISOString(),
           metadata,
@@ -646,15 +690,48 @@ export const transactionAPI = {
         };
       });
 
-    const seen = new Set<string>();
-    const transactions = [...ledgerTransactions, ...bridgeTransferTransactions]
-      .filter((row: any) => {
-        const key = String(row?.metadata?.bridge_event_id || row?.metadata?.event_id || row?.metadata?.bridge_transfer_id || row?.id || '');
-        if (!key) return true;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
+    const lifecycleKey = (row: any): string => String(
+      row?.metadata?.bridge_transfer_id ||
+      row?.bridge_transfer_id ||
+      row?.metadata?.raw?.payment_route?.transfer_id ||
+      row?.metadata?.deposit_id ||
+      row?.metadata?.credit_event_id ||
+      row?.metadata?.bridge_event_id ||
+      row?.metadata?.event_id ||
+      row?.metadata?.raw?.id ||
+      row?.id ||
+      '',
+    ).trim();
+    const lifecycleRank = (row: any): number => {
+      const md = row?.metadata || {};
+      const raw = String(md?.state || md?.status || md?.activity_type || row?.status || '').toLowerCase();
+      if (['refunded', 'returned', 'failed', 'error', 'canceled', 'cancelled'].includes(raw)) return 50;
+      if (['refund_in_flight', 'refund_pending', 'return_in_flight'].includes(raw)) return 40;
+      if (['in_review', 'under_review', 'review', 'pending_review', 'manual_review'].includes(raw)) return 30;
+      if (['approved', 'completed', 'processed', 'payment_processed', 'settled', 'succeeded', 'success'].includes(raw)) return 20;
+      if (['pending', 'submitted', 'funds_received', 'payment_submitted', 'queued', 'processing'].includes(raw)) return 10;
+      return 0;
+    };
+    const shouldReplaceLifecycle = (previous: any | undefined, next: any): boolean => {
+      if (!previous) return true;
+      const prevRank = lifecycleRank(previous);
+      const nextRank = lifecycleRank(next);
+      if (nextRank !== prevRank) return nextRank > prevRank;
+      return new Date(next?.created_at || 0).getTime() >= new Date(previous?.created_at || 0).getTime();
+    };
+    const byLifecycle = new Map<string, any>();
+    const lifecycleRows = [...ledgerTransactions, ...bridgeTransferTransactions];
+    for (let i = 0; i < lifecycleRows.length; i += 1) {
+      const row = lifecycleRows[i];
+      const key = lifecycleKey(row);
+      if (!key) {
+        byLifecycle.set(String(row?.id || `row:${i}`), row);
+        continue;
+      }
+      const previous = byLifecycle.get(key);
+      if (shouldReplaceLifecycle(previous, row)) byLifecycle.set(key, row);
+    }
+    const transactions = Array.from(byLifecycle.values())
       .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, limit);
     return { success: true, data: { transactions } };
@@ -695,6 +772,9 @@ export const financialReadModelAPI = (() => {
   let lastSnapshot: any = null;
   let lastSnapshotAt = 0;
   let lastSnapshotKey = '';
+  let lastAnySnapshot: any = null;
+  let lastAnySnapshotAt = 0;
+  let lastAnySnapshotUserId = '';
   const EXTERNAL_FETCH_TIMEOUT_MS = 900;
 
   async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -709,14 +789,24 @@ export const financialReadModelAPI = (() => {
     }
   }
 
-  function persistKey(userId: string): string {
-    return `borderpay_snapshot_cache_v1:${userId}`;
+  function persistKey(snapshotKey: string): string {
+    return `borderpay_snapshot_cache_v2:${snapshotKey}`;
   }
 
-  function loadPersistedSnapshot(userId: string): { snapshot: any; at: number } | null {
+  function anySnapshotKey(userId: string): string {
+    return `${userId}:any`;
+  }
+
+  function snapshotDepth(snapshot: any): number {
+    const txCount = Array.isArray(snapshot?.data?.transactions) ? snapshot.data.transactions.length : 0;
+    const notifCount = Array.isArray(snapshot?.data?.notifications) ? snapshot.data.notifications.length : 0;
+    return Math.max(txCount, notifCount);
+  }
+
+  function loadPersistedSnapshot(snapshotKey: string): { snapshot: any; at: number } | null {
     try {
       if (typeof window === 'undefined') return null;
-      const raw = localStorage.getItem(persistKey(userId));
+      const raw = localStorage.getItem(persistKey(snapshotKey));
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       const at = Number(parsed?.at || 0);
@@ -728,16 +818,50 @@ export const financialReadModelAPI = (() => {
     }
   }
 
-  function savePersistedSnapshot(userId: string, snapshot: any) {
+  function savePersistedSnapshot(snapshotKey: string, snapshot: any) {
     try {
       if (typeof window === 'undefined') return;
       localStorage.setItem(
-        persistKey(userId),
+        persistKey(snapshotKey),
         JSON.stringify({ at: Date.now(), snapshot }),
       );
     } catch {
       // best effort
     }
+  }
+
+  function rememberSnapshot(snapshotKey: string, userId: string, snapshot: any) {
+    const now = Date.now();
+    lastSnapshot = snapshot;
+    lastSnapshotAt = now;
+    lastSnapshotKey = snapshotKey;
+    savePersistedSnapshot(snapshotKey, snapshot);
+
+    // Keep one user-scoped canonical snapshot for instant cross-screen first
+    // paint. Exact-limit snapshots still refresh in the background.
+    if (
+      !lastAnySnapshot ||
+      lastAnySnapshotUserId !== userId ||
+      snapshotDepth(snapshot) >= snapshotDepth(lastAnySnapshot) ||
+      now - lastAnySnapshotAt > REVALIDATE_MS
+    ) {
+      lastAnySnapshot = snapshot;
+      lastAnySnapshotAt = now;
+      lastAnySnapshotUserId = userId;
+      savePersistedSnapshot(anySnapshotKey(userId), snapshot);
+    }
+  }
+
+  function refreshSnapshotInBackground(userId: string, snapshotKey: string, limit: number) {
+    if (inFlight && inFlightKey === snapshotKey) return;
+    inFlightKey = snapshotKey;
+    inFlight = fetchSnapshot(userId, limit).then((next) => {
+      if (next?.success) rememberSnapshot(snapshotKey, userId, next);
+      return next;
+    }).finally(() => {
+      inFlight = null;
+      inFlightKey = '';
+    });
   }
 
   async function fetchSnapshot(userId: string, limit: number) {
@@ -803,7 +927,7 @@ export const financialReadModelAPI = (() => {
       ? (externalListRes as any).data.external_accounts
       : [];
     const externalAccountCapabilities = ((externalCapsRes as any)?.success && Array.isArray((externalCapsRes as any)?.data?.supported_account_types))
-      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
+      ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb')
       : [];
     const externalWallets = ((externalWalletsRes as any)?.success && Array.isArray((externalWalletsRes as any)?.data?.wallets))
       ? (externalWalletsRes as any).data.wallets
@@ -889,62 +1013,48 @@ export const financialReadModelAPI = (() => {
         return { success: false, error: userErr?.message || 'Not signed in' };
       }
 
-      const key = `${user.id}`;
+      const key = `${user.id}:${Math.max(1, Number(limit) || 50)}`;
       const now = Date.now();
       if (lastSnapshot && lastSnapshotKey === key && now - lastSnapshotAt < STALE_MAX_MS) {
         navPerfTrackCache('snapshot', true);
         if (now - lastSnapshotAt >= REVALIDATE_MS && (!inFlight || inFlightKey !== key)) {
-          inFlightKey = key;
-          inFlight = fetchSnapshot(user.id, limit).then((next) => {
-            if (next?.success) {
-              lastSnapshot = next;
-              lastSnapshotAt = Date.now();
-              lastSnapshotKey = key;
-              savePersistedSnapshot(user.id, next);
-            }
-            return next;
-          }).finally(() => {
-            inFlight = null;
-            inFlightKey = '';
-          });
+          refreshSnapshotInBackground(user.id, key, limit);
         }
         return lastSnapshot;
       }
 
-      const persisted = loadPersistedSnapshot(user.id);
+      if (lastAnySnapshot && lastAnySnapshotUserId === user.id && now - lastAnySnapshotAt < STALE_MAX_MS) {
+        navPerfTrackCache('snapshot:any', true);
+        refreshSnapshotInBackground(user.id, key, limit);
+        return lastAnySnapshot;
+      }
+
+      const persisted = loadPersistedSnapshot(key);
       if (persisted?.snapshot) {
         navPerfTrackCache('snapshot', true);
         lastSnapshot = persisted.snapshot;
         lastSnapshotAt = persisted.at;
         lastSnapshotKey = key;
-        if (!inFlight || inFlightKey !== key) {
-          inFlightKey = key;
-          inFlight = fetchSnapshot(user.id, limit).then((next) => {
-            if (next?.success) {
-              lastSnapshot = next;
-              lastSnapshotAt = Date.now();
-              lastSnapshotKey = key;
-              savePersistedSnapshot(user.id, next);
-            }
-            return next;
-          }).finally(() => {
-            inFlight = null;
-            inFlightKey = '';
-          });
-        }
+        rememberSnapshot(key, user.id, persisted.snapshot);
+        refreshSnapshotInBackground(user.id, key, limit);
         return persisted.snapshot;
+      }
+
+      const persistedAny = loadPersistedSnapshot(anySnapshotKey(user.id));
+      if (persistedAny?.snapshot) {
+        navPerfTrackCache('snapshot:any', true);
+        lastAnySnapshot = persistedAny.snapshot;
+        lastAnySnapshotAt = persistedAny.at;
+        lastAnySnapshotUserId = user.id;
+        refreshSnapshotInBackground(user.id, key, limit);
+        return persistedAny.snapshot;
       }
 
       if (inFlight && inFlightKey === key) return inFlight;
 
       inFlightKey = key;
       inFlight = fetchSnapshot(user.id, limit).then((next) => {
-        if (next?.success) {
-          lastSnapshot = next;
-          lastSnapshotAt = Date.now();
-          lastSnapshotKey = key;
-          savePersistedSnapshot(user.id, next);
-        }
+        if (next?.success) rememberSnapshot(key, user.id, next);
         return next;
       }).finally(() => {
         inFlight = null;
@@ -957,7 +1067,45 @@ export const financialReadModelAPI = (() => {
       const { userId, error } = await getCurrentUserId();
       if (!userId) return { success: false, error: error || 'Not signed in' };
 
-      const [walletsRes, stableRes, vaRes] = await Promise.all([
+      try {
+        const snapshot: any = await financialReadModelAPI.getSnapshot(100);
+        if (snapshot?.success && snapshot?.data) {
+          const wallets = Array.isArray(snapshot.data.wallets) ? snapshot.data.wallets : [];
+          const balanceByCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
+            const c = String(w?.currency || '').toUpperCase();
+            if (!c) return acc;
+            acc[c] = Number(w?.balance || 0);
+            return acc;
+          }, {});
+          return {
+            success: true,
+            data: {
+              wallets,
+              stablecoin_wallets: Array.isArray(snapshot.data.stablecoin_wallets) ? snapshot.data.stablecoin_wallets : [],
+              virtual_accounts: Array.isArray(snapshot.data.virtual_accounts) ? snapshot.data.virtual_accounts : [],
+              virtual_account_capabilities: null,
+              balance_by_currency: balanceByCurrency,
+              total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
+              stablecoin_wallets_partial: Boolean(snapshot.data.stablecoin_wallets_partial),
+              virtual_accounts_partial: false,
+              snapshot_source: 'financial_snapshot',
+            },
+          };
+        }
+      } catch {
+        // Fall back to the direct read model below.
+      }
+
+      // Bridge remains the provider source of truth, but route paint must use
+      // the local read model first. Reconciliation is background-only so Wallet,
+      // Receive, Send, Exchange, and Business dashboard do not stall for 2-5s.
+      try {
+        void bridgeAPI.syncAccounts().catch(() => null);
+      } catch {
+        // Keep the route usable from local tables if sync cannot be scheduled.
+      }
+
+      const [walletsRes, stableRes, vaRes, vaCapsRes] = await Promise.all([
         walletAPI.getWallets(),
         supabase
           .from('bridge_wallets')
@@ -969,6 +1117,11 @@ export const financialReadModelAPI = (() => {
           .select('*')
           .or(ownerOrFilter(userId))
           .order('created_at', { ascending: false }),
+        withTimeout(
+          bridgeAPI.virtualAccount.capabilities() as Promise<any>,
+          EXTERNAL_FETCH_TIMEOUT_MS,
+          { success: false, error: 'timeout' } as any,
+        ),
       ]);
 
       if (!walletsRes?.success) return walletsRes as any;
@@ -987,6 +1140,7 @@ export const financialReadModelAPI = (() => {
           wallets,
           stablecoin_wallets: Array.isArray(stableRes?.data) ? stableRes.data : [],
           virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data : [],
+          virtual_account_capabilities: (vaCapsRes as any)?.success ? (vaCapsRes as any).data : null,
           balance_by_currency: balanceByCurrency,
           total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
           stablecoin_wallets_partial: Boolean(stableRes?.error),
@@ -1008,7 +1162,15 @@ export const financialReadModelAPI = (() => {
     },
 
     async getSendRouteData() {
-      const walletsRes = await walletAPI.getWallets();
+      let walletsRes: any = null;
+      try {
+        const snapshotRes: any = await financialReadModelAPI.getSnapshot(20);
+        const snapshotWallets = Array.isArray(snapshotRes?.data?.wallets) ? snapshotRes.data.wallets : [];
+        if (snapshotRes?.success && snapshotWallets.length > 0) {
+          walletsRes = { success: true, data: { wallets: snapshotWallets } };
+        }
+      } catch { /* fall through to direct wallet read */ }
+      if (!walletsRes) walletsRes = await walletAPI.getWallets();
       if (!walletsRes?.success) return walletsRes as any;
       const [capsRes, externalListRes]: any[] = await Promise.all([
         withTimeout(
@@ -1023,7 +1185,7 @@ export const financialReadModelAPI = (() => {
         ),
       ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
-        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb' || x === 'clabe' || x === 'pix')
+        ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb')
         : [];
       const externalAccounts = (externalListRes?.success && Array.isArray(externalListRes?.data?.external_accounts))
         ? externalListRes.data.external_accounts
@@ -1566,7 +1728,7 @@ export const addressAPI = {
 
 // `logTransaction` is local audit-only; persists to a stablecoin tx log
 // table and does not call any provider write endpoint.
-// `sendTransfer` orchestrates a stablecoin send via `bridge-transfer`. The
+// `sendTransfer` orchestrates a digital-dollar send via `bridge-transfer`. The
 // edge function handles country gating (DRC → 403), KYC gating (409), and
 // African-rail destinations (NGN/KES/etc → 503 no_partner).
 export const stablecoinAPI = {
@@ -1587,7 +1749,7 @@ export const stablecoinAPI = {
   },
 
   /**
-   * Send stablecoin through the active stablecoin rail. `chain` is uppercased,
+   * Send digital dollars through the active Bridge wallet rail. `chain` is uppercased,
    * and `amount` is sent as a decimal string to avoid float drift on the wire.
    * The transaction PIN is verified separately by the caller before this is
    * invoked — this method itself does NOT verify the PIN (server-side PIN
@@ -1599,6 +1761,9 @@ export const stablecoinAPI = {
     address: string;
     chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon' | 'tron' | 'arbitrum';
     coin: 'usdc' | 'usdt';
+    bridge_wallet_id?: string | null;
+    external_wallet_id?: string | null;
+    bridge_payment_route_id?: string | null;
     funding_source?: 'USD';
     transaction_pin?: string;
     /**
@@ -1624,16 +1789,18 @@ export const stablecoinAPI = {
         body: JSON.stringify({
           idempotency_key: data.idempotency_key,
           source:      {
-            payment_rail: 'stablecoin',
+            payment_rail: 'bridge_wallet',
             currency:     symbol,
-            chain,
             amount:       String(data.amount),
+            ...(data.bridge_wallet_id ? { bridge_wallet_id: data.bridge_wallet_id } : {}),
           },
           destination: {
-            payment_rail: 'stablecoin',
+            payment_rail: data.chain,
             currency:     symbol,
             chain,
             address:      data.address,
+            ...(data.external_wallet_id ? { external_wallet_id: data.external_wallet_id } : {}),
+            ...(data.bridge_payment_route_id ? { bridge_payment_route_id: data.bridge_payment_route_id } : {}),
           },
         }),
       },
@@ -1991,6 +2158,11 @@ export const bridgeAPI = {
         'bridge-customer',
         { method: 'POST', body: JSON.stringify({}) },
       ),
+    deleteCurrent: async () =>
+      apiCall<{ deleted: boolean; bridge_customer_deleted: boolean }>(
+        'bridge-delete-customer',
+        { method: 'POST', body: JSON.stringify({}) },
+      ),
   },
 
   /** Individual KYC hosted-link flow. Returns { link_url, link_id } or { already_approved }. */
@@ -2030,7 +2202,13 @@ export const bridgeAPI = {
   /** USD/EUR/GBP virtual account. */
   virtualAccount: {
     capabilities: async () =>
-      apiCall<{ supported_currencies: ('USD' | 'EUR' | 'GBP')[] }>(
+      apiCall<{
+        supported_currencies: ('USD' | 'EUR' | 'GBP')[];
+        configured_currencies?: ('USD' | 'EUR' | 'GBP')[];
+        operational_currencies?: ('USD' | 'EUR' | 'GBP')[];
+        setup_pending_currencies?: ('USD' | 'EUR' | 'GBP')[];
+        provider_pending_currencies?: ('USD' | 'EUR' | 'GBP')[];
+      }>(
         'bridge-virtual-account',
         { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
       ),
@@ -2095,15 +2273,14 @@ export const bridgeAPI = {
     };
   })(),
 
-  /** Cross-rail Bridge transfer (stablecoin/fiat orchestration).
+  /** Cross-rail Bridge transfer (digital-dollar/fiat orchestration).
    *
    * Shape matches the bridge-transfer edge function exactly:
    *   • `source.amount`     — decimal string (no float drift)
-   *   • `source.currency`   — uppercase ISO/stablecoin symbol
-   *   • `source.chain`      — uppercase chain name for stablecoin rails
-   *   • `source.payment_rail` defaults to 'stablecoin' server-side if omitted
-   *   • The `idempotency_key` is generated server-side from user_id + a
-   *     short UUID; clients never supply one.
+   *   • `source.currency`   — uppercase ISO/token symbol
+   *   • `source.chain`      — uppercase chain name where needed
+   *   • `source.payment_rail` is required by the edge function
+   *   • The `idempotency_key` is supplied by callers per user intent.
    */
   transfer: {
     create: async (input: {
@@ -2129,8 +2306,7 @@ export const bridgeAPI = {
    *  v1 covers Bridge-documented account types:
    *    • us   — USD bank account (ACH / ACH same-day / Wire).
    *    • iban — EUR bank account (SEPA).
-   *    • clabe — MXN bank account (SPEI).
-   *    • pix — BRL Pix key or BR code.
+   *    • gb   — GBP bank account (Faster Payments).
    *
    *  `create` and `remove` proxy the `bridge-external-account` edge
    *  function (which holds the Bridge Api-Key and enforces the
@@ -2148,6 +2324,7 @@ export const bridgeAPI = {
           account_owner_name: string;
           account_number: string;
           routing_number: string;
+          checking_or_savings?: 'checking' | 'savings';
           bank_name?: string;
           address: { street_line_1: string; city: string; state?: string; postal_code: string; country: string };
         }
@@ -2174,28 +2351,8 @@ export const bridgeAPI = {
           bank_name?: string;
           account: { sort_code: string; account_number: string };
         }
-      | {
-          account_type: 'clabe';
-          account_owner_name: string;
-          clabe_number: string;
-          bank_name?: string;
-          account_name?: string;
-          account_owner_type?: 'individual' | 'business';
-          first_name?: string;
-          last_name?: string;
-          business_name?: string;
-          address: { street_line_1: string; city: string; state: string; postal_code: string; country: string };
-        }
-      | {
-          account_type: 'pix';
-          account_owner_name: string;
-          bank_name?: string;
-          pix_key?: string;
-          br_code?: string;
-          document_number: string;
-        }
     ) =>
-      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'gb' | 'clabe' | 'pix'; currency: 'USD' | 'EUR' | 'GBP' | 'MXN' | 'BRL'; rail: string; last_4: string; bank_name: string | null }>(
+      apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'gb'; currency: 'USD' | 'EUR' | 'GBP'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
       ),
@@ -2216,7 +2373,7 @@ export const bridgeAPI = {
 
     /** Query provider-backed capabilities for external-account rails. */
     capabilities: async () =>
-      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'gb' | 'clabe' | 'pix'> }>(
+      apiCall<{ supported_account_types: Array<'us' | 'iban' | 'gb'> }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
       ),
@@ -2356,21 +2513,6 @@ export const subscriptionAPI = {
       }>;
     }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),
 
-  /**
-   * Legacy access mutation retained for backend compatibility.
-   */
-  upgrade: async (input: { plan_key: 'individual_activated' | 'business_activated'; bridge_va_id: string }) =>
-    apiCall<{
-      invoice_id: string;
-      subscription_id: string;
-      previous_plan_key: string;
-      plan_key: string;
-      period_start: string;
-      period_end: string;
-      amount_usd_cents: number;
-      new_balance_minor: number;
-    }>('subscription-upgrade', { method: 'POST', body: JSON.stringify(input) }),
-
 };
 
 const privateName = (codes: number[]): string =>
@@ -2422,6 +2564,7 @@ export const payoutsAPI = {
         countries?: string[];
         currencies?: string[];
         methods?: Array<'bank' | 'mobile_money'>;
+        rows?: Array<Record<string, unknown>>;
       };
       payment_methods?: Array<Record<string, unknown>>;
       banks?: Array<Record<string, unknown>>;
@@ -2444,6 +2587,7 @@ export const payoutsAPI = {
 
   /** Create a local payout transfer (bank/mobile rails). */
   createTransfer: async (payload: {
+    source?: 'flutterwave' | 'yellow_card';
     amount: number | string;
     currency: string;
     account_bank: string;
@@ -2457,7 +2601,10 @@ export const payoutsAPI = {
     narration?: string;
     callback_url?: string;
     debit_currency?: string;
+    source_currency?: string;
     beneficiary_name?: string;
+    network_id?: string;
+    yellow_card?: Record<string, unknown>;
     meta?: Record<string, unknown>;
   }) =>
     apiCall<{
@@ -2545,6 +2692,8 @@ export const payoutsAPI = {
   transferRates: async (input: {
     source_currency: string;
     destination_currency: string;
+    destination_country?: string;
+    channel?: 'bank' | 'mobile_money';
     amount?: number | string;
   }) =>
     apiCall<{
@@ -2560,8 +2709,11 @@ export const payoutsAPI = {
 
   /** Create a local collection request/charge for receive flows. */
   createCollection: async (payload: {
+    source?: 'flutterwave' | 'yellow_card';
     amount: number | string;
     currency: string;
+    usd_amount?: number | string;
+    amount_usd?: number | string;
     account_type?: 'individual' | 'business';
     country?: string;
     destination_country?: string;
@@ -2571,7 +2723,12 @@ export const payoutsAPI = {
     tx_ref: string;
     email?: string;
     fullname?: string;
+    phone?: string;
+    account_number?: string;
+    network_id?: string;
+    channel_id?: string;
     customer?: Record<string, unknown>;
+    yellow_card?: Record<string, unknown>;
     payment_options?: string;
     redirect_url?: string;
     customizations?: Record<string, unknown>;
@@ -2679,7 +2836,15 @@ export const payoutsAPI = {
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */
 export interface ExternalWallet {
-  id: string; label: string; chain: string; asset: string; address: string; created_at?: string;
+  id: string;
+  label: string;
+  chain: string;
+  asset: string;
+  address: string;
+  bridge_payment_route_id?: string | null;
+  bridge_payment_route_status?: string | null;
+  bridge_payment_route_raw?: Record<string, any> | null;
+  created_at?: string;
 }
 export const externalWalletsAPI = {
   list: async () =>

@@ -72,16 +72,22 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   const [availableCurrencies, setAvailableCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackCurrencies);
 
   const refresh = async () => {
-    // Mirror Bridge → local first so dashboard-created / unsynced VAs appear.
-    try { await backendAPI.bridge.syncAccounts(); } catch { /* best-effort */ }
-    const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
-    const { data } = isBusiness
-      ? await q.eq('business_user_id', userId)
-      : await q.eq('user_id', userId);
-    const next = (data as VARow[]) ?? [];
-    setRows(next);
-    try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
-    setLoading(false);
+    const loadLocal = async () => {
+      const q = supabase.from('bridge_virtual_accounts').select('*').order('created_at', { ascending: false });
+      const { data } = isBusiness
+        ? await q.eq('business_user_id', userId)
+        : await q.eq('user_id', userId);
+      const next = (data as VARow[]) ?? [];
+      setRows(next);
+      try { localStorage.setItem(vaCacheKey, JSON.stringify(next)); } catch { /* noop */ }
+      setLoading(false);
+    };
+
+    await loadLocal();
+    // Provider reconciliation is background-only. Cached/local rows paint first.
+    void backendAPI.bridge.syncAccounts()
+      .then(loadLocal)
+      .catch(() => null);
   };
 
   useEffect(() => { refresh(); }, [userId, isBusiness]);

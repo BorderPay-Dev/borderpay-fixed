@@ -12,8 +12,13 @@
  *  1. BRIDGE DEVELOPER FEE — Bridge takes it OUT OF the transfer (its
  *     native `developer_fee_percent`; deducted from the sent amount, never
  *     trusted from the client:
- *       • Virtual-account on-ramp developer fee: 2.5%
+ *       • Virtual-account on-ramp developer fee:
+ *         - Individual: 2.5%
+ *         - Business:   2.0%
  *       • External-account fiat off-ramp developer fee: 1.0%
+ *       • Crypto-to-crypto saved route developer fee: 1.0%
+ *       • Same-token crypto external-wallet payout: 0.0%
+ *         Bridge rejects developer_fee on USDC->USDC / USDT->USDT wallet payouts.
  *
  *     Bridge fixed trade rates, e.g. USDT 0.999, are NOT developer fees.
  *
@@ -30,8 +35,11 @@
 
 /** Bridge developer-fee percentages. Bridge deducts these. */
 export const BRIDGE_DEVELOPER_FEE_PERCENT = {
-  virtual_account_fiat:      2.5,
-  external_account_offramp:  1.0,
+  virtual_account_fiat_individual: 2.5,
+  virtual_account_fiat_business:   2.0,
+  external_account_offramp:        1.0,
+  crypto_to_crypto_route:          1.0,
+  crypto_to_crypto_payout:         0.0,
 } as const;
 
 /** Bridge fixed trade-rate config. This is NOT a developer fee. */
@@ -47,10 +55,7 @@ export type FeePlanKey =
   | "business_enterprise";
 
 /**
- * BorderPay's fixed markup (percent) on the African payout leg, by plan.
- *   • Starter:        individual 1.0% / business 0.75%
- *   • Premium/Growth: 0.5%
- *   • Enterprise:     0.5% (lowest tier by default; revisit per-contract)
+ * BorderPay's fixed markup (percent) on the African payout leg, by legacy key.
  */
 export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> = {
   individual_starter:  1.0,
@@ -69,10 +74,15 @@ export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
 export function bridgeDeveloperFeePercent(
   paymentRail: string | null | undefined,
   _currency: string | null | undefined,
+  accountType?: string | null | undefined,
 ): number {
   const rail = String(paymentRail ?? "").toLowerCase();
   if (rail === "external_account_offramp") return BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp;
-  return BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat;
+  if (rail === "crypto_to_crypto_route") return BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_route;
+  if (rail === "crypto_to_crypto_payout") return BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_payout;
+  return String(accountType ?? "").toLowerCase() === "business"
+    ? BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_business
+    : BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_individual;
 }
 
 /**

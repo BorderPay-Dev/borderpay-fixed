@@ -1,5 +1,5 @@
 /**
- * BorderPay Africa - Stablecoin Deposit Address Generator
+ * BorderPay Africa - Digital Dollar Deposit Address Generator
  * Generate crypto deposit address via backend API
  * - coin: USDC | USDT | PYUSD (user selects)
  * - chain: solana (default, handled by backend)
@@ -117,7 +117,7 @@ export function StablecoinDepositScreen({ onBack, onConfirm }: StablecoinDeposit
             </div>
             <h2 className={`text-lg font-semibold ${tc.text} mb-2`}>Verification required</h2>
             <p className={`text-sm ${tc.textMuted} max-w-sm mx-auto leading-relaxed`}>
-              Verify your identity to activate your stablecoin wallet and get a deposit address.
+              Verify your identity to activate your digital dollar wallet and get a deposit address.
             </p>
           </div>
         </div>

@@ -15,12 +15,12 @@ export interface BusinessVerificationReminderProps {
 export function render(p: BusinessVerificationReminderProps): RenderedEmail {
   const name = firstName(p.full_name) || "there";
   const company = p.company_name || "your business";
-  const subject = "Verify your business";
-  const heading = "Verify your business";
+  const subject = "One step left to verify your BorderPay business account";
+  const heading = "Your business is one step away";
   const introText = `Hello ${name}, your ${company} account is almost ready.`;
   const closing =
     String(p.action_message || "").trim() ||
-    "Complete business verification in your dashboard to unlock your business account features.";
+    "Complete business verification in your dashboard so BorderPay can finish setting up your business account for global accounts, receiving, and payouts.";
   const ctaUrl = (p.verification_url && String(p.verification_url).trim()) || `${BORDERPAY_BRAND.appUrl}/dashboard`;
 
   return {
@@ -30,14 +30,14 @@ export function render(p: BusinessVerificationReminderProps): RenderedEmail {
       heading,
       introText,
       body: `<p style=\"margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;\">${closing}</p>`,
-      ctaText: "Verify your business",
+      ctaText: "Finish business verification",
       ctaUrl,
       brandTone: "default",
     }),
     text: textLayout({
       heading,
       body: `${introText}\n\n${closing}`,
-      ctaText: "Verify your business",
+      ctaText: "Finish business verification",
       ctaUrl,
     }),
   };

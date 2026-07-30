@@ -8,7 +8,7 @@
  *   • African Currency      → Future-state local rails/mobile money.
  *                              Requests are queued for ops visibility only.
  *
- *   • Stablecoin            → BorderPay stablecoin wallet.
+ *   • Digital dollar        → BorderPay digital dollar wallet.
  *
  *   • Card                  → Locked. Card issuing is not enabled.
  *
@@ -50,12 +50,10 @@ interface Product {
 }
 
 const AFRICAN_CURRENCIES = ['NGN', 'KES', 'GHS', 'UGX', 'TZS', 'XAF', 'XOF'] as const;
-const STABLECOINS        = ['USDT', 'USDC', 'PYUSD', 'USDB'] as const;
+const STABLECOINS        = ['USDT', 'USDC'] as const;
 const STABLECOIN_NETWORKS: Record<string, string[]> = {
-  USDT:  ['ETH', 'TRON', 'BSC', 'POLYGON'],
-  USDC:  ['ETH', 'SOLANA', 'BSC', 'POLYGON'],
-  PYUSD: ['ETH', 'SOLANA'],
-  USDB:  ['BASE'],   // Bridge custodial USDB, canonical chain
+  USDT:  ['TRON'],
+  USDC:  ['BASE'],
 };
 
 function normalizedCountry(value: unknown): string | null {
@@ -66,7 +64,7 @@ function normalizedCountry(value: unknown): string | null {
 export function RequestProvisioningModal({ open, onClose, onProvisioned }: RequestProvisioningModalProps) {
   const [selection, setSelection]       = useState<Product | null>(null);
   const [currency, setCurrency]         = useState<string>('');
-  const [network, setNetwork]           = useState<string>('SOLANA');
+  const [network, setNetwork]           = useState<string>('BASE');
   const [brand, setBrand]               = useState<'VISA' | 'MASTERCARD'>('VISA');
   const [initialAmount, setInitialAmount] = useState<number>(10);
   const [submitting, setSubmitting]     = useState(false);
@@ -80,6 +78,8 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   const [country, setCountry]                       = useState<string | null>(cachedUser?.country ?? null);
   const fallbackVaCurrencies = bridgeVirtualAccountCurrenciesForCountry(country);
   const [availableVaCurrencies, setAvailableVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>(fallbackVaCurrencies);
+  const [setupPendingVaCurrencies, setSetupPendingVaCurrencies] = useState<BridgeVirtualAccountCurrency[]>([]);
+  const [vaCapabilitiesLoaded, setVaCapabilitiesLoaded] = useState(false);
   const stablecoinSupported = isBridgeCustodialWalletSupported(country);
 
   useEffect(() => {
@@ -121,10 +121,20 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
       try {
         const caps = await backendAPI.bridge.virtualAccount.capabilities();
         if (!alive || !caps?.success) return;
-        const supported = Array.isArray(caps.data?.supported_currencies)
-          ? caps.data.supported_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+        const supportedSource = Array.isArray(caps.data?.supported_currencies)
+          ? caps.data.supported_currencies
+          : Array.isArray(caps.data?.operational_currencies)
+            ? caps.data.operational_currencies
+            : caps.data?.configured_currencies;
+        const supported = Array.isArray(supportedSource)
+          ? supportedSource.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
           : [];
         setAvailableVaCurrencies(supported);
+        const pending = Array.isArray(caps.data?.setup_pending_currencies)
+          ? caps.data.setup_pending_currencies.filter((c): c is BridgeVirtualAccountCurrency => ['USD', 'EUR', 'GBP'].includes(String(c)))
+          : [];
+        setSetupPendingVaCurrencies(pending);
+        setVaCapabilitiesLoaded(true);
       } catch {
         // Keep fallback.
       }
@@ -133,19 +143,20 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   }, [open]);
 
   useEffect(() => {
+    if (vaCapabilitiesLoaded) return;
     setAvailableVaCurrencies((prev) => prev.length > 0 ? prev : fallbackVaCurrencies);
-  }, [fallbackVaCurrencies]);
+  }, [fallbackVaCurrencies, vaCapabilitiesLoaded]);
 
   const products: Product[] = [
-    { key: 'usd-va',     label: 'Global Account', blurb: availableVaCurrencies.length > 0 ? `${availableVaCurrencies.join(' / ')} account rails available for your country` : 'Not available for your country', Icon: Banknote, accent: '#10B981' },
-    { key: 'stablecoin', label: 'Stablecoin Wallet',            blurb: stablecoinSupported ? 'USDC · USDT' : 'Not available for your country',                Icon: Coins,    accent: '#F59E0B' },
+    { key: 'usd-va',     label: 'Global Account', blurb: availableVaCurrencies.length > 0 ? `${availableVaCurrencies.join(' / ')} account rails available for your country` : setupPendingVaCurrencies.length > 0 ? 'Global account details are being enabled' : 'Not available for your country', Icon: Banknote, accent: '#10B981' },
+    { key: 'stablecoin', label: 'Digital Dollar Wallet',        blurb: stablecoinSupported ? 'USDC · USDT' : 'Not available for your country',                Icon: Coins,    accent: '#F59E0B' },
     { key: 'card',       label: 'Virtual Card',                 blurb: 'Coming soon — card issuance is paused',     Icon: CreditCard, accent: '#C7FF00' },
   ];
 
   const reset = () => {
     setSelection(null);
     setCurrency('');
-    setNetwork('SOLANA');
+    setNetwork('BASE');
     setBrand('VISA');
     setInitialAmount(10);
     setSubmitting(false);
@@ -161,11 +172,15 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
       return;
     }
     if (p.key === 'usd-va' && availableVaCurrencies.length === 0) {
+      if (setupPendingVaCurrencies.length > 0) {
+        toast.info('Global account details are being prepared. We will notify you once they are ready.');
+        return;
+      }
       toast.error('Global accounts are not available for your country.');
       return;
     }
     if (p.key === 'stablecoin' && !stablecoinSupported) {
-      toast.error('Stablecoin wallets are not available for your country.');
+      toast.error('Digital dollar wallets are not available for your country.');
       return;
     }
     setSelection(p);
@@ -173,7 +188,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
     setErrMessage(null);
     if (p.key === 'usd-va')          setCurrency(availableVaCurrencies.length > 1 ? 'ALL' : (availableVaCurrencies[0] ?? ''));
     else if (p.key === 'african')    setCurrency('NGN');
-    else if (p.key === 'stablecoin') { setCurrency('USDC'); setNetwork('SOLANA'); }
+    else if (p.key === 'stablecoin') { setCurrency('USDC'); setNetwork('BASE'); }
   };
 
   /**
@@ -239,7 +254,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
   // ── Stablecoin ──────────────────────────────────────────────────────
   const submitStablecoin = async () => {
     if (!stablecoinSupported) {
-      setErrMessage('Stablecoin wallets are not available for your country.');
+      setErrMessage('Digital dollar wallets are not available for your country.');
       return;
     }
     const r: any = await backendAPI.provisioning.request({
@@ -250,7 +265,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
       setDoneMessage(m); toast.success(m); onProvisioned?.();
       return;
     }
-    const detail = r?.error || 'Unable to create this stablecoin wallet right now.';
+    const detail = r?.error || 'Unable to create this digital dollar wallet right now.';
     setErrMessage(detail);
     toast.error(detail);
   };
@@ -581,36 +596,13 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
                 )}
 
                 {selection.key === 'usd-va' && (
-                  <>
-                    <div>
-                      <label className="text-[11px] uppercase tracking-wider text-white/50">Currency</label>
-                      <div className="mt-2 grid grid-cols-3 gap-2">
-                        {availableVaCurrencies.map((c: BridgeVirtualAccountCurrency) => (
-                          <button
-                            key={c}
-                            onClick={() => setCurrency(c)}
-                            disabled={submitting}
-                            className={`py-2 rounded-lg text-xs font-semibold border ${
-                              currency === c
-                                ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
-                                : 'bg-white/5 border-white/10 text-white/70 hover:text-white'
-                            }`}
-                          >
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10">
-                      <p className="text-xs text-white/70 leading-relaxed">
-                        Currency availability depends on your country. If {currency} is supported for you, it settles into your
-                        stablecoin wallet via {currency === 'USD' ? 'ACH/wire' : currency === 'EUR' ? 'SEPA' : 'Faster Payments'}.
-                        Activation runs once your verification is approved — typically within
-                        one business day. We'll email the routing/account/IBAN as soon as it's live,
-                        or let you know if it isn't available in your country.
-                      </p>
-                    </div>
-                  </>
+                  <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10">
+                    <p className="text-xs text-white/70 leading-relaxed">
+                      Currency availability depends on your country. If {currency === 'ALL' ? 'these currencies are' : `${currency} is`} supported for you,
+                      account details are generated for receiving client and partner payments.
+                      We will email you when the details are ready.
+                    </p>
+                  </div>
                 )}
 
                 {errMessage && (

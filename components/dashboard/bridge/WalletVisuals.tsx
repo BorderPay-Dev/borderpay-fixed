@@ -115,9 +115,56 @@ export function ChainChip({ chain, size = 20 }: { chain: string; size?: number }
   );
 }
 
-// Fiat currencies render a flag (mobile renders these crisply); stablecoins use
-// the brand-coloured coin glyph.
-const FLAG: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+// Fiat currencies render deterministic CSS flags. Emoji flags can degrade to
+// "US/EU/GB" text in some PWA/browser contexts, which looks broken on live VA
+// rows. Stablecoins use the brand coin icon path below.
+function FiatFlag({ symbol }: { symbol: string }) {
+  const sym = String(symbol || '').toUpperCase();
+  if (sym === 'USD') {
+    return (
+      <span className="relative block h-full w-full overflow-hidden rounded-full bg-white">
+        <span className="absolute inset-0 bg-[repeating-linear-gradient(to_bottom,#B22234_0_7.69%,#FFFFFF_7.69%_15.38%)]" />
+        <span className="absolute left-0 top-0 h-[54%] w-[58%] bg-[#3C3B6E]" />
+        <span className="absolute left-[14%] top-[14%] h-[7%] w-[7%] rounded-full bg-white shadow-[10px_0_0_#fff,20px_0_0_#fff,30px_0_0_#fff,5px_8px_0_#fff,15px_8px_0_#fff,25px_8px_0_#fff,35px_8px_0_#fff,0_16px_0_#fff,10px_16px_0_#fff,20px_16px_0_#fff,30px_16px_0_#fff]" />
+      </span>
+    );
+  }
+  if (sym === 'EUR') {
+    return (
+      <span className="relative block h-full w-full overflow-hidden rounded-full bg-[#003399]">
+        {Array.from({ length: 12 }).map((_, i) => {
+          const angle = (i * 30 - 90) * (Math.PI / 180);
+          const left = 50 + Math.cos(angle) * 25;
+          const top = 50 + Math.sin(angle) * 25;
+          return (
+            <span
+              key={i}
+              className="absolute h-[7%] w-[7%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#FFCC00]"
+              style={{ left: `${left}%`, top: `${top}%` }}
+            />
+          );
+        })}
+      </span>
+    );
+  }
+  if (sym === 'GBP') {
+    return (
+      <span className="relative block h-full w-full overflow-hidden rounded-full bg-[#012169]">
+        <span className="absolute left-1/2 top-0 h-full w-[18%] -translate-x-1/2 bg-white" />
+        <span className="absolute left-0 top-1/2 h-[18%] w-full -translate-y-1/2 bg-white" />
+        <span className="absolute left-1/2 top-0 h-full w-[10%] -translate-x-1/2 bg-[#C8102E]" />
+        <span className="absolute left-0 top-1/2 h-[10%] w-full -translate-y-1/2 bg-[#C8102E]" />
+        <span className="absolute -left-[8%] top-[10%] h-[10%] w-[130%] rotate-[32deg] bg-white" />
+        <span className="absolute -left-[8%] bottom-[10%] h-[10%] w-[130%] -rotate-[32deg] bg-white" />
+        <span className="absolute -left-[8%] top-[13%] h-[5%] w-[130%] rotate-[32deg] bg-[#C8102E]" />
+        <span className="absolute -left-[8%] bottom-[13%] h-[5%] w-[130%] -rotate-[32deg] bg-[#C8102E]" />
+      </span>
+    );
+  }
+  return null;
+}
+
+const FIAT_FLAG = new Set(['USD', 'EUR', 'GBP']);
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
@@ -128,17 +175,16 @@ const STABLE_ICON_URL: Record<string, string> = {
 
 export function AssetBadge({ symbol, size = 40 }: { symbol: string; size?: number }) {
   const sym = String(symbol || '').toUpperCase();
-  const flag = FLAG[sym];
   const [iconFailed, setIconFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[sym];
-  if (flag) {
+  if (FIAT_FLAG.has(sym)) {
     return (
       <div
-        style={{ width: size, height: size, fontSize: size * 0.62, lineHeight: 1 }}
-        className="rounded-full flex items-center justify-center flex-shrink-0 bg-white/10 overflow-hidden"
-        aria-hidden
+        style={{ width: size, height: size }}
+        className="rounded-full flex items-center justify-center flex-shrink-0 bg-white/10 overflow-hidden ring-1 ring-white/10"
+        aria-label={`${sym} account`}
       >
-        {flag}
+        <FiatFlag symbol={sym} />
       </div>
     );
   }
@@ -265,7 +311,7 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
   };
   return (
     <Sheet open={open} onClose={onClose}>
-      <SheetHeader symbol={sym} title={`${sym} · ${assetName(sym)}`} subtitle="Stablecoin deposit address" onClose={onClose} tc={tc} />
+      <SheetHeader symbol={sym} title={`${sym} · ${assetName(sym)}`} subtitle="Digital dollar deposit address" onClose={onClose} tc={tc} />
 
       <div className="px-5 pb-6">
         {/* Network row — coloured chain chip, always visible */}

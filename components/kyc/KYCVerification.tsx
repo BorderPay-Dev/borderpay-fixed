@@ -577,7 +577,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           </div>
 
           {/* Free in-app start/continue — allow users in not_started OR pending
-              to (re)open the hosted verification link. Bridge handles link reuse
+              to (re)open the hosted verification link. The provider handles link reuse
               / regeneration idempotently server-side. */}
           {(status === 'not_started' || status === 'pending') && (
             <button
@@ -644,6 +644,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           />
           {!embeddedReturnEnabled && (
             <div className="absolute bottom-0 inset-x-0 p-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] bg-gradient-to-t from-black/65 to-transparent">
+              <p className="mb-3 rounded-2xl border border-red-500/40 bg-red-500/15 px-4 py-3 text-center text-xs font-semibold leading-snug text-red-400">
+                You must accept the Terms of Service before continuing verification. Skipping this step can delay or block account approval.
+              </p>
               <button
                 onClick={() => { void continueFromEmbeddedTos(); }}
                 className="w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"

@@ -85,7 +85,7 @@ export async function loadAndAssertBridgeIdentityInvariant(
 
     const bizOwners = Array.isArray(bizRows) ? bizRows.map((r: any) => String(r.user_id)) : [];
     const userOwners = Array.isArray(userRows) ? userRows.map((r: any) => String(r.id)) : [];
-    const owners = [...bizOwners, ...userOwners];
+    const owners = Array.from(new Set([...bizOwners, ...userOwners]));
 
     if (owners.length === 0) {
       return {
@@ -124,4 +124,3 @@ export async function loadAndAssertBridgeIdentityInvariant(
     context: { account_type, country, bridge_customer_id, verification_status },
   };
 }
-

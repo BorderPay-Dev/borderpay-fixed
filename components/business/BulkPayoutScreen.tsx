@@ -13,7 +13,7 @@ import { Plus, Trash2, Users, Loader2, CheckCircle2, AlertCircle } from 'lucide-
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import { isAccountActivated } from '../../utils/subscriptions/gate';
+import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { toast } from 'sonner';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
@@ -36,8 +36,14 @@ export interface BulkPayoutScreenProps {
 
 export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const tc = useThemeClasses();
+  const isVerified = () => {
+    const user = authAPI.getStoredUser();
+    return ['verified', 'approved', 'active'].includes(
+      String(user?.derived_kyc_status || user?.kyc_status || user?.bridge_kyb_status || user?.bridge_kyc_status || '').toLowerCase(),
+    );
+  };
   useEffect(() => {
-    navPerfTrackCache('bulk-payout', isAccountActivated());
+    navPerfTrackCache('bulk-payout', isVerified());
   }, []);
   const [asset, setAsset] = useState<Asset>('USDC');
   const [rows, setRows] = useState<Row[]>([blankRow(defaultChain('USDC')), blankRow(defaultChain('USDC'))]);
@@ -62,14 +68,15 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
   const removeRow = (i: number) => setRows((rs) => (rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs));
 
   const submit = async () => {
-    if (!isAccountActivated()) {
-      (window as any).__borderpay_open_upgrade?.('business_activated');
+    if (!isVerified()) {
+      toast.error('Verify your business to unlock bulk payouts.');
+      (window as any).__borderpay_navigate?.('kyc');
       return;
     }
     if (valid.length === 0) { toast.error('Add at least one recipient with an address and amount.'); return; }
     if (!confirm(
       `Send ${valid.length} payout${valid.length > 1 ? 's' : ''} totalling $${total.toFixed(2)} ${asset}?\n\n` +
-      `This moves real money. Double-check the addresses — stablecoin transfers cannot be reversed.`
+      `This moves real money. Double-check the addresses — digital dollar transfers cannot be reversed.`
     )) return;
 
     setSubmitting(true);
@@ -116,7 +123,7 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
           <ResultsView data={results} tc={tc} onDone={onBack} onAnother={() => { setResults(null); setRows([blankRow(defaultChain(asset)), blankRow(defaultChain(asset))]); }} />
         ) : (
           <>
-            {/* Stablecoin selector — pay the whole batch in USDC or USDT. */}
+            {/* Digital dollar selector — pay the whole batch in USDC or USDT. */}
             <div className={`inline-flex p-1 rounded-full border ${tc.cardBorder} ${tc.card} mb-4`}>
               {(['USDC', 'USDT'] as Asset[]).map((a) => (
                 <button key={a} onClick={() => switchAsset(a)}
@@ -177,7 +184,7 @@ export function BulkPayoutScreen({ onBack }: BulkPayoutScreenProps) {
               </button>
             </div>
             <p className={`mt-3 text-[11px] ${tc.textMuted} text-center`}>
-              Stablecoin transfers are irreversible. Verify every address before sending.
+              Digital dollar transfers are irreversible. Verify every address before sending.
             </p>
           </>
         )}

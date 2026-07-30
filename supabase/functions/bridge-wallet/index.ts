@@ -59,12 +59,10 @@ Deno.serve(async (req) => {
   const profile = identity.context;
   const isBusiness = profile.account_type === "business";
 
-  // Paid gate: provisioning a wallet requires an activated (paid) plan. In the
-  // Wise funnel KYC can be free, but money/account features stay paid-gated, so
-  // an unpaid user gets `plan_required` → the app shows the activation popup.
+  // Legacy minimum-balance gate retained as a compatibility no-op.
   const __planGate = await requireMinimumWalletBalance(supa, user.id, {
     isBusiness,
-    bridgeCustomerId: profile.bridge_customer_id,
+    bridgeCustomerId: profile.bridge_customer_id ?? undefined,
   });
   if (!__planGate.allowed) return json(__planGate.body, __planGate.status);
 
