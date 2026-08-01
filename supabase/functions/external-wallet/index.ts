@@ -33,6 +33,7 @@ const EVM = new Set(["base"]);
 const SUPPORTED_CHAINS = new Set([...EVM, "tron"]);
 const SUPPORTED_ASSETS = new Set(["USDC", "USDT"]);
 const ROUTE_DEVELOPER_FEE_PERCENT = BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_route;
+const ROUTE_DEVELOPER_FEE_PERCENT_STRING = ROUTE_DEVELOPER_FEE_PERCENT.toFixed(1);
 
 function validAddress(chain: string, address: string): boolean {
   const a = (address || "").trim();
@@ -45,6 +46,22 @@ function validAddress(chain: string, address: string): boolean {
 function routeStatusUsable(status: unknown): boolean {
   const normalized = String(status || "active").trim().toLowerCase();
   return !["failed", "removed", "disabled", "inactive", "closed", "deactivated", "canceled", "cancelled"].includes(normalized);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function routeRawWithFeeMetadata(routeRaw: unknown): Record<string, unknown> {
+  const raw = asRecord(routeRaw);
+  const existing = String(raw.developer_fee_percent ?? "").trim();
+  const fee = existing || ROUTE_DEVELOPER_FEE_PERCENT_STRING;
+  return {
+    ...raw,
+    developer_fee_percent: fee,
+    borderpay_route_fee_percent: fee,
+    borderpay_route_fee_source: "server_fee_schedule",
+  };
 }
 
 function jwtRole(token: string): string {
@@ -121,7 +138,7 @@ async function createCryptoRoute(params: {
   return {
     routeId: String(raw.id || route.liquidation_address_id || ""),
     routeStatus: String(raw.state || raw.status || route.state || "active"),
-    routeRaw: route.raw,
+    routeRaw: routeRawWithFeeMetadata(route.raw),
   };
 }
 
@@ -173,7 +190,7 @@ async function repairMissingRoutes(limit: number) {
         .update({
           bridge_payment_route_id: route.routeId,
           bridge_payment_route_status: route.routeStatus,
-          bridge_payment_route_raw: route.routeRaw,
+          bridge_payment_route_raw: routeRawWithFeeMetadata(route.routeRaw),
           bridge_payment_route_created_at: new Date().toISOString(),
           bridge_payment_route_error: null,
         })
@@ -294,6 +311,7 @@ Deno.serve(async (req) => {
           label,
           asset,
           status: "active",
+          bridge_payment_route_raw: routeRawWithFeeMetadata(existingWallet.bridge_payment_route_raw),
           bridge_payment_route_error: null,
         })
         .eq("id", existingWallet.id)
