@@ -101,6 +101,7 @@ export function render(p: IndividualVirtualAccountLimitsProps): RenderedEmail {
       ctaUrl,
       footerNote: "For help with an incoming payment, reply to this email or contact BorderPay support.",
       brandTone: "warning",
+      surface: "clean",
     }),
     text: textLayout({
       heading,

@@ -39,10 +39,17 @@ interface LayoutProps {
   ctaUrl?:     string;
   footerNote?: string;
   brandTone?:  "default" | "danger" | "warning";
+  surface?:    "default" | "clean";
 }
 
 export function htmlLayout(p: LayoutProps): string {
   const b           = BORDERPAY_BRAND;
+  const cleanSurface = p.surface === "clean";
+  const canvasColor = cleanSurface ? "#FFFFFF" : b.bg;
+  const cardColor = "#FFFFFF";
+  const headerColor = cleanSurface ? "#FFFFFF" : b.header;
+  const headerTextColor = cleanSurface ? b.text : b.headerText;
+  const brandWordColor = cleanSurface ? b.text : b.accent;
   const toneColor = p.brandTone === "danger" ? b.danger : p.brandTone === "warning" ? b.warning : b.accent;
   const cta = p.ctaText && p.ctaUrl
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;">
@@ -53,7 +60,7 @@ export function htmlLayout(p: LayoutProps): string {
     : "";
 
   return `<!DOCTYPE html>
-<html lang="en" style="margin:0;padding:0;background-color:${b.bg};">
+<html lang="en" style="margin:0;padding:0;background-color:${canvasColor};">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -63,16 +70,16 @@ export function htmlLayout(p: LayoutProps): string {
 <title>${escapeHtml(p.heading)}</title>
 <style>body, table, td { margin:0; padding:0; } a { color:${b.success}; }</style>
 </head>
-<body class="body" style="margin:0;padding:0;background-color:${b.bg};font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${b.text};">
-${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:${b.bg};">${escapeHtml(p.preview)}</div>` : ""}
+<body class="body" style="margin:0;padding:0;background-color:${canvasColor};font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${b.text};">
+${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:${canvasColor};">${escapeHtml(p.preview)}</div>` : ""}
 <!-- Full-bleed wrapper. -->
-<table role="presentation" class="bp-bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.bg}" style="background-color:${b.bg};">
+<table role="presentation" class="bp-bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${canvasColor}" style="background-color:${canvasColor};">
   <tr>
-    <td align="center" bgcolor="${b.bg}" style="background-color:${b.bg};padding:36px 16px;">
-      <table role="presentation" class="bp-card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${b.card}" style="max-width:560px;background-color:${b.card};border:1px solid ${b.border};overflow:hidden;">
+    <td align="center" bgcolor="${canvasColor}" style="background-color:${canvasColor};padding:36px 16px;">
+      <table role="presentation" class="bp-card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${cardColor}" style="max-width:560px;background-color:${cardColor};border:1px solid ${b.border};overflow:hidden;">
         <tr><td bgcolor="${toneColor}" style="height:4px;background-color:${toneColor};line-height:4px;font-size:4px;">&nbsp;</td></tr>
         <tr>
-          <td bgcolor="${b.header}" style="background-color:${b.header};padding:24px 30px;">
+          <td bgcolor="${headerColor}" style="background-color:${headerColor};padding:24px 30px;border-bottom:1px solid ${b.border};">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td align="left" valign="middle" style="width:178px;">
@@ -80,18 +87,18 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
                     src="${escapeHtml(b.heroUrl)}"
                     width="160"
                     alt="BorderPay Africa"
-                    style="display:block;width:160px;max-width:160px;height:auto;border:0;outline:none;text-decoration:none;color:${b.headerText};font-size:18px;font-weight:700;"
+                    style="display:block;width:160px;max-width:160px;height:auto;border:0;outline:none;text-decoration:none;color:${headerTextColor};font-size:18px;font-weight:700;"
                   />
                 </td>
-                <td align="right" valign="middle" style="font-size:13px;line-height:18px;color:${b.headerText};font-weight:700;letter-spacing:0;text-align:right;">
-                  <span style="color:${b.accent};">BorderPay</span> Africa
+                <td align="right" valign="middle" style="font-size:13px;line-height:18px;color:${headerTextColor};font-weight:700;letter-spacing:0;text-align:right;">
+                  <span style="color:${brandWordColor};">BorderPay</span> Africa
                 </td>
               </tr>
             </table>
           </td>
         </tr>
         <tr>
-          <td bgcolor="${b.card}" style="background-color:${b.card};padding:30px 32px 28px;">
+          <td bgcolor="${cardColor}" style="background-color:${cardColor};padding:30px 32px 28px;">
             <h1 class="bp-text" style="margin:0 0 14px;font-size:23px;font-weight:700;color:${b.text};text-align:center;line-height:1.3;">${escapeHtml(p.heading)}</h1>
             ${p.introText ? `<p class="bp-muted" style="margin:0 0 20px;font-size:15px;color:${b.textMuted};text-align:center;line-height:1.65;">${escapeHtml(p.introText)}</p>` : ""}
             <div class="bp-muted" style="font-size:15px;color:${b.textMuted};line-height:1.65;">${p.body}</div>
@@ -101,7 +108,7 @@ ${p.preview ? `<div style="display:none;max-height:0;overflow:hidden;font-size:1
         </tr>
         <tr><td style="padding:0 32px;"><div style="height:1px;background-color:${b.border};line-height:1px;font-size:1px;">&nbsp;</div></td></tr>
         <tr>
-          <td bgcolor="${b.card}" style="background-color:${b.card};padding:20px 32px 32px;">
+          <td bgcolor="${cardColor}" style="background-color:${cardColor};padding:20px 32px 32px;">
             <p class="bp-faint" style="margin:0;font-size:12px;color:${b.textFaint};text-align:center;line-height:1.5;">
               Need help? Email <a href="mailto:${b.supportEmail}" style="color:${b.success};text-decoration:none;">${b.supportEmail}</a>
             </p>
@@ -141,6 +148,14 @@ export function fmtMoney(amount: number, currency: string): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return `${amount} ${currency}`;
   return `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency.toUpperCase()}`;
+}
+
+export function fmtReceiptMoney(amount: number, currency: string): string {
+  const n = Number(amount);
+  const code = String(currency || "").toUpperCase();
+  if (!Number.isFinite(n)) return `${amount} ${code}`.trim();
+  const symbol = code === "GBP" ? "£" : code === "EUR" ? "€" : ["USD", "USDC", "USDT"].includes(code) ? "$" : "";
+  return `${symbol}${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${code}`.trim();
 }
 
 export function firstName(full?: string | null): string {

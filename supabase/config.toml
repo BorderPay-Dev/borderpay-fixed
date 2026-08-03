@@ -36,6 +36,11 @@ verify_jwt = false
 [functions.process-pending-events]
 verify_jwt = false
 
+# Internal active-global-account campaign sender — public route, gated in-code
+# by the internal bearer/service-role token so scheduled dry-runs can call it.
+[functions.notify-active-global-accounts]
+verify_jwt = false
+
 # WebAuthn credential delete — authenticated; deletes only the caller's rows.
 [functions.webauthn-delete]
 verify_jwt = true

@@ -175,8 +175,10 @@ async function emailTransactionStatusBestEffort(params: {
   destinationAmount?: number | null;
   exchangeRate?: number | null;
   destinationAddress?: string | null;
+  destinationRail?: string | null;
   sourceRail?: string | null;
   depositId?: string | null;
+  receiptKind?: "money_in_conversion" | null;
   refundReturnReason?: string | null;
   refundReturnedAt?: string | null;
   refundRiskRejectionReason?: string | null;
@@ -211,8 +213,10 @@ async function emailTransactionStatusBestEffort(params: {
       destination_amount: params.destinationAmount ?? null,
       exchange_rate: params.exchangeRate ?? null,
       destination_address: params.destinationAddress ?? null,
+      destination_rail: params.destinationRail ?? null,
       source_rail: params.sourceRail ?? null,
       deposit_id: params.depositId ?? null,
+      receipt_kind: params.receiptKind ?? null,
       refund_return_reason: params.refundReturnReason ?? null,
       refund_returned_at: params.refundReturnedAt ?? null,
       refund_risk_rejection_reason: params.refundRiskRejectionReason ?? null,
@@ -1281,6 +1285,7 @@ function receivedAmountBreakdown(payload: any, currency: string): {
 function bridgeVaReceiptDetails(params: {
   payload: any;
   sourceCurrency: string;
+  eventCurrency: string;
   vaId: unknown;
   accountDetails: Record<string, unknown>;
   breakdown: ReturnType<typeof receivedAmountBreakdown>;
@@ -1299,6 +1304,9 @@ function bridgeVaReceiptDetails(params: {
     objectValue(objectValue(p.account_details)?.source_deposit_instructions) ??
     {};
   const sourceCurrency = params.sourceCurrency.toUpperCase();
+  const eventCurrency = params.eventCurrency.toUpperCase();
+  const isConvertedSettlement = sourceCurrency !== eventCurrency &&
+    BRIDGE_SETTLEMENT_ASSET_CURRENCIES.has(eventCurrency);
   const destinationCurrency = firstNonEmptyText(
     receipt.destination_currency,
     receipt.outgoing_currency,
@@ -1306,6 +1314,7 @@ function bridgeVaReceiptDetails(params: {
     p.to_currency,
     destination.currency,
     destination.asset,
+    isConvertedSettlement ? eventCurrency : null,
   )?.toUpperCase() ?? null;
   const destinationAmount = firstFiniteNumber(
     receipt.destination_amount,
@@ -1316,6 +1325,8 @@ function bridgeVaReceiptDetails(params: {
     p.final_destination_amount,
     p.net_destination_amount,
     destination.amount,
+    isConvertedSettlement ? receipt.final_amount : null,
+    isConvertedSettlement ? p.amount : null,
   );
   const destinationAddress = firstNonEmptyText(
     receipt.destination_address,
@@ -1331,16 +1342,42 @@ function bridgeVaReceiptDetails(params: {
     p.rate,
   );
   const breakdown = params.breakdown;
+  const sourceAmount = firstFiniteNumber(
+    receipt.initial_amount,
+    p.initial_amount,
+    isConvertedSettlement ? null : p.amount,
+  ) ?? (breakdown ? minorToDecimal(breakdown.grossMinor, sourceCurrency) : null);
+  const serviceChargeAmount = firstFiniteNumber(
+    receipt.developer_fee_amount,
+    receipt.developer_fee,
+    p.developer_fee_amount,
+    p.developer_fee,
+  ) ?? (breakdown ? minorToDecimal(breakdown.developerFeeMinor, sourceCurrency) : null);
+  const availableAmount = firstFiniteNumber(
+    receipt.subtotal_amount,
+    p.subtotal_amount,
+    isConvertedSettlement ? null : receipt.final_amount,
+    isConvertedSettlement ? null : p.final_amount,
+    isConvertedSettlement ? null : p.net_amount,
+  ) ?? (breakdown ? minorToDecimal(breakdown.netMinor, sourceCurrency) : null);
   return {
     deposit_id: bridgeReceiptId(p, params.vaId),
     source_currency: sourceCurrency,
-    source_amount: breakdown ? minorToDecimal(breakdown.grossMinor, sourceCurrency) : firstFiniteNumber(receipt.initial_amount, p.initial_amount, p.amount),
-    service_charge_amount: breakdown ? minorToDecimal(breakdown.developerFeeMinor, sourceCurrency) : firstFiniteNumber(receipt.developer_fee_amount, receipt.developer_fee, p.developer_fee_amount, p.developer_fee),
-    available_amount: breakdown ? minorToDecimal(breakdown.netMinor, sourceCurrency) : firstFiniteNumber(receipt.final_amount, receipt.net_amount, p.final_amount, p.net_amount),
+    source_amount: sourceAmount,
+    service_charge_amount: serviceChargeAmount,
+    available_amount: availableAmount,
     destination_currency: destinationCurrency,
     destination_amount: destinationAmount,
     exchange_rate: exchangeRate,
     destination_address: maskAddress(destinationAddress),
+    destination_rail: firstNonEmptyText(
+      receipt.destination_rail,
+      receipt.destination_payment_rail,
+      p.destination_rail,
+      p.destination_payment_rail,
+      destination.payment_rail,
+      destination.rail,
+    ),
     source_rail: firstNonEmptyText(receipt.source_rail, p.source_rail, sourceInstructions.payment_rail, sourceInstructions.rail),
   };
 }
@@ -1819,6 +1856,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     const statusReceipt = bridgeVaReceiptDetails({
       payload: d,
       sourceCurrency: currency,
+      eventCurrency,
       vaId,
       accountDetails,
       breakdown: statusBreakdown,
@@ -1939,6 +1977,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         destinationAmount: Number(statusReceipt.destination_amount ?? NaN),
         exchangeRate: Number(statusReceipt.exchange_rate ?? NaN),
         destinationAddress: String(statusReceipt.destination_address || ""),
+        destinationRail: String(statusReceipt.destination_rail || ""),
         sourceRail: String(statusReceipt.source_rail || ""),
         depositId: receiptDepositId || null,
         refundReturnReason: String(refundDetails.return_reason || ""),
@@ -1973,19 +2012,28 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   if (!isFiatVirtualAccountCreditEvent(activityType, currency, eventCurrency)) {
     const isConvertedSettlement = isConvertedVirtualAccountSettlementEvent(activityType, currency, eventCurrency);
     const depositId = String(d?.deposit_id ?? "").trim();
-    const statusBreakdown = receivedAmountBreakdown(d, currency);
+    // A converted settlement reports `amount`/`currency` as the destination
+    // wallet leg (for example 65.24 USDC), while receipt.initial_amount,
+    // receipt.developer_fee and receipt.subtotal_amount remain in the source
+    // fiat currency (for example 50.00 GBP). Never parse the destination
+    // amount using the VA/source currency.
+    const statusBreakdown = isConvertedSettlement ? null : receivedAmountBreakdown(d, currency);
     const statusReceipt = bridgeVaReceiptDetails({
       payload: d,
       sourceCurrency: currency,
+      eventCurrency,
       vaId,
       accountDetails,
       breakdown: statusBreakdown,
     });
     const receiptDepositId = String(statusReceipt.deposit_id || depositId || "").trim();
     const approvedStatus = normalizeTransactionEmailStatus(activityType) === "approved" || activityType === "payment_processed";
-    if (isConvertedSettlement && approvedStatus && statusBreakdown?.netMinor && statusBreakdown.netMinor > 0n) {
-      const amountDecimal = minorToDecimal(statusBreakdown.netMinor, currency);
-      const amountLabel = formatMinorUnits(statusBreakdown.netMinor, currency);
+    const destinationAmountMinor = isConvertedSettlement
+      ? toMinorUnits(statusReceipt.destination_amount, eventCurrency)
+      : null;
+    if (isConvertedSettlement && approvedStatus && destinationAmountMinor !== null && destinationAmountMinor > 0n) {
+      const amountDecimal = minorToDecimal(destinationAmountMinor, eventCurrency);
+      const amountLabel = formatMinorUnits(destinationAmountMinor, eventCurrency);
       const statusMetadata = {
         source: "bridge",
         kind: "virtual_account_deposit_status",
@@ -1995,11 +2043,13 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         status: "approved",
         activity_type: activityType,
         amount: amountDecimal,
-        gross_amount: minorToDecimal(statusBreakdown.grossMinor, currency),
-        developer_fee_amount: minorToDecimal(statusBreakdown.developerFeeMinor, currency),
-        exchange_fee_amount: minorToDecimal(statusBreakdown.exchangeFeeMinor, currency),
-        net_amount: amountDecimal,
-        currency,
+        currency: eventCurrency,
+        source_currency: String(statusReceipt.source_currency || currency),
+        source_amount: statusReceipt.source_amount ?? null,
+        service_charge_amount: statusReceipt.service_charge_amount ?? null,
+        available_amount: statusReceipt.available_amount ?? null,
+        destination_currency: String(statusReceipt.destination_currency || eventCurrency),
+        destination_amount: amountDecimal,
         direction: "credit",
         converted_currency: eventCurrency,
         balance_impact: "none",
@@ -2020,14 +2070,14 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         accountType: account_type,
         status: "approved",
         amount: amountDecimal,
-        currency,
+        currency: eventCurrency,
         reference: receiptDepositId || String(d?.reference ?? d?.source?.tracking_number ?? ev.event_id),
         description: "Deposit processed",
         occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
         idempotencyKey: `wh:tx-status:${resolved}:va:${receiptDepositId || ev.event_id}:approved`,
-        grossAmount: minorToDecimal(statusBreakdown.grossMinor, currency),
-        developerFeeAmount: minorToDecimal(statusBreakdown.developerFeeMinor, currency),
-        exchangeFeeAmount: minorToDecimal(statusBreakdown.exchangeFeeMinor, currency),
+        grossAmount: null,
+        developerFeeAmount: null,
+        exchangeFeeAmount: null,
         netAmount: amountDecimal,
         sourceCurrency: String(statusReceipt.source_currency || currency),
         sourceAmount: Number(statusReceipt.source_amount ?? NaN),
@@ -2037,8 +2087,10 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         destinationAmount: Number(statusReceipt.destination_amount ?? NaN),
         exchangeRate: Number(statusReceipt.exchange_rate ?? NaN),
         destinationAddress: String(statusReceipt.destination_address || ""),
+        destinationRail: String(statusReceipt.destination_rail || ""),
         sourceRail: String(statusReceipt.source_rail || ""),
         depositId: receiptDepositId || null,
+        receiptKind: "money_in_conversion",
       });
     }
     await supabase.from("bridge_webhook_events")
@@ -2092,6 +2144,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   const approvedReceipt = bridgeVaReceiptDetails({
     payload: d,
     sourceCurrency: currency,
+    eventCurrency,
     vaId,
     accountDetails,
     breakdown: approvedBreakdown,
@@ -2164,6 +2217,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       destinationAmount: Number(approvedReceipt.destination_amount ?? NaN),
       exchangeRate: Number(approvedReceipt.exchange_rate ?? NaN),
       destinationAddress: String(approvedReceipt.destination_address || ""),
+      destinationRail: String(approvedReceipt.destination_rail || ""),
       sourceRail: String(approvedReceipt.source_rail || ""),
       depositId: receiptDepositId || null,
     });
