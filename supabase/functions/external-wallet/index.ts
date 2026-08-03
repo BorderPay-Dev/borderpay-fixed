@@ -11,6 +11,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { requireActiveAccount } from "../_shared/account-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
@@ -219,6 +220,8 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  const accountAccess = await requireActiveAccount(supa, user.id);
+  if (!accountAccess.ok) return json(accountAccess.body, accountAccess.status);
 
   if (action === "list") {
     const { data } = await supa

@@ -67,6 +67,7 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { requireActiveAccount } from "../_shared/account-access.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
 import {
   isCryptoToCryptoTransfer,
@@ -285,6 +286,8 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  const accountAccess = await requireActiveAccount(supa, user.id);
+  if (!accountAccess.ok) return json(accountAccess.body, accountAccess.status);
   fxLog("request_received", { user_id: user.id, method: req.method });
 
   let body: any;

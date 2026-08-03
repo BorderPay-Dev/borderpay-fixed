@@ -34,6 +34,7 @@ export interface UserProfile {
   postal_code?: string;
   // Bridge fields (Bridge is the current provider for KYC/KYB/VAs/wallets/transfers).
   bridge_customer_id?: string | null;
+  account_status?: string | null;
   bridge_kyc_status?: 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected' | null;
   bridge_kyb_status?: 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected' | null;
   bridge_account_status?: string | null;

@@ -99,6 +99,7 @@ Deno.serve(async (req) => {
           kyc_level:           profile?.kyc_level || 0,
           wallet_activated:    userData?.wallet_activated || false,
           bridge_customer_id:  profile?.bridge_customer_id || null,
+          account_status:      profile?.account_status || null,
           bridge_kyc_status:   profile?.bridge_kyc_status || null,
           bridge_account_status: profile?.bridge_account_status || null,
           bridge_kyb_status:   bridgeKybStatus,
@@ -123,7 +124,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : "Unexpected error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

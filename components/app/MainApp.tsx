@@ -421,7 +421,99 @@ type StablecoinConfirmData = {
   txHash?: string;
 };
 
-export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
+const RESTRICTED_ACCOUNT_STATUSES = new Set([
+  'frozen', 'paused', 'risk_paused', 'restricted', 'blocked', 'suspended',
+  'offboarded', 'closed', 'terminated', 'deactivated', 'rejected',
+]);
+
+function isRestrictedAccount(profile: any): boolean {
+  const normalize = (value: unknown) => String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return RESTRICTED_ACCOUNT_STATUSES.has(normalize(profile?.account_status))
+    || RESTRICTED_ACCOUNT_STATUSES.has(normalize(profile?.bridge_account_status));
+}
+
+type AccountAccessState = 'checking' | 'active' | 'frozen' | 'unavailable';
+
+function AccountAccessScreen({ state, onRetry, onLogout }: {
+  state: Exclude<AccountAccessState, 'active'>;
+  onRetry: () => void;
+  onLogout: () => void;
+}) {
+  const frozen = state === 'frozen';
+  return (
+    <main className="min-h-[100dvh] bg-[#080B0F] text-white flex items-center justify-center px-6">
+      <section className="w-full max-w-sm text-center" role="status" aria-live="polite">
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10">
+          <ShieldAlert className="h-8 w-8 text-red-400" aria-hidden="true" />
+        </div>
+        <h1 className="text-2xl font-semibold">
+          {state === 'checking' ? 'Checking account access' : frozen ? 'Account frozen' : 'Unable to verify account access'}
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-gray-400">
+          {state === 'checking'
+            ? 'Please wait while we verify your account.'
+            : frozen
+              ? 'Access to BorderPay features is unavailable. Contact support if you believe this is an error.'
+              : 'We could not verify your account access. Try again before using BorderPay.'}
+        </p>
+        <div className="mt-8 space-y-3">
+          {state === 'unavailable' && (
+            <button onClick={onRetry} className="h-12 w-full rounded-2xl bg-[#C7FF00] text-sm font-semibold text-[#080B0F]">
+              Try again
+            </button>
+          )}
+          {state !== 'checking' && (
+            <button onClick={onLogout} className="h-12 w-full rounded-2xl border border-white/10 text-sm font-medium text-white">
+              Sign out
+            </button>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+export function MainApp(props: MainAppProps) {
+  const [access, setAccess] = useState<AccountAccessState>('checking');
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAccess('checking');
+    const checkAccess = () => backendAPI.user.getProfile()
+      .then((response: any) => {
+        if (cancelled) return;
+        const profile = response?.data?.user;
+        if (!response?.success || !profile) {
+          setAccess('unavailable');
+          return;
+        }
+        setAccess(isRestrictedAccount(profile) ? 'frozen' : 'active');
+      })
+      .catch(() => {
+        if (!cancelled) setAccess('unavailable');
+      });
+    void checkAccess();
+    const interval = window.setInterval(() => { void checkAccess(); }, 60_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void checkAccess();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [props.userId, attempt]);
+
+  if (access !== 'active') {
+    return <AccountAccessScreen state={access} onRetry={() => setAttempt((value) => value + 1)} onLogout={props.onLogout} />;
+  }
+
+  return <UnlockedMainApp {...props} />;
+}
+
+function UnlockedMainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
   const initialScreenFromCallback = useMemo<AppScreen>(() => {
     try {
       const params = new URLSearchParams(window.location.search);

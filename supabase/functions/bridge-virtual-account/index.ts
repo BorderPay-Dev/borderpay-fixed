@@ -9,6 +9,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { requireActiveAccount } from "../_shared/account-access.ts";
 import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
 import {
   isBridgeBlocked,
@@ -256,6 +257,8 @@ Deno.serve(async (req) => {
       },
     }, 401);
   }
+  const accountAccess = await requireActiveAccount(supa, user.id);
+  if (!accountAccess.ok) return json(accountAccess.body, accountAccess.status);
 
   let body: { action?: string; currency?: string };
   try { body = await req.json(); } catch {

@@ -31,6 +31,7 @@ import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { requireActiveAccount } from "../_shared/account-access.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -89,6 +90,8 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  const accountAccess = await requireActiveAccount(supa, user.id);
+  if (!accountAccess.ok) return json(accountAccess.body, accountAccess.status);
 
   let body: { action?: string; account?: CreateInput; external_account_id?: string };
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }

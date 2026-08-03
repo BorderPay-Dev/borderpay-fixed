@@ -949,6 +949,16 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
       bridge_verification_status: accountStatus || null,
       updated_at:            new Date().toISOString(),
     };
+    // A Bridge restriction must immediately become a canonical local freeze.
+    // Do not auto-unfreeze here: a local compliance freeze may have another
+    // source and requires an explicit reviewed release.
+    const restrictedAccountStatuses = new Set([
+      "frozen", "paused", "risk_paused", "restricted", "blocked", "suspended",
+      "offboarded", "closed", "terminated", "deactivated", "rejected",
+    ]);
+    if (restrictedAccountStatuses.has(accountStatus.replace(/[\s-]+/g, "_"))) {
+      update.account_status = "frozen";
+    }
     if (canonicalKyc) update.kyc_status = canonicalKyc;
 
     // Persist the customer's contact details Bridge sends on the customer event
