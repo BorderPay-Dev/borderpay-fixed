@@ -17,5 +17,13 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Enforce Bridge transfer payload contract
+        run: deno test tests/bridge-transfer-payload.test.ts
+
       - name: Enforce lifecycle and incident boundaries
         run: bash scripts/ci/enforce-safety-boundaries.sh
