@@ -7,6 +7,7 @@ import {
   getFlutterwaveCapabilities,
   getFlutterwaveNetworkGuard,
 } from "../_shared/providers/flutterwave.ts";
+import { userSafeFlutterwavePayoutError } from "../_shared/providers/flutterwave-v4-payout.ts";
 import {
   evaluateProviderCorridorPolicy,
   isBridgeProfileVerified,
@@ -34,8 +35,6 @@ const supa = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
-const FLW_MIN_TRANSFER_AMOUNT = Number(Deno.env.get("FLW_MIN_TRANSFER_AMOUNT") || "1");
-
 function toPositiveNumber(v: unknown): number | null {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -44,12 +43,21 @@ function toPositiveNumber(v: unknown): number | null {
 
 function validReference(value: string): boolean {
   const v = String(value || "").trim();
-  // Restrict to safe idempotency-compatible chars and practical length.
-  return /^[A-Za-z0-9._:-]{6,120}$/.test(v);
+  // Flutterwave V4 reference schema: alphanumeric/hyphen, 6-42 chars.
+  return /^[A-Za-z0-9-]{6,42}$/.test(v);
+}
+
+function validRecipientName(value: string): boolean {
+  return /^(?![ ,.'-]*$)[A-Za-z ,.'-]{2,50}$/.test(value);
 }
 
 function transferData(input: any): any {
   return input?.data && typeof input.data === "object" ? input.data : input;
+}
+
+function v4TransferData(input: any): any {
+  const envelope = transferData(input);
+  return envelope?.transfer?.data ?? envelope?.transfer ?? envelope;
 }
 
 function maskAccountNumber(v: string): string {
@@ -79,7 +87,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave payout rails are not enabled in this environment.",
+      error: "This payout route is temporarily unavailable.",
       data: { capabilities: caps },
     }, 503);
   }
@@ -89,7 +97,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: networkGuard.code,
-      error: networkGuard.message,
+      error: "This payout route is temporarily unavailable while connectivity is being verified.",
       data: { capabilities: caps, network_guard: networkGuard },
     }, 503);
   }
@@ -144,7 +152,10 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    const res = await flutterwaveRetryTransfer(providerTransferId, body?.retry_payload || {});
+    const res = await flutterwaveRetryTransfer(providerTransferId, {
+      ...(typeof body?.retry_payload === "object" && body.retry_payload ? body.retry_payload : {}),
+      reference: reference || String(body?.retry_reference || "").trim(),
+    });
     if (!res.ok) {
       const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
       const isInactive = res.error === "flutterwave_account_inactive" || res.error === "flutterwave_auth_error";
@@ -153,7 +164,7 @@ Deno.serve(async (req) => {
         .update({
           status: "failed",
           provider_response: res.data ?? {},
-          provider_request_id: res.requestId || null,
+          provider_request_id: res.traceId || null,
           provider_http_status: Number.isFinite(res.status) ? res.status : null,
           last_error: res.error || "retry_failed",
           last_synced_at: new Date().toISOString(),
@@ -167,10 +178,10 @@ Deno.serve(async (req) => {
           ? "static_ip_not_ready"
           : (isInactive ? "provider_inactive" : "upstream_error"),
         error: isIpGuard
-          ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+          ? "This payout route is temporarily unavailable while connectivity is being verified."
           : (isInactive
-            ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
-            : (res.error || "Failed to retry transfer")),
+            ? "This payout route is temporarily unavailable. No funds were sent."
+            : userSafeFlutterwavePayoutError(res.error)),
         data: { capabilities: caps },
       }, (isIpGuard || isInactive) ? 503 : 502);
     }
@@ -184,7 +195,7 @@ Deno.serve(async (req) => {
         status: mappedStatus,
         provider_status: providerStatus || null,
         provider_response: res.data ?? {},
-        provider_request_id: res.requestId || null,
+        provider_request_id: res.traceId || null,
         provider_http_status: Number.isFinite(res.status) ? res.status : null,
         last_error: null,
         last_synced_at: new Date().toISOString(),
@@ -216,34 +227,56 @@ Deno.serve(async (req) => {
   }
 
   const amount = toPositiveNumber(body?.amount);
-  const currency = String(body?.currency || "").trim().toUpperCase();
+  const sourceCurrency = String(body?.source_currency || "").trim().toUpperCase();
+  const appliesTo = String(body?.applies_to || "").trim().toLowerCase();
   const destinationCountry = String(body?.destination_country || "").trim().toUpperCase();
-  const destinationCurrency = String(body?.destination_currency || currency).trim().toUpperCase();
+  const destinationCurrency = String(body?.destination_currency || "").trim().toUpperCase();
   const channel = String(body?.channel || "bank").trim().toLowerCase();
   const accountBank = String(body?.account_bank || "").trim();
   const accountNumber = String(body?.account_number || "").trim();
+  const recipientFirstName = String(body?.recipient?.first_name || body?.recipient_first_name || "").trim();
+  const recipientLastName = String(body?.recipient?.last_name || body?.recipient_last_name || "").trim();
   const reference = String(body?.reference || "").trim();
+  const amountCurrency = appliesTo === "destination_currency" ? destinationCurrency : sourceCurrency;
 
   if (!amount) return json({ success: false, error: "amount must be > 0" }, 400);
-  if (Number.isFinite(FLW_MIN_TRANSFER_AMOUNT) && amount < FLW_MIN_TRANSFER_AMOUNT) {
-    return json({
-      success: false,
-      code: "amount_below_minimum",
-      error: `Minimum transfer amount is ${FLW_MIN_TRANSFER_AMOUNT}.`,
-    }, 400);
+  // No locally guessed minimum. Flutterwave's route validation response is the
+  // source of truth for Kenya limits.
+  if (!sourceCurrency) return json({ success: false, error: "source_currency is required" }, 400);
+  if (!["source_currency", "destination_currency"].includes(appliesTo)) {
+    return json({ success: false, error: "applies_to must be source_currency or destination_currency" }, 400);
   }
-  if (!currency) return json({ success: false, error: "currency is required" }, 400);
   if (!destinationCountry) return json({ success: false, error: "destination_country is required" }, 400);
+  if (!destinationCurrency) return json({ success: false, error: "destination_currency is required" }, 400);
+  if (destinationCountry !== "KE" || destinationCurrency !== "KES") {
+    return json({ success: false, code: "kenya_send_only", error: "This controlled payout test supports Kenya in KES only." }, 400);
+  }
   if (!["bank", "mobile_money"].includes(channel)) {
     return json({ success: false, error: "channel must be bank or mobile_money" }, 400);
   }
   if (!accountBank) return json({ success: false, error: "account_bank is required" }, 400);
   if (!accountNumber) return json({ success: false, error: "account_number is required" }, 400);
+  if (!recipientFirstName || !recipientLastName) {
+    return json({ success: false, code: "structured_recipient_name_required", error: "Recipient first name and last name are required." }, 400);
+  }
+  if (!validRecipientName(recipientFirstName) || !validRecipientName(recipientLastName)) {
+    return json({ success: false, code: "invalid_recipient_name", error: "Enter a valid recipient first name and last name." }, 400);
+  }
+  if (channel === "bank" && !/^[A-Za-z0-9]{7,24}$/.test(accountNumber)) {
+    return json({ success: false, code: "invalid_bank_account", error: "Enter a valid destination bank account number." }, 400);
+  }
+  const mobileMsisdn = accountNumber.startsWith("+") ? accountNumber.slice(1) : accountNumber;
+  if (channel === "mobile_money" && !/^[0-9]{6,25}$/.test(mobileMsisdn)) {
+    return json({ success: false, code: "invalid_mobile_account", error: "Enter a valid destination mobile money number." }, 400);
+  }
+  if (channel === "mobile_money" && !/^[A-Za-z0-9]{2,25}$/.test(accountBank)) {
+    return json({ success: false, code: "invalid_mobile_network", error: "Select a valid mobile money network." }, 400);
+  }
   if (!reference) return json({ success: false, error: "reference is required" }, 400);
   if (!validReference(reference)) {
     return json({
       success: false,
-      error: "reference must be 6-120 chars and include only letters, numbers, dot, underscore, colon, or dash",
+      error: "reference must be 6-42 characters and include only letters, numbers, or hyphens",
     }, 400);
   }
 
@@ -278,14 +311,17 @@ Deno.serve(async (req) => {
 
   const res = await flutterwaveCreateTransfer({
     amount,
-    currency,
+    applies_to: appliesTo as "source_currency" | "destination_currency",
+    source_currency: sourceCurrency,
+    channel: channel as "bank" | "mobile_money",
     account_bank: accountBank,
     account_number: accountNumber,
+    recipient_first_name: recipientFirstName,
+    recipient_last_name: recipientLastName,
     reference,
     narration: body?.narration ? String(body.narration) : undefined,
     callback_url: body?.callback_url ? String(body.callback_url) : undefined,
-    debit_currency: body?.debit_currency ? String(body.debit_currency).toUpperCase() : undefined,
-    beneficiary_name: body?.beneficiary_name ? String(body.beneficiary_name) : undefined,
+    sender_id: Deno.env.get("FLW_SENDER_ID") || undefined,
     meta: {
       ...(typeof body?.meta === "object" && body?.meta !== null ? body.meta : {}),
       ...requestMeta,
@@ -302,7 +338,7 @@ Deno.serve(async (req) => {
       source: "flutterwave",
       idempotency_key: reference,
       amount,
-      currency,
+      currency: amountCurrency,
       destination_country: destinationCountry,
       destination_currency: destinationCurrency,
       channel,
@@ -310,20 +346,40 @@ Deno.serve(async (req) => {
       provider_status: null,
       request_payload: {
         amount,
-        currency,
+        source_currency: sourceCurrency,
+        destination_currency: destinationCurrency,
+        applies_to: appliesTo,
+        channel,
         account_bank: accountBank,
         account_number_masked: maskAccountNumber(accountNumber),
+        recipient_name: { first: recipientFirstName, last: recipientLastName },
         reference,
         narration: body?.narration ? String(body.narration) : null,
       },
       provider_response: res.data ?? {},
-      metadata: { ...requestMeta, corridor_policy: corridorDecision.policy || null },
-      provider_request_id: res.requestId || null,
+      metadata: {
+        ...requestMeta,
+        corridor_policy: corridorDecision.policy || null,
+        provider_stage: (res as any).stage || null,
+        provider_error_type: (res as any).providerErrorType || null,
+        provider_error_code: (res as any).providerErrorCode || null,
+        provider_trace_id: (res as any).traceId || null,
+      },
+      provider_request_id: (res as any).traceId || null,
+      provider_trace_id: (res as any).traceId || null,
+      provider_recipient_id: (res as any).recipientId || null,
       provider_http_status: Number.isFinite(res.status) ? res.status : null,
       last_error: res.error || "create_failed",
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,source,reference" });
+
+    await recordAfricanRailsOperatorAlert(supa, {
+      userId: access.user.id,
+      endpoint: "flutterwave-transfer-create",
+      code: res.error || "flutterwave_v4_payout_failed",
+      message: `V4 payout failed at ${(res as any).stage || "unknown"} stage; trace ${(res as any).traceId || "missing"}.`,
+    });
 
     return json({
       success: false,
@@ -331,15 +387,15 @@ Deno.serve(async (req) => {
         ? "static_ip_not_ready"
         : (isInactive ? "provider_inactive" : "upstream_error"),
       error: isIpGuard
-        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        ? "This payout route is temporarily unavailable while connectivity is being verified."
         : (isInactive
-          ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
-          : (res.error || "Failed to create transfer")),
+          ? "This payout route is temporarily unavailable. No funds were sent."
+          : userSafeFlutterwavePayoutError(res.error)),
       data: { capabilities: caps },
     }, (isIpGuard || isInactive) ? 503 : 502);
   }
 
-  const responseData = transferData(res.data);
+  const responseData = v4TransferData(res.data);
   const providerTransferId = String(responseData?.id || responseData?.transfer_id || "").trim() || null;
   const providerStatus = String(responseData?.status || "").trim() || null;
   const mappedStatus = mapFlutterwaveProviderStatus(providerStatus);
@@ -352,7 +408,7 @@ Deno.serve(async (req) => {
     source: "flutterwave",
     idempotency_key: reference,
     amount,
-    currency,
+    currency: amountCurrency,
     destination_country: destinationCountry,
     destination_currency: destinationCurrency,
     channel,
@@ -360,15 +416,31 @@ Deno.serve(async (req) => {
     provider_status: providerStatus,
     request_payload: {
       amount,
-      currency,
+      source_currency: sourceCurrency,
+      destination_currency: destinationCurrency,
+      applies_to: appliesTo,
+      channel,
       account_bank: accountBank,
       account_number_masked: maskAccountNumber(accountNumber),
+      recipient_name: { first: recipientFirstName, last: recipientLastName },
       reference,
       narration: body?.narration ? String(body.narration) : null,
     },
     provider_response: res.data ?? {},
-    metadata: { ...requestMeta, corridor_policy: corridorDecision.policy || null },
-    provider_request_id: res.requestId || null,
+    metadata: {
+      ...requestMeta,
+      corridor_policy: corridorDecision.policy || null,
+      provider_recipient_id: (res as any).recipientId || null,
+      provider_recipient_trace_id: (res as any).recipientTraceId || null,
+      provider_trace_id: (res as any).transferTraceId || (res as any).traceId || null,
+      provider_fee: responseData?.fee || null,
+      idempotency_cache_hit: (res as any).idempotencyCacheHit || false,
+    },
+    provider_request_id: (res as any).transferTraceId || (res as any).traceId || null,
+    provider_trace_id: (res as any).transferTraceId || (res as any).traceId || null,
+    provider_recipient_id: (res as any).recipientId || null,
+    provider_fee_amount: Number.isFinite(Number(responseData?.fee?.value)) ? Number(responseData.fee.value) : null,
+    provider_fee_currency: responseData?.fee?.currency ? String(responseData.fee.currency).toUpperCase() : null,
     provider_http_status: Number.isFinite(res.status) ? res.status : null,
     last_error: null,
     last_synced_at: new Date().toISOString(),

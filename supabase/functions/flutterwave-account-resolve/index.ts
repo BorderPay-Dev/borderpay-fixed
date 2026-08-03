@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave payout rails are not enabled in this environment.",
+      error: "This payout route is temporarily unavailable.",
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
@@ -90,6 +90,13 @@ Deno.serve(async (req) => {
     bank_code: bankCode,
   });
   if (!res.ok) {
+    if (res.error === "flutterwave_v4_kes_account_lookup_not_supported") {
+      return json({
+        success: false,
+        code: "account_lookup_not_available",
+        error: "Account name lookup is not available for this Kenya route. Recipient details will be validated before payout submission.",
+      }, 422);
+    }
     const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
     const isInactive = res.error === "flutterwave_account_inactive" || res.error === "flutterwave_auth_error";
     return json({
@@ -98,10 +105,10 @@ Deno.serve(async (req) => {
         ? "static_ip_not_ready"
         : (isInactive ? "provider_inactive" : "upstream_error"),
       error: isIpGuard
-        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        ? "Account validation is temporarily unavailable while connectivity is being verified."
         : (isInactive
-          ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
-          : (res.error || "Failed to resolve account")),
+          ? "Account validation is temporarily unavailable."
+          : "We could not validate this account right now."),
       data: {
         capabilities: caps,
         source_filter: "flutterwave",

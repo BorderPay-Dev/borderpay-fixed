@@ -20,6 +20,11 @@ CHECKS = [
         "contains constant-time signature compare block",
     ),
     (
+        "supabase/functions/_shared/providers/flutterwave.ts",
+        'crypto.subtle.sign("HMAC"',
+        "verifies V4 HMAC-SHA256 raw-body signature",
+    ),
+    (
         "supabase/functions/flutterwave-webhook/index.ts",
         "hash:${payloadHash.slice(0, 32)}",
         "event id falls back to payload hash when missing",
@@ -31,8 +36,8 @@ CHECKS = [
     ),
     (
         "supabase/functions/flutterwave-webhook/index.ts",
-        "\"x-flutterwave-signature\": req.headers.get(\"x-flutterwave-signature\") || req.headers.get(\"X-Flutterwave-Signature\") || null",
-        "duplicate path persists normalized signature headers",
+        '"flutterwave-signature-present": true',
+        "persists signature presence without storing replayable signature material",
     ),
 ]
 

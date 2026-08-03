@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave transfer status endpoint is not enabled in this environment.",
+      error: "Payout status is temporarily unavailable.",
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave payout rails are not enabled in this environment.",
+      error: "This payout route is temporarily unavailable.",
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave receive rails are not enabled in this environment.",
+      error: "This receive route is temporarily unavailable.",
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave payout rails are not enabled in this environment.",
+      error: "This payout route is temporarily unavailable.",
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave receive rails are not enabled in this environment.",
+      error: "This receive route is temporarily unavailable.",
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
@@ -160,7 +160,8 @@ Deno.serve(async (req) => {
       .update({
         last_error: res.error || "status_fetch_failed",
         provider_response: res.data ?? {},
-        provider_request_id: res.requestId || null,
+        provider_request_id: res.traceId || null,
+        provider_trace_id: res.traceId || null,
         provider_http_status: Number.isFinite(res.status) ? res.status : null,
         last_synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -174,10 +175,10 @@ Deno.serve(async (req) => {
         ? "static_ip_not_ready"
         : (isInactive ? "provider_inactive" : "upstream_error"),
       error: isIpGuard
-        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        ? "Payout status is temporarily unavailable while connectivity is being verified."
         : (isInactive
-          ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
-          : (res.error || "Failed to retrieve transfer status")),
+          ? "Payout status is temporarily unavailable."
+          : "We could not refresh this payout status right now."),
       data: { capabilities: caps, transfer_id: providerTransferId, local_transfer_id: localRecord.id, source_filter: "flutterwave" },
     }, (isIpGuard || isInactive) ? 503 : 502);
   }
@@ -191,7 +192,10 @@ Deno.serve(async (req) => {
       status: mappedStatus,
       provider_status: providerStatus,
       provider_response: res.data ?? {},
-      provider_request_id: res.requestId || null,
+      provider_request_id: res.traceId || null,
+      provider_trace_id: res.traceId || null,
+      provider_fee_amount: Number.isFinite(Number(rData?.fee?.value)) ? Number(rData.fee.value) : null,
+      provider_fee_currency: rData?.fee?.currency ? String(rData.fee.currency).toUpperCase() : null,
       provider_http_status: Number.isFinite(res.status) ? res.status : null,
       last_error: null,
       last_synced_at: new Date().toISOString(),

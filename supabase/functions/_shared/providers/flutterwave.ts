@@ -7,7 +7,18 @@
  * - No UI coupling and no production routing switch in this file
  */
 
-import { flutterwaveClientConfigured, flutterwaveFetch } from "./flutterwave-client.ts";
+import { flutterwaveFetch } from "./flutterwave-client.ts";
+import { flutterwaveV4BaseUrl, flutterwaveV4Configured } from "./flutterwave-v4-client.ts";
+import {
+  createKenyaRecipient,
+  createKenyaTransfer,
+  getKenyaTransfer,
+  getUsdWalletBalance,
+  listKenyaBanks,
+  listKenyaMobileNetworks,
+  quoteKenyaDestinationAmount,
+  retryKenyaTransfer,
+} from "./flutterwave-v4-payout.ts";
 
 export interface FlutterwaveCapabilities {
   configured: boolean;
@@ -26,9 +37,6 @@ export type FlutterwaveMovementState =
   | "reversed"
   | "unknown";
 
-const FLW_LOCAL_COUNTRIES = ["NG", "KE", "GH", "UG", "TZ", "RW", "ZM", "ZA"] as const;
-const FLW_LOCAL_CURRENCIES = ["NGN", "KES", "GHS", "UGX", "TZS", "RWF", "ZMW", "ZAR"] as const;
-
 function envEnabled(name: string): boolean {
   return (Deno.env.get(name) || "").toLowerCase() === "true";
 }
@@ -41,10 +49,12 @@ function envDefaultTrue(name: string): boolean {
 
 export function getFlutterwaveCapabilities(): FlutterwaveCapabilities {
   return {
-    configured: flutterwaveClientConfigured(),
-    receive_enabled: envEnabled("FLW_RECEIVE_ENABLED"),
+    configured: flutterwaveV4Configured(),
+    // V4 collection bodies are outside this Kenya-send-only patch. Keep inflow
+    // fail-closed even if a stale environment flag exists.
+    receive_enabled: false,
     payout_enabled: envEnabled("FLW_PAYOUT_ENABLED"),
-    base_url: (Deno.env.get("FLW_BASE_URL") || "https://api.flutterwave.com").replace(/\/+$/, ""),
+    base_url: flutterwaveV4BaseUrl(),
     static_ip_required: envDefaultTrue("FLW_STATIC_IP_REQUIRED"),
     static_ip_ready: envEnabled("FLW_STATIC_IP_READY"),
   };
@@ -89,57 +99,51 @@ export function getFlutterwaveNetworkGuard(scope: "money_movement" | "read"): {
 
 export function getFlutterwaveLocalRailPolicy() {
   return {
-    countries: [...FLW_LOCAL_COUNTRIES],
-    currencies: [...FLW_LOCAL_CURRENCIES],
+    countries: ["KE"],
+    currencies: ["KES"],
     methods: ["bank", "mobile_money"] as const,
   };
 }
 
 export async function flutterwaveHealthCheck() {
-  // Non-destructive endpoint used for connectivity checks.
-  return flutterwaveFetch({
-    method: "GET",
-    path: "/v3/payment-methods",
-  });
+  return getUsdWalletBalance();
 }
 
 export async function flutterwaveListPaymentMethods(country?: string) {
-  return flutterwaveFetch({
-    method: "GET",
-    path: "/v3/payment-methods",
-    query: country ? { country } : undefined,
-  });
+  if (country && country.toUpperCase() !== "KE") {
+    return { ok: false, status: 400, data: null, error: "flutterwave_kenya_send_only", traceId: "local-policy" };
+  }
+  return {
+    ok: true,
+    status: 200,
+    data: { country: "KE", currency: "KES", methods: ["bank", "mobile_money"], source: "flutterwave_v4_recipient_types" },
+    traceId: "local-policy",
+  };
 }
 
 export async function flutterwaveListBanks(country: string) {
-  return flutterwaveFetch({
-    method: "GET",
-    path: "/v3/banks",
-    query: { country },
-  });
+  if (country.toUpperCase() !== "KE") return { ok: false, status: 400, data: null, error: "flutterwave_kenya_send_only", traceId: "local-policy" };
+  return listKenyaBanks();
 }
 
 export async function flutterwaveListMobileNetworks(country: string) {
-  return flutterwaveFetch({
-    method: "GET",
-    path: "/v3/mobile-networks",
-    query: { country },
-  });
+  if (country.toUpperCase() !== "KE") return { ok: false, status: 400, data: null, error: "flutterwave_kenya_send_only", traceId: "local-policy" };
+  return listKenyaMobileNetworks();
 }
 
 export async function flutterwaveGetTransferRates(input: {
   source_currency: string;
   destination_currency: string;
-  amount?: string | number;
+  destination_amount: number;
+  reference: string;
 }) {
-  return flutterwaveFetch({
-    method: "GET",
-    path: "/v3/transfers/rates",
-    query: {
-      source_currency: input.source_currency,
-      destination_currency: input.destination_currency,
-      amount: input.amount,
-    },
+  if (input.destination_currency.toUpperCase() !== "KES") {
+    return { ok: false, status: 400, data: null, error: "flutterwave_kenya_send_only", traceId: "local-policy" };
+  }
+  return quoteKenyaDestinationAmount({
+    sourceCurrency: input.source_currency.toUpperCase(),
+    destinationAmount: input.destination_amount,
+    reference: input.reference,
   });
 }
 
@@ -147,53 +151,71 @@ export async function flutterwaveResolveBankAccount(input: {
   account_number: string;
   bank_code: string;
 }) {
-  return flutterwaveFetch({
-    method: "POST",
-    path: "/v3/accounts/resolve",
-    body: {
-      account_number: input.account_number,
-      bank_code: input.bank_code,
-    },
-    idempotencyKey: `borderpay:flw:resolve:${input.bank_code}:${input.account_number}`,
-  });
+  void input;
+  // Flutterwave V4's documented bank account lookup supports NGN, GBP and USD,
+  // not KES. Kenya validation occurs through recipient creation.
+  return { ok: false, status: 422, data: null, error: "flutterwave_v4_kes_account_lookup_not_supported", traceId: "local-policy" };
 }
 
 export async function flutterwaveCreateTransfer(input: {
-  amount: number | string;
-  currency: string;
-  account_bank: string;
+  amount: number;
+  applies_to: "source_currency" | "destination_currency";
+  source_currency: string;
+  channel: "bank" | "mobile_money";
+  account_bank?: string;
   account_number: string;
+  recipient_first_name: string;
+  recipient_last_name: string;
   narration?: string;
   reference: string;
   callback_url?: string;
-  debit_currency?: string;
-  beneficiary_name?: string;
+  sender_id?: string;
   meta?: Record<string, unknown>;
 }) {
-  return flutterwaveFetch({
-    method: "POST",
-    path: "/v3/transfers",
-    body: input,
-    idempotencyKey: input.reference,
+  const recipient = await createKenyaRecipient({
+    channel: input.channel,
+    firstName: input.recipient_first_name,
+    lastName: input.recipient_last_name,
+    accountNumber: input.account_number,
+    bankCode: input.channel === "bank" ? input.account_bank : undefined,
+    network: input.channel === "mobile_money" ? input.account_bank : undefined,
+    reference: input.reference,
   });
+  if (!recipient.ok) return { ...recipient, stage: "recipient" as const };
+  const recipientData: any = (recipient.data as any)?.data ?? recipient.data;
+  const recipientId = String(recipientData?.id || "").trim();
+  if (!recipientId) {
+    return { ok: false, status: 502, data: recipient.data, error: "flutterwave_recipient_id_missing", traceId: recipient.traceId, stage: "recipient" as const };
+  }
+  const transfer = await createKenyaTransfer({
+    recipientId,
+    sourceCurrency: input.source_currency,
+    amount: input.amount,
+    appliesTo: input.applies_to,
+    reference: input.reference,
+    narration: input.narration,
+    callbackUrl: input.callback_url,
+    senderId: input.sender_id,
+    meta: input.meta,
+  });
+  return {
+    ...transfer,
+    data: { recipient: recipient.data, transfer: transfer.data },
+    recipientId,
+    recipientTraceId: recipient.traceId,
+    transferTraceId: transfer.traceId,
+    stage: transfer.ok ? "transfer" as const : "transfer" as const,
+  };
 }
 
 export async function flutterwaveGetTransfer(transferId: string) {
-  return flutterwaveFetch({
-    method: "GET",
-    path: `/v3/transfers/${encodeURIComponent(transferId)}`,
-  });
+  return getKenyaTransfer(transferId);
 }
 
 export async function flutterwaveRetryTransfer(transferId: string, body?: Record<string, unknown>) {
-  const template = Deno.env.get("FLW_TRANSFER_RETRY_PATH_TEMPLATE") || "/v3/transfers/{id}/retries";
-  const path = template.replace("{id}", encodeURIComponent(transferId));
-  return flutterwaveFetch({
-    method: "POST",
-    path,
-    body: body || {},
-    idempotencyKey: `borderpay:flw:retry:${transferId}`,
-  });
+  const reference = String(body?.reference || "").trim();
+  if (!reference) return { ok: false, status: 400, data: null, error: "flutterwave_retry_reference_required", traceId: "local-validation" };
+  return retryKenyaTransfer(transferId, reference, typeof body?.meta === "object" ? body.meta as Record<string, unknown> : undefined);
 }
 
 export async function flutterwaveCreateCharge(input: {
@@ -231,8 +253,9 @@ export function mapFlutterwaveProviderStatus(raw: unknown): FlutterwaveMovementS
   return "unknown";
 }
 
-export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promise<boolean> {
-  // Flutterwave commonly sends `verif-hash`; keep this in env and compare.
+export async function verifyFlutterwaveWebhookSignature(rawBody: string, headers: Headers): Promise<boolean> {
+  // V4 signs the exact raw body with HMAC-SHA256 and base64-encodes the digest.
+  // Source: https://developer.flutterwave.com/docs/webhooks
   const expected = String(
     Deno.env.get("FLW_WEBHOOK_SECRET_HASH")
       || Deno.env.get("FLW_WEBHOOK_SECRET")
@@ -240,17 +263,27 @@ export async function verifyFlutterwaveWebhookSignature(headers: Headers): Promi
   ).trim();
   if (!expected) return false;
   const provided = String(
-    headers.get("verif-hash")
-      || headers.get("Verif-Hash")
-      || headers.get("x-verif-hash")
+    headers.get("flutterwave-signature")
+      || headers.get("Flutterwave-Signature")
       || headers.get("x-flutterwave-signature")
       || headers.get("X-Flutterwave-Signature")
       || "",
   ).trim();
   if (!provided) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(expected),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)));
+  let binary = "";
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  const calculated = btoa(binary);
   // Constant-time compare to avoid timing leakage.
   const a = new TextEncoder().encode(provided);
-  const b = new TextEncoder().encode(expected);
+  const b = new TextEncoder().encode(calculated);
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];

@@ -4,7 +4,7 @@ import { mapFlutterwaveProviderStatus, verifyFlutterwaveWebhookSignature } from 
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "content-type, verif-hash, x-verif-hash, x-flutterwave-signature",
+  "Access-Control-Allow-Headers": "content-type, flutterwave-signature, x-flutterwave-signature",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -49,7 +49,8 @@ function extractEventId(payload: Record<string, unknown>): string {
     ? (payload.data as Record<string, unknown>)
     : null;
   return String(
-    payload.id
+    payload.webhook_id
+    || payload.id
     || payload.event_id
     || data?.id
     || payload.tx_ref
@@ -126,7 +127,7 @@ Deno.serve(async (req) => {
   const payloadHashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody || ""));
   const payloadHash = Array.from(new Uint8Array(payloadHashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
 
-  const verified = await verifyFlutterwaveWebhookSignature(req.headers);
+  const verified = await verifyFlutterwaveWebhookSignature(rawBody, req.headers);
   if (!verified) {
     return json({ success: false, code: "invalid_signature", error: "Webhook signature verification failed." }, 401);
   }
@@ -156,11 +157,18 @@ Deno.serve(async (req) => {
   const eventId = eventIdRaw && eventIdRaw !== "unknown"
     ? eventIdRaw
     : `hash:${payloadHash.slice(0, 32)}`;
-  const eventType = String(payload.event || payload.event_type || "unknown");
+  const eventType = String(payload.type || payload.event || payload.event_type || "unknown");
   const transfer = extractTransferEnvelope(payload);
   const transferEventEligible = shouldReconcileMoneyMovementEvent(eventType, transfer);
   const movementDirection = inferMovementDirection(eventType);
-  const mappedStatus = mapFlutterwaveProviderStatus(transfer.providerStatus);
+  const mappedStatus = eventType.toLowerCase() === "transfer.reversal"
+    ? "reversed"
+    : mapFlutterwaveProviderStatus(transfer.providerStatus);
+  const transferPayload = payload.data && typeof payload.data === "object"
+    ? payload.data as Record<string, any>
+    : {};
+  const providerFeeAmount = Number(transferPayload?.fee?.value);
+  const providerFeeCurrency = String(transferPayload?.fee?.currency || "").trim().toUpperCase() || null;
 
   let reconciled = false;
   let processingError: string | null = null;
@@ -185,9 +193,7 @@ Deno.serve(async (req) => {
           payload,
           payload_hash: payloadHash,
           headers: {
-            "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
-            "x-verif-hash": req.headers.get("x-verif-hash") || null,
-            "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
+            "flutterwave-signature-present": true,
           },
           transfer_reference: transfer.reference,
           provider_transfer_id: transfer.providerTransferId,
@@ -206,9 +212,7 @@ Deno.serve(async (req) => {
         payload,
         payload_hash: payloadHash,
         headers: {
-          "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
-          "x-verif-hash": req.headers.get("x-verif-hash") || null,
-          "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
+          "flutterwave-signature-present": true,
         },
         transfer_reference: transfer.reference,
         provider_transfer_id: transfer.providerTransferId,
@@ -222,9 +226,7 @@ Deno.serve(async (req) => {
           payload,
           payload_hash: payloadHash,
           headers: {
-            "verif-hash": req.headers.get("verif-hash") || req.headers.get("Verif-Hash") || null,
-            "x-verif-hash": req.headers.get("x-verif-hash") || null,
-            "x-flutterwave-signature": req.headers.get("x-flutterwave-signature") || req.headers.get("X-Flutterwave-Signature") || null,
+            "flutterwave-signature-present": true,
           },
           transfer_reference: transfer.reference,
           provider_transfer_id: transfer.providerTransferId,
@@ -244,6 +246,8 @@ Deno.serve(async (req) => {
             provider_status: transfer.providerStatus,
             provider_response: payload,
             provider_http_status: 202,
+            provider_fee_amount: Number.isFinite(providerFeeAmount) ? providerFeeAmount : null,
+            provider_fee_currency: providerFeeCurrency,
             webhook_last_event_id: eventId,
             last_error: null,
             last_synced_at: new Date().toISOString(),
@@ -265,6 +269,8 @@ Deno.serve(async (req) => {
             provider_status: transfer.providerStatus,
             provider_response: payload,
             provider_http_status: 202,
+            provider_fee_amount: Number.isFinite(providerFeeAmount) ? providerFeeAmount : null,
+            provider_fee_currency: providerFeeCurrency,
             webhook_last_event_id: eventId,
             last_error: null,
             last_synced_at: new Date().toISOString(),
@@ -293,6 +299,8 @@ Deno.serve(async (req) => {
           provider_response: payload,
           metadata: { seeded_from_webhook: true },
           provider_http_status: 202,
+          provider_fee_amount: Number.isFinite(providerFeeAmount) ? providerFeeAmount : null,
+          provider_fee_currency: providerFeeCurrency,
           webhook_last_event_id: eventId,
           last_synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -331,7 +339,7 @@ Deno.serve(async (req) => {
       webhook_mode: "accept_and_reconcile",
       processing_scope: "webhook_event",
       webhook_source_locked_to_flutterwave: true,
-      webhook_accept_http_status: 202,
+      webhook_accept_http_status: 200,
       provider: "flutterwave",
       webhook_scope: "money_movement",
       response_contract_version: 1,
@@ -359,5 +367,5 @@ Deno.serve(async (req) => {
       duplicate_noop: duplicateNoop,
       duplicate_noop_reason: duplicateNoop ? "same_event_id_same_payload_already_processed" : null,
     },
-  }, 202);
+  }, 200);
 });

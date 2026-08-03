@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: "flutterwave_not_enabled",
-      error: "Flutterwave transfer rates are not enabled in this environment.",
+      error: "This payout quote is temporarily unavailable.",
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
@@ -56,10 +56,7 @@ Deno.serve(async (req) => {
   const destination = String(body?.destination_currency || "").trim().toUpperCase();
   const destinationCountry = String(body?.destination_country || "").trim().toUpperCase();
   const channel = String(body?.channel || "bank").trim().toLowerCase();
-  const amountRaw = body?.amount;
-  const amount = amountRaw === undefined || amountRaw === null || amountRaw === ""
-    ? undefined
-    : Number(amountRaw);
+  const destinationAmount = Number(body?.destination_amount);
 
   if (!source || !destination) {
     return json({ success: false, error: "source_currency and destination_currency are required" }, 400);
@@ -70,8 +67,12 @@ Deno.serve(async (req) => {
   if (!["bank", "mobile_money"].includes(channel)) {
     return json({ success: false, error: "channel must be bank or mobile_money" }, 400);
   }
-  if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
-    return json({ success: false, error: "amount must be > 0" }, 400);
+  if (!Number.isFinite(destinationAmount) || destinationAmount <= 0) {
+    return json({
+      success: false,
+      code: "destination_amount_required",
+      error: "destination_amount must be greater than 0. This quote requires the requested recipient amount; a source amount is not accepted here.",
+    }, 400);
   }
 
   const { data: profile } = await supa
@@ -102,7 +103,8 @@ Deno.serve(async (req) => {
   const res = await flutterwaveGetTransferRates({
     source_currency: source,
     destination_currency: destination,
-    amount,
+    destination_amount: destinationAmount,
+    reference: `quote:${authData.user.id}:${source}:${destination}:${destinationAmount}`,
   });
   if (!res.ok) {
     const isIpGuard = res.error === "flutterwave_ip_not_allowlisted";
@@ -113,10 +115,10 @@ Deno.serve(async (req) => {
         ? "static_ip_not_ready"
         : (isInactive ? "provider_inactive" : "upstream_error"),
       error: isIpGuard
-        ? "Flutterwave money movement is blocked until static egress IP is allowlisted and marked ready."
+        ? "This payout quote is temporarily unavailable while connectivity is being verified."
         : (isInactive
-          ? "Flutterwave account is not active yet. Local rails will be available after provider activation."
-          : (res.error || "Failed to fetch transfer rates")),
+          ? "This payout quote is temporarily unavailable."
+          : "We could not quote this payout right now."),
       data: {
         capabilities: caps,
         source_filter: "flutterwave",
@@ -143,7 +145,8 @@ Deno.serve(async (req) => {
       destination_currency: destination,
       destination_country: destinationCountry,
       channel,
-      amount: amount ?? null,
+      destination_amount: destinationAmount,
+      quote_semantics: "destination_amount",
       rates: res.data,
     },
   });

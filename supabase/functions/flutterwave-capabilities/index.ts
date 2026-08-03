@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
         capabilities: caps,
         provider_status: {
           http_status: res.status,
-          request_id: res.requestId || null,
+          request_id: res.traceId || null,
         },
         network_guard: {
           read: readGuard,
