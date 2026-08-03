@@ -11,6 +11,7 @@ export interface TransactionStatusProps {
   gross_amount?: number | null;
   developer_fee_amount?: number | null;
   exchange_fee_amount?: number | null;
+  gas_fee_amount?: number | null;
   net_amount?: number | null;
   source_currency?: string | null;
   source_amount?: number | null;
@@ -85,6 +86,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
   const c = COPY[p.status] ?? COPY.in_review;
   const transactionFeeAmount = Number(p.developer_fee_amount ?? 0);
   const exchangeFeeAmount = Number(p.exchange_fee_amount ?? 0);
+  const gasFeeAmount = Number(p.gas_fee_amount ?? 0);
   const grossAmount = Number(p.gross_amount ?? p.amount);
   const netAmount = Number(p.net_amount ?? p.amount);
   const hasFeeBreakdown =
@@ -95,12 +97,15 @@ export function render(p: TransactionStatusProps): RenderedEmail {
   const gross = fmtMoney(grossAmount, p.currency);
   const transactionFee = fmtMoney(transactionFeeAmount, p.currency);
   const exchangeFee = fmtMoney(exchangeFeeAmount, p.currency);
+  const gasFee = fmtMoney(gasFeeAmount, p.currency);
   const sourceCurrency = String(p.source_currency || p.currency || "").toUpperCase();
   const destinationCurrency = String(p.destination_currency || "").toUpperCase();
   const destinationAmount = Number(p.destination_amount);
   const sourceAmount = Number(p.source_amount ?? grossAmount);
   const serviceChargeAmount = Number(p.service_charge_amount ?? transactionFeeAmount);
   const serviceChargeReported = p.service_charge_amount != null || p.developer_fee_amount != null;
+  const exchangeFeeReported = p.exchange_fee_amount != null;
+  const gasFeeReported = p.gas_fee_amount != null;
   const availableAmount = Number(p.available_amount ?? netAmount);
   const hasReceipt = Boolean(destinationCurrency && Number.isFinite(destinationAmount) && destinationAmount > 0);
   const isMoneyInConversion = hasReceipt && p.receipt_kind === "money_in_conversion";
@@ -139,6 +144,8 @@ export function render(p: TransactionStatusProps): RenderedEmail {
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;text-align:right;">${escapeHtml(String(p.source_rail).toUpperCase())}</td></tr>` : ""}
       ${serviceChargeReported ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Transaction fee</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-family:'DM Mono',monospace;text-align:right;">${serviceChargeAmount > 0 ? `-${escapeHtml(isMoneyInConversion ? fmtReceiptMoney(serviceChargeAmount, sourceCurrency) : fmtMoney(serviceChargeAmount, sourceCurrency))}` : "Free"}<br /><span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${BORDERPAY_BRAND.textMuted};font-size:11px;">BorderPay</span></td></tr>` : ""}
+      ${exchangeFeeReported ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Exchange fee</td><td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;text-align:right;">${exchangeFeeAmount > 0 ? `-${escapeHtml(exchangeFee)}` : "Free"}</td></tr>` : ""}
+      ${gasFeeReported ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Network fee</td><td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;text-align:right;">${gasFeeAmount > 0 ? `-${escapeHtml(gasFee)}` : "Free"}</td></tr>` : ""}
       ${isMoneyInConversion ? "" : `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Available for conversion</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-family:'DM Mono',monospace;text-align:right;">${escapeHtml(fmtMoney(availableAmount, sourceCurrency))}</td></tr>`}
       ${Number.isFinite(Number(p.exchange_rate)) && Number(p.exchange_rate) > 0 ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Exchange rate</td>

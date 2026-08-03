@@ -168,6 +168,7 @@ async function emailTransactionStatusBestEffort(params: {
   grossAmount?: number | null;
   developerFeeAmount?: number | null;
   exchangeFeeAmount?: number | null;
+  gasFeeAmount?: number | null;
   netAmount?: number | null;
   sourceCurrency?: string | null;
   sourceAmount?: number | null;
@@ -208,6 +209,7 @@ async function emailTransactionStatusBestEffort(params: {
       gross_amount: params.grossAmount ?? null,
       developer_fee_amount: params.developerFeeAmount ?? null,
       exchange_fee_amount: params.exchangeFeeAmount ?? null,
+      gas_fee_amount: params.gasFeeAmount ?? null,
       net_amount: params.netAmount ?? null,
       source_currency: params.sourceCurrency ?? null,
       source_amount: params.sourceAmount ?? null,
@@ -1440,6 +1442,7 @@ function transferReceiptBreakdown(payload: any, currency: string): {
   grossMinor: bigint;
   developerFeeMinor: bigint;
   exchangeFeeMinor: bigint;
+  gasFeeMinor: bigint;
   netMinor: bigint;
 } | null {
   const receipt = payload?.receipt && typeof payload.receipt === "object" ? payload.receipt : {};
@@ -1464,18 +1467,26 @@ function transferReceiptBreakdown(payload: any, currency: string): {
     "exchange_fee_amount",
     "exchange_fee",
   ]);
+  const gasFeeMinor = firstMinorUnitAmount(receipt, currency, [
+    "gas_fee_amount",
+    "gas_fee",
+  ]) || firstMinorUnitAmount(payload, currency, [
+    "gas_fee_amount",
+    "gas_fee",
+  ]);
   const explicitFinalMinor =
     toMinorUnits(receipt?.final_amount, currency) ??
     toMinorUnits(receipt?.net_amount, currency) ??
     toMinorUnits(payload?.final_amount, currency) ??
     toMinorUnits(payload?.net_amount, currency) ??
     toMinorUnits(payload?.net_destination_amount, currency);
-  const netMinor = explicitFinalMinor ?? (grossMinor - developerFeeMinor - exchangeFeeMinor);
+  const netMinor = explicitFinalMinor ?? (grossMinor - developerFeeMinor - exchangeFeeMinor - gasFeeMinor);
 
   return {
     grossMinor,
     developerFeeMinor,
     exchangeFeeMinor,
+    gasFeeMinor,
     netMinor: netMinor > 0n ? netMinor : 0n,
   };
 }
@@ -2860,7 +2871,11 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   }
 
   const amount   = Number(d?.amount ?? 0);
-  const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
+  const currency = String(
+    direction === "debit"
+      ? (d?.source?.currency ?? d?.currency ?? "USD")
+      : (d?.currency ?? d?.destination?.currency ?? "USD"),
+  ).toUpperCase();
   const receiptBreakdown = transferReceiptBreakdown(d, currency);
   const displayAmount = receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : amount;
   // 1) Bridge transfer projection + lifecycle state must flow via canonical RPC
@@ -2936,6 +2951,7 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
         gross_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.grossMinor, currency) : null,
         developer_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.developerFeeMinor, currency) : null,
         exchange_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency) : null,
+        gas_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.gasFeeMinor, currency) : null,
         net_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
         raw:              d,
       },
@@ -2998,7 +3014,18 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
         grossAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.grossMinor, currency) : null,
         developerFeeAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.developerFeeMinor, currency) : null,
         exchangeFeeAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency) : null,
+        gasFeeAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.gasFeeMinor, currency) : null,
         netAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
+        sourceCurrency: direction === "debit" ? String(d?.source?.currency ?? currency).toUpperCase() : null,
+        sourceAmount: direction === "debit" && receiptBreakdown ? minorToDecimal(receiptBreakdown.grossMinor, currency) : null,
+        serviceChargeAmount: direction === "debit" && receiptBreakdown ? minorToDecimal(receiptBreakdown.developerFeeMinor, currency) : null,
+        availableAmount: direction === "debit" && receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
+        destinationCurrency: direction === "debit" ? String(d?.destination?.currency ?? currency).toUpperCase() : null,
+        destinationAmount: direction === "debit" && receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
+        destinationAddress: direction === "debit" ? (d?.destination?.to_address ?? d?.destination?.address ?? null) : null,
+        destinationRail: direction === "debit" ? (d?.destination?.payment_rail ?? null) : null,
+        sourceRail: direction === "debit" ? (d?.source?.payment_rail ?? null) : null,
+        destinationTxHash: direction === "debit" ? (d?.receipt?.destination_tx_hash ?? d?.destination?.tx_hash ?? null) : null,
       });
     }
   }
