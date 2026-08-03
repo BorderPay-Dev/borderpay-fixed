@@ -852,6 +852,40 @@ export const financialReadModelAPI = (() => {
     }
   }
 
+  function invalidateForUser(userIdRaw: string) {
+    const userId = String(userIdRaw || '').trim();
+    if (!userId) return;
+
+    if (lastSnapshotKey.startsWith(`${userId}:`)) {
+      lastSnapshot = null;
+      lastSnapshotAt = 0;
+      lastSnapshotKey = '';
+    }
+    if (lastAnySnapshotUserId === userId) {
+      lastAnySnapshot = null;
+      lastAnySnapshotAt = 0;
+      lastAnySnapshotUserId = '';
+    }
+
+    try {
+      const snapshotPrefix = `borderpay_snapshot_cache_v2:${userId}:`;
+      const financialSuffix = `:financial-v2:${userId}`;
+      const remove: string[] = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith(snapshotPrefix) || key.endsWith(financialSuffix))) remove.push(key);
+      }
+      remove.push(
+        `borderpay_wallet_total_${userId}`,
+        `borderpay_wallet_balances_${userId}`,
+      );
+      for (const key of new Set(remove)) localStorage.removeItem(key);
+    } catch {
+      // Cache invalidation is best effort; the next uncached snapshot remains
+      // the source of truth.
+    }
+  }
+
   function refreshSnapshotInBackground(userId: string, snapshotKey: string, limit: number) {
     if (inFlight && inFlightKey === snapshotKey) return;
     inFlightKey = snapshotKey;
@@ -997,6 +1031,8 @@ export const financialReadModelAPI = (() => {
   }
 
   return {
+    invalidateForUser,
+
     async getSnapshot(limit = 50) {
       // Fast path: session user is locally available and avoids an extra
       // auth round-trip on every route mount.

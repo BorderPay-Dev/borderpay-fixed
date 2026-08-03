@@ -1111,7 +1111,7 @@ function bridgeTransferDirection(
   return "debit";
 }
 
-function inferWalletActivityDirection(eventType: string, payload: any, amountMinor: bigint | null): "credit" | "debit" {
+function inferWalletActivityDirection(eventType: string, payload: any, amountMinor: bigint | null): "credit" | "debit" | null {
   if (amountMinor !== null && amountMinor < 0n) return "debit";
   const sourceRail = normalizeBridgeEndpointType(
     payload?.source?.payment_rail ??
@@ -1140,7 +1140,11 @@ function inferWalletActivityDirection(eventType: string, payload: any, amountMin
   ].map((v) => String(v ?? "").toLowerCase()).join(" ");
   if (/\b(debit|withdraw|withdrawal|sent|send|payout|transfer_out|outbound)\b/.test(markers)) return "debit";
   if (/\b(credit|deposit|received|receive|collection|transfer_in|inbound)\b/.test(markers)) return "credit";
-  return "credit";
+  // Money movement must fail closed. Bridge wallet activity observed in
+  // production identifies withdrawals/deposits through the endpoint rails or
+  // activity type. Treating an unrecognised positive amount as a credit can
+  // increase a user's spendable balance after an outbound payout.
+  return null;
 }
 
 function bridgeTransferIdFromPayload(payload: any): string | null {
@@ -2377,7 +2381,8 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
       ? minorToDecimal(absMinor(amountMinor), currency)
       : Math.abs(amountValue);
   const shouldProjectWalletActivityTx =
-    isActivity && Number.isFinite(walletActivityAmount) && walletActivityAmount > 0 && !!resolved;
+    isActivity && walletActivityDirection !== null &&
+    Number.isFinite(walletActivityAmount) && walletActivityAmount > 0 && !!resolved;
 
   await supabase.from("bridge_wallets").upsert({
     bridge_wallet_id:    String(walletId),
@@ -2395,7 +2400,7 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   // canonical ledger/transaction row idempotently. Customer-facing
   // notifications are owned by the deposit/transfer lifecycle handlers, not
   // raw wallet activity, otherwise one Bridge movement appears twice.
-  if (shouldProjectWalletActivityTx) {
+  if (shouldProjectWalletActivityTx && walletActivityDirection) {
     const txReference = `bridge:${ev.event_id}`;
     await supabase.from("transactions").upsert({
       user_id:     resolved,
@@ -2471,7 +2476,14 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     .eq("event_id", ev.event_id);
   await supabase.rpc("complete_pending_event", {
     p_event_id: ev.event_id,
-    p_summary:  { source: "bridge", kind: "wallet", wallet_id: walletId },
+    p_summary:  {
+      source: "bridge",
+      kind: "wallet",
+      wallet_id: walletId,
+      ...(isActivity && walletActivityDirection === null && Number.isFinite(walletActivityAmount) && walletActivityAmount > 0
+        ? { reconciliation_required: "wallet_activity_direction_unresolved", financial_write_blocked: true }
+        : {}),
+    },
   });
 }
 

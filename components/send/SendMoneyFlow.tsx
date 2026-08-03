@@ -1517,6 +1517,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
 
       if (result.success) {
+        // The provider webhook owns the balance mutation. Drop every derived
+        // financial cache now so Dashboard, Wallet, Activity and Notifications
+        // cannot keep rendering the pre-payout snapshot after navigation.
+        backendAPI.financial.invalidateForUser(userId);
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
         setTransactionId(result.data?.transaction_id || result.data?.transfer_id || '');

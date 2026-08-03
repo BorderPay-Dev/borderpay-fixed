@@ -22,6 +22,14 @@ def main() -> int:
         failures,
     )
     require(
+        'function inferWalletActivityDirection(eventType: string, payload: any, amountMinor: bigint | null): "credit" | "debit" | null' in src
+        and 'return null;' in src
+        and 'wallet_activity_direction_unresolved' in src
+        and 'financial_write_blocked: true' in src,
+        "unrecognised wallet activity direction must block financial writes instead of defaulting to credit",
+        failures,
+    )
+    require(
         "const walletActivityTransferId = bridgeTransferIdFromPayload(d);" in src
         and "bridge_transfer_id: walletActivityTransferId" in src,
         "wallet activity ledger metadata must carry bridge_transfer_id when Bridge provides it",
