@@ -15,6 +15,7 @@
  */
 
 import { bridgeFetch } from "./bridge-client.ts";
+import { stripBridgeTransferChainFields } from "./bridge-transfer-payload.ts";
 import type {
   PaymentProvider,
   CustomerCreateInput, CustomerCreateResult,
@@ -753,7 +754,7 @@ export class BridgeProvider implements PaymentProvider {
   // ── Money movement ────────────────────────────────────────────────────────
   async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
     const bridgeRail = (rail: string) => String(rail || "").toLowerCase();
-    const body: Record<string, unknown> = {
+    const body = stripBridgeTransferChainFields({
       ...(input.source.amount ? { amount: input.source.amount } : {}),
       ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),
       source: {
@@ -787,7 +788,7 @@ export class BridgeProvider implements PaymentProvider {
         developer_fee: input.developer_fee.flat_amount,
       } : {}),
       ...(input.features ? { features: input.features } : {}),
-    };
+    });
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,
       idempotencyKey: input.idempotency_key,
