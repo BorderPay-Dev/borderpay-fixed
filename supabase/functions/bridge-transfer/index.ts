@@ -237,6 +237,36 @@ async function recordTransferProviderAlert(input: {
   });
 }
 
+async function recordMaintenanceOverdueWarning(userId: string): Promise<void> {
+  const { data: existing } = await supa
+    .from("admin_alerts")
+    .select("id")
+    .eq("alert_type", "maintenance_overdue_withdrawal_warning")
+    .eq("user_id", userId)
+    .eq("resolved", false)
+    .limit(1)
+    .maybeSingle();
+  if (existing?.id) return;
+
+  const { error } = await supa.from("admin_alerts").insert({
+    alert_type: "maintenance_overdue_withdrawal_warning",
+    severity: "medium",
+    user_id: userId,
+    message: "Account maintenance billing requires review; outbound transfer was not blocked.",
+    metadata: {
+      service: "bridge-transfer",
+      code: "maintenance_overdue_non_blocking",
+      occurred_at: new Date().toISOString(),
+    },
+  });
+  if (error) {
+    console.error("maintenance overdue warning could not be recorded", {
+      user_id: userId,
+      error: error.message,
+    });
+  }
+}
+
 const SUPPORTED_FX_PAIRS = new Set([
   "USD_BRL", "BRL_USD",
   "USD_COP", "COP_USD",
@@ -373,14 +403,11 @@ Deno.serve(async (req) => {
   if (isBridgeBlocked(profile?.country)) {
     return await failAfterAuth(bridgeCountryBlockResponse(profile!.country!) as Record<string, unknown>, 403, profile.account_type);
   }
-  // Maintenance gate (#3): block OUTBOUND money movement while a virtual-account
-  // maintenance fee is unpaid. Inbound/top-ups stay open so the user can clear it.
+  // Incident hotfix: maintenance billing is not a money-movement authority.
+  // Preserve the historical flag and alert operators, but never block a user's
+  // withdrawal until billing is audited against custodial wallet balances.
   if (maintenance?.maintenance_overdue === true) {
-    return await failAfterAuth({
-      success: false,
-      code:    "maintenance_due",
-      error:   "Top up your wallet to cover your account maintenance fee before sending. Outbound transfers are paused until then.",
-    }, 402, profile.account_type);
+    await recordMaintenanceOverdueWarning(user.id);
   }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
