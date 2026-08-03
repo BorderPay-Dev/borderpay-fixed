@@ -308,7 +308,9 @@ Deno.serve(async (req) => {
     ? body.currencies.map((c) => String(c).toUpperCase()).filter((c) => ["USD", "EUR", "GBP"].includes(c))
     : [];
   const userIds = Array.isArray(body.user_ids)
-    ? body.user_ids.map((id) => String(id).trim()).filter(Boolean)
+    ? body.user_ids
+      .map((id) => String(id).trim().toLowerCase())
+      .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))
     : [];
   const mode = body.mode === "limits_campaign"
     ? "limits_campaign"
@@ -328,6 +330,10 @@ Deno.serve(async (req) => {
     .order("created_at", { ascending: false })
     .limit(limit);
   if (currencies.length > 0) query = query.in("currency", currencies);
+  if (userIds.length > 0) {
+    const ids = userIds.join(",");
+    query = query.or(`user_id.in.(${ids}),business_user_id.in.(${ids})`);
+  }
 
   const { data: rows, error } = await query;
   if (error) return json({ success: false, error: error.message }, 500);

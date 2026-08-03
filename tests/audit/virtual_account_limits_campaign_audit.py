@@ -10,6 +10,7 @@ business = (ROOT / "supabase/functions/_shared/email-templates/business/virtual-
 checks = {
     "explicit campaign mode": '"limits_campaign"' in campaign,
     "active VA database filter": '.eq("status", "active")' in campaign,
+    "target users filtered before database limit": 'query = query.or(`user_id.in.(${ids}),business_user_id.in.(${ids})`)' in campaign,
     "confirmed email required": "email_confirmed_at" in campaign,
     "individual Bridge verification required": "bridge_kyc_status" in campaign,
     "business Bridge verification required": "bridge_kyb_status" in campaign,
