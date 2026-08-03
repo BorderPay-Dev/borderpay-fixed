@@ -10,6 +10,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = ROOT / "supabase/functions/flutterwave-transfers-list/index.ts"
 CONFIG = ROOT / "supabase/config.toml"
+SHARED_AUTH = ROOT / "supabase/functions/_shared/african-rails-access.ts"
 
 
 def fail(msg: str) -> int:
@@ -28,8 +29,7 @@ def main() -> int:
     cfg = CONFIG.read_text(encoding="utf-8")
 
     checks = [
-        ("auth token required", "Authorization required"),
-        ("jwt user lookup", ".auth.getUser(token)"),
+        ("shared tester auth", "authenticateAfricanRailsTester"),
         ("user ownership filter", '.eq("user_id", authData.user.id)'),
         ("flutterwave source lock", '.eq("source", "flutterwave")'),
         ("direction filter whitelist", "ALLOWED_DIRECTION"),
@@ -66,6 +66,9 @@ def main() -> int:
         for label in missing:
             print(f" - missing: {label}")
         return 1
+    shared = SHARED_AUTH.read_text(encoding="utf-8")
+    if "Authorization required" not in shared or "supabase.auth.getUser(token)" not in shared:
+        return fail("shared tester gate does not enforce JWT authentication")
 
     if not re.search(r"\[functions\.flutterwave-transfers-list\]\s*verify_jwt\s*=\s*true", cfg, re.MULTILINE):
         return fail("supabase/config.toml missing flutterwave-transfers-list verify_jwt=true pin")

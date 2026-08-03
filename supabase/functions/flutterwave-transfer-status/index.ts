@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { flutterwaveGetTransfer, getFlutterwaveCapabilities, mapFlutterwaveProviderStatus } from "../_shared/providers/flutterwave.ts";
+import { authenticateAfricanRailsTester } from "../_shared/african-rails-access.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -30,6 +31,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
+  const access = await authenticateAfricanRailsTester(supa, req);
+  if (!access.allowed) {
+    return json({ success: false, code: access.code, error: access.message }, access.status);
+  }
+  const authData = { user: access.user };
+
   const caps = getFlutterwaveCapabilities();
   if (!caps.configured || !(caps.receive_enabled || caps.payout_enabled)) {
     return json({
@@ -39,11 +46,6 @@ Deno.serve(async (req) => {
       data: { capabilities: caps, source_filter: "flutterwave" },
     }, 503);
   }
-
-  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return json({ success: false, error: "Authorization required" }, 401);
-  const { data: authData, error: authErr } = await supa.auth.getUser(token);
-  if (authErr || !authData?.user?.id) return json({ success: false, error: "Unauthorized" }, 401);
 
   let body: any = {};
   try {

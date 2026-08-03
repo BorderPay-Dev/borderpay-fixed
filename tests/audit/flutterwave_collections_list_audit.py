@@ -10,6 +10,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = ROOT / "supabase/functions/flutterwave-collections-list/index.ts"
 CFG = ROOT / "supabase/config.toml"
+SHARED_AUTH = ROOT / "supabase/functions/_shared/african-rails-access.ts"
 
 
 def fail(msg: str) -> int:
@@ -24,8 +25,7 @@ def main() -> int:
 
     text = TARGET.read_text(encoding="utf-8")
     required = [
-        ("auth required", "Authorization required"),
-        ("auth user lookup", "supa.auth.getUser(token)"),
+        ("shared tester auth", "authenticateAfricanRailsTester"),
         ("ownership filter", '.eq("user_id", authData.user.id)'),
         ("receive direction lock", '.eq("direction", "receive")'),
         ("flutterwave source lock", '.eq("source", "flutterwave")'),
@@ -53,6 +53,9 @@ def main() -> int:
     missing = [label for label, token in required if token not in text]
     if missing:
         return fail("missing tokens: " + ", ".join(missing))
+    shared = SHARED_AUTH.read_text(encoding="utf-8")
+    if "Authorization required" not in shared or "supabase.auth.getUser(token)" not in shared:
+        return fail("shared tester gate does not enforce JWT authentication")
 
     if not CFG.exists():
         return fail("missing file: supabase/config.toml")

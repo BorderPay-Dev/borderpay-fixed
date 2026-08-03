@@ -23,7 +23,7 @@ export interface CorridorPolicyDecision {
     | "corridor_not_enabled"
     | "policy_lookup_failed";
   message: string;
-  policy?: Record<string, unknown> | null;
+  policy?: CorridorPolicyRow | null;
 }
 
 export function isBridgeProfileVerified(profile: any): boolean {
