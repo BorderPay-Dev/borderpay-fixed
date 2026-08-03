@@ -45,7 +45,7 @@ assert_not_has(all_function_sources, r"renderTemplate\(\s*[\"'](?:individual|bus
 # Receipt templates must contain the Bridge-style receipt rows the user expects.
 for name, template in [("individual", individual_status), ("business", business_status)]:
     assert_has(template, r"Incoming funds", f"{name} transaction_status must show incoming funds.")
-    assert_has(template, r"Service charge", f"{name} transaction_status must show service charge.")
+    assert_has(template, r"Transaction fee", f"{name} transaction_status must use customer-facing transaction fee wording.")
     assert_has(template, r"Available for conversion", f"{name} transaction_status must show available for conversion.")
     assert_has(template, r"Outgoing funds", f"{name} transaction_status must show outgoing funds.")
     assert_has(template, r"Exchange rate", f"{name} transaction_status must show exchange rate when present.")

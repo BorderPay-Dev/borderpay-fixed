@@ -37,7 +37,8 @@ def main() -> int:
     )
     require(
         "const walletActivityTransferId = bridgeTransferIdFromPayload(d);" in src
-        and "bridge_transfer_id: walletActivityTransferId" in src,
+        and "bridge_transfer_id: walletActivityTransferId" in src
+        and "payload?.payment_route?.transfer_id" in src,
         "wallet activity ledger metadata must carry bridge_transfer_id when Bridge provides it",
         failures,
     )

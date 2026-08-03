@@ -179,6 +179,8 @@ async function emailTransactionStatusBestEffort(params: {
   destinationAddress?: string | null;
   destinationRail?: string | null;
   sourceRail?: string | null;
+  depositTxHash?: string | null;
+  destinationTxHash?: string | null;
   depositId?: string | null;
   receiptKind?: "money_in_conversion" | null;
   refundReturnReason?: string | null;
@@ -217,6 +219,8 @@ async function emailTransactionStatusBestEffort(params: {
       destination_address: params.destinationAddress ?? null,
       destination_rail: params.destinationRail ?? null,
       source_rail: params.sourceRail ?? null,
+      deposit_tx_hash: params.depositTxHash ?? null,
+      destination_tx_hash: params.destinationTxHash ?? null,
       deposit_id: params.depositId ?? null,
       receipt_kind: params.receiptKind ?? null,
       refund_return_reason: params.refundReturnReason ?? null,
@@ -690,6 +694,8 @@ async function processBridgeEvent(ev: PendingEvent, ingress: BridgeIngressDecisi
       return await handleBridgeWallet(ev);
     case "bridge.external_account":
       return await handleBridgeExternalAccount(ev);
+    case "bridge.liquidation_address":
+      return await handleBridgeLiquidationAddress(ev);
     case "bridge.transfer":
       return await handleBridgeTransfer(ev);
     case "bridge.customer":
@@ -1172,6 +1178,7 @@ function bridgeTransferIdFromPayload(payload: any): string | null {
     payload?.transfer?.id,
     payload?.source?.transfer_id,
     payload?.destination?.transfer_id,
+    payload?.payment_route?.transfer_id,
     payload?.metadata?.bridge_transfer_id,
     payload?.metadata?.transfer_id,
   ];
@@ -1180,6 +1187,15 @@ function bridgeTransferIdFromPayload(payload: any): string | null {
     if (value) return value;
   }
   return null;
+}
+
+function reusableRouteDepositAddress(raw: unknown): string {
+  const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, any> : {};
+  const instructions = obj.source_deposit_instructions && typeof obj.source_deposit_instructions === "object"
+    ? obj.source_deposit_instructions as Record<string, any>
+    : {};
+  const source = obj.source && typeof obj.source === "object" ? obj.source as Record<string, any> : {};
+  return String(obj.address ?? instructions.to_address ?? instructions.address ?? source.to_address ?? "").trim();
 }
 
 function firstMinorUnitAmount(payload: any, currency: string, keys: string[]): bigint {
@@ -2637,6 +2653,165 @@ async function handleBridgeExternalAccount(ev: PendingEvent): Promise<void> {
   });
 }
 
+async function handleBridgeLiquidationAddress(ev: PendingEvent): Promise<void> {
+  const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
+  const eventType = String(ev.event_type || "").toLowerCase();
+  const drainId = String(d?.id ?? ev.payload?.event_object_id ?? "").trim();
+
+  // Liquidation-address lifecycle events do not move customer funds. Drain
+  // events are the provider's final delivery leg and must be projected.
+  if (!eventType.includes("drain")) {
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: { source: "bridge", kind: "liquidation_address", id: drainId, log_only: true },
+    });
+    return;
+  }
+  if (!drainId) throw new Error("bridge liquidation drain missing id");
+
+  const customer = String(d?.customer_id ?? d?.customer?.id ?? "").trim();
+  if (!customer) throw new Error("reconciliation_required:liquidation_drain_missing_customer_id");
+  const owner = await resolveOwnerFromBridgeCustomer(customer);
+  const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
+  const mappedState = mapBridgeTransferState(providerState);
+  if (!mappedState.recognized) {
+    throw new Error(`reconciliation_required:unknown_liquidation_drain_state:${mappedState.providerState}`);
+  }
+
+  const receipt = d?.receipt && typeof d.receipt === "object" ? d.receipt : {};
+  const currency = String(d?.currency ?? receipt?.destination_currency ?? d?.destination?.currency ?? "").toUpperCase();
+  const grossAmount = Number(receipt?.initial_amount ?? d?.amount);
+  const developerFeeAmount = Number(receipt?.developer_fee ?? 0);
+  const exchangeFeeAmount = Number(receipt?.exchange_fee ?? 0);
+  const destinationAmount = Number(
+    receipt?.outgoing_amount ?? receipt?.converted_amount ?? receipt?.subtotal_amount,
+  );
+  if (!currency || !Number.isFinite(grossAmount) || grossAmount <= 0) {
+    throw new Error("reconciliation_required:liquidation_drain_missing_amount_or_currency");
+  }
+
+  // Bridge links the wallet transfer leg to the reusable-route drain through
+  // transfer.receipt.destination_tx_hash == drain.deposit_tx_hash. Reuse that
+  // parent ID so one payout remains one customer-visible transaction.
+  const depositTxHash = String(d?.deposit_tx_hash ?? "").trim();
+  let parentTransferId = "";
+  if (depositTxHash) {
+    const { data: parent } = await supabase
+      .from("bridge_transfers")
+      .select("bridge_transfer_id")
+      .eq("raw->receipt->>destination_tx_hash", depositTxHash)
+      .maybeSingle();
+    parentTransferId = String(parent?.bridge_transfer_id ?? "").trim();
+  }
+  const canonicalTransferId = parentTransferId || drainId;
+
+  const { data: existingTx } = await supabase
+    .from("transactions")
+    .select("metadata")
+    .eq("provider", "bridge")
+    .eq("bridge_transfer_id", canonicalTransferId)
+    .maybeSingle();
+  const existingMetadata = existingTx?.metadata && typeof existingTx.metadata === "object"
+    ? existingTx.metadata as Record<string, unknown>
+    : {};
+  const finalAmount = Number.isFinite(destinationAmount) && destinationAmount > 0
+    ? destinationAmount
+    : grossAmount;
+  const drainMetadata = {
+    ...existingMetadata,
+    source: "bridge",
+    kind: "liquidation_address_drain",
+    transaction_type: "withdrawal",
+    direction: "debit",
+    balance_impact: "debit",
+    flow: "bridge_liquidation_route",
+    bridge_transfer_id: canonicalTransferId,
+    bridge_drain_id: drainId,
+    bridge_state: mappedState.providerState,
+    gross_amount: grossAmount,
+    developer_fee_amount: Number.isFinite(developerFeeAmount) ? developerFeeAmount : null,
+    exchange_fee_amount: Number.isFinite(exchangeFeeAmount) ? exchangeFeeAmount : null,
+    net_amount: finalAmount,
+    destination_currency: String(receipt?.destination_currency ?? d?.destination?.currency ?? currency).toUpperCase(),
+    destination_payment_rail: d?.destination?.payment_rail ?? null,
+    destination_address: d?.destination?.to_address ?? null,
+    deposit_tx_hash: depositTxHash || null,
+    destination_tx_hash: d?.destination_tx_hash ?? null,
+    raw: d,
+  };
+  const { error: txErr } = await supabase.rpc("upsert_bridge_transaction", {
+    p_user_id: owner.resolved,
+    p_bridge_transfer_id: canonicalTransferId,
+    p_amount: grossAmount,
+    p_currency: currency,
+    p_status: mappedState.transactionStatus,
+    p_metadata: drainMetadata,
+    p_description: "Digital dollar withdrawal",
+  });
+  if (txErr) throw new Error(`upsert_bridge_transaction failed for liquidation drain: ${txErr.message}`);
+
+  const emailStatus = normalizeTransactionEmailStatus(mappedState.providerState);
+  if (emailStatus) {
+    const amountLabel = formatMinorUnits(toMinorUnits(String(finalAmount), currency)!, currency);
+    const statusMetadata = {
+      ...drainMetadata,
+      status: emailStatus,
+      amount: finalAmount,
+      currency,
+    };
+    await insertTransactionStatusNotification({
+      userId: owner.resolved,
+      status: emailStatus,
+      amountLabel,
+      metadata: statusMetadata,
+      idempotencyMatch: { bridge_drain_id: drainId, kind: "liquidation_address_drain", status: emailStatus },
+    });
+    await emailTransactionStatusBestEffort({
+      userId: owner.resolved,
+      accountType: owner.account_type,
+      status: emailStatus,
+      amount: finalAmount,
+      currency,
+      reference: drainId,
+      description: "Digital dollar withdrawal",
+      occurredAt: d?.updated_at ?? d?.created_at ?? ev.payload?.event_created_at ?? null,
+      idempotencyKey: `wh:liquidation-drain:${owner.resolved}:${drainId}:${emailStatus}`,
+      grossAmount,
+      developerFeeAmount: Number.isFinite(developerFeeAmount) ? developerFeeAmount : null,
+      exchangeFeeAmount: Number.isFinite(exchangeFeeAmount) ? exchangeFeeAmount : null,
+      netAmount: finalAmount,
+      sourceCurrency: currency,
+      sourceAmount: grossAmount,
+      serviceChargeAmount: Number.isFinite(developerFeeAmount) ? developerFeeAmount : null,
+      availableAmount: finalAmount,
+      destinationCurrency: String(receipt?.destination_currency ?? d?.destination?.currency ?? currency).toUpperCase(),
+      destinationAmount: finalAmount,
+      exchangeRate: Number.isFinite(Number(receipt?.exchange_rate)) ? Number(receipt.exchange_rate) : null,
+      destinationAddress: d?.destination?.to_address ?? null,
+      destinationRail: d?.destination?.payment_rail ?? null,
+      sourceRail: d?.source_payment_rail ?? null,
+      depositId: drainId,
+      depositTxHash: depositTxHash || null,
+      destinationTxHash: d?.destination_tx_hash ?? null,
+    });
+  }
+
+  await supabase.from("bridge_webhook_events")
+    .update({ target_entity_type: "liquidation_drain", target_entity_id: drainId })
+    .eq("event_id", ev.event_id.replace(/^bridge:/, ""));
+  await supabase.rpc("complete_pending_event", {
+    p_event_id: ev.event_id,
+    p_summary: {
+      source: "bridge",
+      kind: "liquidation_address_drain",
+      drain_id: drainId,
+      transfer_id: canonicalTransferId,
+      provider_state: mappedState.providerState,
+      internal_status: mappedState.transactionStatus,
+    },
+  });
+}
+
 async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the transfer; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
@@ -2670,6 +2845,19 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   const normDest   = normalizeBridgeEndpointType(d?.destination?.type ?? d?.destination?.payment_rail ?? "external_bank");
   const direction  = bridgeTransferDirection(normSource, normDest);
   const transactionType = direction === "debit" ? "withdrawal" : "deposit";
+
+  let isReusableRouteFundingLeg = false;
+  const transferDestinationAddress = String(d?.destination?.to_address ?? d?.destination?.address ?? "").trim();
+  if (direction === "debit" && owner.resolved && transferDestinationAddress) {
+    const { data: savedRoutes } = await supabase
+      .from("external_wallets")
+      .select("bridge_payment_route_raw")
+      .eq("user_id", owner.resolved)
+      .eq("status", "active");
+    isReusableRouteFundingLeg = (savedRoutes ?? []).some((row: any) =>
+      reusableRouteDepositAddress(row?.bridge_payment_route_raw) === transferDestinationAddress
+    );
+  }
 
   const amount   = Number(d?.amount ?? 0);
   const currency = String(d?.currency ?? d?.source?.currency ?? "USD").toUpperCase();
@@ -2767,7 +2955,10 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
     }
 
     const emailStatus = normalizeTransactionEmailStatus(mappedState.providerState);
-    if (emailStatus && Number.isFinite(amount) && amount > 0) {
+    // A reusable-route payout has two provider legs. The upstream wallet→route
+    // transfer is internal routing; the liquidation drain owns the one
+    // customer notification and full receipt for the final external delivery.
+    if (emailStatus && Number.isFinite(amount) && amount > 0 && !isReusableRouteFundingLeg) {
       const amountMinor = receiptBreakdown?.netMinor ?? toMinorUnits(String(amount), currency);
       const amountLabel = amountMinor === null ? `${amount} ${currency}` : formatMinorUnits(amountMinor, currency);
       const statusMetadata = {

@@ -22,6 +22,8 @@ export interface TransactionStatusProps {
   destination_address?: string | null;
   destination_rail?: string | null;
   source_rail?: string | null;
+  deposit_tx_hash?: string | null;
+  destination_tx_hash?: string | null;
   deposit_id?: string | null;
   receipt_kind?: "money_in_conversion" | null;
   refund_return_reason?: string | null;
@@ -97,6 +99,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
   const destinationAmount = Number(p.destination_amount);
   const sourceAmount = Number(p.source_amount ?? grossAmount);
   const serviceChargeAmount = Number(p.service_charge_amount ?? transactionFeeAmount);
+  const serviceChargeReported = p.service_charge_amount != null || p.developer_fee_amount != null;
   const availableAmount = Number(p.available_amount ?? netAmount);
   const hasReceipt = Boolean(destinationCurrency && Number.isFinite(destinationAmount) && destinationAmount > 0);
   const isMoneyInConversion = hasReceipt && p.receipt_kind === "money_in_conversion";
@@ -128,12 +131,14 @@ export function render(p: TransactionStatusProps): RenderedEmail {
     ? `
       ${p.deposit_id ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Deposit ID</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.deposit_id))}</td></tr>` : ""}
+      ${p.deposit_tx_hash ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Deposit tracking ID</td>
+          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.deposit_tx_hash))}</td></tr>` : ""}
       <tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Incoming funds</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-family:'DM Mono',monospace;text-align:right;">${escapeHtml(isMoneyInConversion ? fmtReceiptMoney(sourceAmount, sourceCurrency) : fmtMoney(sourceAmount, sourceCurrency))}</td></tr>
       ${p.source_rail ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Payment rail</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;text-align:right;">${escapeHtml(String(p.source_rail).toUpperCase())}</td></tr>` : ""}
-      ${serviceChargeAmount > 0 ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">${isMoneyInConversion ? "Transaction fee" : "Service charge"}</td>
-          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-family:'DM Mono',monospace;text-align:right;">-${escapeHtml(isMoneyInConversion ? fmtReceiptMoney(serviceChargeAmount, sourceCurrency) : fmtMoney(serviceChargeAmount, sourceCurrency))}<br /><span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${BORDERPAY_BRAND.textMuted};font-size:11px;">BorderPay</span></td></tr>` : ""}
+      ${serviceChargeReported ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Transaction fee</td>
+          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-family:'DM Mono',monospace;text-align:right;">${serviceChargeAmount > 0 ? `-${escapeHtml(isMoneyInConversion ? fmtReceiptMoney(serviceChargeAmount, sourceCurrency) : fmtMoney(serviceChargeAmount, sourceCurrency))}` : "Free"}<br /><span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:${BORDERPAY_BRAND.textMuted};font-size:11px;">BorderPay</span></td></tr>` : ""}
       ${isMoneyInConversion ? "" : `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Available for conversion</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-family:'DM Mono',monospace;text-align:right;">${escapeHtml(fmtMoney(availableAmount, sourceCurrency))}</td></tr>`}
       ${Number.isFinite(Number(p.exchange_rate)) && Number(p.exchange_rate) > 0 ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Exchange rate</td>
@@ -141,7 +146,9 @@ export function render(p: TransactionStatusProps): RenderedEmail {
       <tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">${isMoneyInConversion ? "Converted amount / added to wallet" : "Outgoing funds"}</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-weight:700;font-family:'DM Mono',monospace;text-align:right;">${escapeHtml(isMoneyInConversion ? walletAmount : outgoing)}</td></tr>
       ${p.destination_address ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Destination</td>
-          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.destination_address))}</td></tr>` : ""}`
+          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.destination_address))}</td></tr>` : ""}
+      ${p.destination_tx_hash ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Destination tracking ID</td>
+          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.destination_tx_hash))}</td></tr>` : ""}`
     : null;
   const amountRows = hasFeeBreakdown
     ? `
