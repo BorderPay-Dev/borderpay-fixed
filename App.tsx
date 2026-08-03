@@ -8,7 +8,7 @@ import { ForgotPassword } from './components/auth/ForgotPassword';
 import { ForgotPin } from './components/auth/ForgotPin';
 import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { ResetPinScreen } from './components/auth/ResetPinScreen';
-import { isPasswordRecovery, isBiometricLoginPending, isAppLocked, authAPI } from './utils/supabase/client';
+import { isPasswordRecovery, isBiometricLoginPending, isAppLocked, clearAppLocked } from './utils/supabase/client';
 import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
 import { TeamInviteLanding } from './components/auth/TeamInviteLanding';
 import { MainApp } from './components/app/MainApp';
@@ -420,11 +420,15 @@ function AppContent() {
           return;
         }
 
-        // "Lock app" — keep the preserved session out of the dashboard and route
-        // to login (where biometric unlock is offered). Don't fall through to the
-        // not-authenticated branch (it would clear borderpay_token, but the lock
-        // already removed it; routing here is explicit and avoids onboarding).
+        // "Lock app" should render the PIN/biometric lock screen when a valid
+        // in-memory session is still present. Routing to login makes a lock feel
+        // like a full logout and can strand users behind password re-entry.
         if (isAppLocked()) {
+          if (user?.id) {
+            setAppLocked(true);
+            setAppState('dashboard');
+            return;
+          }
           setAppState('login');
           return;
         }
@@ -604,14 +608,16 @@ function AppContent() {
     }
   };
 
-  // "Lock app" — LOCAL-only sign-out that keeps a refreshable session behind
-  // biometric (distinct from Log out, which fully revokes). Routes to the login
-  // screen, where the biometric button is available for unlock.
+  // "Lock app" — local UI lock only. It must not clear the Supabase session or
+  // route through Login; that makes a PIN/biometric check look like logout.
+  // Full Sign out remains the only path that revokes the session.
   const handleLock = async () => {
     try {
-      await authAPI.lockApp();
+      clearAppLocked();
+      setAppLocked(true);
+      setLockChecked(true);
     } finally {
-      setAppState('login');
+      setAppState('dashboard');
     }
   };
 

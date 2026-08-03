@@ -78,7 +78,42 @@ function readJSON<T>(key: string, fallback: T): T {
 function writeJSON(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota/private mode */ }
 }
+function readPersistedFinancialSnapshot(userId: string, limit = 5): any | null {
+  const keys = [
+    `borderpay_snapshot_cache_v2:${userId}:any`,
+    `borderpay_snapshot_cache_v2:${userId}:${Math.max(1, Number(limit) || 5)}`,
+    `borderpay_snapshot_cache_v2:${userId}:20`,
+    `borderpay_snapshot_cache_v2:${userId}:50`,
+    `borderpay_snapshot_cache_v2:${userId}:100`,
+  ];
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const snapshot = parsed?.snapshot;
+      if (snapshot?.success && snapshot?.data) return snapshot.data;
+    } catch { /* keep looking */ }
+  }
+  return null;
+}
+function dashboardWalletRowsFromSnapshot(snapshotData: any): DashboardWalletRow[] {
+  const raw = Array.isArray(snapshotData?.wallets) ? snapshotData.wallets : [];
+  return raw.map((w: any) => {
+    const c = String(w?.currency || '').toUpperCase();
+    return {
+      currency: c,
+      balance: Number(w?.balance || 0),
+      symbol: CURRENCY_CONFIG[c]?.symbol || c,
+      color: CURRENCY_CONFIG[c]?.color || '#666',
+    };
+  }).filter(isSpendableDashboardWallet);
+}
 function readRecentActivityCache(userId: string, dashKey: string): any[] {
+  const snapshot = readPersistedFinancialSnapshot(userId, 5);
+  const snapshotTx = Array.isArray(snapshot?.transactions) ? snapshot.transactions : [];
+  if (snapshotTx.length > 0) return snapshotTx.slice(0, 5);
+
   const txKey = financialCacheKey(TX_CACHE_KEY, { userId });
   const primary = readJSON<any[]>(txKey, []);
   if (Array.isArray(primary) && primary.length > 0) return primary.slice(0, 5);
@@ -261,13 +296,22 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => financialCacheKey('borderpay_dashboard_va_v1', { userId }),
     [userId],
   );
+  const cachedSnapshot = useMemo(() => readPersistedFinancialSnapshot(userId, 5), [userId]);
   const cachedWallets = useMemo(
-    () => readJSON<DashboardWalletRow[]>(dashWalletsKey, []),
-    [dashWalletsKey],
+    () => {
+      const snapshotRows = dashboardWalletRowsFromSnapshot(cachedSnapshot);
+      if (snapshotRows.length > 0) return snapshotRows;
+      return readJSON<DashboardWalletRow[]>(dashWalletsKey, []);
+    },
+    [cachedSnapshot, dashWalletsKey],
   );
   const cachedVirtualAccounts = useMemo(
-    () => normalizeDashboardVaRows(readJSON<any[]>(dashVaKey, []), userCountry),
-    [dashVaKey, userCountry],
+    () => {
+      const snapshotVas = normalizeDashboardVaRows(cachedSnapshot?.virtual_accounts, cachedSnapshot?.profile?.country || userCountry);
+      if (snapshotVas.length > 0) return snapshotVas;
+      return normalizeDashboardVaRows(readJSON<any[]>(dashVaKey, []), userCountry);
+    },
+    [cachedSnapshot, dashVaKey, userCountry],
   );
   const cachedRecent = useMemo(() => readRecentActivityCache(userId, dashRecentKey), [dashRecentKey, userId]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
