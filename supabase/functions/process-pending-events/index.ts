@@ -38,6 +38,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { bridgeTransferCustomerId } from "../_shared/bridge-transfer-owner.ts";
 import { explicitBridgeWalletActivityDirection } from "../_shared/bridge-wallet-activity-direction.ts";
 import {
   assertBridgeIngressDecision,
@@ -2640,7 +2641,7 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the transfer; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const transferId = d?.transfer_id ?? d?.id ?? ev.payload?.event_object_id;
-  const customer   = d?.customer_id ?? d?.customer?.id ?? d?.source?.customer_id ?? d?.destination?.customer_id;
+  const customer   = bridgeTransferCustomerId(d);
   if (!transferId) throw new Error("bridge transfer event missing id");
 
   const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
