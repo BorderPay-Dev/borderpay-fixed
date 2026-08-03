@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
+import { isBridgeBlocked } from "../_shared/providers/bridge-country-policy.ts";
+import { isoCountryCode2 } from "../_shared/iso-country-codes.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -77,6 +79,10 @@ Deno.serve(async (req) => {
         getCode2(row?.country_code_alpha2) ??
         getCode2(row?.country_code) ??
         getCode2(row?.code) ??
+        isoCountryCode2(
+          row?.alpha3 ?? row?.alpha_3 ?? row?.iso3 ?? row?.iso_3 ??
+          row?.country_code_alpha3 ?? row?.code,
+        ) ??
         null;
       const code3 =
         getCode3(row?.alpha3) ??
@@ -85,7 +91,9 @@ Deno.serve(async (req) => {
         getCode3(row?.iso_3) ??
         getCode3(row?.country_code_alpha3) ??
         (code2 ? null : getCode3(row?.code));
-      if (!name && !code2 && !code3) return null;
+      // Bridge's /lists/countries is a reference list, not an eligibility
+      // guarantee. Apply the published Bridge compliance policy server-side.
+      if (!code2 || isBridgeBlocked(code2)) return null;
       return {
         code: code2,
         code3,
@@ -108,4 +116,3 @@ Deno.serve(async (req) => {
     },
   });
 });
-

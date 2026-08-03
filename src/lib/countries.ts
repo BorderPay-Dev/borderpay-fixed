@@ -19,7 +19,7 @@
  *   • 'restricted'   → never shown
  */
 
-import { isBridgeBlocked } from '../../utils/compliance/partnerCountryPolicy';
+import { isBridgeBlocked, normalizeBridgeCountryCode } from '../../utils/compliance/partnerCountryPolicy';
 import { ALL_COUNTRIES } from '../../utils/countries/allCountries';
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
@@ -756,18 +756,24 @@ const GENERIC_ID_TYPES: IDType[] = [
   },
 ];
 
-function countryConfigFromCode(code: string): CountryConfig | null {
+function flagFromCode(code: string): string {
+  return /^[A-Z]{2}$/.test(code)
+    ? String.fromCodePoint(...code.split('').map((char) => 127397 + char.charCodeAt(0)))
+    : '';
+}
+
+function countryConfigFromCode(code: string, providerName = ''): CountryConfig | null {
   const fromConfig = getCountryByCode(code);
-  if (fromConfig) return fromConfig;
+  if (fromConfig) return { ...fromConfig, providerSupported: true, status: 'active' };
 
   const fromAll = ALL_COUNTRIES.find((c) => c.code === code);
-  if (!fromAll) return null;
+  if (!fromAll && !providerName) return null;
 
   return {
-    code: fromAll.code,
-    name: fromAll.name,
-    flag: fromAll.flag,
-    dialCode: fromAll.dialCode,
+    code,
+    name: fromAll?.name ?? providerName,
+    flag: fromAll?.flag ?? flagFromCode(code),
+    dialCode: fromAll?.dialCode ?? '',
     currency: '',
     providerSupported: true,
     verificationMethod: 'document_capture',
@@ -781,11 +787,11 @@ function resolveCode2(input: unknown): string | null {
   return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 
-export function getSignupCountriesFromBridge(records: Array<{ code?: string | null; name?: string | null }>): CountryConfig[] {
+export function getSignupCountriesFromBridge(records: Array<{ code?: string | null; code3?: string | null; name?: string | null }>): CountryConfig[] {
   const out = new Map<string, CountryConfig>();
 
   for (const row of records) {
-    let code = resolveCode2(row?.code);
+    let code = resolveCode2(row?.code) ?? normalizeBridgeCountryCode(row?.code3);
     const rawName = String(row?.name ?? '').trim();
     if (!code && rawName) {
       const normalized = normalizeCountryName(rawName);
@@ -795,8 +801,8 @@ export function getSignupCountriesFromBridge(records: Array<{ code?: string | nu
     }
     if (!code) continue;
     if (isBridgeBlocked(code)) continue;
-    const cfg = countryConfigFromCode(code);
-    if (!cfg || cfg.status !== 'active') continue;
+    const cfg = countryConfigFromCode(code, rawName);
+    if (!cfg) continue;
     out.set(code, cfg);
   }
 
