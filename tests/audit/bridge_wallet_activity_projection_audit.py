@@ -23,10 +23,16 @@ def main() -> int:
     )
     require(
         'function inferWalletActivityDirection(eventType: string, payload: any, amountMinor: bigint | null): "credit" | "debit" | null' in src
+        and 'explicitBridgeWalletActivityDirection(payload)' in src
         and 'return null;' in src
         and 'wallet_activity_direction_unresolved' in src
         and 'financial_write_blocked: true' in src,
         "unrecognised wallet activity direction must block financial writes instead of defaulting to credit",
+        failures,
+    )
+    require(
+        'throw new Error("reconciliation_required:wallet_activity_direction_unresolved")' in src,
+        "unrecognised positive wallet activity must retry/reconcile instead of completing silently",
         failures,
     )
     require(

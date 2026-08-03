@@ -38,6 +38,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { explicitBridgeWalletActivityDirection } from "../_shared/bridge-wallet-activity-direction.ts";
 import {
   assertBridgeIngressDecision,
   evaluateBridgeIngressEvent,
@@ -1127,6 +1128,8 @@ function bridgeTransferDirection(
 
 function inferWalletActivityDirection(eventType: string, payload: any, amountMinor: bigint | null): "credit" | "debit" | null {
   if (amountMinor !== null && amountMinor < 0n) return "debit";
+  const explicitActivityDirection = explicitBridgeWalletActivityDirection(payload);
+  if (explicitActivityDirection) return explicitActivityDirection;
   const sourceRail = normalizeBridgeEndpointType(
     payload?.source?.payment_rail ??
     payload?.source?.type ??
@@ -2447,6 +2450,13 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   const shouldProjectWalletActivityTx =
     isActivity && walletActivityDirection !== null &&
     Number.isFinite(walletActivityAmount) && walletActivityAmount > 0 && !!resolved;
+
+  if (
+    isActivity && walletActivityDirection === null &&
+    Number.isFinite(walletActivityAmount) && walletActivityAmount > 0
+  ) {
+    throw new Error("reconciliation_required:wallet_activity_direction_unresolved");
+  }
 
   await supabase.from("bridge_wallets").upsert({
     bridge_wallet_id:    String(walletId),
