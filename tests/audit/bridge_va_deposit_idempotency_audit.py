@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKER = ROOT / "supabase/functions/process-pending-events/index.ts"
-DEBIT_RPC = ROOT / "supabase/migrations/20260714103000_bridge_va_debit_rpc.sql"
+DEBIT_RPC = ROOT / "supabase/migrations/20260804000000_add_apply_bridge_va_debit_function_parity.sql"
 
 
 def main() -> int:
