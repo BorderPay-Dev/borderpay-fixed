@@ -5,16 +5,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SERVER_GATE = ROOT / "supabase/functions/_shared/african-rails-access.ts"
 FRONTEND_GATE = ROOT / "utils/africanRailsAccess.ts"
 ENDPOINTS = [
-    "flutterwave-capabilities",
-    "flutterwave-account-resolve",
-    "flutterwave-transfer-rates",
-    "flutterwave-transfer-create",
-    "flutterwave-transfer-status",
-    "flutterwave-transfers-list",
-    "flutterwave-collection-create",
-    "flutterwave-collection-status",
-    "flutterwave-collections-list",
-    "get-momo-providers",
+    "yellowcard-capabilities",
+    "yellowcard-sandbox-transaction",
 ]
 
 TESTER = "adhiamboadhiambo22@gmail.com"
@@ -43,9 +35,8 @@ for endpoint in ENDPOINTS:
     if "authenticateAfricanRailsTester" not in source:
         failures.append(f"{endpoint} does not enforce the shared server gate")
     gate_pos = source.find("await authenticateAfricanRailsTester")
-    capability_pos = source.find("getFlutterwaveCapabilities()")
-    if gate_pos < 0 or capability_pos < 0 or gate_pos > capability_pos:
-        failures.append(f"{endpoint} checks provider runtime before tester access")
+    if gate_pos < 0:
+        failures.append(f"{endpoint} is missing the tester gate call")
 
 if failures:
     print("african_rails_closed_beta_gate_audit: FAIL")

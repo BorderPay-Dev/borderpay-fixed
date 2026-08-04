@@ -15,7 +15,7 @@
 import { isAfricanPayoutCountry } from "../providers/bridge-country-policy.ts";
 
 export type Corridor = "international" | "african";
-export type PayoutRoute = "bridge_payout" | "stablecoin" | "flutterwave_local";
+export type PayoutRoute = "bridge_payout" | "stablecoin";
 
 export type AfricanLocalMethod = "bank" | "mobile_money";
 
@@ -31,20 +31,4 @@ export function selectPayoutRoute(corridor: Corridor): PayoutRoute {
 
 export function routeForCountry(destinationCountry: string | null | undefined): PayoutRoute {
   return selectPayoutRoute(classifyCorridor(destinationCountry));
-}
-
-/**
- * Legacy Stage-0 helper retained only for backwards compatibility.
- *
- * Do not use this helper for execution decisions.
- * All Flutterwave routing decisions now come from DB-backed
- * `provider_corridor_policy` enforcement in edge functions.
- */
-export function canUseFlutterwaveLocalRail(input: {
-  destinationCountry: string | null | undefined;
-  destinationCurrency: string | null | undefined;
-  method: AfricanLocalMethod;
-}): boolean {
-  void input;
-  return false;
 }

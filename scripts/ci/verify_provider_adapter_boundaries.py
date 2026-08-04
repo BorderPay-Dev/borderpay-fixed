@@ -17,17 +17,14 @@ ALLOWED_BRIDGE = {
     "supabase/functions/subscription-upgrade/index.ts",
     "utils/featureFlags.ts",
 }
-ALLOWED_FLW = {
-    "supabase/functions/_shared/providers/flutterwave-client.ts",
-    "supabase/functions/_shared/providers/flutterwave.ts",
-}
 
 BRIDGE_PATTERNS = [
     re.compile(r"https://api\.bridge\.xyz", re.IGNORECASE),
     re.compile(r"\bBRIDGE_API_KEY\b"),
 ]
-FLW_PATTERNS = [
+RETIRED_PROVIDER_PATTERNS = [
     re.compile(r"https://api\.flutterwave\.com", re.IGNORECASE),
+    re.compile(r"\bFLW_[A-Z0-9_]+\b"),
     re.compile(r"\bFLUTTERWAVE_API_KEY\b"),
 ]
 
@@ -42,9 +39,9 @@ for path in ROOT.rglob("*.ts"):
         if pat.search(text) and rel not in ALLOWED_BRIDGE:
             violations.append((rel, f"bridge boundary violation: pattern `{pat.pattern}`"))
             break
-    for pat in FLW_PATTERNS:
-        if pat.search(text) and rel not in ALLOWED_FLW:
-            violations.append((rel, f"flutterwave boundary violation: pattern `{pat.pattern}`"))
+    for pat in RETIRED_PROVIDER_PATTERNS:
+        if pat.search(text):
+            violations.append((rel, f"retired provider reference: pattern `{pat.pattern}`"))
             break
 
 if violations:

@@ -850,7 +850,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     })[0] || null;
   }, [amount, selectedAfricanRail, selectedCurrency]);
   const selectedAfricanProvider = providerFromPolicy(selectedAfricanPolicyRow);
-  const requiresInstitutionSelection = isAfricanPayout && selectedAfricanProvider === 'flutterwave';
+  const requiresInstitutionSelection = false;
   const [africanQuote, setAfricanQuote] = useState<{
     destinationAmount: number | null;
     rate: number | null;
@@ -1350,7 +1350,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         : accountNumber.trim();
       return !!selectedAfricanCountryCode
         && !!selectedAfricanRail
-        && (selectedAfricanProvider === 'flutterwave' || selectedAfricanProvider === 'yellow_card')
+        && selectedAfricanProvider === 'yellow_card'
         && (!requiresInstitutionSelection || !!selectedBank)
         && recipientName.trim().length >= 2
         && (method === 'mobile_money'
@@ -1456,7 +1456,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (!activeFundingWallet) {
           throw new Error('Add USDC or USDT before sending to Africa.');
         }
-        if (selectedAfricanProvider !== 'flutterwave' && selectedAfricanProvider !== 'yellow_card') {
+        if (selectedAfricanProvider !== 'yellow_card') {
           throw new Error('This payout corridor is not available yet.');
         }
         if (!africanQuote?.destinationAmount) {
@@ -1469,7 +1469,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const beneficiaryName = recipientName.trim() || resolvedName || undefined;
         const providerSourceCurrency = providerSettlementCurrencyForAfricanRail(activeFundingCurrency);
         result = await backendAPI.payouts.createTransfer({
-          source: selectedAfricanProvider === 'yellow_card' ? 'yellow_card' : 'flutterwave',
+          source: 'yellow_card',
           amount: africanQuote.destinationAmount,
           currency: selectedCurrency,
           debit_currency: activeFundingCurrency,

@@ -123,41 +123,18 @@ verify_jwt = true
 [functions.external-wallet]
 verify_jwt = true
 
-# Flutterwave capabilities/dirs — authenticated helper for rails metadata.
-[functions.flutterwave-capabilities]
-verify_jwt = true
-
-# Flutterwave account resolve — authenticated payout preflight.
-[functions.flutterwave-account-resolve]
-verify_jwt = true
-
-# Flutterwave transfer rates — authenticated quote preflight.
-[functions.flutterwave-transfer-rates]
-verify_jwt = true
-
-# Flutterwave transfer create/retry — authenticated transfer execution.
-[functions.flutterwave-transfer-create]
-verify_jwt = true
-
-# Flutterwave transfer status — authenticated status sync.
-[functions.flutterwave-transfer-status]
-verify_jwt = true
-
-[functions.flutterwave-transfers-list]
-verify_jwt = true
-
-[functions.flutterwave-collection-create]
-verify_jwt = true
-
-[functions.flutterwave-collection-status]
-verify_jwt = true
-
-[functions.flutterwave-collections-list]
-verify_jwt = true
-
-# Flutterwave webhook receiver — provider-signed; no JWT.
-[functions.flutterwave-webhook]
+# Yellow Card sandbox diagnostics — self-validates tester/admin JWT in code.
+# It is read-only and must never call the production Yellow Card environment.
+[functions.yellowcard-sandbox-diagnostics]
 verify_jwt = false
+
+# Yellow Card sandbox transaction adapter — platform JWT plus a server-side
+# tester allowlist. Production environment and live routing are rejected.
+[functions.yellowcard-sandbox-transaction]
+verify_jwt = true
+
+[functions.yellowcard-capabilities]
+verify_jwt = true
 
 # Public API gateway — external clients authenticate in-code with BorderPay API
 # keys, signatures, tenant status, and allowlists. Supabase platform JWT must

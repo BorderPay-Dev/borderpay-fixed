@@ -73,7 +73,7 @@ export interface OffRampExecuteResult {
 
 /** The contract a partner adapter implements. */
 export interface AfricanOnOffRampProvider {
-  readonly name:        string;             // 'pawapay', 'flutterwave', 'kotani', etc.
+  readonly name:        string;             // provider identifier
   readonly currencies:  AfricanRampCurrency[];
   readonly methods:     ("mobile_money" | "bank_transfer")[];
 
