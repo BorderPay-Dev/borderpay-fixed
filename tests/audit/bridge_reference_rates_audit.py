@@ -15,6 +15,8 @@ checks = {
     "dashboard batches rate reads": "backendAPI.fx.getReferenceRates" in widget and "Promise.all" not in widget,
     "successful provider reads are briefly cached": "CACHE_TTL_MS" in edge and "rateCache" in edge,
     "no guessed fallback rates": "FALLBACK" not in widget and "0.92" not in widget and "0.79" not in widget,
+    "missing rates are never shown": "Unavailable" not in widget and "visiblePairs" in widget,
+    "confirmed rates survive partial refresh": "({ ...current, ...confirmed })" in widget,
     "no customer conversion action": "onNavigate" not in widget and "Convert" not in widget,
     "transaction-rate disclaimer present": "completed transaction receipt shows the rate applied" in widget,
     "exchange screen is unreachable": "return <ExchangeScreen" not in main and "import { ExchangeScreen }" not in main,

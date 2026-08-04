@@ -41,16 +41,20 @@ export function ExchangeRateWidget() {
     try {
       const response: any = await backendAPI.fx.getReferenceRates();
       const rows = response?.success && Array.isArray(response?.data?.rates) ? response.data.rates : [];
-      const next: RateState = Object.fromEntries(DISPLAY_PAIRS.map((pair) => [pairKey(pair), null]));
+      const confirmed: RateState = {};
       for (const row of rows) {
         const key = `${String(row?.from || '').toUpperCase()}_${String(row?.to || '').toUpperCase()}`;
         const rate = Number(row?.rate);
-        if (key in next && Number.isFinite(rate) && rate > 0) {
-          next[key] = { rate, updatedAt: row?.updated_at || null };
+        if (DISPLAY_PAIRS.some((pair) => pairKey(pair) === key) && Number.isFinite(rate) && rate > 0) {
+          confirmed[key] = { rate, updatedAt: row?.updated_at || null };
         }
       }
-      setRates(next);
-      setLastCheckedAt(new Date().toISOString());
+      if (Object.keys(confirmed).length > 0) {
+        // A partial or failed refresh must not replace a previously confirmed
+        // Bridge rate with a missing state. Never manufacture a fallback.
+        setRates((current) => ({ ...current, ...confirmed }));
+        setLastCheckedAt(new Date().toISOString());
+      }
     } finally {
       setLoading(false);
     }
@@ -63,6 +67,9 @@ export function ExchangeRateWidget() {
     }, 60_000);
     return () => window.clearInterval(interval);
   }, [load]);
+
+  const visiblePairs = DISPLAY_PAIRS.filter((pair) => rates[pairKey(pair)]);
+  if (visiblePairs.length === 0) return null;
 
   return (
     <section className="px-4 sm:px-5 mt-7" aria-labelledby="reference-rates-heading">
@@ -86,14 +93,14 @@ export function ExchangeRateWidget() {
 
       <div className={`overflow-hidden rounded-2xl border ${tc.cardBorder} ${tc.card}`}>
         <div className="grid grid-cols-2 gap-px" role="list" aria-label="Digital dollar reference rates">
-          {DISPLAY_PAIRS.map((pair) => {
+          {visiblePairs.map((pair) => {
             const [from, to] = pair;
             const item = rates[pairKey(pair)];
             return (
               <div key={pairKey(pair)} role="listitem" className={`min-w-0 px-4 py-3.5 ${tc.bgAlt}`}>
                 <p className={`text-[11px] font-semibold ${tc.textSecondary}`}>{from}/{to}</p>
                 <p className={`mt-1 truncate font-mono text-sm font-semibold tabular-nums ${tc.text}`}>
-                  {loading && item === undefined ? '—' : item ? formatRate(item.rate) : 'Unavailable'}
+                  {item ? formatRate(item.rate) : null}
                 </p>
               </div>
             );
