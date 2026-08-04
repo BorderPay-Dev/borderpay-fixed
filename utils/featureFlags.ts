@@ -82,8 +82,8 @@ export const EXTERNAL_ACCOUNTS_LIVE: boolean = true;
 /** True while RC1 business certification is incomplete. */
 export const RC1_CERTIFICATION_OPEN: boolean = RC1_CERTIFICATION_STATUS === 'OPEN';
 
-/** FX runtime execution/read path gate. */
-export const FX_RUNTIME_ENABLED: boolean = true;
+/** Executable customer FX is retired; Bridge conversion occurs only within supported payment flows. */
+export const FX_RUNTIME_ENABLED: boolean = false;
 
 /** Payroll runtime execution gate. */
 export const PAYROLL_RUNTIME_ENABLED: boolean = true;
@@ -92,6 +92,7 @@ export const PAYROLL_RUNTIME_ENABLED: boolean = true;
  * Navigation visibility gates for roadmap surfaces that are not currently
  * executable customer capabilities. Hidden means no menu/CTA entry points.
  */
+/** Read-only dashboard reference-rate visibility; this does not enable FX execution. */
 export const FX_NAV_ENABLED: boolean = true;
 export const PAYROLL_NAV_ENABLED: boolean = true;
 export const RAMPS_NAV_ENABLED: boolean = true;

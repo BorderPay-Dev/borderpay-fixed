@@ -1598,6 +1598,45 @@ export const fxAPI = {
     );
   },
 
+  /** Read-only Bridge rate used by the dashboard. It never creates a quote or transfer. */
+  async getReferenceRate(fromCurrency: string, toCurrency: string) {
+    const from = String(fromCurrency || '').trim().toUpperCase();
+    const to = String(toCurrency || '').trim().toUpperCase();
+    const allowed = new Set([
+      'USD_USDC', 'USD_USDT',
+      'EUR_USDC', 'EUR_USDT',
+      'GBP_USDC', 'GBP_USDT',
+    ]);
+    if (!allowed.has(`${from}_${to}`)) {
+      return { success: false, error: 'Reference rate unavailable' };
+    }
+    return apiCall<{
+      from: string;
+      to: string;
+      rate: number;
+      reverse_rate?: number | null;
+      updated_at?: string | null;
+    }>('bridge-exchange-rates', {
+      method: 'POST',
+      body: JSON.stringify({ from, to }),
+    });
+  },
+
+  /** Batch form used by the read-only dashboard to avoid six edge requests per refresh. */
+  async getReferenceRates() {
+    const pairs = [
+      { from: 'USD', to: 'USDC' }, { from: 'USD', to: 'USDT' },
+      { from: 'EUR', to: 'USDC' }, { from: 'EUR', to: 'USDT' },
+      { from: 'GBP', to: 'USDC' }, { from: 'GBP', to: 'USDT' },
+    ];
+    return apiCall<{
+      rates: Array<{ from: string; to: string; rate: number | null; updated_at?: string | null; unavailable?: boolean }>;
+    }>('bridge-exchange-rates', {
+      method: 'POST',
+      body: JSON.stringify({ pairs }),
+    });
+  },
+
   async getQuote(sourceCurrency: string, targetCurrency: string, amount: number) {
     await fxAPI.refreshSupportedPairs();
     const from = String(sourceCurrency || '').toUpperCase();

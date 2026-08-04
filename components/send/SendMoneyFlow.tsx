@@ -1711,15 +1711,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <div className="space-y-3">
-              <button
+              {africanRailsTester && <button
                 type="button"
                 onClick={() => {
-                  if (!africanRailsTester) return;
                   setStep('africa-destination');
                   void loadAfricanPolicy();
                 }}
-                disabled={!africanRailsTester}
-                className={`group flex w-full items-center gap-3 rounded-2xl border border-[#58D66D]/25 ${tc.card} p-4 text-left transition-colors ${africanRailsTester ? `hover:border-[#58D66D]/45 ${tc.hoverBg}` : 'cursor-not-allowed opacity-60'}`}
+                className={`group flex w-full items-center gap-3 rounded-2xl border border-[#58D66D]/25 ${tc.card} p-4 text-left transition-colors hover:border-[#58D66D]/45 ${tc.hoverBg}`}
                 aria-label="Send to Africa"
               >
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#58D66D]/25 bg-[#58D66D]/12">
@@ -1728,20 +1726,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="min-w-0 flex-1">
                   <p className={`truncate text-sm font-semibold ${tc.text}`}>Send to Africa</p>
                   <p className="mt-1 truncate text-xs font-semibold text-[#58D66D]">
-                    {africanRailsTester ? 'Mobile money and local bank rails' : 'Coming soon'}
+                    Mobile money and local bank rails
                   </p>
                   <p className="mt-1 truncate text-xs text-white/40">
-                    {africanRailsTester ? 'Choose country, then available payout rail' : 'Sandbox review in progress'}
+                    Choose country, then available payout rail
                   </p>
                 </div>
-                {africanRailsTester ? (
-                  <ArrowRight size={18} className={tc.textMuted} />
-                ) : (
-                  <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
-                    Soon
-                  </span>
-                )}
-              </button>
+                <ArrowRight size={18} className={tc.textMuted} />
+              </button>}
 
               {TRANSFERS_LIVE ? (
                 <button

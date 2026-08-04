@@ -745,7 +745,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
         </section>
 
         {/* ── 6b. Exchange rates (shared with individual dashboard) ─ */}
-        {FX_NAV_ENABLED && <ExchangeRateWidget onNavigate={onNavigate} />}
+        {FX_NAV_ENABLED && <ExchangeRateWidget />}
 
         {/* ── 6c. Affiliate banner (footer position parity) ───────── */}
         <section className="px-5 sm:px-6">

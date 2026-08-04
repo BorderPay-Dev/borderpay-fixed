@@ -423,10 +423,15 @@ def stage4_bridge_integration(ci_mode: bool = False) -> StageResult:
         ("Bridge idempotency (transfer create)", "idempotencyKey: input.idempotency_key" in bridge),
         ("Funding gate uses Bridge wallet balances only", "bridge_virtual_account_balances" not in funding and "bridgeProvider.listWallets(" in funding),
         ("Canonical transfer state mapper exists", "mapBridgeTransferState" in transfer_map and "payment_processed" in transfer_map),
-        # FX execution gate — prevent promotion of a placeholder FX screen.
-        ("FX screen wired to executable action", "executeFxTransfer" in fx_screen and "Run FX transfer" in fx_screen),
-        ("FX screen calls backendAPI.fx.convert", "backendAPI.fx.convert({" in fx_screen),
-        ("FX convert API routes through bridge-transfer", "export const fxAPI = {" in backend_api and "async convert(" in backend_api and "'bridge-transfer'" in backend_api),
+        # Customer FX execution is retired. The legacy component is reference-only
+        # and the mounted app redirects stale exchange links to the dashboard.
+        ("FX screen is indicative-only", "Indicative rates" in fx_screen and "ExchangeRateWidget" in fx_screen),
+        ("FX screen has no orchestration", all(x not in fx_screen for x in [
+            "backendAPI.fx.convert",
+            "backendAPI.fx.getQuote",
+            "executeFxTransfer",
+            "bridge-transfer",
+        ])),
         ("bridge-transfer function exposes FX transfer lifecycle logs", all(x in bridge_transfer for x in [
             'fxLog("request_received"',
             'fxLog("validation_passed"',
@@ -434,10 +439,11 @@ def stage4_bridge_integration(ci_mode: bool = False) -> StageResult:
             'fxLog("bridge_response_received"',
             'fxLog("transaction_recorded"',
         ])),
-        ("FX placeholder copy absent from executable screen", all(x not in fx_screen for x in [
+        ("FX execution copy absent from indicative screen", all(x not in fx_screen for x in [
             "In the works",
             "Convert your balances",
             "Coming Soon",
+            "Run FX transfer",
         ])),
     ]
 

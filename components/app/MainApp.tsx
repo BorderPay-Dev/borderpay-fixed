@@ -21,7 +21,6 @@ import { WalletScreen } from '../wallet/WalletScreen';
 import { AddWalletScreen } from '../wallet/AddWalletScreen';
 import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
 import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
-import { ExchangeScreen } from '../exchange/ExchangeScreen';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import { ProfileScreen } from '../profile/ProfileScreen';
 import { NotificationsScreen } from '../notifications/NotificationsScreen';
@@ -121,7 +120,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   cards: eagerPreload,
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
-  exchange: eagerPreload,
   'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': eagerPreload,
@@ -170,11 +168,14 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
       return 'receive-money';
     case 'home':
       return 'dashboard';
+    case 'exchange':
+      // Retired executable FX route. Preserve stale-link safety without
+      // exposing a conversion surface in native or web releases.
+      return 'dashboard';
     case 'dashboard':
     case 'cards':
     case 'send-money':
     case 'receive-money':
-    case 'exchange':
     case 'transactions':
     case 'wallet-detail':
     case 'two-factor-setup':
@@ -343,7 +344,6 @@ export type AppScreen =
   | 'cards'
   | 'send-money'
   | 'receive-money'
-  | 'exchange'
   | 'transactions'
   | 'wallet-detail'
   | 'add-wallet'
@@ -1166,9 +1166,6 @@ function UnlockedMainApp({ userId, onLogout, onLock, newDeviceDetected, onDismis
             onAdded={() => { /* list reloads on mount when navigated back */ }}
           />
         );
-
-      case 'exchange':
-        return <ExchangeScreen onBack={navigateBack} />;
 
       case 'two-factor-setup':
         return (

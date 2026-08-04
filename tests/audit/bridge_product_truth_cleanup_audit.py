@@ -159,8 +159,9 @@ def main() -> int:
         # FundingScreen, which composes the SAME truthful Bridge surfaces.
         and "const AddMoneyScreen" not in main_app
         and "AddMoneyScreen" not in main_app
-        and ("case 'converter':" in main_app or "case 'exchange':" in main_app)
-        and "ExchangeScreen" in main_app
+        and "case 'exchange':" in main_app
+        and "return 'dashboard';" in main_app
+        and "ExchangeScreen" not in main_app
         and "case 'receive-money':" in main_app
         and "case 'ramps':" in main_app
         and "return <ReceiveMoneyScreen" in main_app

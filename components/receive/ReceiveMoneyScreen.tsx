@@ -725,15 +725,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             </h2>
 
             <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-              <button
+              {africanRailsTester && <button
                 type="button"
                 onClick={() => {
-                  if (!africanRailsTester) return;
                   setReceiveStep('africa-destination');
                   void loadAfricanReceivePolicy();
                 }}
-                disabled={!africanRailsTester}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${africanRailsTester ? tc.hoverBg : 'cursor-not-allowed opacity-60'}`}
+                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg}`}
               >
                 <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
                   <Smartphone className="w-5 h-5 text-[#58D66D]" />
@@ -741,20 +739,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 <div className="flex-1 min-w-0">
                   <div className={`text-[15px] font-semibold ${tc.text} truncate`}>Receive to Africa</div>
                   <div className="text-[11px] text-[#58D66D]">
-                    {africanRailsTester ? 'Mobile money and local bank collections' : 'Coming soon'}
+                    Mobile money and local bank collections
                   </div>
-                  {!africanRailsTester && (
-                    <div className="text-[11px] text-white/40">Sandbox review in progress</div>
-                  )}
                 </div>
-                {africanRailsTester ? (
-                  <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
-                ) : (
-                  <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
-                    Soon
-                  </span>
-                )}
-              </button>
+                <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
+              </button>}
 
               {loading ? (
                 <div className={`border-t ${tc.borderLight} px-4 py-8 text-center`}>

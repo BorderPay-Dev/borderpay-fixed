@@ -612,7 +612,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       {/* ── HERO ── Revolut-style: identity row + big balance + inline actions
           The hero is a single dark card with a subtle gradient and a lime
           micro-pill carrying the account status. Action buttons are circular
-          icon buttons (Add / Send / Receive / Convert) underneath the
+          icon buttons (Cards / Send / Receive / Activity) underneath the
           balance — same idiom as Revolut and Wise mobile. */}
       <section className="px-4 sm:px-5 pt-4">
         <div className="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-gradient-to-br from-[#15191F] via-[#0F1216] to-[#0B0E11] px-5 pt-5 pb-6">
@@ -669,7 +669,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </div>
 
           {/* Circular action buttons (Revolut idiom) */}
-          <div className="relative mt-6 grid grid-cols-3 gap-1">
+          <div className="relative mt-6 grid grid-cols-4 gap-1">
             <HeroAction
               label={tt('nav.cards', 'Cards')}
               Icon={CreditCard}
@@ -688,6 +688,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               Icon={ArrowDownLeft}
               onClick={() => handleNavigate('receive-money')}
               onHover={() => prefetchScreen('receive-money')}
+            />
+            <HeroAction
+              label={tt('dashboard.recentActivity', 'Activity')}
+              Icon={Activity}
+              onClick={() => handleNavigate('transactions')}
+              onHover={() => prefetchScreen('transactions')}
             />
           </div>
         </div>
@@ -1038,7 +1044,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       </section>
 
       {/* ── Exchange rates (below recent activity) ─────────────────── */}
-      {FX_NAV_ENABLED && <ExchangeRateWidget onNavigate={handleNavigate} />}
+      {FX_NAV_ENABLED && <ExchangeRateWidget />}
 
       {/* ── 11. Affiliate banner (footer position) ─────────────────── */}
       <section className="px-5 sm:px-6 mt-6 pb-2">

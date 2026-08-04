@@ -26,6 +26,8 @@ FORBIDDEN = [
 failures = []
 server = SERVER_GATE.read_text()
 frontend = FRONTEND_GATE.read_text()
+send_ui = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
+receive_ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 
 for label, source in [("server", server), ("frontend", frontend)]:
     if TESTER not in source:
@@ -36,6 +38,11 @@ for label, source in [("server", server), ("frontend", frontend)]:
 
 if "african_rails_closed_beta" not in server:
     failures.append("server gate is missing the fail-closed response code")
+
+if "{africanRailsTester && <button" not in send_ui:
+    failures.append("send UI must hide African rails completely outside the tester gate")
+if "{africanRailsTester && <button" not in receive_ui:
+    failures.append("receive UI must hide African rails completely outside the tester gate")
 
 for endpoint in ENDPOINTS:
     path = ROOT / f"supabase/functions/{endpoint}/index.ts"

@@ -32,7 +32,6 @@ def main() -> int:
     flags = read("utils/featureFlags.ts")
     generated = read("utils/generated/rc1Status.ts")
     main_app = read("components/app/MainApp.tsx")
-    exchange = read("components/exchange/ExchangeScreen.tsx")
     exchange_widget = read("components/dashboard/fx/ExchangeRateWidget.tsx")
     referral = read("components/referral/ReferralScreen.tsx")
 
@@ -51,9 +50,9 @@ def main() -> int:
     )
 
     check(
-        "R3 FX runtime gate derived from RC1",
-        "export const FX_RUNTIME_ENABLED" in flags and "RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
-        "FX runtime gate missing or not tied to RC1 status",
+        "R3 executable FX runtime is disabled",
+        "export const FX_RUNTIME_ENABLED: boolean = false" in flags,
+        "customer-triggered FX execution must remain disabled",
         failures,
     )
 
@@ -86,20 +85,22 @@ def main() -> int:
     )
 
     check(
-        "R8 FX screen blocks provider reads while RC1 is OPEN",
-        "FX_RUNTIME_ENABLED" in exchange
-        and "if (!FX_RUNTIME_ENABLED)" in exchange
-        and "backendAPI.fx.getLiveRates" in exchange,
-        "ExchangeScreen must short-circuit before live-rate provider calls when RC1 is OPEN",
+        "R8 executable FX route is absent",
+        "import { ExchangeScreen }" not in main_app
+        and "return <ExchangeScreen" not in main_app
+        and "case 'exchange':" in main_app
+        and "return 'dashboard';" in main_app,
+        "stale exchange links must resolve to dashboard and no ExchangeScreen may mount",
         failures,
     )
 
     check(
-        "R9 Dashboard FX widget disables conversion while RC1 is OPEN",
-        "FX_RUNTIME_ENABLED" in exchange_widget
-        and "disabled={!FX_RUNTIME_ENABLED}" in exchange_widget
-        and "Foreign Exchange coming soon" in exchange_widget,
-        "ExchangeRateWidget must disable convert controls and show coming-soon state",
+        "R9 Dashboard rate widget is read-only",
+        "backendAPI.fx.getReferenceRates" in exchange_widget
+        and "onNavigate" not in exchange_widget
+        and "Convert" not in exchange_widget
+        and "getLiveRates" not in exchange_widget,
+        "rate widget must use Bridge reference rates and expose no execution/navigation control",
         failures,
     )
 
