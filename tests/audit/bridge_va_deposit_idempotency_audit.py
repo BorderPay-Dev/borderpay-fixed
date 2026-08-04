@@ -19,6 +19,11 @@ DEBIT_RPC = ROOT / "supabase/migrations/20260714103000_bridge_va_debit_rpc.sql"
 
 def main() -> int:
     src = WORKER.read_text(encoding="utf-8")
+    if not DEBIT_RPC.is_file():
+        print("bridge_va_deposit_idempotency_audit: FAIL")
+        print(f"  [XX] required VA debit RPC migration is missing: {DEBIT_RPC.relative_to(ROOT)}")
+        print("  Recover the exact production apply_bridge_va_debit definition; do not reconstruct live-money SQL from assumptions.")
+        return 1
     debit_rpc = DEBIT_RPC.read_text(encoding="utf-8")
     checks = [
         (

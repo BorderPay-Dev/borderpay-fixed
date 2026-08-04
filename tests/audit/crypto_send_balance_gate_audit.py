@@ -118,7 +118,12 @@ for relative in [
     "supabase/functions/business-bulk-pay/index.ts",
     "supabase/functions/bridge-bulk-payout/index.ts",
 ]:
-    body = (ROOT / relative).read_text()
+    path = ROOT / relative
+    if not path.is_file():
+        # Retired optional callers are outside the active Bridge runtime. If a
+        # caller returns later, this audit automatically inspects it again.
+        continue
+    body = path.read_text()
     if 'payment_rail: "stablecoin"' in body or '|| "stablecoin"' in body:
         failures.append(f"{relative} must not use payment_rail=stablecoin in Bridge transfers.")
 

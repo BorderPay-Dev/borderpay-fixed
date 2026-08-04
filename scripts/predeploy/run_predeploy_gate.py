@@ -303,6 +303,12 @@ def stage2_runtime_contract(ci_mode: bool = False) -> StageResult:
 
 def stage3_financial_correctness(ci_mode: bool = False) -> StageResult:
     stage = StageResult(name="Stage 3 - Financial Correctness Audits", passed=True, started_at=now_utc())
+    stage.checks.append(run_check_command(
+        "Active Bridge money-movement regression gate",
+        "python3 scripts/ci/run_money_movement_regression_gate.py",
+        severity="critical",
+        remediation="Fix every required money-movement audit; missing or skipped audits fail closed.",
+    ))
     if ci_mode:
         stage.checks.append(CheckResult(
             name="Financial correctness audit suite",
@@ -311,7 +317,7 @@ def stage3_financial_correctness(ci_mode: bool = False) -> StageResult:
             severity="medium",
             remediation="Run full financial correctness suite before production promotion.",
         ))
-        stage.passed = True
+        stage.passed = all(c.passed for c in stage.checks)
         stage.ended_at = now_utc()
         return stage
 

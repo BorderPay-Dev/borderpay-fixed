@@ -2,7 +2,7 @@
 from pathlib import Path
 import re
 
-ROOT = Path("/Users/a/Downloads/borderpay-recovery")
+ROOT = Path(__file__).resolve().parents[2]
 F = ROOT / "supabase/functions"
 
 def read(rel: str) -> str:

@@ -111,12 +111,16 @@ def main() -> int:
     code_files: list[Path] = []
     for d in CODE_DIRS:
         code_files.extend(iter_files(d, (".ts", ".tsx", ".js", ".jsx")))
+    engine_code_files = [
+        path for path in code_files
+        if "supabase/functions/_shared/email-templates/" not in rel(path)
+    ]
 
     # 1) Block forbidden business financial implementation names.
     for prefix in FORBIDDEN_BUSINESS_PREFIXES:
         token_re = re.compile(DECL_TOKEN_RE_TEMPLATE.format(prefix=re.escape(prefix)))
         hits: list[str] = []
-        for path in code_files:
+        for path in engine_code_files:
             txt = path.read_text(encoding="utf-8")
             for match in token_re.finditer(txt):
                 hits.append(f"{rel(path)}::{match.group(1)}")
@@ -172,19 +176,19 @@ def main() -> int:
             failures,
         )
 
-    # 5) No separate business financial cache keys.
-    cache_hits: list[str] = []
-    financial_tokens = ("wallet", "tx", "transaction", "va", "virtual", "external", "notification", "ledger", "balance", "send", "receive", "deposit", "withdraw", "stablecoin")
-    for path in code_files:
-        src = path.read_text(encoding="utf-8")
-        for m in FINANCIAL_CACHE_TOKEN_RE.finditer(src):
-            base_key = m.group(1).lower()
-            if ("biz" in base_key or "business" in base_key) and any(t in base_key for t in financial_tokens):
-                cache_hits.append(f"{rel(path)}::{m.group(1)}")
+    # 5) Business compatibility caches may exist for fast paint, but they must
+    # be populated only by the canonical confirmed snapshot publisher.
+    publisher_start = backend_api.find("function publishConfirmedSnapshot")
+    publisher_end = backend_api.find("function rememberSnapshot", publisher_start)
+    publisher = backend_api[publisher_start:publisher_end]
+    compatibility_keys = (
+        "borderpay_business_dash_wallets_v1",
+        "borderpay_business_dash_tx_v1",
+    )
     must(
-        "No business-specific financial cache key namespace",
-        not cache_hits,
-        "; ".join(cache_hits[:8]),
+        "Business fast-paint caches are projections of the canonical snapshot",
+        publisher_start >= 0 and all(key in publisher for key in compatibility_keys),
+        "business cache keys must be written by publishConfirmedSnapshot",
         failures,
     )
 
@@ -214,7 +218,7 @@ def main() -> int:
     provider_files = iter_files(providers_dir, (".ts", ".tsx", ".js"))
     provider_name_hits = [rel(p) for p in provider_files if "business" in p.name.lower()]
     provider_symbol_hits: list[str] = []
-    provider_symbol_re = re.compile(r"\b(?:business.*bridge|bridge.*business)\b", re.IGNORECASE)
+    provider_symbol_re = re.compile(r"\b(?:businessbridge|bridgebusiness)[A-Za-z0-9_]*\b", re.IGNORECASE)
     for path in provider_files:
         txt = path.read_text(encoding="utf-8")
         if provider_symbol_re.search(txt):

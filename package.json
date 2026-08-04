@@ -17,6 +17,7 @@
     "type-check": "tsc --noEmit",
     "ci:financial-schema-contract": "python3 scripts/ci/verify_financial_schema_contract.py",
     "ci:financial-value-propagation": "python3 scripts/ci/verify_financial_value_propagation.py",
+    "ci:money-movement-regression": "python3 scripts/ci/run_money_movement_regression_gate.py",
     "ci:provider-adapter-boundary": "python3 scripts/ci/verify_provider_adapter_boundaries.py",
     "test:build": "npm ci && npm run build && npm run preview",
     "prepare": "command -v husky >/dev/null 2>&1 && husky install || true",
