@@ -25,7 +25,6 @@ import {
   User,
   ArrowDownLeft,
   ArrowUpRight,
-  ArrowLeftRight,
   X,
   Lock,
   ShieldAlert,
@@ -670,7 +669,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </div>
 
           {/* Circular action buttons (Revolut idiom) */}
-          <div className="relative mt-6 grid grid-cols-4 gap-1">
+          <div className="relative mt-6 grid grid-cols-3 gap-1">
             <HeroAction
               label={tt('nav.cards', 'Cards')}
               Icon={CreditCard}
@@ -689,12 +688,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               Icon={ArrowDownLeft}
               onClick={() => handleNavigate('receive-money')}
               onHover={() => prefetchScreen('receive-money')}
-            />
-            <HeroAction
-              label={tt('action.exchange', 'Convert')}
-              Icon={ArrowLeftRight}
-              onClick={() => handleNavigate('exchange')}
-              onHover={() => prefetchScreen('exchange')}
             />
           </div>
         </div>

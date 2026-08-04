@@ -16,6 +16,7 @@ import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
 import { normalizeTransactionReceipt } from '../transactions/receipt';
 import { txDirection } from '../transactions/direction';
 import { friendlyError } from '../errors/friendlyError';
+import { financialCacheKey } from '../financial/cacheScope';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -775,6 +776,7 @@ export const financialReadModelAPI = (() => {
   let lastAnySnapshot: any = null;
   let lastAnySnapshotAt = 0;
   let lastAnySnapshotUserId = '';
+  let lastPublishedSignature = '';
   const EXTERNAL_FETCH_TIMEOUT_MS = 900;
 
   async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -830,6 +832,73 @@ export const financialReadModelAPI = (() => {
     }
   }
 
+  function financialSignature(userId: string, snapshot: any): string {
+    const data = snapshot?.data || {};
+    const wallets = (Array.isArray(data.wallets) ? data.wallets : []).map((row: any) => [
+      String(row?.currency || '').toUpperCase(),
+      Number(row?.balance || 0),
+      String(row?.updated_at || ''),
+    ]);
+    const transactions = (Array.isArray(data.transactions) ? data.transactions : []).map((row: any) => [
+      String(row?.id || row?.bridge_transfer_id || ''),
+      String(row?.status || row?.metadata?.status || ''),
+      Number(row?.amount || 0),
+    ]);
+    const notifications = (Array.isArray(data.notifications) ? data.notifications : []).map((row: any) => [
+      String(row?.id || ''),
+      Boolean(row?.read),
+      String(row?.updated_at || row?.created_at || ''),
+    ]);
+    return JSON.stringify({ userId, wallets, transactions, notifications });
+  }
+
+  function publishConfirmedSnapshot(userId: string, snapshot: any) {
+    if (typeof window === 'undefined' || !snapshot?.success || !snapshot?.data) return;
+    const data = snapshot.data;
+    const wallets = Array.isArray(data.wallets) ? data.wallets : [];
+    const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+    const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+    const stablecoinWallets = Array.isArray(data.stablecoin_wallets) ? data.stablecoin_wallets : [];
+    const virtualAccounts = Array.isArray(data.virtual_accounts) ? data.virtual_accounts : [];
+    const balanceByCurrency = wallets.reduce((acc: Record<string, number>, row: any) => {
+      const currency = String(row?.currency || '').toUpperCase();
+      if (currency === 'USDC' || currency === 'USDT') acc[currency] = Number(row?.balance || 0);
+      return acc;
+    }, {});
+    const totalBalance = Object.values(balanceByCurrency).reduce<number>((sum, balance) => sum + Number(balance || 0), 0);
+    const dashboardWallets = wallets.map((row: any) => {
+      const currency = String(row?.currency || '').toUpperCase();
+      return {
+        currency,
+        balance: Number(row?.balance || 0),
+        symbol: currency === 'USDT' ? '₮' : '$',
+        color: currency === 'USDT' ? '#26A17B' : '#2775CA',
+      };
+    });
+
+    try {
+      localStorage.setItem(financialCacheKey('borderpay_dash_wallets_v1', { userId }), JSON.stringify(dashboardWallets));
+      localStorage.setItem(financialCacheKey('borderpay_business_dash_wallets_v1', { userId }), JSON.stringify(wallets));
+      localStorage.setItem(financialCacheKey('borderpay_wallets_v1', { userId }), JSON.stringify(stablecoinWallets));
+      localStorage.setItem(financialCacheKey('borderpay_va_v1', { userId }), JSON.stringify(virtualAccounts));
+      localStorage.setItem(financialCacheKey('borderpay_tx_history_v1', { userId }), JSON.stringify(transactions));
+      localStorage.setItem(financialCacheKey('borderpay_dash_recent_tx_v1', { userId }), JSON.stringify(transactions.slice(0, 5)));
+      localStorage.setItem(financialCacheKey('borderpay_business_dash_tx_v1', { userId }), JSON.stringify(transactions));
+      localStorage.setItem(financialCacheKey('borderpay_notifications_cache:', { userId }), JSON.stringify({ rows: notifications, cached_at: Date.now() }));
+      localStorage.setItem(`borderpay_wallet_balances_${userId}`, JSON.stringify(balanceByCurrency));
+      localStorage.setItem(`borderpay_wallet_total_${userId}`, String(totalBalance));
+    } catch {
+      // The in-memory snapshot remains authoritative when storage is unavailable.
+    }
+
+    const signature = financialSignature(userId, snapshot);
+    if (signature === lastPublishedSignature) return;
+    lastPublishedSignature = signature;
+    window.dispatchEvent(new CustomEvent('borderpay:financial-snapshot', {
+      detail: { userId, snapshot },
+    }));
+  }
+
   function rememberSnapshot(snapshotKey: string, userId: string, snapshot: any) {
     const now = Date.now();
     lastSnapshot = snapshot;
@@ -850,6 +919,7 @@ export const financialReadModelAPI = (() => {
       lastAnySnapshotUserId = userId;
       savePersistedSnapshot(anySnapshotKey(userId), snapshot);
     }
+    publishConfirmedSnapshot(userId, snapshot);
   }
 
   function invalidateForUser(userIdRaw: string) {
@@ -952,7 +1022,8 @@ export const financialReadModelAPI = (() => {
     }
 
     const profile = (profileRes as any)?.data?.user || {};
-    const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
+    const wallets = (Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [])
+      .filter((row: any) => ['USDC', 'USDT'].includes(String(row?.currency || '').toUpperCase()));
     const transactions = Array.isArray((txRes as any)?.data?.transactions) ? (txRes as any).data.transactions : [];
     const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
     const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
@@ -1032,6 +1103,30 @@ export const financialReadModelAPI = (() => {
 
   return {
     invalidateForUser,
+
+    async refreshForUser(userIdRaw: string, limit = 100) {
+      const userId = String(userIdRaw || '').trim();
+      if (!userId) return { success: false, error: 'Not signed in' };
+      const { userId: authenticatedUserId, error } = await getCurrentUserId();
+      if (!authenticatedUserId || authenticatedUserId !== userId) {
+        return { success: false, error: error || 'Not signed in' };
+      }
+      invalidateForUser(userId);
+      const key = `${userId}:${Math.max(1, Number(limit) || 100)}`;
+      const next = await fetchSnapshot(userId, limit);
+      if (next?.success) rememberSnapshot(key, userId, next);
+      return next;
+    },
+
+    async refreshAfterMutation(userIdRaw: string, limit = 100) {
+      const userId = String(userIdRaw || '').trim();
+      if (!userId) return;
+      const delays = [0, 500, 1500, 3000];
+      for (const delay of delays) {
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+        try { await financialReadModelAPI.refreshForUser(userId, limit); } catch { /* retry confirmed projection */ }
+      }
+    },
 
     async getSnapshot(limit = 50) {
       // Fast path: session user is locally available and avoids an extra
