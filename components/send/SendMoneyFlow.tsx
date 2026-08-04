@@ -1521,6 +1521,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         // financial cache now so Dashboard, Wallet, Activity and Notifications
         // cannot keep rendering the pre-payout snapshot after navigation.
         backendAPI.financial.invalidateForUser(userId);
+        // Refresh only confirmed projection rows. The first pass surfaces the
+        // locally submitted transfer; later passes pick up Bridge webhook state
+        // without fabricating an optimistic balance.
+        void backendAPI.financial.refreshAfterMutation(userId, 100);
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
         setTransactionId(result.data?.transaction_id || result.data?.transfer_id || '');

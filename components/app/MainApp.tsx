@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { backendAPI } from '../../utils/api/backendAPI';
-import { authAPI } from '../../utils/supabase/client';
+import { authAPI, supabase } from '../../utils/supabase/client';
 import { Dashboard } from './Dashboard';
 import { BusinessDashboard } from '../business/BusinessDashboard';
 import { KYCVerification } from '../kyc/KYCVerification';
@@ -544,6 +544,7 @@ function UnlockedMainApp({ userId, onLogout, onLock, newDeviceDetected, onDismis
   const [verificationEmbedReturnEnabled, setVerificationEmbedReturnEnabled] = useState<boolean>(() => {
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
+
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   // Clear one-time module-reload fuse once the app boots successfully.
@@ -592,6 +593,43 @@ function UnlockedMainApp({ userId, onLogout, onLock, newDeviceDetected, onDismis
     setUnreadCount(next);
     writeCachedUnreadCount(userId, next);
   }, [userId]);
+
+  // Canonical financial projections are published through Supabase Realtime.
+  // Debounce the related ledger/transaction/notification writes into one
+  // confirmed snapshot refresh shared by individual and business accounts.
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        if (!cancelled) void backendAPI.financial.refreshForUser(userId, 100);
+      }, 120);
+    };
+    const onSnapshot = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail || {};
+      if (String(detail?.userId || '') !== String(userId)) return;
+      const unread = Number(detail?.snapshot?.data?.notifications_unread_count ?? 0);
+      if (Number.isFinite(unread)) updateUnreadCount(unread);
+      setRefreshKey((value) => value + 1);
+    };
+    window.addEventListener('borderpay:financial-snapshot', onSnapshot);
+
+    const channel = supabase
+      .channel(`financial-projection:${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bridge_balance_ledger', filter: `user_id=eq.${userId}` }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bridge_balance_ledger', filter: `business_user_id=eq.${userId}` }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${userId}` }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` }, scheduleRefresh)
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      window.removeEventListener('borderpay:financial-snapshot', onSnapshot);
+      void supabase.removeChannel(channel);
+    };
+  }, [userId, updateUnreadCount]);
 
   // ─── ADDITIVE: account-type routing ────────────────────────────────────
   // Default to 'individual' for first paint (preserves existing behaviour
@@ -1263,6 +1301,10 @@ function UnlockedMainApp({ userId, onLogout, onLock, newDeviceDetected, onDismis
     }
   };
 
+  const financialDisplayRefreshKey = ['dashboard', 'home', 'wallet-detail', 'transactions', 'notifications'].includes(currentScreen)
+    ? refreshKey
+    : 0;
+
   return (
     <div
       className={`overflow-hidden fixed inset-0 ${tc.bg}`}
@@ -1298,10 +1340,10 @@ function UnlockedMainApp({ userId, onLogout, onLock, newDeviceDetected, onDismis
                 suppressHeaderChrome={currentScreen === 'wallet-detail' || detailSheetOpen}
                 suppressBottomChrome={detailSheetOpen}
               >
-                {renderScreen()}
+                <React.Fragment key={`${currentScreen}:${financialDisplayRefreshKey}`}>{renderScreen()}</React.Fragment>
               </AppShell>
             ) : (
-              renderScreen()
+              <React.Fragment key={`${currentScreen}:${financialDisplayRefreshKey}`}>{renderScreen()}</React.Fragment>
             )}
           </Suspense>
         </ErrorBoundary>

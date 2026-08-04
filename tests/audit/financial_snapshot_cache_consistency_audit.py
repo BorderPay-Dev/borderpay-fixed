@@ -24,6 +24,8 @@ if "key.startsWith(snapshotPrefix) || key.endsWith(financialSuffix)" not in back
     failures.append("Financial cache invalidation must clear both shared snapshots and derived financial caches.")
 if "backendAPI.financial.invalidateForUser(userId);" not in send:
     failures.append("Successful payouts must invalidate the shared financial snapshot before returning to wallet/activity screens.")
+if "backendAPI.financial.refreshAfterMutation(userId, 100)" not in send:
+    failures.append("Successful payouts must repopulate the confirmed shared snapshot after invalidation.")
 
 if "const TX_CACHE_KEY     = 'borderpay_tx_history_v1';" not in dashboard:
     failures.append("Dashboard must use the same transaction cache key as Transactions/Notifications.")

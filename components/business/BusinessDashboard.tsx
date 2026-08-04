@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -702,7 +702,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
 
         {/* ── 4. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">
-          <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
+          <div className="grid grid-cols-4 md:grid-cols-7 gap-2">
             <BizChip label="Send"    Icon={Send}     onPrefetch={() => prefetchScreen('send-money')}       onClick={() => navigate('send-money')}    tc={tc} />
             <BizChip label="Receive" Icon={Download} onPrefetch={() => prefetchScreen('receive-money')}    onClick={() => navigate('receive-money')} tc={tc} />
             <BizChip label="Activity" Icon={FileText} onPrefetch={() => prefetchScreen('transactions')}    onClick={() => navigate('transactions')} tc={tc} />
@@ -715,13 +715,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
               onClick={() => navigate('payroll')}
               tc={tc}
               disabled={!PAYROLL_RUNTIME_ENABLED}
-            />
-            <BizChip
-              label="FX"
-              Icon={ArrowRightLeft}
-              onPrefetch={() => prefetchScreen('exchange')}
-              onClick={() => navigate('exchange')}
-              tc={tc}
             />
             <BizChip label="Cards" Icon={CreditCard} onPrefetch={() => prefetchScreen('cards')} onClick={() => onNavigate('cards')} tc={tc} />
           </div>

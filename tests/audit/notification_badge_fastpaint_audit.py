@@ -47,7 +47,7 @@ def main() -> int:
         "N2 unread backend refresh updates cache",
         "const updateUnreadCount = useCallback((count: number)" in main_app
         and "writeCachedUnreadCount(userId, next)" in main_app
-        and "backendAPI.notifications.getUnreadCount()" in main_app
+        and "backendAPI.financial.getSnapshot(20)" in main_app
         and "updateUnreadCount(n)" in main_app,
         "Backend unread refresh must update React state and local cache through updateUnreadCount",
     ))
@@ -78,7 +78,7 @@ def main() -> int:
         and "BIZ_DASH_TX_KEY = 'borderpay_business_dash_tx_v1'" in notifications
         and "readCachedActivityNotifications()" in notifications
         and "composeNotificationRows(readCachedNotifications(), readCachedActivityNotifications())" in notifications
-        and "backendAPI.transactions.getTransactions(100, 0)" in notifications
+        and "backendAPI.financial.getSnapshot(100)" in notifications
         and "__activity_source: 'transactions'" in notifications,
         "NotificationsScreen must first-paint from the same transaction/recent activity caches used by Dashboard and Transactions",
     ))
