@@ -60,6 +60,7 @@ import {
   navPerfStartRoute,
 } from '../../utils/performance/navigationPerf';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { deriveAccountAccessState, type AccountAccessState as ProviderAccountAccessState } from '../../utils/accountAccessStatus';
 import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
@@ -421,25 +422,53 @@ type StablecoinConfirmData = {
   txHash?: string;
 };
 
-const RESTRICTED_ACCOUNT_STATUSES = new Set([
-  'frozen', 'paused', 'risk_paused', 'restricted', 'blocked', 'suspended',
-  'offboarded', 'closed', 'terminated', 'deactivated', 'rejected',
-]);
+type AccountAccessState = 'checking' | 'unavailable' | ProviderAccountAccessState;
 
-function isRestrictedAccount(profile: any): boolean {
-  const normalize = (value: unknown) => String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-  return RESTRICTED_ACCOUNT_STATUSES.has(normalize(profile?.account_status))
-    || RESTRICTED_ACCOUNT_STATUSES.has(normalize(profile?.bridge_account_status));
-}
-
-type AccountAccessState = 'checking' | 'active' | 'frozen' | 'unavailable';
+const ACCESS_COPY: Record<Exclude<ProviderAccountAccessState, 'active'>, { title: string; body: string }> = {
+  frozen: {
+    title: 'Account frozen',
+    body: 'Access to BorderPay features is unavailable. Contact support if you believe this is an error.',
+  },
+  paused: {
+    title: 'Account paused',
+    body: 'Your account is temporarily unavailable. Contact support if you need help.',
+  },
+  closed: {
+    title: 'Account closed',
+    body: 'This account is unavailable. Contact support if you need more information.',
+  },
+  verification_rejected: {
+    title: 'Verification rejected',
+    body: 'Your verification was not approved. Contact support for information about the next step.',
+  },
+  under_review: {
+    title: 'Under review',
+    body: 'Your verification is being reviewed. We will update your account when the review is complete.',
+  },
+  awaiting_rfi: {
+    title: 'More information needed',
+    body: 'Additional information is required to continue your verification.',
+  },
+  needs_edd: {
+    title: 'Additional review required',
+    body: 'Your account requires an additional compliance review.',
+  },
+  needs_ubos: {
+    title: 'Business ownership details required',
+    body: 'Provide the requested business ownership information to continue verification.',
+  },
+  incomplete: {
+    title: 'Verification incomplete',
+    body: 'Complete the remaining verification steps to use BorderPay features.',
+  },
+};
 
 function AccountAccessScreen({ state, onRetry, onLogout }: {
   state: Exclude<AccountAccessState, 'active'>;
   onRetry: () => void;
   onLogout: () => void;
 }) {
-  const frozen = state === 'frozen';
+  const copy = state === 'checking' || state === 'unavailable' ? null : ACCESS_COPY[state];
   return (
     <main className="min-h-[100dvh] bg-[#080B0F] text-white flex items-center justify-center px-6">
       <section className="w-full max-w-sm text-center" role="status" aria-live="polite">
@@ -447,14 +476,14 @@ function AccountAccessScreen({ state, onRetry, onLogout }: {
           <ShieldAlert className="h-8 w-8 text-red-400" aria-hidden="true" />
         </div>
         <h1 className="text-2xl font-semibold">
-          {state === 'checking' ? 'Checking account access' : frozen ? 'Account frozen' : 'Unable to verify account access'}
+          {state === 'checking' ? 'Checking account access' : state === 'unavailable' ? 'Unable to verify account access' : copy?.title}
         </h1>
         <p className="mt-3 text-sm leading-6 text-gray-400">
           {state === 'checking'
             ? 'Please wait while we verify your account.'
-            : frozen
-              ? 'Access to BorderPay features is unavailable. Contact support if you believe this is an error.'
-              : 'We could not verify your account access. Try again before using BorderPay.'}
+            : state === 'unavailable'
+              ? 'We could not verify your account access. Try again before using BorderPay.'
+              : copy?.body}
         </p>
         <div className="mt-8 space-y-3">
           {state === 'unavailable' && (
@@ -488,7 +517,7 @@ export function MainApp(props: MainAppProps) {
           setAccess('unavailable');
           return;
         }
-        setAccess(isRestrictedAccount(profile) ? 'frozen' : 'active');
+        setAccess(deriveAccountAccessState(profile));
       })
       .catch(() => {
         if (!cancelled) setAccess('unavailable');
