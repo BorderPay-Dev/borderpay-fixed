@@ -45,16 +45,18 @@ const lower = (value: unknown) => str(value).toLowerCase();
 const SANDBOX_SUCCESS_EVM_ADDRESS = "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe";
 const SANDBOX_SUCCESS_TRON_ADDRESS = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 const COUNTRY_DIAL_CODES: Record<string, string> = {
-  BW: "267", CM: "237", CD: "243", CG: "242", CI: "225", GA: "241",
-  GH: "233", KE: "254", MW: "265", NG: "234", RW: "250", SN: "221",
-  TZ: "255", UG: "256", ZA: "27", ZM: "260",
+  BJ: "229", BW: "267", BF: "226", CM: "237", CD: "243", CG: "242",
+  CI: "225", TD: "235", GA: "241", GH: "233", KE: "254", MW: "265",
+  ML: "223", NG: "234", RW: "250", SN: "221", TZ: "255", TG: "228",
+  UG: "256", ZA: "27", ZM: "260",
 };
 
-function sandboxSuccessAccount(country: string, channel: string): string {
-  if (channel !== "mobile_money") return "1111111111";
+function sandboxAccount(country: string, channel: string, outcome: "success" | "failure"): string {
+  const digits = outcome === "success" ? "1111111111" : "0000000000";
+  if (channel !== "mobile_money") return digits;
   const dialCode = COUNTRY_DIAL_CODES[country];
   if (!dialCode) throw new Error("yellow_card_missing_sandbox_dial_code");
-  return `+${dialCode}1111111111`;
+  return `+${dialCode}${digits}`;
 }
 
 function rowsFrom(value: any, key: string): any[] {
@@ -70,6 +72,10 @@ function isActive(value: any): boolean {
 
 function receiveRamp(value: any): boolean {
   return ["deposit", "receive", "collection", "payin", "pay-in", "onramp", "on-ramp"].includes(lower(value));
+}
+
+function sendRamp(value: any): boolean {
+  return ["withdrawal", "send", "payment", "payout", "offramp", "off-ramp"].includes(lower(value));
 }
 
 function railToYc(channel: string): "bank" | "momo" {
@@ -105,11 +111,11 @@ function profileAddress(profile: any, bridgeIdentity: any): string {
     .join(", ");
 }
 
-function channelMatches(channel: any, input: { country: string; currency: string; rail: string }): boolean {
+function channelMatches(channel: any, input: { country: string; currency: string; rail: string; direction: "receive" | "payout" }): boolean {
   return upper(channel?.country) === input.country &&
     upper(channel?.currency || channel?.countryCurrency) === input.currency &&
     ycToPolicyRail(channel?.channelType) === input.rail &&
-    receiveRamp(channel?.rampType) &&
+    (input.direction === "receive" ? receiveRamp(channel?.rampType) : sendRamp(channel?.rampType)) &&
     isActive(channel?.apiStatus || channel?.status);
 }
 
@@ -174,6 +180,7 @@ function providerFields(payload: any) {
 }
 
 async function loadContext(userId: string, input: any) {
+  const direction = input?.direction === "payout" ? "payout" : "receive";
   const country = upper(input?.country);
   const currency = upper(input?.currency);
   const channel = lower(input?.channel);
@@ -211,12 +218,12 @@ async function loadContext(userId: string, input: any) {
   }
 
   const profileCountry = normalizeYellowCardCountryCode(profile.country);
-  if (profileCountry !== country) {
+  if (direction === "receive" && profileCountry !== country) {
     return { ok: false as const, status: 403, code: "receive_country_must_match_account_country" };
   }
 
   const commercialRail = findYellowCardCommercialRail({
-    direction: "receive",
+    direction,
     countryCode: country,
     currency,
     channel: channel as "bank" | "mobile_money",
@@ -266,13 +273,36 @@ async function loadContext(userId: string, input: any) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
   }
   const channels = rowsFrom(channelsResult.data, "channels").filter((candidate) =>
-    channelMatches(candidate, { country, currency, rail: channel })
+    channelMatches(candidate, { country, currency, rail: channel, direction })
   );
 
   const selectedChannelId = str(input?.channel_id);
-  const selectedChannel = selectedChannelId
+  let selectedChannel = selectedChannelId
     ? channels.find((candidate) => str(candidate?.id) === selectedChannelId)
     : (channels.length === 1 ? channels[0] : null);
+
+  let networks: any[] = [];
+  let selectedNetwork: any = null;
+  if (channels.length > 0) {
+    const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
+    if (!networksResult.ok) {
+      return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
+    }
+    const ycAccountType = railToYc(channel);
+    const selectedNetworkId = str(input?.network_id);
+    const allNetworks = rowsFrom(networksResult.data, "networks");
+    if (!selectedChannel && selectedNetworkId) {
+      const chosen = allNetworks.find((candidate) => str(candidate?.id) === selectedNetworkId);
+      const channelIds = Array.isArray(chosen?.channelIds) ? chosen.channelIds.map(str) : [];
+      selectedChannel = channels.find((candidate) => channelIds.includes(str(candidate?.id))) || null;
+    }
+    networks = selectedChannel ? allNetworks.filter((candidate) =>
+      networkMatches(candidate, { country, channelId: str(selectedChannel?.id), accountType: ycAccountType })
+    ) : [];
+    selectedNetwork = selectedNetworkId
+      ? networks.find((candidate) => str(candidate?.id) === selectedNetworkId)
+      : (networks.length === 1 ? networks[0] : null);
+  }
 
   if (selectedChannel) {
     const minimum = Number(selectedChannel?.min);
@@ -283,23 +313,6 @@ async function loadContext(userId: string, input: any) {
     }
   }
 
-  let networks: any[] = [];
-  let selectedNetwork: any = null;
-  if (selectedChannel) {
-    const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
-    if (!networksResult.ok) {
-      return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
-    }
-    const ycAccountType = railToYc(channel);
-    networks = rowsFrom(networksResult.data, "networks").filter((candidate) =>
-      networkMatches(candidate, { country, channelId: str(selectedChannel?.id), accountType: ycAccountType })
-    );
-    const selectedNetworkId = str(input?.network_id);
-    selectedNetwork = selectedNetworkId
-      ? networks.find((candidate) => str(candidate?.id) === selectedNetworkId)
-      : (networks.length === 1 ? networks[0] : null);
-  }
-
   const settlementInfo: YellowCardSettlement = settlementCurrency === "USDC"
     ? { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: SANDBOX_SUCCESS_EVM_ADDRESS }
     : { cryptoCurrency: "USDT", cryptoNetwork: "TRC20", walletAddress: SANDBOX_SUCCESS_TRON_ADDRESS };
@@ -307,6 +320,7 @@ async function loadContext(userId: string, input: any) {
   return {
     ok: true as const,
     country,
+    direction,
     currency,
     channel,
     localAmount,
@@ -368,7 +382,9 @@ Deno.serve(async (req) => {
     if (!existing) return json({ success: false, code: "yellow_card_transaction_not_found" }, 404);
     const provider = await yellowCardFetch({
       method: "GET",
-      path: `/receive/sequence-id/${encodeURIComponent(sequenceId)}`,
+      path: existing.direction === "payout"
+        ? `/send/sequence-id/${encodeURIComponent(sequenceId)}`
+        : `/receive/sequence-id/${encodeURIComponent(sequenceId)}`,
     });
     if (!provider.ok) {
       return json({ success: false, code: provider.error || "yellow_card_status_failed", data: { transaction: publicTransaction(existing) } }, 502);
@@ -383,7 +399,9 @@ Deno.serve(async (req) => {
     return json({ success: true, data: { transaction: publicTransaction(updated || { ...existing, ...updates }) } });
   }
 
-  const context = await loadContext(access.user.id, body);
+  const isSend = action === "preflight_send" || action === "create_send";
+  const sandboxOutcome: "success" | "failure" = lower(body?.sandbox_outcome) === "failure" ? "failure" : "success";
+  const context = await loadContext(access.user.id, { ...body, direction: isSend ? "payout" : "receive" });
   if (!context.ok) return json({ success: false, code: context.code, error: "Yellow Card preflight failed." }, context.status);
 
   const preflight = {
@@ -404,7 +422,7 @@ Deno.serve(async (req) => {
     missing_kyc_fields: context.missingKyc,
     bridge_settlement_wallet_ready: true,
     sandbox_simulated: true,
-    sandbox_expected_outcome: "success",
+    sandbox_expected_outcome: sandboxOutcome,
     settlement_currency: context.settlementInfo.cryptoCurrency,
     settlement_network: context.settlementInfo.cryptoNetwork,
     channel_candidates: context.channels.map((row) => ({
@@ -425,10 +443,10 @@ Deno.serve(async (req) => {
     })),
     selected_network_id: str(context.selectedNetwork?.id) || null,
     can_create: context.missingKyc.length === 0 && Boolean(context.selectedChannel) &&
-      (context.channel === "bank" || Boolean(context.selectedNetwork)),
+      Boolean(context.selectedNetwork),
   };
-  if (action === "preflight") return json({ success: true, data: preflight });
-  if (action !== "create_receive") return json({ success: false, code: "unsupported_action" }, 400);
+  if (action === "preflight" || action === "preflight_send") return json({ success: true, data: preflight });
+  if (action !== "create_receive" && action !== "create_send") return json({ success: false, code: "unsupported_action" }, 400);
 
   if (!flag("YC_ENABLED") || !flag("YC_MONEY_MOVEMENT_ENABLED")) {
     return json({ success: false, code: "yellow_card_money_movement_disabled", error: "This test route is unavailable." }, 503);
@@ -460,7 +478,38 @@ Deno.serve(async (req) => {
 
   let providerBody: Record<string, unknown>;
   try {
-    providerBody = buildYellowCardSandboxReceivePayload({
+    if (isSend && (!Number.isFinite(Number(body?.crypto_amount)) || Number(body.crypto_amount) <= 0)) {
+      throw new Error("yellow_card_invalid_crypto_amount");
+    }
+    providerBody = isSend ? {
+      channelId: str(context.selectedChannel.id),
+      sequenceId,
+      localAmount: context.localAmount,
+      reason: str(body?.reason || "other").toLowerCase(),
+      sender: {
+        ...context.kyc,
+        // Yellow Card's documented direct-settlement sandbox outcome control.
+        name: `${sandboxOutcome === "success" ? "Successful" : "Failure"} ${context.kyc.name}`,
+      },
+      destination: {
+        accountName: str(body?.recipient_name) || "Sandbox Recipient",
+        accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
+        accountType: railToYc(context.channel),
+        networkId: str(context.selectedNetwork?.id),
+      },
+      forceAccept: true,
+      customerType: "retail",
+      customerUID: access.user.id,
+      country: context.country,
+      currency: context.currency,
+      directSettlement: true,
+      settlementInfo: {
+        cryptoCurrency: context.settlementInfo.cryptoCurrency,
+        cryptoNetwork: context.settlementInfo.cryptoNetwork,
+        cryptoAmount: Number(body?.crypto_amount),
+        refundAddress: context.settlementInfo.walletAddress,
+      },
+    } : buildYellowCardSandboxReceivePayload({
       sequenceId,
       channelId: str(context.selectedChannel.id),
       localAmount: context.localAmount,
@@ -471,7 +520,7 @@ Deno.serve(async (req) => {
       recipient: context.kyc,
       source: {
         accountType: railToYc(context.channel),
-        accountNumber: sandboxSuccessAccount(context.country, context.channel),
+        accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
         ...(context.selectedNetwork?.id ? { networkId: str(context.selectedNetwork.id) } : {}),
       },
       settlementInfo: context.settlementInfo,
@@ -485,7 +534,7 @@ Deno.serve(async (req) => {
     .insert({
       user_id: access.user.id,
       environment: "sandbox",
-      direction: "receive",
+      direction: isSend ? "payout" : "receive",
       sequence_id: sequenceId,
       country_code: context.country,
       currency: context.currency,
@@ -496,7 +545,24 @@ Deno.serve(async (req) => {
       settlement_currency: context.settlementInfo.cryptoCurrency,
       settlement_network: context.settlementInfo.cryptoNetwork,
       status: "submitted",
-      request_payload: redactYellowCardReceivePayload(providerBody),
+      request_payload: isSend
+        ? {
+          ...providerBody,
+          sender: providerBody.sender ? {
+            ...(providerBody.sender as Record<string, unknown>),
+            phone: "[redacted]", address: "[redacted]", dob: "[redacted]",
+            email: "[redacted]", idNumber: "[redacted]",
+          } : undefined,
+          destination: providerBody.destination ? {
+            ...(providerBody.destination as Record<string, unknown>),
+            accountNumber: "[redacted]",
+          } : undefined,
+          settlementInfo: providerBody.settlementInfo ? {
+            ...(providerBody.settlementInfo as Record<string, unknown>),
+            refundAddress: "[redacted]",
+          } : undefined,
+        }
+        : redactYellowCardReceivePayload(providerBody),
       metadata: {
         tester_only: true,
         operator_confirmed: true,
@@ -511,20 +577,20 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "yellow_card_persistence_failed", error: "The test transaction was not sent." }, 500);
   }
 
-  const provider = await yellowCardFetch({ method: "POST", path: "/receive", body: providerBody });
+  const provider = await yellowCardFetch({ method: "POST", path: isSend ? "/send" : "/receive", body: providerBody });
   if (!provider.ok) {
     const updates = {
       status: "failed",
       provider_status: "rejected",
       provider_response: provider.data && typeof provider.data === "object" ? provider.data : {},
-      last_error: provider.error || "yellow_card_receive_failed",
+      last_error: provider.error || (isSend ? "yellow_card_send_failed" : "yellow_card_receive_failed"),
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
     await supa.from("yellowcard_transactions").update(updates).eq("id", inserted.id);
     return json({
       success: false,
-      code: provider.error || "yellow_card_receive_failed",
+      code: provider.error || (isSend ? "yellow_card_send_failed" : "yellow_card_receive_failed"),
       error: "The Yellow Card sandbox request was rejected.",
       data: { transaction: publicTransaction({ ...inserted, ...updates }) },
     }, provider.status >= 400 && provider.status < 500 ? 422 : 502);
