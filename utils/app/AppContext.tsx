@@ -241,7 +241,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch {}
         // Fetch wallets (non-blocking; skip on error)
         try {
-          const wRes = await fetch(`${SUPABASE_URL}/rest/v1/wallets?user_id=eq.${user.id}&select=id,user_id,currency,balance,status,kind`, {
+          const wRes = await fetch(`${SUPABASE_URL}/rest/v1/wallets?user_id=eq.${user.id}&select=id,user_id,currency,balance,status`, {
             headers: { Authorization: `Bearer ${session.access_token}`, apikey: ANON_KEY },
           });
           if (wRes.ok) wallets = await wRes.json();
@@ -270,7 +270,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { session, user } = state;
     if (!session || !user) return;
     try {
-      const wRes = await fetch(`${SUPABASE_URL}/rest/v1/wallets?user_id=eq.${user.id}&select=id,user_id,currency,balance,status,kind`, {
+      const wRes = await fetch(`${SUPABASE_URL}/rest/v1/wallets?user_id=eq.${user.id}&select=id,user_id,currency,balance,status`, {
         headers: { Authorization: `Bearer ${session.access_token}`, apikey: ANON_KEY },
       });
       if (wRes.ok) {

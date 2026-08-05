@@ -14,7 +14,7 @@ export type AfricanPolicyRow = {
 
 const CACHE_VERSION = 'v2';
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_TIMEOUT_MS = 6500;
+const DEFAULT_TIMEOUT_MS = 25000;
 
 const memoryCache = new Map<string, { rows: AfricanPolicyRow[]; cachedAt: number }>();
 const inFlight = new Map<string, Promise<AfricanPolicyRow[]>>();

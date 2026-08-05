@@ -27,6 +27,7 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-customer') return 30000;
   if (endpoint === 'bridge-transfer') return 45000;
   if (endpoint === 'bridge-external-account') return 30000;
+  if (endpoint === 'yellowcard-capabilities' || endpoint === 'yellowcard-sandbox-transaction') return 30000;
   return 8000;
 }
 

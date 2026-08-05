@@ -179,7 +179,9 @@ function normalizeDashboardVaRows(raw: unknown, country: string | null | undefin
 
 function isSpendableDashboardWallet(row: { balance?: number }): boolean {
   const balance = Number(row?.balance || 0);
-  return Number.isFinite(balance) && balance > 0;
+  // An active zero-balance wallet is still an existing account. Hiding it
+  // made verified users look unprovisioned on a cold/PWA sign-in.
+  return Number.isFinite(balance) && balance >= 0;
 }
 
 function formatDashboardWalletBalance(row: { currency: string; balance: number }): string {
@@ -371,12 +373,12 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       const [snapshotRes, securityRes] = await Promise.allSettled([
         withTimeout(
           backendAPI.financial.getSnapshot(5),
-          1800,
+          12000,
           { success: false, data: null, error: 'snapshot_timeout' } as any,
         ),
         withTimeout(
           backendAPI.auth.getSecurityStatus(userId),
-          1800,
+          12000,
           { success: false, data: null, error: 'security_timeout' } as any,
         ),
       ]);

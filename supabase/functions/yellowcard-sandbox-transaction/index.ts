@@ -9,6 +9,7 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
+import { quoteYellowCardCustomerFee, yellowCardFeeProduct, type YellowCardFeeRow } from "../_shared/providers/yellowcard-fee-schedule.ts";
 import {
   buildYellowCardSandboxReceivePayload,
   redactYellowCardReceivePayload,
@@ -126,10 +127,12 @@ function channelMatches(channel: any, input: { country: string; currency: string
 function networkMatches(network: any, input: { country: string; channelId: string; accountType: string }): boolean {
   const channelIds = Array.isArray(network?.channelIds) ? network.channelIds.map(str) : [];
   const accountType = lower(network?.accountNumberType);
+  const normalizedAccountType = ycToPolicyRail(accountType);
+  const expectedAccountType = input.accountType === "momo" ? "mobile_money" : "bank";
   return upper(network?.country) === input.country &&
     isActive(network?.status) &&
     channelIds.includes(input.channelId) &&
-    (!accountType || accountType === input.accountType);
+    (!accountType || normalizedAccountType === expectedAccountType);
 }
 
 function publicTransaction(row: any) {
@@ -236,6 +239,16 @@ async function loadContext(userId: string, input: any) {
     return { ok: false as const, status: 403, code: "yellow_card_commercial_corridor_unavailable" };
   }
 
+  const feeProduct = yellowCardFeeProduct(direction, country, channel as "bank" | "mobile_money");
+  const { data: configuredFeeRows, error: configuredFeeError } = await supa
+    .from("fee_schedule")
+    .select("product,currency,provider_fee_percent,provider_fee_fixed,borderpay_markup_percent,borderpay_markup_fixed,min_total,max_total")
+    .eq("product", feeProduct);
+  const customerFee = quoteYellowCardCustomerFee((configuredFeeRows || []) as YellowCardFeeRow[], localAmount);
+  if (configuredFeeError || !customerFee) {
+    return { ok: false as const, status: 503, code: "yellow_card_fee_schedule_unavailable" };
+  }
+
   const policy = { enabled: true, code: "ok" as const, row: commercialRail };
 
   let bridgeIdentity: any = null;
@@ -272,7 +285,10 @@ async function loadContext(userId: string, input: any) {
     return { ok: false as const, status: 409, code: "bridge_settlement_wallet_required" };
   }
 
-  const channelsResult = await yellowCardFetch({ method: "GET", path: "/channels", query: { country } });
+  const [channelsResult, networksResult] = await Promise.all([
+    yellowCardFetch({ method: "GET", path: "/channels", query: { country } }),
+    yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
+  ]);
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
   }
@@ -288,7 +304,6 @@ async function loadContext(userId: string, input: any) {
   let networks: any[] = [];
   let selectedNetwork: any = null;
   if (channels.length > 0) {
-    const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
     if (!networksResult.ok) {
       return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
     }
@@ -329,6 +344,7 @@ async function loadContext(userId: string, input: any) {
     channel,
     localAmount,
     policy: policy.row,
+    customerFee,
     profile,
     kyc,
     missingKyc,
@@ -421,12 +437,14 @@ Deno.serve(async (req) => {
     channel: context.channel,
     local_amount: context.localAmount,
     transaction_fee: {
-      percent: context.policy?.provider_fee_percent ?? null,
+      percent: context.customerFee.customer_percent,
       usd: null,
-      local: context.policy?.provider_fee_local ?? null,
-      minimum_local: context.policy?.minimum_fee_local ?? null,
-      maximum_local: context.policy?.maximum_fee_local ?? null,
-      source: context.policy?.source_document ?? null,
+      local: context.customerFee.customer_total,
+      provider_percent: context.customerFee.provider_percent,
+      provider_fixed: context.customerFee.provider_fixed,
+      borderpay_markup_percent: context.customerFee.borderpay_markup_percent,
+      borderpay_markup_fixed: context.customerFee.borderpay_markup_fixed,
+      source: context.customerFee.source,
     },
     kyc_complete: context.missingKyc.length === 0,
     missing_kyc_fields: context.missingKyc,

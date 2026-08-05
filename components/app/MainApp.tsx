@@ -918,8 +918,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       } catch { /* noop */ }
 
       await Promise.allSettled([
-        loadAfricanPolicyRows('payout', { timeoutMs: 6500 }),
-        loadAfricanPolicyRows('receive', { timeoutMs: 6500 }),
+        loadAfricanPolicyRows('payout', { timeoutMs: 25000 }),
+        loadAfricanPolicyRows('receive', { timeoutMs: 25000 }),
       ]);
       if (!cancelled) {
         try { localStorage.setItem(warmTsKey, String(Date.now())); } catch { /* noop */ }

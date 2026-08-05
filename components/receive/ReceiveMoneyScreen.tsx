@@ -25,6 +25,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { yellowCardCustomerFee } from '../../utils/fees/yellowCard';
 import { loadIpCountry } from '../../utils/geoCountry';
 import {
   loadAfricanPolicyRows,
@@ -51,7 +52,7 @@ interface AfricanCountryOption {
 }
 
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
-const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 6500;
+const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 25000;
 
 function flagFromCountryCode(countryCode: string) {
   const code = String(countryCode || '').trim().toUpperCase();
@@ -630,6 +631,8 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const collectionFee = useMemo(() => {
     if (!selectedAfricanPolicyRow || collectionAmountNumber <= 0) return null;
+    const configured = yellowCardCustomerFee(selectedAfricanPolicyRow.raw, collectionAmountNumber);
+    if (configured) return configured;
     const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
     const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
     const usd = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_usd');

@@ -36,6 +36,7 @@ import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { yellowCardCustomerFee } from '../../utils/fees/yellowCard';
 import {
   hasFreshAfricanPolicyRows,
   loadAfricanPolicyRows,
@@ -996,6 +997,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const africanPolicyFee = useMemo(() => {
     if (!isAfricanPayout || !selectedAfricanPolicyRow || !africanQuote?.destinationAmount) return null;
+    const configured = yellowCardCustomerFee(selectedAfricanPolicyRow.raw, africanQuote.destinationAmount);
+    if (configured) return configured;
     const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
     const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
     if (pct !== null) {
@@ -1243,7 +1246,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       const list: Institution[] = (Array.isArray(rawList) ? rawList : [])
         .filter((row: any) => {
           const accountType = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
-          return !accountType || accountType === (method === 'mobile_money' ? 'momo' : 'bank');
+          const normalized = ['momo', 'mobile_money', 'mobilemoney'].includes(accountType) ? 'mobile_money' : accountType;
+          return !accountType || normalized === method;
         })
         .map((row: any, idx: number) => ({
           code: String(
@@ -2287,7 +2291,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                               }`}
                             >
                               <p className={`text-sm font-medium ${tc.text}`}>{bank.name}</p>
-                              <p className={`text-xs ${tc.textMuted}`}>{bank.code}</p>
                             </button>
                           ))
                         )}

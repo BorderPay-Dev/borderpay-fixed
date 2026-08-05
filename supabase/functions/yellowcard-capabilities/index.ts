@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { isAfricanRailsTesterEmail } from "../_shared/african-rails-access.ts";
 import { listYellowCardCommercialRails, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
+import { quoteYellowCardCustomerFee, yellowCardFeeProduct, type YellowCardFeeRow } from "../_shared/providers/yellowcard-fee-schedule.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -55,6 +56,22 @@ Deno.serve(async (req) => {
       direction as "receive" | "payout",
       direction === "receive" && !testerAllReceiveCountries ? profileCountry : null,
     );
+    const products = publicRows.map((row) => yellowCardFeeProduct(
+      direction as "receive" | "payout", row.country_code, row.channel,
+    )).filter(Boolean);
+    const { data: configuredFees } = products.length
+      ? await supa.from("fee_schedule").select("product,currency,provider_fee_percent,provider_fee_fixed,borderpay_markup_percent,borderpay_markup_fixed,min_total,max_total").in("product", products)
+      : { data: [] as YellowCardFeeRow[] };
+    const feesByProduct = new Map<string, YellowCardFeeRow[]>();
+    for (const fee of (configuredFees || []) as YellowCardFeeRow[]) {
+      feesByProduct.set(fee.product, [...(feesByProduct.get(fee.product) || []), fee]);
+    }
+    const pricedRows = publicRows.map((row) => {
+      const product = yellowCardFeeProduct(direction as "receive" | "payout", row.country_code, row.channel);
+      const schedules = feesByProduct.get(product) || [];
+      const preview = quoteYellowCardCustomerFee(schedules, 1);
+      return { ...row, fee_product: product, customer_fee_preview: preview, customer_fee_schedule: schedules };
+    });
     return json({ success: true, data: { local_rail_policy: {
       provider: "yellow_card",
       direction,
@@ -64,7 +81,7 @@ Deno.serve(async (req) => {
         ? "integration_tester_all_receive_countries"
         : direction === "receive" ? "account_country_only" : "global_sender",
       account_country: direction === "receive" ? profileCountry : null,
-      rows: publicRows,
+      rows: pricedRows,
     } } });
   }
   if (!isAfricanRailsTesterEmail(user.email)) {
