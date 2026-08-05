@@ -38,6 +38,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
 import {
+  hasFreshAfricanPolicyRows,
   loadAfricanPolicyRows,
   readCachedAfricanPolicyRows,
   type AfricanPolicyRow,
@@ -572,18 +573,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const loadAfricanPolicy = useCallback(async (force = false) => {
     if (africanPolicyLoadingRef.current) return;
-    if (!force && africanPolicyRows.length > 0) return;
+    const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
+    if (!force && africanPolicyRows.length > 0 && cacheIsFresh) return;
     africanPolicyLoadingRef.current = true;
     setAfricanPolicyLoading(africanPolicyRows.length === 0);
     setAfricanPolicyError('');
     try {
       const rows = await loadAfricanPolicyRows('payout', {
-        force,
+        force: force || !cacheIsFresh,
         timeoutMs: AFRICAN_POLICY_REQUEST_TIMEOUT_MS,
       });
       setAfricanPolicyRows(rows);
     } catch (error: any) {
-      if (africanPolicyRows.length === 0) setAfricanPolicyRows([]);
+      if (africanPolicyRows.length === 0 || !cacheIsFresh) setAfricanPolicyRows([]);
       setAfricanPolicyError(friendlyError(error?.message, 'Unable to load African rails.'));
     } finally {
       africanPolicyLoadingRef.current = false;
@@ -592,9 +594,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [africanPolicyRows.length]);
 
   useEffect(() => {
-    if (!africanRailsTester || africanPolicyRows.length > 0) return;
+    if (!africanRailsTester) return;
+    const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
+    if (africanPolicyRows.length > 0 && cacheIsFresh) return;
     let active = true;
     void loadAfricanPolicyRows('payout', {
+      force: !cacheIsFresh,
       timeoutMs: AFRICAN_POLICY_REQUEST_TIMEOUT_MS,
     })
       .then((rows) => {
@@ -603,6 +608,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setAfricanPolicyError('');
       })
       .catch(() => {
+        if (active && !cacheIsFresh) setAfricanPolicyRows([]);
         // The visible Africa step owns user-facing retry/error state.
       });
     return () => {
@@ -850,7 +856,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     })[0] || null;
   }, [amount, selectedAfricanRail, selectedCurrency]);
   const selectedAfricanProvider = providerFromPolicy(selectedAfricanPolicyRow);
-  const requiresInstitutionSelection = isAfricanPayout && selectedAfricanProvider === 'flutterwave';
+  const requiresInstitutionSelection = false;
   const [africanQuote, setAfricanQuote] = useState<{
     destinationAmount: number | null;
     rate: number | null;
@@ -1301,16 +1307,23 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Validate transfer limits whenever amount/currency/method changes
   useEffect(() => {
-    const num = parseFloat(amount);
-    if (!num || method === 'us_ach_wire' || method === 'stablecoin') {
+    const sourceAmount = parseFloat(amount);
+    if (!sourceAmount || method === 'us_ach_wire' || method === 'stablecoin') {
+      setLimitError(null);
+      return;
+    }
+    // Provider limits are denominated in destination fiat. The source amount
+    // here is a stablecoin value and must never be compared directly to KES.
+    const amountToValidate = isAfricanPayout ? Number(africanQuote?.destinationAmount) : sourceAmount;
+    if (!Number.isFinite(amountToValidate) || amountToValidate <= 0) {
       setLimitError(null);
       return;
     }
     const channel = method === 'mobile_money' ? 'mobile_money' : 'bank';
     const symbol = getCurrencySymbol(selectedCurrency);
-    const err = validateTransferAmount(num, selectedCurrency, channel, symbol);
+    const err = validateTransferAmount(amountToValidate, selectedCurrency, channel, symbol);
     setLimitError(err);
-  }, [amount, selectedCurrency, method]);
+  }, [amount, selectedCurrency, method, isAfricanPayout, africanQuote?.destinationAmount]);
 
   const stablecoinMinimumError = useMemo(() => {
     if (method !== 'stablecoin') return null;

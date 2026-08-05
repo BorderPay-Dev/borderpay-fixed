@@ -2557,11 +2557,28 @@ const privateName = (codes: number[]): string =>
 const internalProviderFunction = (suffix: string): string =>
   `${privateName([102, 108, 117, 116, 116, 101, 114, 119, 97, 118, 101])}-${suffix}`;
 
+const yellowCardFunction = (suffix: string): string =>
+  `${privateName([121, 101, 108, 108, 111, 119, 99, 97, 114, 100])}-${suffix}`;
+
 const approvedPayoutFunction = (suffix: string): string =>
   `${privateName([98, 114, 105, 100, 103, 101])}-${suffix}`;
 
 /** African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
+  yellowCardCapabilities: async (
+    action: 'corridor_policy' | 'channels' | 'networks' | 'rates',
+    payload: Record<string, unknown> = {},
+  ) => apiCall<Record<string, unknown>>(yellowCardFunction('capabilities'), {
+    method: 'POST',
+    body: JSON.stringify({ action, ...payload }),
+  }),
+
+  yellowCardSandboxTransaction: async (payload: Record<string, unknown>) =>
+    apiCall<Record<string, unknown>>(yellowCardFunction('sandbox-transaction'), {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
   listBanks: async (country: string) =>
     apiCall<{
