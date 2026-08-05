@@ -5,7 +5,7 @@ export type CorridorChannel = "bank" | "mobile_money" | "wallet";
 export type CorridorDirection = "receive" | "payout" | "fx";
 
 export interface CorridorPolicyInput {
-  provider: "bridge" | "flutterwave";
+  provider: "bridge" | "flutterwave" | "yellow_card";
   direction: CorridorDirection;
   userCountry: string | null | undefined;
   destinationCountry: string | null | undefined;
@@ -37,7 +37,7 @@ export function isBridgeProfileVerified(profile: any): boolean {
 }
 
 export interface CorridorPolicyRow {
-  provider: "bridge" | "flutterwave";
+  provider: "bridge" | "flutterwave" | "yellow_card";
   direction: CorridorDirection;
   country_code: string;
   source_currency: string | null;
@@ -47,12 +47,22 @@ export interface CorridorPolicyRow {
   requires_bridge_kyc: boolean;
   priority: number;
   notes: string | null;
+  provider_fee_usd?: number | null;
+  provider_fee_local?: number | null;
+  provider_fee_percent?: number | null;
+  customer_fee_usd?: number | null;
+  customer_fee_local?: number | null;
+  customer_fee_percent?: number | null;
+  estimated_settlement_seconds?: number | null;
+  provider_channel_id?: string | null;
+  provider_network_id?: string | null;
+  provider_channel_type?: string | null;
 }
 
 export async function listProviderCorridors(
   supa: SupabaseClient,
   input: {
-    provider: "bridge" | "flutterwave";
+    provider: "bridge" | "flutterwave" | "yellow_card";
     direction?: CorridorDirection;
     countryCode?: string | null;
     enabledOnly?: boolean;
@@ -80,7 +90,7 @@ export async function listProviderCorridors(
 export async function isProviderCorridorEnabled(
   supa: SupabaseClient,
   input: {
-    provider: "bridge" | "flutterwave";
+    provider: "bridge" | "flutterwave" | "yellow_card";
     direction: CorridorDirection;
     countryCode: string;
     channel: CorridorChannel;

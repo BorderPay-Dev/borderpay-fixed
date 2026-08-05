@@ -12,8 +12,8 @@ export type AfricanPolicyRow = {
   raw: Record<string, unknown>;
 };
 
-const CACHE_VERSION = 'v1';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_VERSION = 'v2';
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 6500;
 
 const memoryCache = new Map<AfricanRailDirection, { rows: AfricanPolicyRow[]; cachedAt: number }>();
@@ -31,6 +31,7 @@ function normalizeAfricanPolicyRows(rows: Array<Record<string, unknown>>): Afric
     const currency = String(row.destination_currency || row.currency || '').trim().toUpperCase();
     const rawChannel = String(row.channel || '').trim().toLowerCase();
     const provider = String(row.provider || 'backend_policy').trim().toLowerCase();
+    if (provider !== 'yellow_card') return;
     if (!countryCode || !currency) return;
     if (rawChannel !== 'bank' && rawChannel !== 'mobile_money') return;
     if (row.enabled === false) return;
@@ -99,7 +100,7 @@ export async function loadAfricanPolicyRows(
   const request = (async () => {
     const label = direction === 'receive' ? 'receive' : 'payout';
     const res: any = await withTimeout(
-      backendAPI.payouts.capabilities('corridor_policy', { direction }),
+      backendAPI.payouts.yellowCardCapabilities('corridor_policy', { direction }),
       options.timeoutMs || DEFAULT_TIMEOUT_MS,
       `African ${label} rails are taking too long to load. Please retry.`,
     );
