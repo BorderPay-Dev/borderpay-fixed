@@ -2,6 +2,10 @@ const AFRICAN_RAILS_TEST_EMAILS = new Set([
   "adhiamboadhiambo22@gmail.com",
 ]);
 
+export function isAfricanRailsTesterEmail(value: unknown): boolean {
+  return AFRICAN_RAILS_TEST_EMAILS.has(String(value || "").trim().toLowerCase());
+}
+
 export type AfricanRailsAccessResult =
   | { allowed: true; user: { id: string; email?: string | null } }
   | { allowed: false; status: 401 | 403; code: string; message: string };
@@ -22,7 +26,7 @@ export async function authenticateAfricanRailsTester(
   }
 
   const email = String(user.email || "").trim().toLowerCase();
-  if (!AFRICAN_RAILS_TEST_EMAILS.has(email)) {
+  if (!isAfricanRailsTesterEmail(email)) {
     return {
       allowed: false,
       status: 403,

@@ -103,6 +103,7 @@ function numberFromRaw(row: AfricanPolicyRow | null | undefined, key: string) {
 
 const COUNTRY_DIAL_CODES: Record<string, string> = {
   BJ: '229', BW: '267', BF: '226', CM: '237', CI: '225', CD: '243',
+  CG: '242', TD: '235', GA: '241', TG: '228',
   EG: '20', ET: '251', GH: '233', GN: '224', KE: '254', MW: '265',
   ML: '223', MA: '212', MZ: '258', NG: '234', RW: '250', SN: '221',
   SL: '232', ZA: '27', TZ: '255', UG: '256', ZM: '260',
@@ -251,8 +252,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     rows: AfricanPolicyRow[];
   } | null>(null);
   const [collectionAmount, setCollectionAmount] = useState('');
-  const [collectionPayerName, setCollectionPayerName] = useState('');
-  const [collectionPayerEmail, setCollectionPayerEmail] = useState('');
   const [collectionSourceAccount, setCollectionSourceAccount] = useState('');
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
@@ -290,7 +289,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     })[0] || null;
   }, [selectedAfricanRail]);
   const selectedAfricanProvider = providerFromPolicy(selectedAfricanPolicyRow);
-  const receiveUsesFlutterwaveForm = selectedAfricanProvider === 'flutterwave';
   const receiveUsesYellowCardForm = selectedAfricanProvider === 'yellow_card';
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
@@ -319,7 +317,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   }, [africanPolicyRows.length]);
 
   useEffect(() => {
-    if (!africanRailsTester || africanPolicyRows.length > 0) return;
+    if (africanPolicyRows.length > 0) return;
     let active = true;
     void loadAfricanPolicyRows('receive', {
       timeoutMs: AFRICAN_POLICY_REQUEST_TIMEOUT_MS,
@@ -335,7 +333,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     return () => {
       active = false;
     };
-  }, [africanRailsTester, africanPolicyRows.length]);
+  }, [africanPolicyRows.length]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -446,8 +444,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     setSelectedAfricanRail(null);
     setReceiveStep('method');
     setCollectionAmount('');
-    setCollectionPayerName('');
-    setCollectionPayerEmail('');
     setCollectionSourceAccount('');
     setCollectionResult(null);
   };
@@ -482,21 +478,17 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const createAfricanCollection = async () => {
     if (!selectedAfricanCountry || !selectedAfricanRail) return;
+    if (!africanRailsTester) {
+      toast.error('Local top-up execution remains in controlled integration testing.');
+      return;
+    }
     const amount = Number(collectionAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Enter a valid amount.');
       return;
     }
-    if (selectedAfricanProvider !== 'flutterwave' && selectedAfricanProvider !== 'yellow_card') {
+    if (selectedAfricanProvider !== 'yellow_card') {
       toast.error('This receive corridor is not available yet.');
-      return;
-    }
-    if (receiveUsesFlutterwaveForm && (!collectionPayerName.trim() || !collectionPayerEmail.trim())) {
-      toast.error('Enter the payer name and email for this collection.');
-      return;
-    }
-    if (receiveUsesFlutterwaveForm && selectedAfricanRail.channel === 'mobile_money' && !isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)) {
-      toast.error(`Enter a valid ${selectedAfricanCountry.countryName} mobile money number.`);
       return;
     }
     if (receiveUsesYellowCardForm && selectedAfricanRail.channel === 'mobile_money' && !isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)) {
@@ -506,47 +498,41 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     setCollectionLoading(true);
     setCollectionResult(null);
     try {
-      const txRef = `bp-collect-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const sourceAccount = selectedAfricanRail.channel === 'mobile_money'
-        ? formatInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)
-        : collectionSourceAccount.trim();
-      const res: any = await backendAPI.payouts.createCollection({
-        source: selectedAfricanProvider === 'yellow_card' ? 'yellow_card' : 'flutterwave',
-        amount,
+      if (!Number.isInteger(amount)) throw new Error('Yellow Card local top-up amounts must be whole currency units.');
+      const settlementWallet = stables.find((wallet) =>
+        String(wallet.currency).toUpperCase() === 'USDC' && String(wallet.chain).toLowerCase() === 'base'
+      ) || stables.find((wallet) =>
+        String(wallet.currency).toUpperCase() === 'USDT' && String(wallet.chain).toLowerCase() === 'tron'
+      );
+      if (!settlementWallet) throw new Error('Add USDC on Base or USDT on TRON before testing a local top up.');
+      const settlementCurrency = String(settlementWallet.currency).toUpperCase();
+      const settlementNetwork = settlementCurrency === 'USDC' ? 'BASE' : 'TRC20';
+      const baseRequest = {
         currency: selectedAfricanRail.currency,
         country: selectedAfricanCountry.countryCode,
-        destination_country: selectedAfricanCountry.countryCode,
-        destination_currency: selectedAfricanRail.currency,
         channel: selectedAfricanRail.channel,
-        account_number: sourceAccount || undefined,
-        phone: selectedAfricanRail.channel === 'mobile_money' ? sourceAccount || undefined : undefined,
-        network_id: selectedAfricanPolicyRow?.raw?.provider_network_id
-          ? String(selectedAfricanPolicyRow.raw.provider_network_id)
-          : undefined,
-        tx_ref: txRef,
-        reference: txRef,
-        fullname: receiveUsesFlutterwaveForm ? collectionPayerName.trim() || undefined : undefined,
-        email: receiveUsesFlutterwaveForm ? collectionPayerEmail.trim() || undefined : undefined,
-        customer: receiveUsesFlutterwaveForm
-          ? {
-            name: collectionPayerName.trim() || undefined,
-            email: collectionPayerEmail.trim() || undefined,
-          }
-          : undefined,
-        yellow_card: receiveUsesYellowCardForm
-          ? {
-            source: {
-              accountNumber: sourceAccount || undefined,
-              accountType: selectedAfricanRail.channel === 'mobile_money' ? 'momo' : 'bank',
-              networkId: selectedAfricanPolicyRow?.raw?.provider_network_id,
-            },
-          }
-          : undefined,
-        meta: {
-          borderpay_ui_route: 'receive_from_africa',
-          selected_channel: selectedAfricanRail.channel,
-          selected_provider: selectedAfricanProvider || undefined,
-        },
+        local_amount: amount,
+        settlement_currency: settlementCurrency,
+        settlement_network: settlementNetwork,
+        reason: 'other',
+      };
+      const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+        action: 'preflight',
+        ...baseRequest,
+      });
+      if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'Yellow Card preflight failed.');
+      const selectedChannelId = String(preflight?.data?.selected_channel_id || '');
+      const selectedNetworkId = String(preflight?.data?.selected_network_id || '');
+      if (!selectedChannelId || (selectedAfricanRail.channel === 'mobile_money' && !selectedNetworkId)) {
+        throw new Error('This Yellow Card rail needs explicit provider selection before a sandbox transaction can be created.');
+      }
+      const res: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+        action: 'create_receive',
+        ...baseRequest,
+        channel_id: selectedChannelId,
+        network_id: selectedNetworkId || undefined,
+        sequence_id: crypto.randomUUID(),
+        operator_confirmed: true,
       });
       if (!res?.success) throw new Error(res?.error || 'Could not create collection request.');
       const data = res.data || {};
@@ -645,23 +631,17 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   }, [collectionAmountNumber, collectionFee, selectedAfricanRail?.currency]);
 
   const canCreateAfricanCollection = useMemo(() => {
+    if (!africanRailsTester) return false;
     if (collectionAmountNumber <= 0) return false;
-    if (selectedAfricanProvider !== 'flutterwave' && selectedAfricanProvider !== 'yellow_card') return false;
-    if (receiveUsesFlutterwaveForm) {
-      if (!collectionPayerName.trim() || !collectionPayerEmail.trim()) return false;
-      if (selectedAfricanRail?.channel === 'mobile_money') return isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountryCode);
-      return true;
-    }
+    if (selectedAfricanProvider !== 'yellow_card') return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
       return isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountryCode);
     }
     return true;
   }, [
     collectionAmountNumber,
-    collectionPayerEmail,
-    collectionPayerName,
+    africanRailsTester,
     collectionSourceAccount,
-    receiveUsesFlutterwaveForm,
     receiveUsesYellowCardForm,
     selectedAfricanRail?.channel,
     selectedAfricanProvider,
@@ -725,36 +705,33 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             </h2>
 
             <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-              <button
+              {(africanPolicyLoading || africanCountries.length > 0) && <button
                 type="button"
                 onClick={() => {
-                  if (!africanRailsTester) return;
-                  setReceiveStep('africa-destination');
-                  void loadAfricanReceivePolicy();
+                  const regional = africanCountries[0];
+                  if (!regional) return;
+                  setSelectedAfricanCountryCode(regional.countryCode);
+                  setSelectedAfricanRail(null);
+                  setCollectionResult(null);
+                  setReceiveStep('africa-rail');
                 }}
-                disabled={!africanRailsTester}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${africanRailsTester ? tc.hoverBg : 'cursor-not-allowed opacity-60'}`}
+                disabled={africanPolicyLoading || africanCountries.length === 0}
+                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} disabled:cursor-wait disabled:opacity-60`}
               >
                 <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
                   <Smartphone className="w-5 h-5 text-[#58D66D]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>Receive to Africa</div>
+                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>Top up with local money</div>
                   <div className="text-[11px] text-[#58D66D]">
-                    {africanRailsTester ? 'Mobile money and local bank collections' : 'Coming soon'}
+                    {africanPolicyLoading
+                      ? 'Checking rails for your account country'
+                      : `${africanCountries[0]?.countryName || 'Local'} · ${getRailOptions(africanCountries[0]).map((rail) => railLabel(rail.channel)).join(' · ')}`}
                   </div>
-                  {!africanRailsTester && (
-                    <div className="text-[11px] text-white/40">Sandbox review in progress</div>
-                  )}
+                  {!africanRailsTester && <div className="text-[11px] text-white/40">Integration preview</div>}
                 </div>
-                {africanRailsTester ? (
-                  <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
-                ) : (
-                  <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
-                    Soon
-                  </span>
-                )}
-              </button>
+                <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
+              </button>}
 
               {loading ? (
                 <div className={`border-t ${tc.borderLight} px-4 py-8 text-center`}>
@@ -917,10 +894,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                   type="button"
                   onClick={() => {
                     setSelectedAfricanCountryCode('');
-                    setReceiveStep('africa-destination');
+                    setReceiveStep('method');
                   }}
                   className={`w-9 h-9 rounded-full ${tc.hoverBg} flex items-center justify-center`}
-                  aria-label="Back to African countries"
+                  aria-label="Back to receive methods"
                 >
                   <ArrowLeft className={`w-4 h-4 ${tc.textMuted}`} />
                 </button>
@@ -940,8 +917,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                   onClick={() => {
                     setSelectedAfricanRail(rail);
                     setCollectionAmount('');
-                    setCollectionPayerName('');
-                    setCollectionPayerEmail('');
                     setCollectionSourceAccount('');
                     setCollectionResult(null);
                     setReceiveStep('africa-details');
@@ -998,45 +973,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
                   />
                 </div>
-                {receiveUsesFlutterwaveForm && (
-                  <>
-                    <div>
-                      <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Payer name</label>
-                      <input
-                        type="text"
-                        value={collectionPayerName}
-                        onChange={(e) => setCollectionPayerName(e.target.value)}
-                        placeholder="Sender name"
-                        className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
-                      />
-                    </div>
-                    <div>
-                      <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Payer email</label>
-                      <input
-                        type="email"
-                        value={collectionPayerEmail}
-                        onChange={(e) => setCollectionPayerEmail(e.target.value)}
-                        placeholder="sender@example.com"
-                        className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
-                      />
-                    </div>
-                    {selectedAfricanRail.channel === 'mobile_money' && (
-                      <div>
-                        <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Payer mobile money number</label>
-                        <input
-                          type="text"
-                          inputMode="tel"
-                          value={collectionSourceAccount}
-                          onChange={(e) => setCollectionSourceAccount(e.target.value.replace(/[^\d+]/g, '').replace(/(?!^)\+/g, ''))}
-                          onBlur={() => setCollectionSourceAccount(formatInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode))}
-                          placeholder={`+${COUNTRY_DIAL_CODES[selectedAfricanCountry.countryCode] || '254'}7xxxxxxxx`}
-                          className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
-                        />
-                      </div>
-                    )}
-                  </>
-                )}
-
                 {receiveUsesYellowCardForm && (
                   <div>
                     <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>
@@ -1144,18 +1080,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                     <span className={tc.textMuted}>Payment method</span>
                     <span className={`${tc.text} text-right`}>{railLabel(selectedAfricanRail.channel)}</span>
                   </div>
-                  {collectionPayerName.trim() && (
-                    <div className="flex justify-between gap-4 text-xs">
-                      <span className={tc.textMuted}>Payer name</span>
-                      <span className={`${tc.text} text-right`}>{collectionPayerName.trim()}</span>
-                    </div>
-                  )}
-                  {collectionPayerEmail.trim() && (
-                    <div className="flex justify-between gap-4 text-xs">
-                      <span className={tc.textMuted}>Payer email</span>
-                      <span className={`${tc.text} text-right break-all`}>{collectionPayerEmail.trim()}</span>
-                    </div>
-                  )}
                   {collectionSourceAccount.trim() && (
                     <div className="flex justify-between gap-4 text-xs">
                       <span className={tc.textMuted}>

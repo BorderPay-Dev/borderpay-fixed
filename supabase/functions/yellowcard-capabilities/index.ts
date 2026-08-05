@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { authenticateAfricanRailsTester } from "../_shared/african-rails-access.ts";
-import { listProviderCorridors } from "../_shared/providers/provider-corridor-policy.ts";
+import { isAfricanRailsTesterEmail } from "../_shared/african-rails-access.ts";
+import { listYellowCardCommercialRails, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
 
 const CORS = {
@@ -18,51 +18,58 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
-  const access = await authenticateAfricanRailsTester(supa, req);
-  if (!access.allowed) return json({ success: false, code: access.code, error: access.message }, access.status);
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return json({ success: false, code: "authorization_required", error: "Authorization required" }, 401);
+  const { data: authData, error: authError } = await supa.auth.getUser(token);
+  const user = authData?.user;
+  if (authError || !user?.id) return json({ success: false, code: "unauthorized", error: "Unauthorized" }, 401);
 
   let body: any = {};
   try { body = await req.json(); } catch { return json({ success: false, code: "invalid_json" }, 400); }
-  const config = getYellowCardConfig();
-  if (!config.configured || config.environment !== "sandbox") {
-    return json({ success: false, code: "yellow_card_sandbox_unavailable", error: "African rails testing is unavailable." }, 503);
-  }
-
   const action = String(body?.action || "corridor_policy").trim().toLowerCase();
   const country = String(body?.country || "").trim().toUpperCase();
   const currency = String(body?.currency || "").trim().toUpperCase();
   if (action === "corridor_policy") {
     const direction = String(body?.direction || "receive").trim().toLowerCase();
-    if (direction !== "receive") {
-      return json({ success: true, data: { local_rail_policy: { provider: "yellow_card", direction, rows: [] } } });
+    if (direction !== "receive" && direction !== "payout") {
+      return json({ success: false, code: "unsupported_direction" }, 400);
     }
-    const listed = await listProviderCorridors(supa, {
-      provider: "yellow_card",
-      direction: "receive",
-      countryCode: country || null,
-      enabledOnly: true,
-    });
-    if (!listed.ok) return json({ success: false, code: "policy_lookup_failed" }, 503);
-    const publicRows = listed.rows.map((row) => ({
-      provider: "yellow_card",
-      direction: row.direction,
-      country_code: row.country_code,
-      source_currency: row.source_currency,
-      destination_currency: row.destination_currency,
-      channel: row.channel,
-      enabled: row.enabled,
-      requires_bridge_kyc: row.requires_bridge_kyc,
-      priority: row.priority,
-      customer_fee_percent: row.customer_fee_percent ?? null,
-      customer_fee_usd: row.customer_fee_usd ?? null,
-      customer_fee_local: row.customer_fee_local ?? null,
-    }));
+    let profileCountry = "";
+    if (direction === "receive") {
+      const { data: profile, error: profileError } = await supa
+        .from("user_profiles")
+        .select("country")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (profileError) return json({ success: false, code: "profile_country_lookup_failed" }, 503);
+      profileCountry = normalizeYellowCardCountryCode(profile?.country);
+      if (!/^[A-Z]{2}$/.test(profileCountry)) {
+        return json({ success: true, data: { local_rail_policy: {
+          provider: "yellow_card", direction, source: "yellow_card_commercial_team_document_2026",
+          eligibility: "account_country_only", account_country: null, rows: [],
+        } } });
+      }
+    }
+    const publicRows = listYellowCardCommercialRails(
+      direction as "receive" | "payout",
+      direction === "receive" ? profileCountry : null,
+    );
     return json({ success: true, data: { local_rail_policy: {
       provider: "yellow_card",
-      direction: "receive",
-      source: "approved_internal_commercial_map",
+      direction,
+      source: "yellow_card_commercial_team_document_2026",
+      source_document_date: "2026-07-08",
+      eligibility: direction === "receive" ? "account_country_only" : "global_sender",
+      account_country: direction === "receive" ? profileCountry : null,
       rows: publicRows,
     } } });
+  }
+  if (!isAfricanRailsTesterEmail(user.email)) {
+    return json({ success: false, code: "african_rails_closed_beta", error: "Yellow Card integration testing is restricted." }, 403);
+  }
+  const config = getYellowCardConfig();
+  if (!config.configured || config.environment !== "sandbox") {
+    return json({ success: false, code: "yellow_card_sandbox_unavailable", error: "African rails testing is unavailable." }, 503);
   }
   const paths: Record<string, { path: string; query?: Record<string, string> }> = {
     channels: { path: "/channels", query: country ? { country } : undefined },
