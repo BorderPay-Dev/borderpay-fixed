@@ -260,8 +260,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const africanCountries = useMemo(() => buildAfricanCountries(africanPolicyRows), [africanPolicyRows]);
   const regionalAfricanCountries = useMemo(
-    () => ipCountry ? africanCountries.filter((item) => item.countryCode === ipCountry) : [],
-    [africanCountries, ipCountry],
+    () => africanRailsTester
+      ? africanCountries
+      : ipCountry ? africanCountries.filter((item) => item.countryCode === ipCountry) : [],
+    [africanCountries, africanRailsTester, ipCountry],
   );
   const selectedAfricanCountry = useMemo(
     () => africanCountries.find((item) => item.countryCode === selectedAfricanCountryCode) || null,
@@ -721,6 +723,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
               {regionalAfricanCountries.length > 0 && <button
                 type="button"
                 onClick={() => {
+                  if (africanRailsTester) {
+                    setSelectedAfricanCountryCode('');
+                    setSelectedAfricanRail(null);
+                    setCollectionResult(null);
+                    setReceiveStep('africa-destination');
+                    return;
+                  }
                   const regional = regionalAfricanCountries[0];
                   if (!regional) return;
                   setSelectedAfricanCountryCode(regional.countryCode);
@@ -734,9 +743,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                   <Smartphone className="w-5 h-5 text-[#58D66D]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>Top up with local money</div>
+                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
+                    {africanRailsTester ? 'Test African receive rails' : 'Top up with local money'}
+                  </div>
                   <div className="text-[11px] text-[#58D66D]">
-                    {`${regionalAfricanCountries[0].countryName} · ${getRailOptions(regionalAfricanCountries[0]).map((rail) => railLabel(rail.channel)).join(' · ')}`}
+                    {africanRailsTester
+                      ? `${regionalAfricanCountries.length} Yellow Card countries · Bank · Mobile money`
+                      : `${regionalAfricanCountries[0].countryName} · ${getRailOptions(regionalAfricanCountries[0]).map((rail) => railLabel(rail.channel)).join(' · ')}`}
                   </div>
                   {!africanRailsTester && <div className="text-[11px] text-white/40">Integration preview</div>}
                 </div>

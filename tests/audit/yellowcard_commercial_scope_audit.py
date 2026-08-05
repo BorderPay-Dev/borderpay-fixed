@@ -15,10 +15,12 @@ assert 'source_document_date: SOURCE_DOCUMENT_DATE' in catalog
 assert 'country: "CD", currency: "CDF", channel: "mobile_money"' in catalog
 assert 'direction: "receive", country: "CD"' not in catalog
 assert 'listYellowCardCommercialRails(' in capabilities
-assert 'eligibility: direction === "receive" ? "account_country_only" : "global_sender"' in capabilities
+assert '"integration_tester_all_receive_countries"' in capabilities
+assert 'direction === "receive" ? "account_country_only" : "global_sender"' in capabilities
 assert 'direction === "receive" ? profileCountry : null' in capabilities
 assert 'isAfricanRailsTesterEmail(user.email)' in capabilities
 assert 'receive_country_must_match_account_country' in transaction
+assert 'allow_all_receive_countries: isAfricanRailsTesterEmail(access.user.email)' in transaction
 assert 'yellow_card_commercial_corridor_unavailable' in transaction
 assert 'return `${direction}:${userId}:${country}`' in cache
 assert "if (provider !== 'yellow_card') return" in cache
@@ -31,6 +33,7 @@ assert "{regionalAfricanCountries.length > 0 && <button" in receive
 assert "africanPolicyLoading || africanCountries.length > 0" not in receive
 assert "Checking rails for your account country" not in receive
 assert "item.countryCode === ipCountry" in receive
+assert "africanRailsTester\n      ? africanCountries" in receive
 assert "x-vercel-ip-country" in geo
 assert "country: null" not in geo
 

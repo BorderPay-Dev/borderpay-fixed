@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { authenticateAfricanRailsTester, recordAfricanRailsOperatorAlert } from "../_shared/african-rails-access.ts";
+import {
+  authenticateAfricanRailsTester,
+  isAfricanRailsTesterEmail,
+  recordAfricanRailsOperatorAlert,
+} from "../_shared/african-rails-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
@@ -218,7 +222,7 @@ async function loadContext(userId: string, input: any) {
   }
 
   const profileCountry = normalizeYellowCardCountryCode(profile.country);
-  if (direction === "receive" && profileCountry !== country) {
+  if (direction === "receive" && !input?.allow_all_receive_countries && profileCountry !== country) {
     return { ok: false as const, status: 403, code: "receive_country_must_match_account_country" };
   }
 
@@ -401,7 +405,13 @@ Deno.serve(async (req) => {
 
   const isSend = action === "preflight_send" || action === "create_send";
   const sandboxOutcome: "success" | "failure" = lower(body?.sandbox_outcome) === "failure" ? "failure" : "success";
-  const context = await loadContext(access.user.id, { ...body, direction: isSend ? "payout" : "receive" });
+  const context = await loadContext(access.user.id, {
+    ...body,
+    direction: isSend ? "payout" : "receive",
+    // Server-derived exception for the named Yellow Card integration account.
+    // The client cannot enable this bypass for another user.
+    allow_all_receive_countries: isAfricanRailsTesterEmail(access.user.email),
+  });
   if (!context.ok) return json({ success: false, code: context.code, error: "Yellow Card preflight failed." }, context.status);
 
   const preflight = {
