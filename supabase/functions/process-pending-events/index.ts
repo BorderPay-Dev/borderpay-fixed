@@ -841,16 +841,32 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
   const customer = d?.customer_id ?? d?.customer?.id ?? d?.id ?? ev.payload?.event_object_id;
   if (!customer) throw new Error("bridge kyc/kyb event missing customer id");
 
+  const isKyb = ev.event_type.toLowerCase().includes("kyb")
+             || (d?.account_type === "business" || d?.type === "business");
+
   const status = String(d?.status ?? d?.kyc_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
   const normalized =
     status === "approved"   || status === "verified" ? "approved"
     : status === "rejected" || status === "denied"   ? "rejected"
     : status === "under_review"                      ? "under_review"
+    : status === "incomplete"                        ? "incomplete"
+    : status === "not_started"                       ? "not_started"
+    : status === "awaiting_ubo"                      ? "under_review"
     : status === "pending"                           ? "pending"
-    : "pending";
+    : null;
 
-  const isKyb = ev.event_type.toLowerCase().includes("kyb")
-             || (d?.account_type === "business" || d?.type === "business");
+  // Unknown/missing KYC-link states must never manufacture a pending review.
+  // Preserve the existing profile and complete the event for observability.
+  if (!normalized) {
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: isKyb ? "kyc_link" : "customer", target_entity_id: String(customer) })
+      .eq("event_id", ev.event_id);
+    await supabase.rpc("complete_pending_event", {
+      p_event_id: ev.event_id,
+      p_summary: { source: "bridge", kind: isKyb ? "kyb" : "kyc", status: status || null, ignored_unknown_status: true },
+    });
+    return;
+  }
 
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
   await syncCountryFromBridgeCustomer(String(customer), {
@@ -867,14 +883,14 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
     }).eq("user_id", resolved);
     await supabase.from("user_profiles").update({
       bridge_customer_id: String(customer),
-      kyc_status:         normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : "pending",
+      kyc_status:         normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : normalized === "not_started" ? "unverified" : "pending",
       updated_at:         new Date().toISOString(),
     }).eq("id", resolved);
   } else {
     await supabase.from("user_profiles").update({
       bridge_kyc_status:        normalized,
       bridge_kyc_completed_at:  normalized === "approved" ? new Date().toISOString() : null,
-      kyc_status:               normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : "pending",
+      kyc_status:               normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : normalized === "not_started" ? "unverified" : "pending",
       updated_at:               new Date().toISOString(),
     }).eq("id", resolved);
   }
@@ -949,6 +965,12 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
       bridge_verification_status: accountStatus || null,
       updated_at:            new Date().toISOString(),
     };
+    // A pause is an account-access hold, not a KYC rejection. Persist Bridge's
+    // transition time separately so every paused customer sees the correct date.
+    // Clear it as soon as Bridge moves the customer out of `paused`.
+    update.bridge_account_paused_at = accountStatus === "paused"
+      ? (ev.payload?.event_created_at ?? d?.updated_at ?? new Date().toISOString())
+      : null;
     if (canonicalKyc) update.kyc_status = canonicalKyc;
 
     // Persist the customer's contact details Bridge sends on the customer event
@@ -2854,13 +2876,18 @@ async function ensureStablecoinWalletsProvisioned(input: {
     try {
       const { data: existing } = await supabase
         .from("bridge_wallets")
-        .select("bridge_wallet_id,address")
+        .select("bridge_wallet_id,address,status")
         .eq("bridge_customer_id", input.bridgeCustomerId)
         .ilike("currency", symbol)
         .ilike("chain", chainLc)
         .maybeSingle();
-      if (existing?.bridge_wallet_id) {
+      const existingActive = String(existing?.status || "").toLowerCase() === "active";
+      if (existing?.bridge_wallet_id && existingActive && existing.address) {
         await completeProvisioningLock(lock.lockEventId, "already_exists");
+        continue;
+      }
+      if (existing?.bridge_wallet_id && !existingActive) {
+        await completeProvisioningLock(lock.lockEventId, `existing_${existing.status || "not_active"}`);
         continue;
       }
 
@@ -2869,7 +2896,7 @@ async function ensureStablecoinWalletsProvisioned(input: {
         symbol,
         chain,
       });
-      await supabase.from("bridge_wallets").upsert({
+      const { error: bridgeWalletErr } = await supabase.from("bridge_wallets").upsert({
         bridge_wallet_id:   created.wallet_id,
         bridge_customer_id: input.bridgeCustomerId,
         user_id:            input.accountType === "individual" ? input.userId : null,
@@ -2880,6 +2907,9 @@ async function ensureStablecoinWalletsProvisioned(input: {
         status:             "active",
         updated_at:         new Date().toISOString(),
       }, { onConflict: "bridge_wallet_id" });
+      if (bridgeWalletErr) {
+        throw new Error(`bridge_wallets persistence failed for ${symbol}/${chainLc}: ${bridgeWalletErr.message}`);
+      }
       await completeProvisioningLock(lock.lockEventId, "provisioned");
     } catch (e) {
       await failProvisioningLock(lock.lockEventId, (e as Error).message || "provision_failed");

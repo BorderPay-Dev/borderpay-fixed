@@ -81,7 +81,8 @@ export interface VirtualAccountCreateInput {
     rail?:           string;
     payment_rail?:   string;
     currency:        string;          // stablecoin symbol e.g. "usdc" | "usdt"
-    address:         string;          // the wallet address to receive at
+    address?:        string;          // external/static wallet destination
+    bridge_wallet_id?: string;        // canonical destination for a Bridge Wallet
   };
   developer_fee_percent?: string;
   allow_zero_developer_fee?: boolean;
@@ -100,6 +101,7 @@ export interface ProviderVirtualAccountSummary {
 export interface VirtualAccountResult {
   provider:           ProviderName;
   virtual_account_id: string;
+  status?:            string;
   account_number?:    string;
   routing_number?:    string;
   iban?:              string;

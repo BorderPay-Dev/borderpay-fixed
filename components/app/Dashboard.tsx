@@ -25,14 +25,13 @@ import {
   User,
   ArrowDownLeft,
   ArrowUpRight,
-  ArrowLeftRight,
   X,
   Lock,
   ShieldAlert,
   Gift,
+  Activity,
   TrendingUp,
   TrendingDown,
-  Activity,
 } from 'lucide-react';
 import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -45,7 +44,6 @@ import { usePreferences } from '../../utils/hooks/usePreferences';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
-import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
 import { Skeleton } from '../common/Skeleton';
@@ -54,7 +52,6 @@ import { txDirection } from '../../utils/transactions/direction';
 import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { FX_NAV_ENABLED } from '../../utils/featureFlags';
 import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
 
 // Pull cached profile once at module-eval — every initial-state hook below
@@ -78,7 +75,42 @@ function readJSON<T>(key: string, fallback: T): T {
 function writeJSON(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota/private mode */ }
 }
+function readPersistedFinancialSnapshot(userId: string, limit = 5): any | null {
+  const keys = [
+    `borderpay_snapshot_cache_v2:${userId}:any`,
+    `borderpay_snapshot_cache_v2:${userId}:${Math.max(1, Number(limit) || 5)}`,
+    `borderpay_snapshot_cache_v2:${userId}:20`,
+    `borderpay_snapshot_cache_v2:${userId}:50`,
+    `borderpay_snapshot_cache_v2:${userId}:100`,
+  ];
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const snapshot = parsed?.snapshot;
+      if (snapshot?.success && snapshot?.data) return snapshot.data;
+    } catch { /* keep looking */ }
+  }
+  return null;
+}
+function dashboardWalletRowsFromSnapshot(snapshotData: any): DashboardWalletRow[] {
+  const raw = Array.isArray(snapshotData?.wallets) ? snapshotData.wallets : [];
+  return raw.map((w: any) => {
+    const c = String(w?.currency || '').toUpperCase();
+    return {
+      currency: c,
+      balance: Number(w?.balance || 0),
+      symbol: CURRENCY_CONFIG[c]?.symbol || c,
+      color: CURRENCY_CONFIG[c]?.color || '#666',
+    };
+  }).filter(isSpendableDashboardWallet);
+}
 function readRecentActivityCache(userId: string, dashKey: string): any[] {
+  const snapshot = readPersistedFinancialSnapshot(userId, 5);
+  const snapshotTx = Array.isArray(snapshot?.transactions) ? snapshot.transactions : [];
+  if (snapshotTx.length > 0) return snapshotTx.slice(0, 5);
+
   const txKey = financialCacheKey(TX_CACHE_KEY, { userId });
   const primary = readJSON<any[]>(txKey, []);
   if (Array.isArray(primary) && primary.length > 0) return primary.slice(0, 5);
@@ -261,13 +293,22 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     () => financialCacheKey('borderpay_dashboard_va_v1', { userId }),
     [userId],
   );
+  const cachedSnapshot = useMemo(() => readPersistedFinancialSnapshot(userId, 5), [userId]);
   const cachedWallets = useMemo(
-    () => readJSON<DashboardWalletRow[]>(dashWalletsKey, []),
-    [dashWalletsKey],
+    () => {
+      const snapshotRows = dashboardWalletRowsFromSnapshot(cachedSnapshot);
+      if (snapshotRows.length > 0) return snapshotRows;
+      return readJSON<DashboardWalletRow[]>(dashWalletsKey, []);
+    },
+    [cachedSnapshot, dashWalletsKey],
   );
   const cachedVirtualAccounts = useMemo(
-    () => normalizeDashboardVaRows(readJSON<any[]>(dashVaKey, []), userCountry),
-    [dashVaKey, userCountry],
+    () => {
+      const snapshotVas = normalizeDashboardVaRows(cachedSnapshot?.virtual_accounts, cachedSnapshot?.profile?.country || userCountry);
+      if (snapshotVas.length > 0) return snapshotVas;
+      return normalizeDashboardVaRows(readJSON<any[]>(dashVaKey, []), userCountry);
+    },
+    [cachedSnapshot, dashVaKey, userCountry],
   );
   const cachedRecent = useMemo(() => readRecentActivityCache(userId, dashRecentKey), [dashRecentKey, userId]);
   const usdLikeTotal = (ws: Array<{ currency: string; balance: number }>) =>
@@ -510,7 +551,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       const prefetch = (window as any).__borderpay_prefetch;
       if (typeof prefetch !== 'function') return;
       const warm = () => {
-        ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'exchange', 'settings', 'profile', 'notifications'].forEach((s) => {
+        ['wallet-detail', 'send-money', 'receive-money', 'transactions', 'settings', 'profile', 'notifications'].forEach((s) => {
           try { prefetch(s); } catch { /* noop */ }
         });
       };
@@ -691,10 +732,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               onHover={() => prefetchScreen('receive-money')}
             />
             <HeroAction
-              label={tt('action.exchange', 'Convert')}
-              Icon={ArrowLeftRight}
-              onClick={() => handleNavigate('exchange')}
-              onHover={() => prefetchScreen('exchange')}
+              label={tt('dashboard.recentActivity', 'Activity')}
+              Icon={Activity}
+              onClick={() => handleNavigate('transactions')}
+              onHover={() => prefetchScreen('transactions')}
             />
           </div>
         </div>
@@ -1044,9 +1085,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         )}
       </section>
 
-      {/* ── Exchange rates (below recent activity) ─────────────────── */}
-      {FX_NAV_ENABLED && <ExchangeRateWidget onNavigate={handleNavigate} />}
-
       {/* ── 11. Affiliate banner (footer position) ─────────────────── */}
       <section className="px-5 sm:px-6 mt-6 pb-2">
         <AffiliateBanner kycStatus={verificationResolved && isVerified ? 'verified' : 'pending'} />
@@ -1078,18 +1116,17 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
 // ─── Dashboard Live Rate Chart Widget ────────────────────────────────────────
 
-// Platform markup applied to the interbank rate before showing it to the
-// end user (2%). Applied uniformly to all pairs so the dashboard matches
-// the rate the user will actually receive on the Exchange screen.
+// Dormant display-only code retained for historical transaction-rate UI. It
+// has no route or render path while customer exchange services are disabled.
 const PLATFORM_MARKUP = 0.02;
 
 type RatePair = {
   from: string;
   to: string;
-  rate: number;   // marked-up rate (what the customer sees)
-  base: number;   // raw interbank rate (used to seed the sparkline)
-  change: number; // 24h % change — approximated from daily drift
-  vol: number;    // sparkline volatility, scaled to the pair's magnitude
+  rate: number;
+  base: number;
+  change: number;
+  vol: number;
 };
 
 function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
@@ -1136,9 +1173,7 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
   );
 }
 
-// Major currency pairs (USD / EUR / GBP) surfaced by default. If the live API
-// returns these pairs they replace the fallback; if not, the fallback keeps the
-// widget populated rather than rendering empty.
+// Major currency pairs (legacy display data; no customer exchange route).
 const FALLBACK_PAIRS: RatePair[] = [
   { from: 'USD', to: 'EUR', rate: 0.92 * (1 + PLATFORM_MARKUP), base: 0.92, change: +0.12, vol: 0.004 },
   { from: 'USD', to: 'GBP', rate: 0.79 * (1 + PLATFORM_MARKUP), base: 0.79, change: -0.08, vol: 0.003 },
@@ -1363,10 +1398,10 @@ function DashboardRateWidget({ onNavigate }: { onNavigate: (screen: string) => v
           )}
         </div>
         <button
-          onClick={() => onNavigate('exchange')}
+          onClick={() => onNavigate('transactions')}
           className="text-[10px] text-[#C7FF00] font-semibold flex items-center gap-1"
         >
-          Trade <ChevronRight size={12} />
+          Activity <ChevronRight size={12} />
         </button>
       </div>
 

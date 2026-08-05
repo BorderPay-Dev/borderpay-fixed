@@ -127,23 +127,11 @@ export async function loadVirtualAccountDestinationConfig(
   },
 ): Promise<VirtualAccountDestinationConfig> {
   const suffix = currency.toUpperCase();
-  const firstValue = (values: Array<string | null | undefined>, fallback = "") =>
-    values.map(clean).find(Boolean) || fallback;
-  const paymentRail = firstValue([
-    await readSetting(supa, `bridge.virtual_account.${suffix}.destination.payment_rail`),
-    await readSetting(supa, "bridge.virtual_account.destination.payment_rail"),
-    Deno.env.get(`BRIDGE_VA_${suffix}_DESTINATION_PAYMENT_RAIL`),
-    Deno.env.get("BRIDGE_VA_DESTINATION_PAYMENT_RAIL"),
-  ], "base");
-  const destinationCurrency = firstValue([
-    await readSetting(supa, `bridge.virtual_account.${suffix}.destination.currency`),
-    await readSetting(supa, "bridge.virtual_account.destination.currency"),
-    Deno.env.get(`BRIDGE_VA_${suffix}_DESTINATION_CURRENCY`),
-    Deno.env.get("BRIDGE_VA_DESTINATION_CURRENCY"),
-  ], "USDC");
-
-  const rail = clean(paymentRail).toLowerCase();
-  const ccy = clean(destinationCurrency).toUpperCase();
+  // One provider contract for USD, EUR and GBP: settle into the customer's
+  // existing Bridge-owned USDC wallet on Base. Per-currency/static/external
+  // destination overrides previously allowed USD to drift from EUR/GBP.
+  const rail = "base";
+  const ccy = "USDC";
   const userId = clean(owner?.userId);
   const bridgeCustomerId = clean(owner?.bridgeCustomerId);
 
@@ -161,12 +149,13 @@ export async function loadVirtualAccountDestinationConfig(
 
     const { data } = await query.maybeSingle();
     const walletAddress = clean(data?.address);
-    if (walletAddress) {
+    const bridgeWalletId = clean(data?.bridge_wallet_id);
+    if (walletAddress && bridgeWalletId) {
       return {
         payment_rail: rail,
         currency: ccy,
         address: walletAddress,
-        bridge_wallet_id: clean(data?.bridge_wallet_id) || null,
+        bridge_wallet_id: bridgeWalletId,
         source: "bridge_wallet",
       };
     }
@@ -176,7 +165,7 @@ export async function loadVirtualAccountDestinationConfig(
       const bridgeWallet = bridgeWallets.find((w) =>
         clean(w.currency).toUpperCase() === ccy &&
         clean(w.chain).toLowerCase() === rail &&
-        clean(w.address)
+        clean(w.address) && clean(w.wallet_id)
       );
       if (bridgeWallet?.address) {
         try {
@@ -203,44 +192,7 @@ export async function loadVirtualAccountDestinationConfig(
       }
     }
 
-    if (userId) {
-      const { data: externalWallet } = await supa
-        .from("external_wallets")
-        .select("id,address,asset,chain,status,created_at")
-        .eq("user_id", userId)
-        .ilike("asset", ccy)
-        .ilike("chain", rail)
-        .eq("status", "active")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const externalAddress = clean(externalWallet?.address);
-      if (externalAddress) {
-        return {
-          payment_rail: rail,
-          currency: ccy,
-          address: externalAddress,
-          external_wallet_id: clean(externalWallet?.id) || null,
-          source: "external_wallet",
-        };
-      }
-    }
-
-    throw new Error(`Missing active ${ccy}/${rail} Bridge wallet or saved external ${ccy}/${rail} wallet for ${suffix} virtual account destination`);
+    throw new Error(`Missing active Bridge ${ccy}/${rail} wallet for ${suffix} virtual account destination`);
   }
-
-  const address = firstValue([
-    await readSetting(supa, `bridge.virtual_account.${suffix}.destination.address`),
-    await readSetting(supa, "bridge.virtual_account.destination.address"),
-    Deno.env.get(`BRIDGE_VA_${suffix}_DESTINATION_ADDRESS`),
-    Deno.env.get("BRIDGE_VA_DESTINATION_ADDRESS"),
-  ]);
-  if (!address) throw new Error(`Missing Bridge virtual account destination address for ${suffix}`);
-
-  return {
-    payment_rail: rail,
-    currency: ccy,
-    address,
-    source: "static_config",
-  };
+  throw new Error(`Missing Bridge customer owner for ${suffix} virtual account destination`);
 }

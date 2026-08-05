@@ -569,7 +569,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
         const prefetch = (window as any).__borderpay_prefetch;
         if (typeof prefetch === 'function') {
           const warm = () => {
-            ['wallet-detail', 'send-money', 'transactions', 'exchange', 'external-accounts'].forEach((s) => {
+            ['wallet-detail', 'send-money', 'transactions', 'external-accounts'].forEach((s) => {
               try { prefetch(s); } catch { /* noop */ }
             });
           };

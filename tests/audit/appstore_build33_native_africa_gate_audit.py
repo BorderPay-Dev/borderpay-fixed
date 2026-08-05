@@ -10,7 +10,7 @@ africa = (ROOT / "utils/africanRailsAccess.ts").read_text()
 checks = [
     (
         "iOS workflow exposes explicit build_number input",
-        "build_number:" in workflow and 'default: "33"' in workflow,
+        "build_number:" in workflow and 'default: "34"' in workflow,
     ),
     (
         "iOS workflow resolves requested build number, not github.run_number env",
@@ -19,12 +19,12 @@ checks = [
         and "BUILD_NUMBER: ${{ github.run_number }}" not in workflow,
     ),
     (
-        "iOS workflow rejects rejected build 32 and below",
-        'if [ "$BUILD_NUMBER" -le 32 ]; then' in workflow,
+        "iOS workflow rejects build 33 and below",
+        'if [ "$BUILD_NUMBER" -le 33 ]; then' in workflow,
     ),
     (
-        "Xcode project local build number is 33",
-        xcode.count("CURRENT_PROJECT_VERSION = 33;") >= 2
+        "Xcode project local build number is 34",
+        xcode.count("CURRENT_PROJECT_VERSION = 34;") >= 2
         and "CURRENT_PROJECT_VERSION = 1;" not in xcode,
     ),
     (

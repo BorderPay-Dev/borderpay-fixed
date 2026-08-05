@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowRightLeft, BriefcaseBusiness, FileText,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -21,11 +21,10 @@ import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
 import { TreasuryCard } from './TreasuryCard';
-import { ExchangeRateWidget } from '../dashboard/fx/ExchangeRateWidget';
 import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
-import { FX_NAV_ENABLED, PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
+import { PAYROLL_RUNTIME_ENABLED } from '../../utils/featureFlags';
 import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManager';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
@@ -463,7 +462,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
           'profile',
           'bulk-payout',
           'payroll',
-          'exchange',
           'cards',
           'external-accounts',
           'external-wallets',
@@ -716,13 +714,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
               tc={tc}
               disabled={!PAYROLL_RUNTIME_ENABLED}
             />
-            <BizChip
-              label="FX"
-              Icon={ArrowRightLeft}
-              onPrefetch={() => prefetchScreen('exchange')}
-              onClick={() => navigate('exchange')}
-              tc={tc}
-            />
             <BizChip label="Cards" Icon={CreditCard} onPrefetch={() => prefetchScreen('cards')} onClick={() => onNavigate('cards')} tc={tc} />
           </div>
         </section>
@@ -750,9 +741,6 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
           )}
           <CardsLockedCard />
         </section>
-
-        {/* ── 6b. Exchange rates (shared with individual dashboard) ─ */}
-        {FX_NAV_ENABLED && <ExchangeRateWidget onNavigate={onNavigate} />}
 
         {/* ── 6c. Affiliate banner (footer position parity) ───────── */}
         <section className="px-5 sm:px-6">

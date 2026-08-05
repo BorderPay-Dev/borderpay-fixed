@@ -19,11 +19,12 @@ import type {
   PaymentProvider,
   CustomerCreateInput, CustomerCreateResult,
   KycLinkInput,        KycLinkResult,
-  VirtualAccountCreateInput, VirtualAccountResult,
+  VirtualAccountCreateInput, VirtualAccountResult, ProviderVirtualAccountSummary,
   WalletCreateInput,   WalletResult,
   TransferCreateInput, TransferResult,
   LiquidationAddressCreateInput, LiquidationAddressResult,
 } from "./types.ts";
+import { buildBridgeTransferBody } from "./bridge-transfer-payload.ts";
 
 export class BridgeProviderError extends Error {
   status?: number;
@@ -232,24 +233,25 @@ export class BridgeProvider implements PaymentProvider {
   // makes Bridge reject with "resubmit the following parameters … missing/invalid".
   async createVirtualAccount(input: VirtualAccountCreateInput): Promise<VirtualAccountResult> {
     const destinationRail = input.destination?.payment_rail || input.destination?.rail;
-    if (!input.destination?.address || !destinationRail || !input.destination?.currency) {
+    const destinationBridgeWalletId = String(input.destination?.bridge_wallet_id || "").trim();
+    if (!destinationBridgeWalletId || !destinationRail || !input.destination?.currency) {
       throw new BridgeProviderError(
         "Bridge createVirtualAccount request invalid: destination wallet fields are required",
         {
           bridge_code: "invalid_parameters",
-          bridge_error: "virtual account requires a destination stablecoin wallet (address + rail + currency)",
+          bridge_error: "virtual account requires a Bridge wallet destination (bridge_wallet_id + rail + currency)",
         },
       );
     }
     const feePercent = String(input.developer_fee_percent || "").trim();
     const feePercentNumber = Number(feePercent);
     const zeroFeeAllowed = input.allow_zero_developer_fee === true && feePercentNumber === 0;
-    if (!/^\d+(\.\d+)?$/.test(feePercent) || !Number.isFinite(feePercentNumber) || (!zeroFeeAllowed && feePercentNumber <= 0) || feePercentNumber > 100) {
+    if (!/^\d+(\.\d+)?$/.test(feePercent) || !Number.isFinite(feePercentNumber) || (!zeroFeeAllowed && feePercentNumber <= 0) || feePercentNumber >= 100) {
       throw new BridgeProviderError(
-        "Bridge createVirtualAccount request invalid: developer_fee_percent must be a positive base-100 percentage",
+        "Bridge createVirtualAccount request invalid: developer_fee_percent must be at least 0 and less than 100",
         {
           bridge_code: "invalid_parameters",
-          bridge_error: "virtual account requires developer_fee_percent as a positive base-100 percentage string",
+          bridge_error: "virtual account requires developer_fee_percent as a base-100 percentage string less than 100",
         },
       );
     }
@@ -259,7 +261,7 @@ export class BridgeProvider implements PaymentProvider {
       destination: {
         currency:     input.destination.currency.toLowerCase(),
         payment_rail: destinationRail.toLowerCase(),
-        address:      input.destination.address,
+        bridge_wallet_id: destinationBridgeWalletId,
       },
     };
     const r = await bridgeFetch({
@@ -296,6 +298,7 @@ export class BridgeProvider implements PaymentProvider {
     return {
       provider:           this.name,
       virtual_account_id: String(data?.id),
+      status:             data?.status ? String(data.status) : undefined,
       account_number:     sdi?.bank_account_number,
       routing_number:     sdi?.bank_routing_number,
       iban:               sdi?.iban,
@@ -628,6 +631,51 @@ export class BridgeProvider implements PaymentProvider {
     }));
   }
 
+  /** Reactivate a provider VA instead of attempting to create a duplicate. */
+  async reactivateVirtualAccount(customerId: string, virtualAccountId: string): Promise<ProviderVirtualAccountSummary> {
+    const r = await bridgeFetch({
+      method: "POST",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${encodeURIComponent(virtualAccountId)}/reactivate`,
+      idempotencyKey: `borderpay:va-reactivate:${customerId}:${virtualAccountId}`,
+    });
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      throw new BridgeProviderError(
+        `Bridge reactivateVirtualAccount failed [${r.status}]`,
+        {
+          status: r.status,
+          request_id: r.request_id,
+          bridge_code: typeof parsed.code === "string" ? parsed.code : undefined,
+          bridge_error: typeof parsed.error === "string"
+            ? parsed.error
+            : typeof parsed.message === "string" ? parsed.message : r.error,
+          raw_text: r.raw_text?.slice(0, 1000),
+        },
+      );
+    }
+    const v = (r.data as any)?.data ?? r.data;
+    if (!v?.id) {
+      throw new BridgeProviderError("Bridge reactivateVirtualAccount returned no virtual account id", {
+        status: r.status,
+        request_id: r.request_id,
+        bridge_code: "invalid_provider_response",
+      });
+    }
+    return {
+      virtual_account_id: String(v.id),
+      currency: String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
+      rail: v?.source_deposit_instructions?.payment_rail || v?.rail,
+      status: v?.status ? String(v.status) : undefined,
+      account_details: {
+        ...(v && typeof v === "object" ? v : {}),
+        source_deposit_instructions:
+          (v?.source_deposit_instructions && typeof v.source_deposit_instructions === "object")
+            ? v.source_deposit_instructions
+            : null,
+      },
+    };
+  }
+
   private async fetchBridgeListPaginated<T>(params: { path: string; context: string; pageSize?: number; maxPages?: number }): Promise<T[]> {
     const pageSize = Math.max(1, Math.min(200, Number(params.pageSize ?? 100)));
     const maxPages = Math.max(1, Math.min(50, Number(params.maxPages ?? 20)));
@@ -707,8 +755,9 @@ export class BridgeProvider implements PaymentProvider {
   // ── Custodial stablecoin wallet ───────────────────────────────────────────
   async createWallet(input: WalletCreateInput): Promise<WalletResult> {
     const body = {
-      currency: input.symbol.toLowerCase(),
-      chain:    input.chain.toLowerCase(),
+      // Bridge wallets are chain-based. The wallet can hold supported assets
+      // on that chain; `currency` is not part of CreateBridgeWallet.
+      chain: input.chain.toLowerCase(),
     };
     const r = await bridgeFetch({
       method: "POST",
@@ -717,6 +766,24 @@ export class BridgeProvider implements PaymentProvider {
       idempotencyKey: `borderpay:wallet:${input.customer_id}:${input.symbol}:${input.chain}`,
     });
     if (!r.ok) {
+      if (r.status === 409 || r.status === 422) {
+        // Bridge allows one wallet per chain. A prior create can succeed while
+        // local persistence fails; reconcile that canonical wallet on retry.
+        const wallets = await this.listWallets(input.customer_id);
+        const canonical = wallets.find((wallet) =>
+          wallet.chain.toLowerCase() === input.chain.toLowerCase() && Boolean(wallet.address)
+        );
+        if (canonical) {
+          return {
+            provider:        this.name,
+            wallet_id:       canonical.wallet_id,
+            deposit_address: canonical.address,
+            symbol:          input.symbol,
+            chain:           input.chain,
+            raw:             canonical,
+          };
+        }
+      }
       const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
       const bridgeCode = typeof parsed.code === "string"
         ? parsed.code
@@ -740,10 +807,29 @@ export class BridgeProvider implements PaymentProvider {
       );
     }
     const data = (r.data as any)?.data ?? r.data;
+    const walletId = String(data?.id || "");
+    let depositAddress = String(data?.address || data?.deposit_address || "");
+    if (walletId && !depositAddress) {
+      // A replayed idempotent response can omit the address even though the
+      // wallet exists. Re-read Bridge (the source of truth) before persisting.
+      const wallets = await this.listWallets(input.customer_id);
+      const canonical = wallets.find((wallet) =>
+        wallet.wallet_id === walletId ||
+        wallet.chain.toLowerCase() === input.chain.toLowerCase()
+      );
+      depositAddress = String(canonical?.address || "");
+    }
+    if (!walletId || !depositAddress) {
+      throw new BridgeProviderError("Bridge createWallet response missing id/address", {
+        status: r.status,
+        request_id: r.request_id,
+        raw_text: r.raw_text?.slice(0, 1000),
+      });
+    }
     return {
       provider:        this.name,
-      wallet_id:       String(data?.id),
-      deposit_address: String(data?.address || data?.deposit_address || ""),
+      wallet_id:       walletId,
+      deposit_address: depositAddress,
       symbol:          input.symbol,
       chain:           input.chain,
       raw:             r.data,
@@ -752,42 +838,7 @@ export class BridgeProvider implements PaymentProvider {
 
   // ── Money movement ────────────────────────────────────────────────────────
   async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
-    const bridgeRail = (rail: string) => String(rail || "").toLowerCase();
-    const body: Record<string, unknown> = {
-      ...(input.source.amount ? { amount: input.source.amount } : {}),
-      ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),
-      source: {
-        payment_rail: bridgeRail(input.source.payment_rail),
-        currency:     String(input.source.currency).toLowerCase(),
-        ...(input.source.chain ? { chain: String(input.source.chain).toLowerCase() } : {}),
-        ...(input.source.from_address ? { from_address: input.source.from_address } : {}),
-        ...(input.source.bridge_wallet_id ? { bridge_wallet_id: input.source.bridge_wallet_id } : {}),
-        ...(input.source.external_account_id ? { external_account_id: input.source.external_account_id } : {}),
-      },
-      destination: {
-        payment_rail: bridgeRail(input.destination.payment_rail),
-        currency:     String(input.destination.currency).toLowerCase(),
-        ...(input.destination.chain ? { chain: String(input.destination.chain).toLowerCase() } : {}),
-        ...(input.destination.address  ? { to_address: input.destination.address } : {}),
-        ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),
-        ...(input.destination.external_account_id ? { external_account_id: input.destination.external_account_id } : {}),
-        ...(input.destination.deposit_id ? { deposit_id: input.destination.deposit_id } : {}),
-        ...(input.destination.bank_account ? {
-          bank_account_number: input.destination.bank_account.account_number,
-          bank_routing_number: input.destination.bank_account.routing_number,
-          iban:                input.destination.bank_account.iban,
-          bic:                 input.destination.bank_account.bic,
-        } : {}),
-      },
-      ...(input.developer_fee ? {
-        developer_fee_percent:
-          input.developer_fee.percentage == null
-            ? undefined
-            : String(input.developer_fee.percentage),
-        developer_fee: input.developer_fee.flat_amount,
-      } : {}),
-      ...(input.features ? { features: input.features } : {}),
-    };
+    const body = buildBridgeTransferBody(input);
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,
       idempotencyKey: input.idempotency_key,

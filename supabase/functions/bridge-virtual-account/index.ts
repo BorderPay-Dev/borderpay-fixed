@@ -20,7 +20,6 @@ import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import {
   loadVirtualAccountDestinationConfig,
-  loadVirtualAccountDeveloperFeePercent,
   type VaCurrency,
 } from "../_shared/providers/virtual-account-config.ts";
 
@@ -43,6 +42,8 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
 const RAIL_BY_CCY: Record<string, string> = { USD: "ach_push", EUR: "sepa", GBP: "faster_payments" };
 const DEFAULT_ZERO_FEE_EMAILS = new Set(["adhiamboadhiambo22@gmail.com"]);
+const INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT = "2.5";
+const BUSINESS_VA_DEVELOPER_FEE_PERCENT = "2";
 
 function normalizeLocalVaStatus(value: unknown): "active" | "suspended" | "closed" {
   const status = String(value || "").trim().toLowerCase();
@@ -61,8 +62,24 @@ function normalizeLocalVaRail(value: unknown): string | null {
 
 function normalizeDeveloperFeePercent(value: unknown): number | null {
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  if (!Number.isFinite(n) || n < 0 || n >= 100) return null;
   return Number(n.toFixed(4));
+}
+
+function bridgeValidationDetails(rawText: string | undefined): unknown {
+  if (!rawText) return null;
+  try {
+    const parsed = JSON.parse(rawText) as Record<string, unknown>;
+    return parsed.source ?? parsed.errors ?? parsed.details ?? parsed.invalid_parameters ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function bridgeValidationText(rawText: string | undefined): string {
+  const details = bridgeValidationDetails(rawText);
+  if (typeof details === "string") return details;
+  try { return details == null ? "" : JSON.stringify(details); } catch { return ""; }
 }
 
 function isZeroFeeVirtualAccountUser(email: unknown): boolean {
@@ -81,7 +98,7 @@ async function deterministicIdempotencyKey(input: {
   currency: VaCurrency;
   destinationRail: string;
   destinationCurrency: string;
-  destinationAddress: string;
+  destinationIdentifier: string;
   developerFeePercent: string;
 }): Promise<string> {
   const digestInput = [
@@ -89,7 +106,7 @@ async function deterministicIdempotencyKey(input: {
     input.currency,
     input.destinationRail.toLowerCase(),
     input.destinationCurrency.toLowerCase(),
-    input.destinationAddress,
+    input.destinationIdentifier,
     input.developerFeePercent,
   ].join("|");
   const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(digestInput));
@@ -321,6 +338,9 @@ Deno.serve(async (req) => {
         setup_pending_currencies.push(c);
       }
     }
+    // Historical provider-limit incidents no longer suppress availability.
+    // A currency is setup-pending only when the user's Bridge wallet is absent.
+    const effectiveSetupPendingCurrencies = setup_pending_currencies;
     return json({
       success: true,
       code: "virtual_account_supported_currencies_ready",
@@ -328,13 +348,13 @@ Deno.serve(async (req) => {
         code: "virtual_account_supported_currencies_ready",
         supported_currency_count: supported_currencies.length,
         configured_currency_count: configured_currencies.length,
-        setup_pending_currency_count: setup_pending_currencies.length,
+        setup_pending_currency_count: effectiveSetupPendingCurrencies.length,
       },
       data: {
         supported_currencies,
         configured_currencies,
         operational_currencies: configured_currencies,
-        setup_pending_currencies,
+        setup_pending_currencies: effectiveSetupPendingCurrencies,
         provider_pending_currencies: Array.from(providerPendingCurrencies),
       },
     });
@@ -487,13 +507,36 @@ Deno.serve(async (req) => {
   // Bridge is the source of truth. If the VA exists at Bridge but a webhook or
   // local sync missed it, mirror it now and return it as active instead of
   // showing a pending request or attempting a duplicate create.
+  let attemptedVaReactivation = false;
   try {
     const bridgeVirtualAccounts = await bridgeProvider.listVirtualAccounts(profile.bridge_customer_id);
-    const bridgeVa = bridgeVirtualAccounts.find((v) => {
+    const sameCurrencyBridgeAccounts = bridgeVirtualAccounts.filter((v) => {
       const vaCurrency = String(v.currency || "").toUpperCase();
-      const vaStatus = String(v.status || "active").toLowerCase();
-      return vaCurrency === currency && !["closed", "deleted", "disabled", "deactivated", "inactive"].includes(vaStatus);
+      return vaCurrency === currency;
     });
+    let bridgeVa = sameCurrencyBridgeAccounts.find((v) =>
+      ["active", "activated"].includes(String(v.status || "active").toLowerCase())
+    ) ?? sameCurrencyBridgeAccounts.find((v) =>
+      String(v.status || "").toLowerCase() === "deactivated"
+    ) ?? sameCurrencyBridgeAccounts[0];
+    const originalBridgeStatus = String(bridgeVa?.status || "active").toLowerCase();
+    if (bridgeVa?.virtual_account_id && originalBridgeStatus === "deactivated") {
+      attemptedVaReactivation = true;
+      bridgeVa = await bridgeProvider.reactivateVirtualAccount(
+        profile.bridge_customer_id,
+        bridgeVa.virtual_account_id,
+      );
+    }
+    if (bridgeVa?.virtual_account_id &&
+      ["closed", "deleted", "disabled", "inactive"].includes(originalBridgeStatus)) {
+      return json({
+        success: false,
+        code: "virtual_account_unavailable",
+        error: `${currency} account is unavailable and cannot be recreated automatically.`,
+        currency,
+        summary: { code: "virtual_account_unavailable", currency },
+      }, 409);
+    }
     if (bridgeVa?.virtual_account_id) {
       const details = (bridgeVa.account_details && typeof bridgeVa.account_details === "object")
         ? (bridgeVa.account_details as Record<string, unknown>)
@@ -534,6 +577,24 @@ Deno.serve(async (req) => {
         virtual_account_number:    dep.bank_account_number || dep.iban || null,
         status:                    status === "active" ? "active" : status,
       }, { onConflict: "user_id,currency", ignoreDuplicates: false });
+      if (status !== "active") {
+        try {
+          await savePendingVaRequest({
+            userId: user.id,
+            bridgeCustomerId: profile.bridge_customer_id,
+            currency,
+            bridgeError: `Bridge returned virtual account status ${String(bridgeVa.status || "unknown")}`,
+            bridgeErrorCode: "virtual_account_reactivation_pending",
+          });
+        } catch { /* best-effort */ }
+        return json({
+          success: false,
+          code: "virtual_account_reactivation_pending",
+          error: `${currency} account reactivation is pending. Please retry shortly.`,
+          currency,
+          summary: { code: "virtual_account_reactivation_pending", currency },
+        }, 202);
+      }
       if (status === "active") {
         await resolvePendingVaRequest({
           userId: user.id,
@@ -541,14 +602,16 @@ Deno.serve(async (req) => {
           virtualAccountId: bridgeVa.virtual_account_id,
         });
       }
+      const wasReactivated = attemptedVaReactivation && status === "active";
       return json({
         success: true,
-        code: "virtual_account_already_exists",
+        code: wasReactivated ? "virtual_account_reactivated" : "virtual_account_already_exists",
         summary: {
-          code: "virtual_account_already_exists",
+          code: wasReactivated ? "virtual_account_reactivated" : "virtual_account_already_exists",
           currency,
           already_exists: true,
           source: "bridge",
+          reactivated: wasReactivated,
         },
         data: {
           virtual_account_id: bridgeVa.virtual_account_id,
@@ -569,6 +632,24 @@ Deno.serve(async (req) => {
       currency,
       error: e instanceof Error ? e.message : String(e),
     }));
+    if (attemptedVaReactivation) {
+      try {
+        await savePendingVaRequest({
+          userId: user.id,
+          bridgeCustomerId: profile.bridge_customer_id,
+          currency,
+          bridgeError: e instanceof Error ? e.message : String(e),
+          bridgeErrorCode: "virtual_account_reactivation_pending",
+        });
+      } catch { /* best-effort */ }
+      return json({
+        success: false,
+        code: "virtual_account_reactivation_pending",
+        error: `${currency} account reactivation is pending. Please retry shortly.`,
+        currency,
+        summary: { code: "virtual_account_reactivation_pending", currency },
+      }, 202);
+    }
   }
 
   let destination: Awaited<ReturnType<typeof loadVirtualAccountDestinationConfig>>;
@@ -579,42 +660,19 @@ Deno.serve(async (req) => {
       userId: user.id,
       bridgeCustomerId: profile.bridge_customer_id,
     });
-    const zeroFeeExempt = isZeroFeeVirtualAccountUser(user.email);
-    developerFeePercent = await loadVirtualAccountDeveloperFeePercent(supa, profile.account_type, user.id);
-    if (!zeroFeeExempt && Number(developerFeePercent) <= 0) {
-      const { data: tierData } = await supa.rpc("get_affiliate_onramp_fee_tier", { p_user_id: user.id });
-      const tier = Array.isArray(tierData) ? tierData[0] : tierData;
-      const activeReferrals = Number((tier as Record<string, unknown> | null)?.active_referrals || 0);
-      if (activeReferrals < 1000) {
-        throw new Error(`Invalid non-positive developer fee resolved for ${currency}`);
-      }
-    }
+    developerFeePercent = String(profile.account_type || "").trim().toLowerCase() === "business"
+      ? BUSINESS_VA_DEVELOPER_FEE_PERCENT
+      : INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT;
     idempotencyKey = await deterministicIdempotencyKey({
       customerId: profile.bridge_customer_id,
       currency: currency as VaCurrency,
       destinationRail: destination.payment_rail,
       destinationCurrency: destination.currency,
-      destinationAddress: destination.address,
+      destinationIdentifier: destination.bridge_wallet_id || destination.address,
       developerFeePercent: developerFeePercent,
     });
   } catch (e) {
     const destinationError = e instanceof Error ? e.message : String(e);
-    if (/saved external/i.test(destinationError)) {
-      return json({
-        success: false,
-        code: "external_wallet_required",
-        error: "Add a saved external USDC/Base wallet before requesting this account.",
-        currency,
-        required_destination: {
-          asset: "USDC",
-          chain: "base",
-        },
-        summary: {
-          code: "external_wallet_required",
-          currency,
-        },
-      }, 409);
-    }
     console.error(JSON.stringify({
       tag: "bridge_va_destination_config_missing",
       user_id: user.id,
@@ -671,6 +729,7 @@ Deno.serve(async (req) => {
         payment_rail: destination.payment_rail,
         currency: destination.currency,
         address: destination.address,
+        ...(destination.bridge_wallet_id ? { bridge_wallet_id: destination.bridge_wallet_id } : {}),
       },
     });
     const raw = (result.raw && typeof result.raw === "object")
@@ -684,6 +743,7 @@ Deno.serve(async (req) => {
     if (persistedFee === null) {
       throw new Error(`Invalid developer fee resolved for ${currency}`);
     }
+    const createdStatus = normalizeLocalVaStatus(result.status ?? raw.status);
 
     // Write the table the dashboard reads (bridge_virtual_accounts), plus keep
     // the legacy wallets mirror for balance/ledger compatibility.
@@ -694,7 +754,7 @@ Deno.serve(async (req) => {
       bridge_virtual_account_id: result.virtual_account_id,
       currency,
       rail:                      normalizeLocalVaRail(srcDep.payment_rail || RAIL_BY_CCY[currency]),
-      status:                    "active",
+      status:                    createdStatus,
       developer_fee_percent:     persistedFee,
       account_details: {
         ...raw,
@@ -717,13 +777,30 @@ Deno.serve(async (req) => {
       asset_type:                "fiat_virtual_account",
       bridge_virtual_account_id: result.virtual_account_id,
       virtual_account_number:    result.account_number || result.iban || null,
-      status:                    "active",
+      status:                    createdStatus,
     }, { onConflict: "user_id,currency", ignoreDuplicates: false });
-    await resolvePendingVaRequest({
-      userId: user.id,
-      currency,
-      virtualAccountId: result.virtual_account_id,
-    });
+    if (createdStatus === "active") {
+      await resolvePendingVaRequest({
+        userId: user.id,
+        currency,
+        virtualAccountId: result.virtual_account_id,
+      });
+    } else {
+      await savePendingVaRequest({
+        userId: user.id,
+        bridgeCustomerId: profile.bridge_customer_id,
+        currency,
+        bridgeError: `Bridge returned virtual account status ${String(result.status || raw.status || "unknown")}`,
+        bridgeErrorCode: "virtual_account_activation_pending",
+      });
+      return json({
+        success: false,
+        code: "virtual_account_activation_pending",
+        error: `${currency} account activation is pending.`,
+        currency,
+        summary: { code: "virtual_account_activation_pending", currency },
+      }, 202);
+    }
 
     return json({
       success: true,
@@ -773,7 +850,31 @@ Deno.serve(async (req) => {
         customer_id: profile.bridge_customer_id,
         idempotency_key: idempotencyKey,
         bridge_error: e.bridge_error ?? null,
+        bridge_validation_details: bridgeValidationDetails(e.raw_text),
       }));
+      if (currency === "USD" && providerCode === "invalid_parameters") {
+        const testingVaLimitExceeded = /exceeds limit of testing virtual account numbers/i.test(
+          bridgeValidationText(e.raw_text),
+        );
+        try {
+          await savePendingVaRequest({
+            userId: user.id,
+            bridgeCustomerId: profile.bridge_customer_id,
+            currency,
+            bridgeError: testingVaLimitExceeded
+              ? "Bridge testing virtual-account-number limit exceeded. Production USD VA access is required."
+              : e.bridge_error || "Bridge USD virtual-account provisioning is unavailable.",
+            bridgeErrorCode: testingVaLimitExceeded ? "provider_testing_va_limit" : "provider_usd_unavailable",
+          });
+        } catch { /* best-effort */ }
+        return json({
+          success: false,
+          code: "va_provider_pending",
+          error: "USD account provisioning is pending with our banking provider. No action is required from you.",
+          currency,
+          summary: { code: "va_provider_pending", currency },
+        }, 202);
+      }
       if (isGrantPending) {
         const bridgeErrorCode = providerCode === "not_allowed" ? "provider_not_allowed" : "endorsement_not_granted";
         const { data: existingPending } = await supa

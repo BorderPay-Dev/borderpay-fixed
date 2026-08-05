@@ -101,6 +101,7 @@ Deno.serve(async (req) => {
           bridge_customer_id:  profile?.bridge_customer_id || null,
           bridge_kyc_status:   profile?.bridge_kyc_status || null,
           bridge_account_status: profile?.bridge_account_status || null,
+          bridge_account_paused_at: profile?.bridge_account_paused_at || null,
           bridge_kyb_status:   bridgeKybStatus,
           address:             profile?.address || null,
           city:                profile?.city || null,

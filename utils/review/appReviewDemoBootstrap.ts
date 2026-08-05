@@ -166,7 +166,7 @@ function transactionRows(account: ReviewDemoAccount) {
     ? [
       demoTx(account, 'APP-REVIEW-BIZ-001', 'deposit', 2450, 'USDC', 'Demo business funding', 'completed', 180),
       demoTx(account, 'APP-REVIEW-BIZ-002', 'transfer', 320, 'USDC', 'Demo vendor payout in review', 'pending', 60),
-      demoTx(account, 'APP-REVIEW-BIZ-003', 'exchange', 150, 'USDT', 'Demo treasury exchange', 'completed', 25),
+      demoTx(account, 'APP-REVIEW-BIZ-003', 'transfer', 150, 'USDT', 'Demo treasury transfer', 'completed', 25),
     ]
     : [
       demoTx(account, 'APP-REVIEW-IND-001', 'deposit', 245, 'USDC', 'Demo wallet funding', 'completed', 180),

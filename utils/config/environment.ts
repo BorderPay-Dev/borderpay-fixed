@@ -66,7 +66,7 @@ export function isFullEnrollment(kycStatus: string | null | undefined): boolean 
 
 /** Canonical KYC status used by display + gating across the app. */
 export type DerivedKycStatus =
-  | 'rejected' | 'verified' | 'under_review' | 'pending' | 'not_started';
+  | 'rejected' | 'verified' | 'under_review' | 'incomplete' | 'pending' | 'not_started';
 
 /** Minimal profile shape deriveKycStatus reads (all optional / defensive). */
 export interface KycProfileLike {
@@ -114,9 +114,15 @@ export function deriveKycStatus(profile: KycProfileLike | null | undefined): Der
   //    non-terminal/absent).
   if (legacy === 'rejected' || legacy === 'failed') return 'rejected';
   if (isFullEnrollment(legacy)) return 'verified';
-  // 4. In-progress — prefer the more specific Bridge state for display.
+  // 4. Bridge non-terminal states remain exact. In particular, Bridge uses
+  //    `not_started` before onboarding and `incomplete` after the customer has
+  //    started but still owes identity steps. A stale legacy `pending` must not
+  //    erase that distinction.
   if (bridgeKyc === 'under_review') return 'under_review';
-  if (bridgeKyc === 'pending' || legacy === 'pending') return 'pending';
+  if (bridgeKyc === 'incomplete') return 'incomplete';
+  if (bridgeKyc === 'pending') return 'pending';
+  if (bridgeKyc === 'not_started') return 'not_started';
+  if (legacy === 'pending') return 'pending';
   // 5. Nothing started.
   return 'not_started';
 }

@@ -17,7 +17,7 @@ import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLang
 import { BRIDGE_ONBOARDING_LIVE } from '../../../utils/featureFlags';
 import { deriveKycStatus } from '../../../utils/config/environment';
 
-type CardStatus = 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected';
+type CardStatus = 'not_started' | 'incomplete' | 'pending' | 'under_review' | 'approved' | 'rejected';
 type AccountType  = 'individual' | 'business';
 
 interface Props {
@@ -115,6 +115,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
 
   const ctaLabel =
     status === 'not_started' ? (isBusiness ? tt('dash.kyb.start',     'Start business verification')   : tt('dash.kyc.start',     'Start identity verification'))
+  : status === 'incomplete'  ? tt('dash.kyc.continue', 'Continue verification')
   : status === 'pending'     ? (isBusiness ? tt('dash.kyb.continue',  'Continue verification')         : tt('dash.kyc.continue',  'Continue verification'))
   : status === 'rejected'    ? tt('dash.kyc.contactSupport', 'Contact support')
   : null;
@@ -122,6 +123,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const headline =
     status === 'approved'      ? (isBusiness ? tt('dash.kyb.approved.title','Business verified') : tt('dash.kyc.approved.title','Identity verified'))
   : status === 'under_review'  ? tt('dash.kyc.review.title',  'We are reviewing your submission')
+  : status === 'incomplete'    ? tt('dash.kyc.incomplete.title', 'Verification incomplete')
   : status === 'pending'       ? tt('dash.kyc.pending.title', 'Verification in progress')
   : status === 'rejected'      ? tt('dash.kyc.rejected.title','Verification did not pass')
   : (isBusiness ? tt('dash.kyb.start.title','Verify your business to unlock accounts') : tt('dash.kyc.start.title','Verify your identity to unlock accounts'));
@@ -147,6 +149,7 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
       ? (isBusiness
           ? tt('dash.kyb.review.body', 'We are reviewing your business submission. Timelines vary depending on the business and required documents.')
           : tt('dash.kyc.review.body', 'Most reviews complete in a few minutes.'))
+  : status === 'incomplete'   ? tt('dash.kyc.incomplete.body', 'You started verification but still have steps to complete.')
   : status === 'pending'      ? tt('dash.kyc.pending.body',  'Pick up where you left off.')
   : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'Contact support so our team can review the account and advise the next step.')
   : (isBusiness

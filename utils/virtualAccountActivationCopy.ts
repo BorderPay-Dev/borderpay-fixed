@@ -24,6 +24,7 @@ export function virtualAccountActivationMessage(res: any, currency: string): Vir
     };
   }
   if (
+    code === 'va_provider_pending' ||
     code === 'va_grant_pending' ||
     code === 'virtual_account_setup_pending' ||
     code === 'account_setup_pending' ||
@@ -32,7 +33,7 @@ export function virtualAccountActivationMessage(res: any, currency: string): Vir
     return {
       type: 'info',
       title: `${currency} account request received`,
-      message: rawError || 'This foreign currency account is being enabled. We will notify you once it is ready.',
+      message: rawError || 'We received your request. Support will activate the account for you; no further action is required.',
     };
   }
   if (code === 'kyc_not_approved') {

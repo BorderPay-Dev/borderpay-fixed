@@ -19,7 +19,7 @@
  *   • 'restricted'   → never shown
  */
 
-import { isBridgeBlocked } from '../../utils/compliance/partnerCountryPolicy';
+import { isBridgeBlocked, normalizeBridgeCountryCode } from '../../utils/compliance/partnerCountryPolicy';
 import { ALL_COUNTRIES } from '../../utils/countries/allCountries';
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
@@ -781,11 +781,12 @@ function resolveCode2(input: unknown): string | null {
   return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 
-export function getSignupCountriesFromBridge(records: Array<{ code?: string | null; name?: string | null }>): CountryConfig[] {
+export function getSignupCountriesFromBridge(records: Array<{ code?: string | null; code3?: string | null; name?: string | null }>): CountryConfig[] {
   const out = new Map<string, CountryConfig>();
 
   for (const row of records) {
-    let code = resolveCode2(row?.code);
+    let code = resolveCode2(row?.code)
+      ?? resolveCode2(normalizeBridgeCountryCode(row?.code3));
     const rawName = String(row?.name ?? '').trim();
     if (!code && rawName) {
       const normalized = normalizeCountryName(rawName);

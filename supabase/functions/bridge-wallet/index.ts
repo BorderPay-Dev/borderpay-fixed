@@ -95,15 +95,32 @@ Deno.serve(async (req) => {
 
   // Idempotent on (user, symbol, chain)
   const { data: existing } = await supa
-    .from("wallets")
-    .select("id, bridge_wallet_id")
-    .eq("user_id", user.id)
-    .eq("currency", symbol)
-    .eq("stablecoin_chain", chain)
-    .eq("provider", "bridge")
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,address,status")
+    .or(`user_id.eq.${user.id},business_user_id.eq.${user.id}`)
+    .eq("bridge_customer_id", profile.bridge_customer_id)
+    .ilike("currency", symbol)
+    .ilike("chain", chain)
     .maybeSingle();
-  if (existing?.bridge_wallet_id) {
-    return json({ success: true, data: { wallet_id: existing.bridge_wallet_id, symbol, chain, already_exists: true } });
+  const existingActive = String(existing?.status || "").toLowerCase() === "active";
+  if (existing?.bridge_wallet_id && existingActive && existing.address) {
+    return json({
+      success: true,
+      data: {
+        wallet_id: existing.bridge_wallet_id,
+        deposit_address: existing.address,
+        symbol,
+        chain,
+        already_exists: true,
+      },
+    });
+  }
+  if (existing?.bridge_wallet_id && !existingActive) {
+    return json({
+      success: false,
+      code: "wallet_not_active",
+      error: `Existing ${symbol}/${chain} wallet is ${existing.status || "not active"}.`,
+    }, 409);
   }
 
   try {
@@ -115,35 +132,23 @@ Deno.serve(async (req) => {
     // Write the table the dashboard reads (bridge_wallets) — this is what
     // BridgeWalletsCard lists. Previously we only wrote `wallets`, so created
     // wallets never appeared in the UI.
-    const { error: bwErr } = await supa.from("bridge_wallets").insert({
+    const { error: bwErr } = await supa.from("bridge_wallets").upsert({
       user_id:            user.id,
       ...(isBusiness ? { business_user_id: user.id } : {}),
       bridge_customer_id: profile.bridge_customer_id,
       bridge_wallet_id:   result.wallet_id,
       currency:           symbol,
-      chain,
+      chain:              chain.toLowerCase(),
       address:            result.deposit_address,
       status:             "active",
-    });
-    // Legacy mirror for balance/ledger compatibility.
-    const { error: wErr } = await supa.from("wallets").upsert({
-      user_id:           user.id,
-      currency:          symbol,
-      provider:          "bridge",
-      asset_type:        "stablecoin",
-      stablecoin_chain:  chain,
-      bridge_wallet_id:  result.wallet_id,
-      virtual_account_number: result.deposit_address,  // deposit address goes here for stablecoins
-      balance:           0,
-      status:            "active",
-    });
-    if (bwErr || wErr) {
+    }, { onConflict: "bridge_wallet_id", ignoreDuplicates: false });
+    if (bwErr) {
       // Bridge created the wallet; surface the persistence problem with the id
       // so the next sync reconciles it rather than silently losing it.
       return json({
         success: false,
         code:    "persistence_failed",
-        error:   `Wallet created at Bridge (${result.wallet_id}) but local save failed: ${(bwErr || wErr)!.message}`,
+        error:   `Wallet created at Bridge (${result.wallet_id}) but local save failed: ${bwErr.message}`,
         bridge_wallet_id: result.wallet_id,
       }, 500);
     }

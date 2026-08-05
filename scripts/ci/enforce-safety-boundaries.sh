@@ -183,6 +183,12 @@ python3 "$ROOT/tests/audit/current_access_model_regression_audit.py" >/dev/null 
 python3 "$ROOT/tests/audit/signup_abuse_protection_audit.py" >/dev/null \
   || fail "Signup abuse protection / RPC availability audit failed."
 
+python3 "$ROOT/tests/audit/bridge_kyc_state_regression_audit.py" >/dev/null \
+  || fail "Bridge KYC exact-state / hosted ToS regression audit failed."
+
+python3 "$ROOT/tests/audit/app_store_exchange_navigation_audit.py" >/dev/null \
+  || fail "App Store exchange navigation regression audit failed."
+
 # 10) Pricing route/runtime guard:
 #    PricingScreen and /pricing route are retired. Any reintroduction must fail CI.
 if [ -f "$ROOT/components/pricing/PricingScreen.tsx" ]; then

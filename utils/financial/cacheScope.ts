@@ -16,7 +16,10 @@ export function resolveFinancialCacheScope(explicitUserId?: string | null): Fina
     const parsed = raw ? JSON.parse(raw) : {};
     const cachedUserId = String(parsed?.id || "").trim();
     return {
-      userId: cachedUserId || fallbackUserId || "anon",
+      // Explicit userId comes from the active auth/session route and must win.
+      // Letting a stale cached profile override it creates a cold-cache miss on
+      // sign-in and can briefly paint a zero-balance "new account" state.
+      userId: fallbackUserId || cachedUserId || "anon",
       accountType: normalizeAccountType(parsed?.account_type),
     };
   } catch {

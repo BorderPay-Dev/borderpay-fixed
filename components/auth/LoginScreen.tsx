@@ -147,7 +147,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
             phone:        data.user.user_metadata?.phone || data.user.phone || '',
             country:      data.user.user_metadata?.country || '',
             account_type: data.user.user_metadata?.account_type || 'individual',
-            kyc_status:   data.user.user_metadata?.kyc_status || 'pending',
+            kyc_status:   data.user.user_metadata?.kyc_status || 'not_started',
             created_at:   data.user.created_at,
           };
         } else if (!userProfile.full_name || userProfile.full_name === 'User') {

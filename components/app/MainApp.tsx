@@ -21,7 +21,6 @@ import { WalletScreen } from '../wallet/WalletScreen';
 import { AddWalletScreen } from '../wallet/AddWalletScreen';
 import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
 import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
-import { ExchangeScreen } from '../exchange/ExchangeScreen';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import { ProfileScreen } from '../profile/ProfileScreen';
 import { NotificationsScreen } from '../notifications/NotificationsScreen';
@@ -35,6 +34,7 @@ import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 import { PreferencesScreen } from './PreferencesScreen';
 import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
+import { PausedAccountScreen } from '../account/PausedAccountScreen';
 import { HelpCenterScreen } from '../settings/HelpCenterScreen';
 import { SupportScreen } from '../settings/SupportScreen';
 import { CardsScreen } from '../cards/CardsScreen';
@@ -62,6 +62,7 @@ import {
 } from '../../utils/performance/navigationPerf';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
 import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
+import { isBridgeAccountPaused } from '../../utils/bridgeAccountStatus';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -121,7 +122,6 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   cards: eagerPreload,
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
-  exchange: eagerPreload,
   'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': eagerPreload,
@@ -170,11 +170,13 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
       return 'receive-money';
     case 'home':
       return 'dashboard';
+    case 'exchange':
+      // Legacy links must not expose the removed customer exchange service.
+      return 'dashboard';
     case 'dashboard':
     case 'cards':
     case 'send-money':
     case 'receive-money':
-    case 'exchange':
     case 'transactions':
     case 'wallet-detail':
     case 'two-factor-setup':
@@ -343,7 +345,6 @@ export type AppScreen =
   | 'cards'
   | 'send-money'
   | 'receive-money'
-  | 'exchange'
   | 'transactions'
   | 'wallet-detail'
   | 'add-wallet'
@@ -453,6 +454,17 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null }>(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
+      return {
+        paused: isBridgeAccountPaused(cached),
+        pausedAt: cached?.bridge_account_paused_at || null,
+      };
+    } catch {
+      return { paused: false, pausedAt: null };
+    }
+  });
 
   // Clear one-time module-reload fuse once the app boots successfully.
   useEffect(() => {
@@ -542,6 +554,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         if (cancelled) return;
         if (r?.success && r.data?.user) {
           const u: any = r.data.user;
+          setPausedAccount({
+            paused: isBridgeAccountPaused(u),
+            pausedAt: u.bridge_account_paused_at || null,
+          });
           let cached: any = {};
           try { cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}'); } catch { cached = {}; }
           const cachedBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
@@ -1037,9 +1053,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           />
         );
 
-      case 'exchange':
-        return <ExchangeScreen onBack={navigateBack} />;
-
       case 'two-factor-setup':
         return (
           <TwoFactorSetup
@@ -1170,6 +1183,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
     }
   };
+
+  if (pausedAccount.paused) {
+    return <PausedAccountScreen pausedAt={pausedAccount.pausedAt} onSignOut={onLogout} />;
+  }
 
   return (
     <div

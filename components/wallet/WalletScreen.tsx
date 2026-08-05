@@ -381,7 +381,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         const prefetch = (window as any).__borderpay_prefetch;
         if (typeof prefetch === 'function') {
           const warm = () => {
-            ['receive-money', 'send-money', 'transactions', 'exchange', 'external-wallets', 'external-accounts'].forEach((s) => {
+            ['receive-money', 'send-money', 'transactions', 'external-wallets', 'external-accounts'].forEach((s) => {
               try { prefetch(s); } catch { /* noop */ }
             });
           };

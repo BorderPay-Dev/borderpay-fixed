@@ -81,16 +81,24 @@ Deno.serve(async (req) => {
     // Idempotent: skip if this (currency, chain) already exists for the user.
     const { data: existing } = await supa
       .from("bridge_wallets")
-      .select("address")
-      .eq("user_id", user.id)
+      .select("bridge_wallet_id,address,status")
+      .or(`user_id.eq.${user.id},business_user_id.eq.${user.id}`)
       .ilike("currency", symbol)
       .ilike("chain", chain)
       .maybeSingle();
-    if (existing) { out.push({ symbol, chain: chain.toLowerCase(), address: existing.address, already: true }); continue; }
+    const existingActive = String(existing?.status || "").toLowerCase() === "active";
+    if (existing?.bridge_wallet_id && existingActive && existing.address) {
+      out.push({ symbol, chain: chain.toLowerCase(), address: existing.address, already: true });
+      continue;
+    }
+    if (existing?.bridge_wallet_id && !existingActive) {
+      console.warn(`skip non-active ${symbol}/${chain}: ${existing.status || "unknown"}`);
+      continue;
+    }
 
     try {
       const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: symbol as any, chain: chain as any });
-      await supa.from("bridge_wallets").insert({
+      const { error: bridgeWalletErr } = await supa.from("bridge_wallets").upsert({
         ...ownerCols,
         bridge_customer_id: profile.bridge_customer_id,
         bridge_wallet_id:   created.wallet_id,
@@ -98,7 +106,11 @@ Deno.serve(async (req) => {
         chain:              chain.toLowerCase(),
         address:            created.deposit_address,
         status:             "active",
-      });
+      }, { onConflict: "bridge_wallet_id", ignoreDuplicates: false });
+      if (bridgeWalletErr) {
+        console.warn(`persist ${symbol}/${chain}: ${bridgeWalletErr.message}`);
+        continue;
+      }
       out.push({ symbol, chain: chain.toLowerCase(), address: created.deposit_address, already: false });
     } catch (e) {
       // One failure shouldn't block the other; report best-effort.
@@ -106,7 +118,10 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ success: true, data: { wallets: out } });
+  return json({
+    success: out.length === DEFAULTS.length,
+    data: { wallets: out },
+  });
 });
 
 async function provisionForOperator(body: { user_id?: string; email?: string }) {
@@ -150,8 +165,26 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
       .ilike("currency", symbol)
       .ilike("chain", chain)
       .maybeSingle();
-    if (existing?.bridge_wallet_id) {
-      out.push({ ...existing, symbol, display_chain: chain.toLowerCase(), already: true });
+    const existingActive = String(existing?.status || "").toLowerCase() === "active";
+    if (existing?.bridge_wallet_id && existingActive && existing.address) {
+      out.push({
+        ...existing,
+        symbol,
+        display_chain: chain.toLowerCase(),
+        already: true,
+        persisted: true,
+      });
+      continue;
+    }
+    if (existing?.bridge_wallet_id && !existingActive) {
+      out.push({
+        ...existing,
+        symbol,
+        display_chain: chain.toLowerCase(),
+        already: false,
+        persisted: false,
+        error: `Existing Bridge wallet is ${existing.status || "not active"}`,
+      });
       continue;
     }
 
@@ -168,19 +201,8 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
         updated_at: new Date().toISOString(),
       };
       const { error: bwErr } = await supa.from("bridge_wallets").upsert(bridgeWalletRow as Record<string, unknown>, { onConflict: "bridge_wallet_id", ignoreDuplicates: false });
-      const { error: wErr } = await supa.from("wallets").upsert({
-        user_id: profile.id,
-        currency: symbol,
-        provider: "bridge",
-        asset_type: "stablecoin",
-        stablecoin_chain: chain.toLowerCase(),
-        bridge_wallet_id: created.wallet_id,
-        virtual_account_number: created.deposit_address,
-        balance: 0,
-        status: "active",
-      });
-      if (bwErr || wErr) {
-        out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: false, bridge_wallet_id: created.wallet_id, error: (bwErr || wErr)?.message });
+      if (bwErr) {
+        out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: false, bridge_wallet_id: created.wallet_id, error: bwErr.message });
       } else {
         out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
       }
@@ -190,7 +212,7 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
   }
 
   return json({
-    success: out.some((row) => row.persisted === true || row.already === true),
+    success: out.length === DEFAULTS.length && out.every((row) => row.persisted === true || row.already === true),
     user: { id: profile.id, email: profile.email, country: profile.country, bridge_customer_id: profile.bridge_customer_id },
     data: { wallets: out },
   });

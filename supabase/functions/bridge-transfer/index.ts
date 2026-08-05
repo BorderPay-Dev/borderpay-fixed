@@ -593,7 +593,6 @@ Deno.serve(async (req) => {
   const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
   const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
   const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
-  const transferChain = enforcedCryptoPayout ? undefined : body.source.chain ?? body.destination.chain;
   const normalizedSourceType = normalizeBridgeEndpointType(sourceRail);
   const normalizedDestinationType = normalizeBridgeEndpointType(enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail);
   const transactionDirection = normalizedSourceType === "wallet" ? "debit" : "credit";
@@ -651,17 +650,17 @@ Deno.serve(async (req) => {
       source: {
         payment_rail: sourceRail,
         currency:     transferSourceCurrency,
-        chain:        transferChain,
         from_address: body.source.from_address,
         bridge_wallet_id: body.source.bridge_wallet_id,
         external_account_id: body.source.external_account_id,
         amount:       transferAmount,
       },
       destination: {
-        ...body.destination,
+        ...Object.fromEntries(
+          Object.entries(body.destination || {}).filter(([key]) => key !== "chain"),
+        ),
         payment_rail: enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail,
         currency: transferDestinationCurrency,
-        ...(transferChain ? { chain: transferChain } : {}),
       },
       developer_fee: isFiatExternalOfframp
         ? {

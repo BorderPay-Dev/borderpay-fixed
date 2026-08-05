@@ -28,7 +28,7 @@ interface KYCVerificationProps {
 }
 
 type AccountType  = 'individual' | 'business';
-type KycView      = 'not_started' | 'pending' | 'under_review' | 'verified' | 'rejected';
+type KycView      = 'not_started' | 'incomplete' | 'pending' | 'under_review' | 'verified' | 'rejected';
 
 function mapBridge(raw: string | null | undefined): KycView {
   switch ((raw || '').toLowerCase()) {
@@ -42,8 +42,8 @@ function mapBridge(raw: string | null | undefined): KycView {
     case 'rejected':     return 'rejected';
     case 'review_pending':
     case 'under_review': return 'under_review';
-    case 'pending':
-    case 'incomplete':   return 'pending';
+    case 'incomplete':   return 'incomplete';
+    case 'pending':      return 'pending';
     default:             return 'not_started';
   }
 }
@@ -217,12 +217,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   useEffect(() => {
     if (!embeddedUrl) return;
     const t = window.setTimeout(() => {
-      if (!embedLoaded) {
+      if (!embedLoaded && embeddedReturnEnabled) {
         openTopLevelHostedFallback(embeddedUrl);
       }
     }, 2200);
     return () => window.clearTimeout(t);
-  }, [embeddedUrl, embedLoaded, openTopLevelHostedFallback, embedNonce]);
+  }, [embeddedUrl, embeddedReturnEnabled, embedLoaded, openTopLevelHostedFallback, embedNonce]);
 
   // If the previous attempt required Bridge ToS, resume automatically on return
   // to fetch/open the actual hosted KYC/KYB link.
@@ -517,6 +517,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       title: tt('kyc.status.pending.title', 'Verification pending'),
       body: tt('kyc.status.pending.body', 'Your details have been received and are awaiting review. We’ll update this automatically.'),
     },
+    incomplete: {
+      Icon: Clock, tone: 'text-amber-400', bg: 'bg-amber-500/15',
+      title: tt('kyc.status.incomplete.title', 'Verification incomplete'),
+      body: tt('kyc.status.incomplete.body', 'You started verification but still have steps to complete.'),
+    },
     under_review: {
       Icon: Clock, tone: 'text-blue-400', bg: 'bg-blue-500/15',
       title: tt('kyc.status.review.title', 'Under review'),
@@ -576,10 +581,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             </div>
           </div>
 
-          {/* Free in-app start/continue — allow users in not_started OR pending
+          {/* Start/continue is available until Bridge moves the submission into review.
               to (re)open the hosted verification link. The provider handles link reuse
               / regeneration idempotently server-side. */}
-          {(status === 'not_started' || status === 'pending') && (
+          {(status === 'not_started' || status === 'incomplete' || status === 'pending') && (
             <button
               onClick={() => { void startVerification(); }}
               className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
@@ -624,8 +629,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             ref={iframeRef}
             className="w-full flex-1 min-h-0 border-0 bg-white"
             allow="clipboard-read; clipboard-write; camera; microphone"
-            referrerPolicy="no-referrer"
             loading="eager"
+            allowFullScreen
             onLoad={() => {
               setEmbedLoaded(true);
               try {
