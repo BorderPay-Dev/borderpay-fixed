@@ -9,6 +9,7 @@ transaction = (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.t
 cache = (ROOT / "utils/africanRailsPolicyCache.ts").read_text()
 send = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 receive = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
+geo = (ROOT / "api/geo.ts").read_text()
 
 assert 'source_document_date: SOURCE_DOCUMENT_DATE' in catalog
 assert 'country: "CD", currency: "CDF", channel: "mobile_money"' in catalog
@@ -26,5 +27,11 @@ assert "disabled={!africanRailsTester}" not in send
 assert "yellowCardSandboxTransaction" in receive
 assert "payouts.createCollection" not in receive
 assert "flutterwave" not in receive.lower()
+assert "{regionalAfricanCountries.length > 0 && <button" in receive
+assert "africanPolicyLoading || africanCountries.length > 0" not in receive
+assert "Checking rails for your account country" not in receive
+assert "item.countryCode === ipCountry" in receive
+assert "x-vercel-ip-country" in geo
+assert "country: null" not in geo
 
 print("yellowcard commercial scope audit passed")

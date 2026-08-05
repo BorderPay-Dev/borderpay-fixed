@@ -25,6 +25,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { loadIpCountry } from '../../utils/geoCountry';
 import {
   loadAfricanPolicyRows,
   readCachedAfricanPolicyRows,
@@ -189,6 +190,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   });
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
   const [country, setCountry] = useState<string | null>(() => readCachedCountry());
+  const [ipCountry, setIpCountry] = useState<string | null>(null);
 
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
@@ -257,6 +259,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
 
   const africanCountries = useMemo(() => buildAfricanCountries(africanPolicyRows), [africanPolicyRows]);
+  const regionalAfricanCountries = useMemo(
+    () => ipCountry ? africanCountries.filter((item) => item.countryCode === ipCountry) : [],
+    [africanCountries, ipCountry],
+  );
   const selectedAfricanCountry = useMemo(
     () => africanCountries.find((item) => item.countryCode === selectedAfricanCountryCode) || null,
     [africanCountries, selectedAfricanCountryCode],
@@ -293,6 +299,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
+  useEffect(() => {
+    let active = true;
+    void loadIpCountry().then((value) => {
+      if (active) setIpCountry(value);
+    });
+    return () => { active = false; };
+  }, []);
 
   const loadAfricanReceivePolicy = useCallback(async (force = false) => {
     if (africanPolicyLoadingRef.current) return;
@@ -705,18 +718,17 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             </h2>
 
             <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-              {(africanPolicyLoading || africanCountries.length > 0) && <button
+              {regionalAfricanCountries.length > 0 && <button
                 type="button"
                 onClick={() => {
-                  const regional = africanCountries[0];
+                  const regional = regionalAfricanCountries[0];
                   if (!regional) return;
                   setSelectedAfricanCountryCode(regional.countryCode);
                   setSelectedAfricanRail(null);
                   setCollectionResult(null);
                   setReceiveStep('africa-rail');
                 }}
-                disabled={africanPolicyLoading || africanCountries.length === 0}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} disabled:cursor-wait disabled:opacity-60`}
+                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg}`}
               >
                 <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
                   <Smartphone className="w-5 h-5 text-[#58D66D]" />
@@ -724,9 +736,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 <div className="flex-1 min-w-0">
                   <div className={`text-[15px] font-semibold ${tc.text} truncate`}>Top up with local money</div>
                   <div className="text-[11px] text-[#58D66D]">
-                    {africanPolicyLoading
-                      ? 'Checking rails for your account country'
-                      : `${africanCountries[0]?.countryName || 'Local'} · ${getRailOptions(africanCountries[0]).map((rail) => railLabel(rail.channel)).join(' · ')}`}
+                    {`${regionalAfricanCountries[0].countryName} · ${getRailOptions(regionalAfricanCountries[0]).map((rail) => railLabel(rail.channel)).join(' · ')}`}
                   </div>
                   {!africanRailsTester && <div className="text-[11px] text-white/40">Integration preview</div>}
                 </div>
