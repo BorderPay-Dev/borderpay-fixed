@@ -52,6 +52,7 @@ import { render as businessTeamInvite }                from "./business/team-inv
 import { render as businessAffiliateProgram }           from "./business/affiliate-program.ts";
 import { render as businessStablecoinFreeAnnouncement } from "./business/stablecoin-free-announcement.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
+import { render as adminApprovedTransaction }           from "./admin/approved-transaction.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -93,7 +94,8 @@ export type TemplateName =
   | "business.team_invite"
   | "business.affiliate_program"
   | "business.stablecoin_free_announcement"
-  | "admin.incident_alert";
+  | "admin.incident_alert"
+  | "admin.approved_transaction";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -138,6 +140,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.affiliate_program":          businessAffiliateProgram,
   "business.stablecoin_free_announcement": businessStablecoinFreeAnnouncement,
   "admin.incident_alert":                adminIncidentAlert,
+  "admin.approved_transaction":          adminApprovedTransaction,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {
