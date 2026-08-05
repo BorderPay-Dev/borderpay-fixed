@@ -1256,6 +1256,7 @@ function bridgeTransferIdFromPayload(payload: any): string | null {
     payload?.transfer?.id,
     payload?.source?.transfer_id,
     payload?.destination?.transfer_id,
+    payload?.payment_route?.transfer_id,
     payload?.metadata?.bridge_transfer_id,
     payload?.metadata?.transfer_id,
   ];
@@ -2154,6 +2155,22 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         receipt: statusReceipt,
       };
       const { resolved, account_type } = owner;
+      const sourceAmount = Number(
+        statusReceipt.available_amount ?? statusReceipt.source_amount ?? statusReceipt.initial_amount ?? NaN,
+      );
+      if (receiptDepositId && Number.isFinite(sourceAmount) && sourceAmount > 0) {
+        await upsertVirtualAccountStatusTransaction({
+          userId: resolved,
+          accountType: account_type,
+          status: "approved",
+          amount: sourceAmount,
+          currency: String(statusReceipt.source_currency || currency).toUpperCase(),
+          reference: `bridge:va:${String(vaId)}:deposit:${receiptDepositId}`,
+          description: "Deposit approved",
+          occurredAt: d?.created_at ?? ev.payload?.event_created_at ?? null,
+          metadata: statusMetadata,
+        });
+      }
       await insertTransactionStatusNotification({
         userId: resolved,
         status: "approved",
@@ -2580,6 +2597,58 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
       updated_at:  new Date().toISOString(),
     }, { onConflict: "reference" });
 
+    // Bridge emits a completed wallet activity after the transfer/deposit
+    // lifecycle event. Reconcile the original row instead of leaving a stale
+    // pending item beside the completed wallet projection.
+    const routeDepositId = String(d?.payment_route?.deposit_id ?? "").trim();
+    if (walletActivityTransferId) {
+      const canonicalReference = `bridge:${walletActivityTransferId}`;
+      const { data: canonical, error: canonicalReadError } = await supabase
+        .from("transactions")
+        .select("id,metadata")
+        .eq("reference", canonicalReference)
+        .maybeSingle();
+      if (canonicalReadError) throw new Error(`read transfer transaction failed: ${canonicalReadError.message}`);
+      if (canonical?.id) {
+        const { error: canonicalUpdateError } = await supabase
+          .from("transactions")
+          .update({
+            status: "completed",
+            metadata: {
+              ...(canonical.metadata || {}),
+              settlement_event_id: ev.event_id,
+              settlement_wallet_activity: d,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", canonical.id);
+        if (canonicalUpdateError) throw new Error(`reconcile transfer transaction failed: ${canonicalUpdateError.message}`);
+      }
+    }
+    if (routeDepositId) {
+      const { data: deposits, error: depositReadError } = await supabase
+        .from("transactions")
+        .select("id,metadata")
+        .eq("provider", "bridge")
+        .contains("metadata", { deposit_id: routeDepositId });
+      if (depositReadError) throw new Error(`read deposit transaction failed: ${depositReadError.message}`);
+      for (const deposit of deposits || []) {
+        const { error: depositUpdateError } = await supabase
+          .from("transactions")
+          .update({
+            status: "completed",
+            metadata: {
+              ...(deposit.metadata || {}),
+              settlement_event_id: ev.event_id,
+              settlement_wallet_activity: d,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", deposit.id);
+        if (depositUpdateError) throw new Error(`reconcile deposit transaction failed: ${depositUpdateError.message}`);
+      }
+    }
+
     if (amountMinor !== null) {
       await supabase.from("bridge_balance_ledger").upsert({
         event_id: ev.event_id,
@@ -2718,7 +2787,7 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the transfer; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const transferId = d?.transfer_id ?? d?.id ?? ev.payload?.event_object_id;
-  const customer   = d?.customer_id ?? d?.customer?.id ?? d?.source?.customer_id ?? d?.destination?.customer_id;
+  const customer   = d?.customer_id ?? d?.customer?.id ?? d?.source?.customer_id ?? d?.destination?.customer_id ?? d?.on_behalf_of;
   if (!transferId) throw new Error("bridge transfer event missing id");
 
   const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
