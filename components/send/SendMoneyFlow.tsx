@@ -403,6 +403,12 @@ function nestedValue(input: any, path: string) {
 
 function extractAfricanQuote(input: any, sourceAmount: number) {
   const rates = input?.rates ?? input;
+  const providerRateRows = Array.isArray(rates?.rates)
+    ? rates.rates
+    : (Array.isArray(rates?.data) ? rates.data : (Array.isArray(rates) ? rates : []));
+  const providerRate = providerRateRows.find((row: any) =>
+    String(row?.code || '').toUpperCase() === String(input?.destination_currency || '').toUpperCase()
+  ) || providerRateRows[0];
   const destinationAmount = firstFiniteNumber(
     nestedValue(rates, 'destination_amount'),
     nestedValue(rates, 'destinationAmount'),
@@ -422,6 +428,7 @@ function extractAfricanQuote(input: any, sourceAmount: number) {
     nestedValue(rates, 'conversion_rate'),
     nestedValue(rates, 'transfer_rate'),
     nestedValue(rates, 'data.rate'),
+    providerRate?.sell,
   );
   const fee = firstFiniteNumber(
     nestedValue(rates, 'fee'),
@@ -856,7 +863,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     })[0] || null;
   }, [amount, selectedAfricanRail, selectedCurrency]);
   const selectedAfricanProvider = providerFromPolicy(selectedAfricanPolicyRow);
-  const requiresInstitutionSelection = false;
+  const requiresInstitutionSelection = isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsTester;
   const [africanQuote, setAfricanQuote] = useState<{
     destinationAmount: number | null;
     rate: number | null;
@@ -864,6 +871,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   } | null>(null);
   const [africanQuoteLoading, setAfricanQuoteLoading] = useState(false);
   const [africanQuoteError, setAfricanQuoteError] = useState('');
+  const [yellowCardSandboxOutcome, setYellowCardSandboxOutcome] = useState<'success' | 'failure'>('success');
   const africanQuoteReqRef = useRef(0);
 
   // Instant fallback fee — shown immediately on first paint.
@@ -962,11 +970,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setAfricanQuoteError('');
     (async () => {
       try {
-        const res: any = await backendAPI.payouts.transferRates({
-          source_currency: activeFundingCurrency,
-          destination_currency: selectedCurrency,
-          destination_country: selectedAfricanCountryCode,
-          channel: selectedAfricanRail.channel,
+        const res: any = await backendAPI.payouts.yellowCardCapabilities('rates', {
+          currency: selectedCurrency,
+          country: selectedAfricanCountryCode,
           amount: num,
         });
         if (africanQuoteReqRef.current !== reqId) return;
@@ -1185,16 +1191,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     // enters details, not while still on method selection.
     if (step === 'method') return;
     if (method === 'us_ach_wire' || method === 'stablecoin') return;
-    if (selectedAfricanRail) {
-      setInstitutions([]);
-      setLoadingInstitutions(false);
-      setSelectedBank({
-        code: policyRouteCode(selectedAfricanRail),
-        name: policyRouteName(selectedAfricanRail.channel),
-        type: selectedAfricanRail.channel,
-      });
-      return;
-    }
     loadInstitutions();
   }, [step, method, selectedCurrency, selectedAfricanCountryCode, selectedAfricanRail]);
 
@@ -1233,21 +1229,25 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
     setLoadingInstitutions(true);
     try {
-      const res: any = method === 'bank'
-        ? await backendAPI.payouts.listBanks(selectedAfricanCountryCode)
-        : await backendAPI.payouts.listMobileNetworks(selectedAfricanCountryCode);
+      const res: any = selectedAfricanProvider === 'yellow_card'
+        ? await backendAPI.payouts.yellowCardCapabilities('networks', { country: selectedAfricanCountryCode })
+        : null;
       if (!res?.success) {
         throw new Error(res?.error || 'Unable to load available payout rails.');
       }
-      const rawList = method === 'bank'
-        ? (res?.data?.banks || [])
-        : (res?.data?.mobile_networks || res?.data?.providers || []);
+      const providerNetworks = res?.data?.networks;
+      const rawList = Array.isArray(providerNetworks)
+        ? providerNetworks
+        : (Array.isArray(providerNetworks?.networks) ? providerNetworks.networks
+          : (Array.isArray(providerNetworks?.data) ? providerNetworks.data : []));
       const list: Institution[] = (Array.isArray(rawList) ? rawList : [])
+        .filter((row: any) => {
+          const accountType = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
+          return !accountType || accountType === (method === 'mobile_money' ? 'momo' : 'bank');
+        })
         .map((row: any, idx: number) => ({
           code: String(
-            method === 'mobile_money'
-              ? (row?.network || row?.code || row?.id || row?.name || `rail_${idx}`)
-              : (row?.code || row?.id || row?.bank_code || row?.network || row?.name || `rail_${idx}`)
+            row?.id || row?.code || row?.network || row?.name || `rail_${idx}`
           ).trim(),
           name: String(row?.name || row?.bank_name || row?.network || row?.provider || row?.code || `Rail ${idx + 1}`).trim(),
           type: method,
@@ -1487,55 +1487,36 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (!africanQuote?.destinationAmount) {
           throw new Error('Quote this corridor before sending.');
         }
-        const routeCode = selectedBank?.code || policyRouteCode(selectedAfricanRail);
-        const recipientAccount = method === 'mobile_money'
-          ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
-          : accountNumber.trim();
         const beneficiaryName = recipientName.trim() || resolvedName || undefined;
-        const providerSourceCurrency = providerSettlementCurrencyForAfricanRail(activeFundingCurrency);
-        result = await backendAPI.payouts.createTransfer({
-          source: 'yellow_card',
-          amount: africanQuote.destinationAmount,
+        if (!selectedBank?.code) throw new Error('Select the recipient bank or mobile money network.');
+        const localAmount = Math.round(africanQuote.destinationAmount);
+        const settlementNetwork = activeFundingCurrency === 'USDC' ? 'BASE' : 'TRC20';
+        const request = {
           currency: selectedCurrency,
-          debit_currency: activeFundingCurrency,
-          source_currency: providerSourceCurrency,
-          account_bank: routeCode,
-          account_number: recipientAccount,
-          account_type: accountType,
           country: selectedAfricanCountryCode,
-          destination_country: selectedAfricanCountryCode,
-          destination_currency: selectedCurrency,
           channel: method,
-          network_id: selectedAfricanPolicyRow?.raw?.provider_network_id
-            ? String(selectedAfricanPolicyRow.raw.provider_network_id)
-            : undefined,
-          reference: transferIdempotencyKey,
-          narration: reason || `${railLabel(method)} payout`,
-          beneficiary_name: beneficiaryName,
-          yellow_card: selectedAfricanProvider === 'yellow_card'
-            ? {
-              destination: {
-                accountNumber: recipientAccount,
-                accountType: method === 'mobile_money' ? 'momo' : 'bank',
-                networkId: selectedAfricanPolicyRow?.raw?.provider_network_id,
-              },
-            }
-            : undefined,
-          meta: {
-            borderpay_ui_route: 'send_to_africa',
-            selected_channel: method,
-            selected_provider: selectedAfricanProvider || undefined,
-            source_amount: parseFloat(amount),
-            source_currency: activeFundingCurrency,
-            provider_source_currency: providerSourceCurrency,
-            source_fee_amount: africanFeeInFundingCurrency,
-            source_total_amount: africanTotalSourceDebit,
-            fee_currency: africanPolicyFee?.currency || activeFundingCurrency,
-            fee_amount: africanPolicyFee?.amount ?? 0,
-            quoted_destination_amount: africanQuote.destinationAmount,
-            recipient_name: beneficiaryName,
-            recipient_account: recipientAccount,
-          },
+          local_amount: localAmount,
+          settlement_currency: activeFundingCurrency,
+          settlement_network: settlementNetwork,
+          crypto_amount: parseFloat(amount),
+          network_id: selectedBank.code,
+          reason: 'other',
+          recipient_name: beneficiaryName,
+          sandbox_outcome: yellowCardSandboxOutcome,
+        };
+        const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+          action: 'preflight_send',
+          ...request,
+        });
+        if (!preflight?.success || !preflight?.data?.can_create) {
+          throw new Error(preflight?.error || preflight?.code || 'Yellow Card send preflight is incomplete.');
+        }
+        result = await backendAPI.payouts.yellowCardSandboxTransaction({
+          action: 'create_send',
+          ...request,
+          channel_id: preflight.data.selected_channel_id,
+          sequence_id: globalThis.crypto.randomUUID(),
+          operator_confirmed: true,
         });
       } else {
         throw new Error('Unsupported transfer method.');
@@ -1548,8 +1529,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         backendAPI.financial.invalidateForUser(userId);
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
-        setTransactionId(result.data?.transaction_id || result.data?.transfer_id || '');
-        setTransactionRef(result.data?.reference || result.data?.transfer_id || '');
+        setTransactionId(
+          result.data?.transaction?.provider_transaction_id
+          || result.data?.transaction_id
+          || result.data?.transfer_id
+          || ''
+        );
+        setTransactionRef(
+          result.data?.transaction?.sequence_id
+          || result.data?.reference
+          || result.data?.transfer_id
+          || ''
+        );
         setNewBalance(result.data?.new_balance ?? null);
         setStep('success');
         toast.success(t('send.txSuccessful'));
@@ -2962,6 +2953,29 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </span>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsTester && (
+              <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-4`}>
+                <p className={`text-xs font-semibold ${tc.text} mb-3`}>Yellow Card sandbox outcome</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['success', 'failure'] as const).map((outcome) => (
+                    <button
+                      key={outcome}
+                      type="button"
+                      onClick={() => setYellowCardSandboxOutcome(outcome)}
+                      className={`rounded-xl border px-3 py-2 text-xs font-bold capitalize transition-colors ${
+                        yellowCardSandboxOutcome === outcome
+                          ? 'border-[#C7FF00] bg-[#C7FF00]/10 text-[#C7FF00]'
+                          : `${tc.borderLight} ${tc.textMuted}`
+                      }`}
+                    >
+                      {outcome}
+                    </button>
+                  ))}
+                </div>
+                <p className={`mt-2 text-[11px] ${tc.textMuted}`}>Integration-review tester only. No real recipient funds move.</p>
               </div>
             )}
 
