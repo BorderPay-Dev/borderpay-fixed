@@ -31,6 +31,7 @@ Deno.serve(async (req) => {
   const currency = String(body?.currency || "").trim().toUpperCase();
   if (action === "corridor_policy") {
     const direction = String(body?.direction || "receive").trim().toLowerCase();
+    const testerAllReceiveCountries = direction === "receive" && isAfricanRailsTesterEmail(user.email);
     if (direction !== "receive" && direction !== "payout") {
       return json({ success: false, code: "unsupported_direction" }, 400);
     }
@@ -43,7 +44,7 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (profileError) return json({ success: false, code: "profile_country_lookup_failed" }, 503);
       profileCountry = normalizeYellowCardCountryCode(profile?.country);
-      if (!/^[A-Z]{2}$/.test(profileCountry)) {
+      if (!testerAllReceiveCountries && !/^[A-Z]{2}$/.test(profileCountry)) {
         return json({ success: true, data: { local_rail_policy: {
           provider: "yellow_card", direction, source: "yellow_card_commercial_team_document_2026",
           eligibility: "account_country_only", account_country: null, rows: [],
@@ -52,14 +53,16 @@ Deno.serve(async (req) => {
     }
     const publicRows = listYellowCardCommercialRails(
       direction as "receive" | "payout",
-      direction === "receive" ? profileCountry : null,
+      direction === "receive" && !testerAllReceiveCountries ? profileCountry : null,
     );
     return json({ success: true, data: { local_rail_policy: {
       provider: "yellow_card",
       direction,
       source: "yellow_card_commercial_team_document_2026",
       source_document_date: "2026-07-08",
-      eligibility: direction === "receive" ? "account_country_only" : "global_sender",
+      eligibility: testerAllReceiveCountries
+        ? "integration_tester_all_receive_countries"
+        : direction === "receive" ? "account_country_only" : "global_sender",
       account_country: direction === "receive" ? profileCountry : null,
       rows: publicRows,
     } } });
