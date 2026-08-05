@@ -30,7 +30,6 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
-import { africanPayoutMarkupPercentForAccount } from '../../utils/fees/schedule';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
@@ -153,7 +152,8 @@ const SUPPORTED_CURRENCIES = [
 const CURRENCY_SYMBOLS: Record<string, string> = {
   NGN: '₦', KES: 'KSh', GHS: '₵', UGX: 'USh',
   XAF: 'FCFA', XOF: 'FCFA', TZS: 'TSh', USD: '$',
-  SLE: 'Le', MZN: 'MT', MWK: 'MK',
+  SLE: 'Le', MZN: 'MT', MWK: 'MK', BWP: 'P', CDF: 'FC',
+  RWF: 'FRw', ZAR: 'R', ZMW: 'K',
   USDT: '$', USDC: '$', PYUSD: '$',
 };
 
@@ -306,6 +306,7 @@ function providerSettlementCurrencyForAfricanRail(sourceCurrency: string) {
 
 const COUNTRY_DIAL_CODES: Record<string, string> = {
   BJ: '229', BW: '267', BF: '226', CM: '237', CI: '225', CD: '243',
+  CG: '242', TD: '235', GA: '241', TG: '228',
   EG: '20', ET: '251', GH: '233', GN: '224', KE: '254', MW: '265',
   ML: '223', MA: '212', MZ: '258', NG: '234', RW: '250', SN: '221',
   SL: '232', ZA: '27', TZ: '255', UG: '256', ZM: '260',
@@ -468,7 +469,7 @@ function shortAddress(address: string) {
 function localRailQuoteError(error: unknown) {
   const raw = String((error as any)?.message || error || '').trim();
   if (!raw) return 'Unable to quote this corridor right now. Please try again.';
-  if (/(flutterwave|yellow\s*card|provider|http\s*\d+|upstream|api)/i.test(raw)) {
+  if (/(yellow\s*card|provider|http\s*\d+|upstream|api)/i.test(raw)) {
     return 'Unable to quote this corridor right now. Please try again.';
   }
   return friendlyError(raw, 'Unable to quote this corridor right now. Please try again.');
@@ -594,7 +595,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [africanPolicyRows.length]);
 
   useEffect(() => {
-    if (!africanRailsTester) return;
     const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
     if (africanPolicyRows.length > 0 && cacheIsFresh) return;
     let active = true;
@@ -614,7 +614,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return () => {
       active = false;
     };
-  }, [africanRailsTester, africanPolicyRows.length]);
+  }, [africanPolicyRows.length]);
 
   useEffect(() => {
     if (step === 'africa-destination' || step === 'africa-rail') {
@@ -950,6 +950,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       setAfricanQuoteError('');
       return;
     }
+    if (!africanRailsTester) {
+      setAfricanQuote(null);
+      setAfricanQuoteLoading(false);
+      setAfricanQuoteError('Execution remains in controlled Yellow Card integration testing.');
+      return;
+    }
     const reqId = africanQuoteReqRef.current + 1;
     africanQuoteReqRef.current = reqId;
     setAfricanQuoteLoading(true);
@@ -980,19 +986,22 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (africanQuoteReqRef.current === reqId) setAfricanQuoteLoading(false);
       }
     })();
-  }, [amount, isAfricanPayout, selectedAfricanCountryCode, selectedAfricanRail, selectedCurrency, activeFundingCurrency]);
+  }, [amount, isAfricanPayout, selectedAfricanCountryCode, selectedAfricanRail, selectedCurrency, activeFundingCurrency, africanRailsTester]);
 
   const africanPolicyFee = useMemo(() => {
-    if (!isAfricanPayout) return null;
-    const num = parseFloat(amount);
-    if (!Number.isFinite(num) || num <= 0) return null;
-    const quoteFee = africanQuote?.fee;
-    if (quoteFee && quoteFee > 0) {
-      return { amount: quoteFee, currency: activeFundingCurrency, percent: num > 0 ? (quoteFee / num) * 100 : 0 };
+    if (!isAfricanPayout || !selectedAfricanPolicyRow || !africanQuote?.destinationAmount) return null;
+    const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
+    const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
+    if (pct !== null) {
+      return {
+        amount: (africanQuote.destinationAmount * pct) / 100,
+        currency: selectedCurrency,
+        percent: pct,
+      };
     }
-    const pct = africanPayoutMarkupPercentForAccount(accountType);
-    return { amount: (num * pct) / 100, currency: activeFundingCurrency, percent: pct };
-  }, [accountType, activeFundingCurrency, africanQuote, amount, isAfricanPayout]);
+    if (local !== null) return { amount: local, currency: selectedCurrency, percent: null };
+    return null;
+  }, [africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);
 
   const networkFee = useMemo(() => {
     if (!fallbackNetworkFee) return null;
@@ -1363,7 +1372,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         : accountNumber.trim();
       return !!selectedAfricanCountryCode
         && !!selectedAfricanRail
-        && (selectedAfricanProvider === 'flutterwave' || selectedAfricanProvider === 'yellow_card')
+        && selectedAfricanProvider === 'yellow_card'
         && (!requiresInstitutionSelection || !!selectedBank)
         && recipientName.trim().length >= 2
         && (method === 'mobile_money'
@@ -1391,7 +1400,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         && reason.trim().length > 0;
     }
     if (isAfricanPayout) {
-      return num > 0 && !!activeFundingWallet && !africanInsufficientFunding && !africanQuoteLoading && !!africanQuote?.destinationAmount;
+      return africanRailsTester && num > 0 && !!activeFundingWallet && !africanInsufficientFunding && !africanQuoteLoading && !!africanQuote?.destinationAmount;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
@@ -1463,13 +1472,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           },
         });
       } else if (method === 'bank' || method === 'mobile_money') {
+        if (!africanRailsTester) {
+          throw new Error('African rail transfers are visible for planning but execution remains in controlled integration testing.');
+        }
         if (!selectedAfricanCountryCode || !selectedAfricanRail) {
           throw new Error('Select a destination country and payout rail.');
         }
         if (!activeFundingWallet) {
           throw new Error('Add USDC or USDT before sending to Africa.');
         }
-        if (selectedAfricanProvider !== 'flutterwave' && selectedAfricanProvider !== 'yellow_card') {
+        if (selectedAfricanProvider !== 'yellow_card') {
           throw new Error('This payout corridor is not available yet.');
         }
         if (!africanQuote?.destinationAmount) {
@@ -1482,7 +1494,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const beneficiaryName = recipientName.trim() || resolvedName || undefined;
         const providerSourceCurrency = providerSettlementCurrencyForAfricanRail(activeFundingCurrency);
         result = await backendAPI.payouts.createTransfer({
-          source: selectedAfricanProvider === 'yellow_card' ? 'yellow_card' : 'flutterwave',
+          source: 'yellow_card',
           amount: africanQuote.destinationAmount,
           currency: selectedCurrency,
           debit_currency: activeFundingCurrency,
@@ -1723,12 +1735,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <button
                 type="button"
                 onClick={() => {
-                  if (!africanRailsTester) return;
                   setStep('africa-destination');
                   void loadAfricanPolicy();
                 }}
-                disabled={!africanRailsTester}
-                className={`group flex w-full items-center gap-3 rounded-2xl border border-[#58D66D]/25 ${tc.card} p-4 text-left transition-colors ${africanRailsTester ? `hover:border-[#58D66D]/45 ${tc.hoverBg}` : 'cursor-not-allowed opacity-60'}`}
+                className={`group flex w-full items-center gap-3 rounded-2xl border border-[#58D66D]/25 ${tc.card} p-4 text-left transition-colors hover:border-[#58D66D]/45 ${tc.hoverBg}`}
                 aria-label="Send to Africa"
               >
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#58D66D]/25 bg-[#58D66D]/12">
@@ -1737,19 +1747,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="min-w-0 flex-1">
                   <p className={`truncate text-sm font-semibold ${tc.text}`}>Send to Africa</p>
                   <p className="mt-1 truncate text-xs font-semibold text-[#58D66D]">
-                    {africanRailsTester ? 'Mobile money and local bank rails' : 'Coming soon'}
+                    Mobile money and local bank rails
                   </p>
                   <p className="mt-1 truncate text-xs text-white/40">
-                    {africanRailsTester ? 'Choose country, then available payout rail' : 'Sandbox review in progress'}
+                    Choose a Yellow Card destination and available rail
                   </p>
                 </div>
-                {africanRailsTester ? (
-                  <ArrowRight size={18} className={tc.textMuted} />
-                ) : (
-                  <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
-                    Soon
-                  </span>
-                )}
+                <ArrowRight size={18} className={tc.textMuted} />
               </button>
 
               {TRANSFERS_LIVE ? (
@@ -1950,7 +1954,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
               <Info size={16} className="text-[#C7FF00] mt-0.5 flex-shrink-0" />
               <p className={`text-xs ${tc.textMuted}`}>
-                Available countries and rail options are kept up to date automatically.
+                Countries and rails come only from Yellow Card's July 2026 commercial schedule.
               </p>
             </div>
           </motion.div>

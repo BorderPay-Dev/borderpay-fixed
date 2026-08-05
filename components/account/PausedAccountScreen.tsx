@@ -5,12 +5,9 @@ import { formatBridgePausedDate } from '../../utils/bridgeAccountStatus';
 const PAUSED_ACCOUNT_REASON =
   'This account exceeds our present risk tolerance, as determined by a combination of local regulatory requirements, commercial partnerships, and other pertinent factors. If we are able to unfreeze this account and need more information, our team will reach out separately.';
 
-interface PausedAccountScreenProps {
-  pausedAt?: string | null;
-  onSignOut: () => void;
-}
+interface PausedAccountScreenProps { pausedAt?: string | null; reason?: string | null; locallyFrozen?: boolean; onSignOut: () => void; }
 
-export function PausedAccountScreen({ pausedAt, onSignOut }: PausedAccountScreenProps) {
+export function PausedAccountScreen({ pausedAt, reason, locallyFrozen = false, onSignOut }: PausedAccountScreenProps) {
   const pausedDate = formatBridgePausedDate(pausedAt);
 
   return (
@@ -24,10 +21,10 @@ export function PausedAccountScreen({ pausedAt, onSignOut }: PausedAccountScreen
           Account frozen
         </div>
 
-        <h1 className="text-2xl font-bold tracking-tight">Your account is paused</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Your account is {locallyFrozen ? 'frozen' : 'paused'}</h1>
         <p className="mt-4 text-sm leading-6 text-white/70">
-          {pausedDate ? `This customer was paused on ${pausedDate} due to: ` : 'This customer was paused due to: '}
-          {PAUSED_ACCOUNT_REASON}
+          {pausedDate ? `This customer was ${locallyFrozen ? 'frozen' : 'paused'} on ${pausedDate} due to: ` : `This customer was ${locallyFrozen ? 'frozen' : 'paused'} due to: `}
+          {reason || PAUSED_ACCOUNT_REASON}
         </p>
 
         <p className="mt-5 text-xs leading-5 text-white/45">

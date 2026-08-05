@@ -2,7 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { authenticateAfricanRailsTester, recordAfricanRailsOperatorAlert } from "../_shared/african-rails-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { isBridgeProfileVerified, isProviderCorridorEnabled } from "../_shared/providers/provider-corridor-policy.ts";
+import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
+import { findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
 import {
   buildYellowCardSandboxReceivePayload,
@@ -209,16 +210,22 @@ async function loadContext(userId: string, input: any) {
     return { ok: false as const, status: 403, code: "bridge_verification_required" };
   }
 
-  const policy = await isProviderCorridorEnabled(supa, {
-    provider: "yellow_card",
+  const profileCountry = normalizeYellowCardCountryCode(profile.country);
+  if (profileCountry !== country) {
+    return { ok: false as const, status: 403, code: "receive_country_must_match_account_country" };
+  }
+
+  const commercialRail = findYellowCardCommercialRail({
     direction: "receive",
     countryCode: country,
+    currency,
     channel: channel as "bank" | "mobile_money",
-    destinationCurrency: currency,
   });
-  if (!policy.enabled) {
-    return { ok: false as const, status: 403, code: policy.code };
+  if (!commercialRail) {
+    return { ok: false as const, status: 403, code: "yellow_card_commercial_corridor_unavailable" };
   }
+
+  const policy = { enabled: true, code: "ok" as const, row: commercialRail };
 
   let bridgeIdentity: any = null;
   if (profile.bridge_customer_id && (!profile.id_number || !profile.id_type || !profile.date_of_birth || !profile.address)) {
@@ -386,9 +393,12 @@ Deno.serve(async (req) => {
     channel: context.channel,
     local_amount: context.localAmount,
     transaction_fee: {
-      percent: context.policy?.customer_fee_percent ?? null,
-      usd: context.policy?.customer_fee_usd ?? null,
-      local: context.policy?.customer_fee_local ?? null,
+      percent: context.policy?.provider_fee_percent ?? null,
+      usd: null,
+      local: context.policy?.provider_fee_local ?? null,
+      minimum_local: context.policy?.minimum_fee_local ?? null,
+      maximum_local: context.policy?.maximum_fee_local ?? null,
+      source: context.policy?.source_document ?? null,
     },
     kyc_complete: context.missingKyc.length === 0,
     missing_kyc_fields: context.missingKyc,

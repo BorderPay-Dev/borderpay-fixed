@@ -16,11 +16,22 @@ const CACHE_VERSION = 'v2';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 6500;
 
-const memoryCache = new Map<AfricanRailDirection, { rows: AfricanPolicyRow[]; cachedAt: number }>();
-const inFlight = new Map<AfricanRailDirection, Promise<AfricanPolicyRow[]>>();
+const memoryCache = new Map<string, { rows: AfricanPolicyRow[]; cachedAt: number }>();
+const inFlight = new Map<string, Promise<AfricanPolicyRow[]>>();
+
+function policyScope(direction: AfricanRailDirection): string {
+  try {
+    const user = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+    const userId = String(user?.id || 'anonymous').trim() || 'anonymous';
+    const country = direction === 'receive' ? String(user?.country || 'none').trim().toUpperCase() : 'global';
+    return `${direction}:${userId}:${country}`;
+  } catch {
+    return `${direction}:anonymous:${direction === 'receive' ? 'none' : 'global'}`;
+  }
+}
 
 function cacheKey(direction: AfricanRailDirection) {
-  return `borderpay_african_rail_policy_${CACHE_VERSION}:${direction}`;
+  return `borderpay_african_rail_policy_${CACHE_VERSION}:${policyScope(direction)}`;
 }
 
 function normalizeAfricanPolicyRows(rows: Array<Record<string, unknown>>): AfricanPolicyRow[] {
@@ -62,14 +73,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 export function readCachedAfricanPolicyRows(direction: AfricanRailDirection): AfricanPolicyRow[] {
-  const memory = memoryCache.get(direction);
+  const scope = policyScope(direction);
+  const memory = memoryCache.get(scope);
   if (memory?.rows.length) return memory.rows;
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey(direction)) || 'null');
     const rows = Array.isArray(cached?.rows) ? cached.rows : [];
     if (!rows.length) return [];
     const cachedAt = Number(cached?.cachedAt || 0);
-    memoryCache.set(direction, { rows, cachedAt });
+    memoryCache.set(scope, { rows, cachedAt });
     return rows;
   } catch {
     return [];
@@ -77,7 +89,7 @@ export function readCachedAfricanPolicyRows(direction: AfricanRailDirection): Af
 }
 
 export function hasFreshAfricanPolicyRows(direction: AfricanRailDirection): boolean {
-  const memory = memoryCache.get(direction);
+  const memory = memoryCache.get(policyScope(direction));
   if (memory?.rows.length && Date.now() - memory.cachedAt < CACHE_TTL_MS) return true;
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey(direction)) || 'null');
@@ -92,9 +104,10 @@ export async function loadAfricanPolicyRows(
   options: { force?: boolean; timeoutMs?: number } = {},
 ): Promise<AfricanPolicyRow[]> {
   const cachedRows = readCachedAfricanPolicyRows(direction);
+  const scope = policyScope(direction);
   if (!options.force && cachedRows.length && hasFreshAfricanPolicyRows(direction)) return cachedRows;
 
-  const existing = inFlight.get(direction);
+  const existing = inFlight.get(scope);
   if (existing && !options.force) return existing;
 
   const request = (async () => {
@@ -109,9 +122,11 @@ export async function loadAfricanPolicyRows(
       ? res.data.local_rail_policy.rows
       : [];
     const normalized = normalizeAfricanPolicyRows(sourceRows);
-    if (normalized.length === 0) throw new Error(`No African ${label} rails are available right now.`);
+    if (normalized.length === 0 && direction !== 'receive') {
+      throw new Error(`No African ${label} rails are available right now.`);
+    }
     const cachedAt = Date.now();
-    memoryCache.set(direction, { rows: normalized, cachedAt });
+    memoryCache.set(scope, { rows: normalized, cachedAt });
     try {
       localStorage.setItem(cacheKey(direction), JSON.stringify({ cachedAt, rows: normalized }));
     } catch {
@@ -120,10 +135,10 @@ export async function loadAfricanPolicyRows(
     return normalized;
   })();
 
-  inFlight.set(direction, request);
+  inFlight.set(scope, request);
   try {
     return await request;
   } finally {
-    if (inFlight.get(direction) === request) inFlight.delete(direction);
+    if (inFlight.get(scope) === request) inFlight.delete(scope);
   }
 }
