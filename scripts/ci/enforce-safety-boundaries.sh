@@ -189,6 +189,15 @@ python3 "$ROOT/tests/audit/bridge_kyc_state_regression_audit.py" >/dev/null \
 python3 "$ROOT/tests/audit/app_store_exchange_navigation_audit.py" >/dev/null \
   || fail "App Store exchange navigation regression audit failed."
 
+python3 "$ROOT/tests/audit/yellowcard_sandbox_outcome_regression_audit.py" >/dev/null \
+  || fail "Yellow Card sandbox outcome audit failed."
+
+python3 "$ROOT/tests/audit/yellowcard_commercial_scope_audit.py" >/dev/null \
+  || fail "Yellow Card commercial scope audit failed."
+
+python3 "$ROOT/tests/audit/yellowcard_send_execution_audit.py" >/dev/null \
+  || fail "Yellow Card send execution audit failed."
+
 # 10) Pricing route/runtime guard:
 #    PricingScreen and /pricing route are retired. Any reintroduction must fail CI.
 if [ -f "$ROOT/components/pricing/PricingScreen.tsx" ]; then

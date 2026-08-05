@@ -32,5 +32,6 @@ for fragment in (
     assert fragment in ui, f"missing Yellow Card send UI contract: {fragment}"
 
 assert "backendAPI.payouts.createTransfer" not in ui
+assert "if (selectedAfricanProvider === 'yellow_card') return;" in ui
 assert 'rates: { path: "/rates"' in capabilities
 print("yellowcard send execution audit passed")

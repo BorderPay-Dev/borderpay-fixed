@@ -1285,12 +1285,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setResolvedName('');
     setResolveError('');
 
+    // Yellow Card sandbox has no beneficiary-name lookup endpoint. Never
+    // fall through to a retired provider for account resolution.
+    if (selectedAfricanProvider === 'yellow_card') return;
     if (selectedAfricanRail && !requiresInstitutionSelection) return;
     if (method !== 'bank' || !selectedBank || accountNumber.length < 6) return;
 
     const timer = setTimeout(() => resolveAccount(), 800);
     return () => clearTimeout(timer);
-  }, [method, selectedBank, accountNumber, selectedAfricanCountryCode, selectedAfricanRail, requiresInstitutionSelection]);
+  }, [method, selectedBank, accountNumber, selectedAfricanCountryCode, selectedAfricanRail, selectedAfricanProvider, requiresInstitutionSelection]);
 
   const resolveAccount = async () => {
     if (!selectedBank || !accountNumber) return;
