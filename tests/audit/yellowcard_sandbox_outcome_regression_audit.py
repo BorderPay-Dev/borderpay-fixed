@@ -16,8 +16,9 @@ require(
     [
         'SANDBOX_SUCCESS_EVM_ADDRESS = "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe"',
         'SANDBOX_SUCCESS_TRON_ADDRESS = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"',
-        'return `+${dialCode}1111111111`',
-        'accountNumber: sandboxSuccessAccount(context.country, context.channel)',
+        'const digits = outcome === "success" ? "1111111111" : "0000000000"',
+        'return `+${dialCode}${digits}`',
+        'accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome)',
         'sandbox_simulated: true',
         'expected_outcome: "success"',
     ],
