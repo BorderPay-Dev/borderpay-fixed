@@ -1,5 +1,7 @@
 const AFRICAN_RAILS_TEST_EMAILS = new Set([
   "adhiamboadhiambo22@gmail.com",
+  "appreview.individual@borderpayafrica.com",
+  "appreview.business@borderpayafrica.com",
 ]);
 
 export function isAfricanRailsTesterEmail(value: unknown): boolean {

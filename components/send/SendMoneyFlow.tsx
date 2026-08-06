@@ -912,7 +912,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (!africanRailsTester) {
       setAfricanQuote(null);
       setAfricanQuoteLoading(false);
-      setAfricanQuoteError('Execution remains in controlled Yellow Card integration testing.');
+      setAfricanQuoteError('This route remains in controlled integration testing.');
       return;
     }
     const reqId = africanQuoteReqRef.current + 1;
@@ -1419,7 +1419,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ...request,
         });
         if (!preflight?.success || !preflight?.data?.can_create) {
-          throw new Error(preflight?.error || preflight?.code || 'Yellow Card send preflight is incomplete.');
+          throw new Error(preflight?.error || preflight?.code || 'The send preflight is incomplete.');
         }
         result = await backendAPI.payouts.yellowCardSandboxTransaction({
           action: 'create_send',
@@ -1651,7 +1651,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     Mobile money and local bank rails
                   </p>
                   <p className="mt-1 truncate text-xs text-white/40">
-                    Choose a Yellow Card destination and available rail
+                    Choose a destination and available rail
                   </p>
                 </div>
                 <ArrowRight size={18} className={tc.textMuted} />
@@ -1855,7 +1855,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
               <Info size={16} className="text-[#C7FF00] mt-0.5 flex-shrink-0" />
               <p className={`text-xs ${tc.textMuted}`}>
-                Countries and rails come only from Yellow Card's July 2026 commercial schedule.
+                Available countries and rail options are kept up to date automatically.
               </p>
             </div>
           </motion.div>
@@ -2197,7 +2197,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                               }`}
                             >
                               <p className={`text-sm font-medium ${tc.text}`}>{bank.name}</p>
-                              <p className={`text-xs ${tc.textMuted}`}>{bank.code}</p>
                             </button>
                           ))
                         )}
@@ -2871,7 +2870,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
             {isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsTester && (
               <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-4`}>
-                <p className={`text-xs font-semibold ${tc.text} mb-3`}>Yellow Card sandbox outcome</p>
+                <p className={`text-xs font-semibold ${tc.text} mb-3`}>Sandbox outcome</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(['success', 'failure'] as const).map((outcome) => (
                     <button

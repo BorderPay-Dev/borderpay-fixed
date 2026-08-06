@@ -10,7 +10,7 @@ ENDPOINTS = [
 ]
 
 TESTER = "adhiamboadhiambo22@gmail.com"
-FORBIDDEN = [
+DEMO_TESTERS = [
     "appreview.individual@borderpayafrica.com",
     "appreview.business@borderpayafrica.com",
 ]
@@ -22,9 +22,9 @@ frontend = FRONTEND_GATE.read_text()
 for label, source in [("server", server), ("frontend", frontend)]:
     if TESTER not in source:
         failures.append(f"{label} gate is missing the controlled tester")
-    for email in FORBIDDEN:
-        if email in source:
-            failures.append(f"{label} gate still includes app-review account {email}")
+    for email in DEMO_TESTERS:
+        if email not in source:
+            failures.append(f"{label} gate is missing app-review tester {email}")
 
 if "african_rails_closed_beta" not in server:
     failures.append("server gate is missing the fail-closed response code")

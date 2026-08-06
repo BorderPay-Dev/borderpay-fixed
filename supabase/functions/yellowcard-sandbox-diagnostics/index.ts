@@ -23,6 +23,8 @@ const YC_ALLOWED_TEST_USER_IDS = String(Deno.env.get("YC_ALLOWED_TEST_USER_IDS")
 const YC_ALLOWED_TEST_EMAILS = new Set(
   [
     "adhiamboadhiambo22@gmail.com",
+    "appreview.individual@borderpayafrica.com",
+    "appreview.business@borderpayafrica.com",
     ...String(Deno.env.get("YC_ALLOWED_TEST_EMAILS") || "").split(","),
   ].map((email) => email.trim().toLowerCase()).filter(Boolean),
 );

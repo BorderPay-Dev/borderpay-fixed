@@ -519,7 +519,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     setCollectionLoading(true);
     setCollectionResult(null);
     try {
-      if (!Number.isInteger(amount)) throw new Error('Yellow Card local top-up amounts must be whole currency units.');
+      if (!Number.isInteger(amount)) throw new Error('Local top-up amounts must be whole currency units.');
       const settlementWallet = stables.find((wallet) =>
         String(wallet.currency).toUpperCase() === 'USDC' && String(wallet.chain).toLowerCase() === 'base'
       ) || stables.find((wallet) =>
@@ -542,11 +542,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
         action: 'preflight',
         ...baseRequest,
       });
-      if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'Yellow Card preflight failed.');
+      if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'The receive preflight failed.');
       const selectedChannelId = String(preflight?.data?.selected_channel_id || '');
       const selectedNetworkId = String(preflight?.data?.selected_network_id || '');
       if (!selectedChannelId || !selectedNetworkId) {
-        throw new Error('This Yellow Card rail needs explicit provider selection before a sandbox transaction can be created.');
+        throw new Error('Select a payment network before creating this sandbox transaction.');
       }
       const res: any = await backendAPI.payouts.yellowCardSandboxTransaction({
         action: 'create_receive',
@@ -786,11 +786,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
-                    {africanRailsTester ? 'Test African receive rails' : 'Top up with local money'}
+                    African receive rails
                   </div>
                   <div className="text-[11px] text-[#58D66D]">
                     {africanRailsTester
-                      ? `${regionalAfricanCountries.length} Yellow Card countries · Bank · Mobile money`
+                      ? `${regionalAfricanCountries.length} countries · Bank · Mobile money`
                       : `${regionalAfricanCountries[0].countryName} · ${getRailOptions(regionalAfricanCountries[0]).map((rail) => railLabel(rail.channel)).join(' · ')}`}
                   </div>
                   {!africanRailsTester && <div className="text-[11px] text-white/40">Integration preview</div>}
@@ -1031,7 +1031,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
               <div className="space-y-3">
                 <div>
                   <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>
-                    {selectedAfricanRail.channel === 'mobile_money' ? 'Mobile money provider' : 'Bank'}
+                    {selectedAfricanRail.channel === 'mobile_money' ? 'Mobile money network' : 'Bank'}
                   </label>
                   <select
                     value={selectedCollectionNetworkId}
@@ -1039,7 +1039,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                     disabled={collectionNetworksLoading || collectionNetworks.length === 0}
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 disabled:opacity-60`}
                   >
-                    <option value="">{collectionNetworksLoading ? 'Loading available providers…' : 'Choose a provider'}</option>
+                    <option value="">{collectionNetworksLoading ? 'Loading available networks…' : 'Choose a network'}</option>
                     {collectionNetworks.map((network) => (
                       <option key={network.id} value={network.id}>{network.name}</option>
                     ))}
