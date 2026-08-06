@@ -4,7 +4,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
-const APP_URL = Deno.env.get("APP_URL") || "https://app.borderpayafrica.com";
+const APP_URL = Deno.env.get("BORDERPAY_APP_URL") || Deno.env.get("APP_URL") || "https://app.borderpayafrica.com";
 const TOKEN_TTL_MINUTES = 30;
 
 const cors = {
@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
         expires_in_minutes: TOKEN_TTL_MINUTES,
       };
 
-  await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+  const emailResponse = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -119,6 +119,12 @@ Deno.serve(async (req) => {
     }),
   });
 
+  if (!emailResponse.ok) {
+    const detail = await emailResponse.text().catch(() => "");
+    console.error("auth-request-pin-reset: email delivery failed", emailResponse.status, detail.slice(0, 300));
+    await supabase.from("pin_reset_tokens").delete().eq("token_hash", tokenHash);
+    return json({ success: false, error: "Unable to send the PIN reset email. Please try again." }, 502);
+  }
+
   return json({ success: true, data: { accepted: true } });
 });
-

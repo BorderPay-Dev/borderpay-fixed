@@ -37,7 +37,7 @@ async function derivePbkdf2Sha256(pin: string, salt: Uint8Array): Promise<Uint8A
     {
       name: "PBKDF2",
       hash: "SHA-256",
-      salt,
+      salt: salt as BufferSource,
       iterations: PBKDF2_ITERATIONS,
     },
     key,
@@ -68,4 +68,3 @@ export async function derivePinHashV2FromStored(pin: string, storedHash: string)
   if (!parsed) return null;
   return derivePinHashV2(pin, parsed.salt);
 }
-
