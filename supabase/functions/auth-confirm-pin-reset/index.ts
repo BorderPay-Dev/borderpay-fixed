@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
   const newPin = String(body.new_pin || "").trim();
 
   if (!token) return json({ success: false, error: "token required" }, 400);
-  if (!/^\d{4,6}$/.test(newPin)) return json({ success: false, error: "PIN must be 4-6 digits" }, 400);
+  if (!/^\d{6}$/.test(newPin)) return json({ success: false, error: "PIN must be exactly 6 digits" }, 400);
 
   const tokenHash = await sha256(token);
   const nowIso = new Date().toISOString();
@@ -108,6 +108,5 @@ Deno.serve(async (req) => {
     .update({ used_at: nowIso })
     .eq("id", row.id);
 
-  return json({ success: true, data: { reset: true } });
+  return json({ success: true, data: { reset: true, user_id: row.user_id } });
 });
-
