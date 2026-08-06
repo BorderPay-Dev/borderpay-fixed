@@ -9,7 +9,7 @@ WEBAUTHN = (ROOT / "supabase/functions/webauthn-auth-verify/index.ts").read_text
 
 failures = []
 for label, source in [("send", SEND), ("receive", RECEIVE)]:
-    if "PINManager.verifyPIN" not in source:
+    if "PINManager.verifyTransactionPIN" not in source:
         failures.append(f"{label} does not use the existing transaction PIN verifier")
     if "BiometricManager.verify" not in source:
         failures.append(f"{label} does not offer biometric authorization")

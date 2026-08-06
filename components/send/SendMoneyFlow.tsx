@@ -1511,9 +1511,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setPin('');
         return;
       }
-      const isValid = await PINManager.verifyPIN(userId, value);
-      if (!isValid) {
-        toast.error(t('send.incorrectPin') || 'Incorrect PIN');
+      const verification = await PINManager.verifyTransactionPIN(userId, value);
+      if (!verification.success) {
+        toast.error(friendlyError(verification.error, t('send.incorrectPin') || 'Incorrect PIN'));
         setPin('');
         return;
       }

@@ -95,7 +95,7 @@ serve(async (req) => {
     }
     if (row?.locked === true) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Account locked. Try again later.' }),
+        JSON.stringify({ success: false, code: 'pin_locked', error: 'Transaction PIN is temporarily locked. Try again later.' }),
         { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -107,8 +107,10 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: false, error: 'Invalid PIN' }),
-      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      // A wrong PIN is not an expired bearer token. Returning 400 prevents the
+      // API session-refresh retry from submitting the same PIN a second time.
+      JSON.stringify({ success: false, code: 'invalid_pin', error: 'Invalid PIN' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     return new Response(

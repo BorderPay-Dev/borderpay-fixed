@@ -602,9 +602,9 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const authorizeCollectionWithPin = async (value: string) => {
     setCollectionPin(value);
     if (value.length !== 6) return;
-    const isValid = await PINManager.verifyPIN(userId, value);
-    if (!isValid) {
-      toast.error('Incorrect PIN');
+    const verification = await PINManager.verifyTransactionPIN(userId, value);
+    if (!verification.success) {
+      toast.error(friendlyError(verification.error, 'Incorrect PIN'));
       setCollectionPin('');
       return;
     }

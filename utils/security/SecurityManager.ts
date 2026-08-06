@@ -302,6 +302,18 @@ export const PINManager = {
     }
   },
 
+  async verifyTransactionPIN(_userId: string, pin: string): Promise<{ success: boolean; code?: string; error?: string }> {
+    try {
+      const { backendAPI } = await import('../api/backendAPI');
+      const response: any = await backendAPI.auth.verifyPIN(pin);
+      return response?.success
+        ? { success: true }
+        : { success: false, code: response?.code, error: response?.error || 'Could not verify PIN' };
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'Could not verify PIN' };
+    }
+  },
+
   async changePIN(_userId: string, currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> {
     if (!/^\d{4,6}$/.test(newPin)) return { success: false, error: 'PIN must be 4 to 6 digits' };
     try {
