@@ -45,9 +45,10 @@ const DEFAULT_ZERO_FEE_EMAILS = new Set(["adhiamboadhiambo22@gmail.com"]);
 const INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT = "2.5";
 const BUSINESS_VA_DEVELOPER_FEE_PERCENT = "2";
 
-function normalizeLocalVaStatus(value: unknown): "active" | "suspended" | "closed" {
+function normalizeLocalVaStatus(value: unknown): "active" | "suspended" | "deactivated" | "closed" {
   const status = String(value || "").trim().toLowerCase();
-  if (["closed", "deleted", "disabled", "deactivated", "inactive"].includes(status)) return "closed";
+  if (["deactivated", "inactive"].includes(status)) return "deactivated";
+  if (["closed", "deleted", "disabled"].includes(status)) return "closed";
   if (status === "suspended" || status === "paused") return "suspended";
   return "active";
 }
@@ -507,7 +508,6 @@ Deno.serve(async (req) => {
   // Bridge is the source of truth. If the VA exists at Bridge but a webhook or
   // local sync missed it, mirror it now and return it as active instead of
   // showing a pending request or attempting a duplicate create.
-  let attemptedVaReactivation = false;
   try {
     const bridgeVirtualAccounts = await bridgeProvider.listVirtualAccounts(profile.bridge_customer_id);
     const sameCurrencyBridgeAccounts = bridgeVirtualAccounts.filter((v) => {
@@ -521,11 +521,17 @@ Deno.serve(async (req) => {
     ) ?? sameCurrencyBridgeAccounts[0];
     const originalBridgeStatus = String(bridgeVa?.status || "active").toLowerCase();
     if (bridgeVa?.virtual_account_id && originalBridgeStatus === "deactivated") {
-      attemptedVaReactivation = true;
-      bridgeVa = await bridgeProvider.reactivateVirtualAccount(
-        profile.bridge_customer_id,
-        bridgeVa.virtual_account_id,
-      );
+      await supa.from("bridge_virtual_accounts").update({
+        status: "deactivated",
+        deactivated_at: new Date().toISOString(),
+      }).eq("bridge_virtual_account_id", bridgeVa.virtual_account_id);
+      return json({
+        success: false,
+        code: "virtual_account_inactive",
+        error: `${currency} receiving account is inactive. Contact support when you are ready to request reactivation.`,
+        currency,
+        summary: { code: "virtual_account_inactive", currency, support_required: true },
+      }, 409);
     }
     if (bridgeVa?.virtual_account_id &&
       ["closed", "deleted", "disabled", "inactive"].includes(originalBridgeStatus)) {
@@ -602,16 +608,15 @@ Deno.serve(async (req) => {
           virtualAccountId: bridgeVa.virtual_account_id,
         });
       }
-      const wasReactivated = attemptedVaReactivation && status === "active";
       return json({
         success: true,
-        code: wasReactivated ? "virtual_account_reactivated" : "virtual_account_already_exists",
+        code: "virtual_account_already_exists",
         summary: {
-          code: wasReactivated ? "virtual_account_reactivated" : "virtual_account_already_exists",
+          code: "virtual_account_already_exists",
           currency,
           already_exists: true,
           source: "bridge",
-          reactivated: wasReactivated,
+          reactivated: false,
         },
         data: {
           virtual_account_id: bridgeVa.virtual_account_id,
@@ -632,24 +637,6 @@ Deno.serve(async (req) => {
       currency,
       error: e instanceof Error ? e.message : String(e),
     }));
-    if (attemptedVaReactivation) {
-      try {
-        await savePendingVaRequest({
-          userId: user.id,
-          bridgeCustomerId: profile.bridge_customer_id,
-          currency,
-          bridgeError: e instanceof Error ? e.message : String(e),
-          bridgeErrorCode: "virtual_account_reactivation_pending",
-        });
-      } catch { /* best-effort */ }
-      return json({
-        success: false,
-        code: "virtual_account_reactivation_pending",
-        error: `${currency} account reactivation is pending. Please retry shortly.`,
-        currency,
-        summary: { code: "virtual_account_reactivation_pending", currency },
-      }, 202);
-    }
   }
 
   let destination: Awaited<ReturnType<typeof loadVirtualAccountDestinationConfig>>;
@@ -752,6 +739,9 @@ Deno.serve(async (req) => {
       ...(isBusiness ? { business_user_id: user.id } : {}),
       bridge_customer_id:        profile.bridge_customer_id,
       bridge_virtual_account_id: result.virtual_account_id,
+      activated_at:              (typeof raw.created_at === "string" && !Number.isNaN(Date.parse(raw.created_at)))
+        ? raw.created_at
+        : new Date().toISOString(),
       currency,
       rail:                      normalizeLocalVaRail(srcDep.payment_rail || RAIL_BY_CCY[currency]),
       status:                    createdStatus,

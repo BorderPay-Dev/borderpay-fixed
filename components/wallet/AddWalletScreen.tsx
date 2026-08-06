@@ -306,7 +306,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           disabled
           className="h-10 px-4 rounded-xl border border-amber-400/30 text-amber-200/80 text-sm font-semibold"
         >
-          Deactivated
+          Inactive
         </button>
       );
     }
@@ -440,7 +440,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                       {active
                         ? `${card.subtitle} · active`
                         : deactivated
-                          ? `${card.subtitle} · deactivated`
+                          ? `${card.subtitle} · inactive — contact support to reactivate`
                           : !supported
                             ? `${card.subtitle} · not available in your region`
                             : supportRequired

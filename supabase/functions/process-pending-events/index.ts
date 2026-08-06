@@ -1614,9 +1614,10 @@ function normalizeBridgeVirtualAccountRail(value: unknown): string | null {
   return null;
 }
 
-function normalizeBridgeVirtualAccountStatus(value: unknown): "active" | "suspended" | "closed" {
+function normalizeBridgeVirtualAccountStatus(value: unknown): "active" | "suspended" | "deactivated" | "closed" {
   const status = String(value ?? "").trim().toLowerCase();
-  if (["closed", "deleted", "disabled", "deactivated", "inactive"].includes(status)) return "closed";
+  if (["deactivated", "inactive"].includes(status)) return "deactivated";
+  if (["closed", "deleted", "disabled"].includes(status)) return "closed";
   if (["suspended", "paused"].includes(status)) return "suspended";
   return "active";
 }
@@ -1697,6 +1698,8 @@ async function upsertBridgeVirtualAccountProjection(params: {
   currency: string;
   existingFeePercent?: unknown;
   existingAccountDetails?: unknown;
+  existingStatus?: unknown;
+  existingActivatedAt?: unknown;
 }) {
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(params.customer);
   const canonicalFee = await getCanonicalVaDeveloperFeePercent(account_type);
@@ -1708,6 +1711,7 @@ async function upsertBridgeVirtualAccountProjection(params: {
     normalizeDeveloperFeePercent(params.existingFeePercent) ??
     canonicalFee;
   const status = normalizeBridgeVirtualAccountStatus(params.payload?.status);
+  const reactivatedBySupport = String(params.existingStatus || "").toLowerCase() === "deactivated" && status === "active";
   const existingDetails = params.existingAccountDetails && typeof params.existingAccountDetails === "object"
     ? params.existingAccountDetails as Record<string, unknown>
     : {};
@@ -1747,6 +1751,13 @@ async function upsertBridgeVirtualAccountProjection(params: {
     ),
     account_details:           mergedAccountDetails,
     status,
+    ...(reactivatedBySupport
+      ? { activated_at: new Date().toISOString(), deactivated_at: null, deactivation_reason: null }
+      : typeof params.existingActivatedAt === "string"
+        ? { activated_at: params.existingActivatedAt }
+        : typeof params.payload?.created_at === "string" && !Number.isNaN(Date.parse(params.payload.created_at))
+          ? { activated_at: params.payload.created_at }
+          : {}),
     developer_fee_percent:     effectiveFee,
     updated_at:                new Date().toISOString(),
   }, { onConflict: "bridge_virtual_account_id" });
@@ -1787,7 +1798,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   const payloadCustomer = d?.customer_id ?? d?.customer?.id;
   const { data: existingVa } = await supabase
     .from("bridge_virtual_accounts")
-    .select("bridge_customer_id,developer_fee_percent,account_details,currency")
+    .select("bridge_customer_id,developer_fee_percent,account_details,currency,status,activated_at")
     .eq("bridge_virtual_account_id", String(vaId))
     .maybeSingle();
   const customer = payloadCustomer ?? existingVa?.bridge_customer_id;
@@ -1810,6 +1821,8 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     currency,
     existingFeePercent: existingVa?.developer_fee_percent,
     existingAccountDetails: existingVa?.account_details,
+    existingStatus: existingVa?.status,
+    existingActivatedAt: existingVa?.activated_at,
   });
   const deliversToExternalWallet = owner.destination_source === "external_wallet";
   const accountDetails = objectValue(existingVa?.account_details) ?? {};

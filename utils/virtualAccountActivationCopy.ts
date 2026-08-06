@@ -9,6 +9,13 @@ export type VirtualAccountActivationToast = {
 export function virtualAccountActivationMessage(res: any, currency: string): VirtualAccountActivationToast {
   const code = String(res?.code || res?.summary?.code || '').trim();
   const rawError = String(res?.error || '').trim();
+  if (code === 'virtual_account_inactive') {
+    return {
+      type: 'info',
+      title: `${currency} account is inactive`,
+      message: rawError || `This receiving account is inactive. Contact support when you are ready to request reactivation.`,
+    };
+  }
   if (code === 'va_support_required') {
     return {
       type: 'warning',

@@ -35,9 +35,10 @@ function normalizeBridgeVaRail(value: unknown): string | null {
   return null;
 }
 
-function normalizeBridgeVaStatus(value: unknown): "active" | "suspended" | "closed" {
+function normalizeBridgeVaStatus(value: unknown): "active" | "suspended" | "deactivated" | "closed" {
   const status = String(value ?? "").trim().toLowerCase();
-  if (["closed", "deleted", "disabled", "deactivated", "inactive"].includes(status)) return "closed";
+  if (["deactivated", "inactive"].includes(status)) return "deactivated";
+  if (["closed", "deleted", "disabled"].includes(status)) return "closed";
   if (["suspended", "paused"].includes(status)) return "suspended";
   return "active";
 }
@@ -113,7 +114,7 @@ Deno.serve(async (req) => {
     for (const v of bva) {
       if (!v.virtual_account_id) continue;
       const { data: existing } = await supa.from("bridge_virtual_accounts")
-        .select("id,account_details").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+        .select("id,account_details,activated_at,status").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
       const existingDetails = existing?.account_details && typeof existing.account_details === "object"
         ? existing.account_details as Record<string, unknown>
         : {};
@@ -123,13 +124,18 @@ Deno.serve(async (req) => {
       const preservedDestination = existingDetails.destination && typeof existingDetails.destination === "object"
         ? existingDetails.destination
         : providerDetails.destination;
+      const normalizedStatus = normalizeBridgeVaStatus(v.status);
+      const reactivatedBySupport = existing?.status === "deactivated" && normalizedStatus === "active";
       const row = {
         ...ownerCols,
         bridge_customer_id:        customerId,
         bridge_virtual_account_id: v.virtual_account_id,
         currency:                  v.currency,
         rail:                      normalizeBridgeVaRail(v.rail),
-        status:                    normalizeBridgeVaStatus(v.status),
+        status:                    normalizedStatus,
+        activated_at:              reactivatedBySupport ? new Date().toISOString() : existing?.activated_at ||
+          (v.created_at && !Number.isNaN(Date.parse(v.created_at)) ? v.created_at : new Date().toISOString()),
+        ...(reactivatedBySupport ? { deactivated_at: null, deactivation_reason: null } : {}),
         ...(normalizeDeveloperFeePercent(v.developer_fee_percent) !== null
           ? { developer_fee_percent: normalizeDeveloperFeePercent(v.developer_fee_percent) }
           : {}),

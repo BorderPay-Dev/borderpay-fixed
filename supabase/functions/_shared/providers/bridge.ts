@@ -605,7 +605,7 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   /** List the customer's USD/EUR/GBP virtual accounts. */
-  async listVirtualAccounts(customerId: string): Promise<Array<{ virtual_account_id: string; currency: string; rail?: string; status?: string; developer_fee_percent?: number; account_details: unknown }>> {
+  async listVirtualAccounts(customerId: string): Promise<Array<{ virtual_account_id: string; currency: string; rail?: string; status?: string; created_at?: string; developer_fee_percent?: number; account_details: unknown }>> {
     const rows = await this.fetchBridgeListPaginated<any>({
       path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts`,
       context: "listVirtualAccounts",
@@ -615,6 +615,7 @@ export class BridgeProvider implements PaymentProvider {
       currency:  String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
       rail:      v?.source_deposit_instructions?.payment_rail || v?.rail,
       status:    v?.status,
+      created_at: v?.created_at ? String(v.created_at) : undefined,
       developer_fee_percent:
         v?.developer_fee_percent != null && Number.isFinite(Number(v.developer_fee_percent))
           ? Number(v.developer_fee_percent)
@@ -629,6 +630,43 @@ export class BridgeProvider implements PaymentProvider {
             : null,
       },
     }));
+  }
+
+  /** Deactivate a VA so it cannot accept new incoming transactions. */
+  async deactivateVirtualAccount(customerId: string, virtualAccountId: string): Promise<ProviderVirtualAccountSummary> {
+    const r = await bridgeFetch({
+      method: "POST",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${encodeURIComponent(virtualAccountId)}/deactivate`,
+      idempotencyKey: `borderpay:va-deactivate:${customerId}:${virtualAccountId}`,
+    });
+    if (!r.ok) {
+      const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
+      throw new BridgeProviderError(`Bridge deactivateVirtualAccount failed [${r.status}]`, {
+        status: r.status,
+        request_id: r.request_id,
+        bridge_code: typeof parsed.code === "string" ? parsed.code : undefined,
+        bridge_error: typeof parsed.error === "string"
+          ? parsed.error
+          : typeof parsed.message === "string" ? parsed.message : r.error,
+        raw_text: r.raw_text?.slice(0, 1000),
+      });
+    }
+    const v = (r.data as any)?.data ?? r.data;
+    if (!v?.id) {
+      throw new BridgeProviderError("Bridge deactivateVirtualAccount returned no virtual account id", {
+        status: r.status,
+        request_id: r.request_id,
+        bridge_code: "invalid_provider_response",
+      });
+    }
+    return {
+      virtual_account_id: String(v.id),
+      currency: String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
+      rail: v?.source_deposit_instructions?.payment_rail || v?.rail,
+      status: v?.status ? String(v.status) : undefined,
+      created_at: v?.created_at ? String(v.created_at) : undefined,
+      account_details: v,
+    };
   }
 
   /** Reactivate a provider VA instead of attempting to create a duplicate. */

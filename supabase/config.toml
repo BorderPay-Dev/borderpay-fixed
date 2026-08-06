@@ -108,6 +108,11 @@ verify_jwt = true
 [functions.bridge-sync-accounts]
 verify_jwt = true
 
+# Daily VA inactivity worker. pg_cron calls it with the service-role bearer;
+# the function performs a timing-safe service-role check in code.
+[functions.deactivate-inactive-virtual-accounts]
+verify_jwt = false
+
 # Auto-provision base stablecoin wallets (USDC/USDT) for activated users.
 [functions.bridge-provision-stablecoins]
 verify_jwt = true

@@ -95,7 +95,7 @@ export interface ProviderWalletSummary {
 }
 /** A provider virtual account as returned by GET /v0/customers/{id}/virtual_accounts. */
 export interface ProviderVirtualAccountSummary {
-  virtual_account_id: string; currency: string; rail?: string; status?: string; account_details: unknown;
+  virtual_account_id: string; currency: string; rail?: string; status?: string; created_at?: string; account_details: unknown;
 }
 
 export interface VirtualAccountResult {
