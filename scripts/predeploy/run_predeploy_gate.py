@@ -158,6 +158,7 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
         "tests/audit/rc1_runtime_killswitch_audit.py",
         "tests/audit/business_performance_parity_phase2_audit.py",
         "tests/audit/business_platform_navigation_audit.py",
+        "tests/audit/virtual_account_inactivity_lifecycle_audit.py",
     ]
     missing = [p for p in required_files if not (ROOT / p).is_file()]
     stage.checks.append(CheckResult(
@@ -336,6 +337,7 @@ def stage3_financial_correctness(ci_mode: bool = False) -> StageResult:
         "tests/audit/rc1_runtime_killswitch_audit.py",
         "tests/audit/business_performance_parity_phase2_audit.py",
         "tests/audit/business_platform_navigation_audit.py",
+        "tests/audit/virtual_account_inactivity_lifecycle_audit.py",
     ]
     for audit in audits:
         stage.checks.append(run_check_command(

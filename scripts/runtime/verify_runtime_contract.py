@@ -87,11 +87,13 @@ REQUIRED_EDGE_FUNCTIONS = {
     "bridge-external-account",
     "bridge-sync-accounts",
     "bridge-provision-stablecoins",
+    "deactivate-inactive-virtual-accounts",
 }
 
 REQUIRED_CRON_JOBS = {
     "process-pending-events-drain",
     "reap-stuck-processing",
+    "deactivate-inactive-virtual-accounts",
 }
 
 
