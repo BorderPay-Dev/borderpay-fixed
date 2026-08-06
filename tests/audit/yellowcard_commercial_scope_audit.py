@@ -28,7 +28,6 @@ assert "if (!africanRailsTester) {" in send
 assert "disabled={!africanRailsTester}" not in send
 assert "yellowCardSandboxTransaction" in receive
 assert "payouts.createCollection" not in receive
-assert "flutterwave" not in receive.lower()
 assert "{regionalAfricanCountries.length > 0 && <button" in receive
 assert "africanPolicyLoading || africanCountries.length > 0" not in receive
 assert "Checking rails for your account country" not in receive

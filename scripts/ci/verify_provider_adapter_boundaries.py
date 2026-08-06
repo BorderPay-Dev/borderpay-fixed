@@ -17,18 +17,17 @@ ALLOWED_BRIDGE = {
     "supabase/functions/subscription-upgrade/index.ts",
     "utils/featureFlags.ts",
 }
-ALLOWED_FLW = {
-    "supabase/functions/_shared/providers/flutterwave-client.ts",
-    "supabase/functions/_shared/providers/flutterwave.ts",
+ALLOWED_YELLOW_CARD = {
+    "supabase/functions/_shared/providers/yellowcard-client.ts",
 }
 
 BRIDGE_PATTERNS = [
     re.compile(r"https://api\.bridge\.xyz", re.IGNORECASE),
     re.compile(r"\bBRIDGE_API_KEY\b"),
 ]
-FLW_PATTERNS = [
-    re.compile(r"https://api\.flutterwave\.com", re.IGNORECASE),
-    re.compile(r"\bFLUTTERWAVE_API_KEY\b"),
+YELLOW_CARD_PATTERNS = [
+    re.compile(r"https://.*yellowcard", re.IGNORECASE),
+    re.compile(r"\bYELLOW_CARD_API_KEY\b"),
 ]
 
 violations = []
@@ -42,9 +41,9 @@ for path in ROOT.rglob("*.ts"):
         if pat.search(text) and rel not in ALLOWED_BRIDGE:
             violations.append((rel, f"bridge boundary violation: pattern `{pat.pattern}`"))
             break
-    for pat in FLW_PATTERNS:
-        if pat.search(text) and rel not in ALLOWED_FLW:
-            violations.append((rel, f"flutterwave boundary violation: pattern `{pat.pattern}`"))
+    for pat in YELLOW_CARD_PATTERNS:
+        if pat.search(text) and rel not in ALLOWED_YELLOW_CARD:
+            violations.append((rel, f"Yellow Card boundary violation: pattern `{pat.pattern}`"))
             break
 
 if violations:

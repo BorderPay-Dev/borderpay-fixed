@@ -15,8 +15,7 @@ Invariants (fail closed):
        (The USDB *ticker* is allowed; yield *product* language is not.)
   (B5) Bridge external accounts are NOT labeled as African local banks
        (no NGN/KES/GHS/UGX/TZS/XAF/XOF/ZAR in the payouts/external-account UI).
-  (B6) Flutterwave does NOT appear in onboarding/eligibility code paths.
-  (B7) The Bridge Core contract doc exists with its key sections.
+  (B6) The Bridge Core contract doc exists with its key sections.
 
 Non-runtime: parses source as text. No deploy, no DB, no network.
 
@@ -77,21 +76,7 @@ def main() -> int:
                    not afr_hits,
                    f"African currency codes in payouts UI: {afr_hits}"))
 
-    # B6 — Flutterwave must not appear in onboarding/eligibility code.
-    onboarding = [
-        ROOT / "supabase" / "functions" / "auth-signup" / "index.ts",
-        ROOT / "supabase" / "functions" / "bridge-customer" / "index.ts",
-        ROOT / "supabase" / "functions" / "bridge-kyc-link" / "index.ts",
-        ROOT / "supabase" / "functions" / "bridge-kyb-link" / "index.ts",
-        ROOT / "supabase" / "functions" / "kyc-submit" / "index.ts",
-        ROOT / "supabase" / "functions" / "kyc-status" / "index.ts",
-    ]
-    fw_hits = [str(p.relative_to(ROOT)) for p in onboarding if "flutterwave" in read(p).lower()]
-    checks.append(("B6 Flutterwave not in onboarding/eligibility",
-                   not fw_hits,
-                   f"Flutterwave referenced in onboarding code: {fw_hits}"))
-
-    # B7 — contract doc present with key sections.
+    # B6 — contract doc present with key sections.
     doc = read(ROOT / "docs" / "bridge-core-contract.md")
     doc_ok = all(s in doc for s in [
         "Bridge is the primary eligibility layer",
@@ -99,7 +84,7 @@ def main() -> int:
         "TRANSFERS_LIVE = true",
         "EXTERNAL_ACCOUNTS_LIVE = true",
     ])
-    checks.append(("B7 contract doc present with key sections", doc_ok,
+    checks.append(("B6 contract doc present with key sections", doc_ok,
                    "docs/bridge-core-contract.md missing or incomplete"))
 
     print("bridge_core_contract_audit:")

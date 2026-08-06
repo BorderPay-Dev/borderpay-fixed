@@ -899,57 +899,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
   }, [amount, selectedCurrency, accountType, method, isAfricanPayout, selectedCryptoExternalWallet]);
-  const [policyFeeQuote, setPolicyFeeQuote] = useState<{
-    totalFee: number;
-    feePercent: number;
-  } | null>(null);
-  const [policyFeeLoading, setPolicyFeeLoading] = useState(false);
-  const feeQuoteReqRef = useRef(0);
-
-  // Background fee refresh from server policy. This never blocks render.
-  useEffect(() => {
-    const num = parseFloat(amount);
-    if (!num || num <= 0) {
-      setPolicyFeeQuote(null);
-      setPolicyFeeLoading(false);
-      return;
-    }
-    // For now we only quote bank payouts from this screen.
-    if (method !== 'us_ach_wire') {
-      setPolicyFeeQuote(null);
-      setPolicyFeeLoading(false);
-      return;
-    }
-    const reqId = feeQuoteReqRef.current + 1;
-    feeQuoteReqRef.current = reqId;
-    setPolicyFeeLoading(true);
-    (async () => {
-      try {
-        const r: any = await backendAPI.payouts.feeQuote({
-          direction: 'payout',
-          channel: 'bank',
-          currency: method === 'us_ach_wire' ? activeExternalFundingCurrency : selectedCurrency,
-          amount: num,
-        });
-        if (feeQuoteReqRef.current !== reqId) return;
-        if (r?.success && r?.data) {
-          const totalFee = Number(r.data.total_fee || 0);
-          const pct = num > 0 ? (totalFee / num) * 100 : 0;
-          setPolicyFeeQuote({
-            totalFee: Number.isFinite(totalFee) ? totalFee : 0,
-            feePercent: Number.isFinite(pct) ? pct : 0,
-          });
-        } else {
-          setPolicyFeeQuote(null);
-        }
-      } catch {
-        if (feeQuoteReqRef.current === reqId) setPolicyFeeQuote(null);
-      } finally {
-        if (feeQuoteReqRef.current === reqId) setPolicyFeeLoading(false);
-      }
-    })();
-  }, [amount, method, selectedCurrency, activeExternalFundingCurrency]);
-
   useEffect(() => {
     const num = parseFloat(amount);
     if (!isAfricanPayout || !selectedAfricanCountryCode || !selectedAfricanRail || !activeFundingCurrency || !Number.isFinite(num) || num <= 0) {
@@ -1009,17 +958,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return null;
   }, [africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);
 
-  const networkFee = useMemo(() => {
-    if (!fallbackNetworkFee) return null;
-    if (policyFeeQuote && method === 'us_ach_wire') {
-      return {
-        ...fallbackNetworkFee,
-        feePercent: policyFeeQuote.feePercent,
-        totalFee: policyFeeQuote.totalFee,
-      };
-    }
-    return fallbackNetworkFee;
-  }, [fallbackNetworkFee, policyFeeQuote, method]);
+  const networkFee = fallbackNetworkFee;
   const [limitError, setLimitError] = useState<string | null>(null);
   const sourceAmount = useMemo(() => {
     const num = parseFloat(amount);
@@ -1243,7 +1182,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       const list: Institution[] = (Array.isArray(rawList) ? rawList : [])
         .filter((row: any) => {
           const accountType = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
-          return !accountType || accountType === (method === 'mobile_money' ? 'momo' : 'bank');
+          return !accountType || (method === 'mobile_money'
+            ? ['phone', 'momo', 'mobile_money', 'mobilemoney'].includes(accountType)
+            : accountType === 'bank');
         })
         .map((row: any, idx: number) => ({
           code: String(
@@ -1275,45 +1216,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       if (institutionsLoadInFlightRef.current === run) {
         institutionsLoadInFlightRef.current = null;
       }
-    }
-  };
-
-  // ---------------------------------------------------------------------------
-  // Account resolution (debounced)
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    setResolvedName('');
-    setResolveError('');
-
-    // Yellow Card sandbox has no beneficiary-name lookup endpoint. Never
-    // fall through to a retired provider for account resolution.
-    if (selectedAfricanProvider === 'yellow_card') return;
-    if (selectedAfricanRail && !requiresInstitutionSelection) return;
-    if (method !== 'bank' || !selectedBank || accountNumber.length < 6) return;
-
-    const timer = setTimeout(() => resolveAccount(), 800);
-    return () => clearTimeout(timer);
-  }, [method, selectedBank, accountNumber, selectedAfricanCountryCode, selectedAfricanRail, selectedAfricanProvider, requiresInstitutionSelection]);
-
-  const resolveAccount = async () => {
-    if (!selectedBank || !accountNumber) return;
-    if (method !== 'bank') return;
-    setResolving(true);
-    setResolvedName('');
-    setResolveError('');
-    try {
-      const res: any = await backendAPI.payouts.resolveAccount(accountNumber, selectedBank.code, selectedAfricanCountryCode || undefined);
-      if (!res?.success) {
-        throw new Error(res?.error || 'Could not verify this bank account.');
-      }
-      const resolution = res?.data?.resolution || {};
-      const name = String(resolution.account_name || resolution.accountName || resolution.name || '').trim();
-      setResolvedName(name);
-      if (!name) setResolveError('Bank account could not be verified yet. Review the details before continuing.');
-    } catch (error: any) {
-      setResolveError(friendlyError(error?.message, 'Could not verify this bank account.'));
-    } finally {
-      setResolving(false);
     }
   };
 
@@ -2916,7 +2818,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <div className="flex justify-between text-xs">
                     <span className={tc.textMuted}>
                       Transaction fee{networkFee?.feePercent && networkFee.feePercent > 0 ? ` (${networkFee.feePercent.toFixed(networkFee.feePercent < 1 ? 2 : 3)}%)` : africanPolicyFee?.percent ? ` (${africanPolicyFee.percent.toFixed(africanPolicyFee.percent < 1 ? 2 : 3)}%)` : ''}
-                      {policyFeeLoading || africanQuoteLoading ? ' · updating...' : ''}
+                      {africanQuoteLoading ? ' · updating...' : ''}
                     </span>
                     <span className={(networkFee?.totalFee ?? africanPolicyFee?.amount ?? 0) === 0 ? 'text-[#C7FF00]' : tc.text}>
                       {networkFee

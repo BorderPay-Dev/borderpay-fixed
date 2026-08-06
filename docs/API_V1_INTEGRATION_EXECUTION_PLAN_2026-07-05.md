@@ -23,7 +23,7 @@
 - Any provider-specific raw payload passthrough
 
 ## 2) Source-of-truth and routing policy
-- Bridge and Flutterwave are the only payment providers in runtime.
+- Bridge and Yellow Card are the only payment providers in runtime.
 - Provider internals must never leak to client contracts.
 - All API responses remain provider-neutral.
 - Route lock for crypto payout remains strict:

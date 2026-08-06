@@ -39,7 +39,7 @@ const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
  * of these, we drop the raw text entirely and return the safe fallback — the
  * message is partner/infrastructure detail, not something a user should read.
  */
-const FORBIDDEN = /\b(bridge|flutterwave|yellow\s*card|yellowcard|stripe|youverify|persona|plaid|resend|provider|processor|partner|verification vendor|mail vendor|database|supabase|postgres|postgrest|deno|webhook|edge function|rpc|enum|kyc_link|kyb|bvn|sql|constraint|null value|undefined|stack|traceback|payload|deployment_id|referenceerror|navperftrackcache|arrowright)\b/i;
+const FORBIDDEN = /\b(bridge|yellow\s*card|yellowcard|stripe|youverify|persona|plaid|resend|provider|processor|partner|verification vendor|mail vendor|database|supabase|postgres|postgrest|deno|webhook|edge function|rpc|enum|kyc_link|kyb|bvn|sql|constraint|null value|undefined|stack|traceback|payload|deployment_id|referenceerror|navperftrackcache|arrowright)\b/i;
 
 /**
  * Convert a raw error into a user-friendly message.

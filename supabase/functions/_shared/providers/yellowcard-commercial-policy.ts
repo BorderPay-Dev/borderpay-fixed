@@ -43,9 +43,17 @@ const COUNTRY_CODES: Record<string, string> = {
   togo: "TG", uganda: "UG", zambia: "ZM", ethiopia: "ET",
 };
 
+const ISO_ALPHA3_CODES: Record<string, string> = {
+  BEN: "BJ", BWA: "BW", BFA: "BF", CMR: "CM", TCD: "TD", COG: "CG",
+  COD: "CD", GAB: "GA", CIV: "CI", KEN: "KE", MWI: "MW", MLI: "ML",
+  NGA: "NG", RWA: "RW", SEN: "SN", ZAF: "ZA", TZA: "TZ", TGO: "TG",
+  UGA: "UG", ZMB: "ZM", ETH: "ET",
+};
+
 export function normalizeYellowCardCountryCode(value: unknown): string {
   const raw = String(value || "").trim();
   if (/^[A-Za-z]{2}$/.test(raw)) return raw.toUpperCase();
+  if (/^[A-Za-z]{3}$/.test(raw)) return ISO_ALPHA3_CODES[raw.toUpperCase()] || "";
   return COUNTRY_CODES[raw.toLowerCase()] || "";
 }
 

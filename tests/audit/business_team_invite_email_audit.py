@@ -46,7 +46,7 @@ def main() -> int:
 
     require("business.team_invite" in registry and "team-invite.ts" in registry, "Template must be registered")
     require("Accept invite" in template and "same email address" in template, "Template must explain accept flow")
-    for forbidden in ["bridge", "flutterwave", "yellow card", "yellowcard"]:
+    for forbidden in ["bridge", "yellow card", "yellowcard"]:
         require(forbidden not in template.lower(), f"Provider leaked in team invite template: {forbidden}")
 
     require("Authorization required" in accept and "supa.auth.getUser" in accept, "Accept endpoint must require auth")

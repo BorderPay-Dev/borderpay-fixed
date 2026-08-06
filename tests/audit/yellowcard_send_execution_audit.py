@@ -17,6 +17,8 @@ for fragment in (
     'cryptoAmount: Number(body?.crypto_amount)',
     'direction: isSend ? "payout" : "receive"',
     'existing.direction === "payout"',
+    '"withdraw", "withdrawal"',
+    'new Set(["phone", "momo", "mobile_money", "mobilemoney"])',
 ):
     assert fragment in edge, f"missing Yellow Card send server contract: {fragment}"
 
@@ -32,6 +34,7 @@ for fragment in (
     assert fragment in ui, f"missing Yellow Card send UI contract: {fragment}"
 
 assert "backendAPI.payouts.createTransfer" not in ui
-assert "if (selectedAfricanProvider === 'yellow_card') return;" in ui
+assert "backendAPI.payouts.resolveAccount" not in ui
+assert "['phone', 'momo', 'mobile_money', 'mobilemoney'].includes(accountType)" in ui
 assert 'rates: { path: "/rates"' in capabilities
 print("yellowcard send execution audit passed")

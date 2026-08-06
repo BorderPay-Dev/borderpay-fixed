@@ -904,7 +904,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     return () => { cancelled = true; };
   }, [userId]);
 
-  // Warm YC/FLW Africa corridor policy at app level. VA/crypto routes are
+  // Warm Yellow Card Africa corridor policy at app level. VA/crypto routes are
   // already instant because MainApp seeds their caches before screen open;
   // Africa rails need the same treatment instead of waiting for Send/Receive.
   React.useEffect(() => {

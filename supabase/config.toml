@@ -123,41 +123,21 @@ verify_jwt = true
 [functions.external-wallet]
 verify_jwt = true
 
-# Flutterwave capabilities/dirs — authenticated helper for rails metadata.
-[functions.flutterwave-capabilities]
+# Yellow Card read-only commercial policy and sandbox provider discovery.
+[functions.yellowcard-capabilities]
 verify_jwt = true
 
-# Flutterwave account resolve — authenticated payout preflight.
-[functions.flutterwave-account-resolve]
+# Yellow Card controlled sandbox Send/Receive execution.
+[functions.yellowcard-sandbox-transaction]
 verify_jwt = true
 
-# Flutterwave transfer rates — authenticated quote preflight.
-[functions.flutterwave-transfer-rates]
+# Admin/tester-only provider diagnostics.
+[functions.yellowcard-sandbox-diagnostics]
 verify_jwt = true
 
-# Flutterwave transfer create/retry — authenticated transfer execution.
-[functions.flutterwave-transfer-create]
+# Admin-only, read-only channel discovery; never activates corridors.
+[functions.yellowcard-corridor-sync]
 verify_jwt = true
-
-# Flutterwave transfer status — authenticated status sync.
-[functions.flutterwave-transfer-status]
-verify_jwt = true
-
-[functions.flutterwave-transfers-list]
-verify_jwt = true
-
-[functions.flutterwave-collection-create]
-verify_jwt = true
-
-[functions.flutterwave-collection-status]
-verify_jwt = true
-
-[functions.flutterwave-collections-list]
-verify_jwt = true
-
-# Flutterwave webhook receiver — provider-signed; no JWT.
-[functions.flutterwave-webhook]
-verify_jwt = false
 
 # Public API gateway — external clients authenticate in-code with BorderPay API
 # keys, signatures, tenant status, and allowlists. Supabase platform JWT must

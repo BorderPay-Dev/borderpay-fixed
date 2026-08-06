@@ -196,15 +196,13 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
 
         # No unsupported provider usage in runtime paths (Bridge-only).
         banned_provider_hits = rg_hits(
-            "african_onramp|flutterwave",
+            "african_onramp",
             "supabase/functions src utils components",
             extra_globs=[
                 "!**/*.md",
                 "!supabase/functions/_shared/providers/registry.ts",
                 "!supabase/functions/_shared/providers/types.ts",
-                "!supabase/functions/_shared/providers/african-onramp.types.ts",
                 "!supabase/functions/get-fx-rates/index.ts",
-                "!supabase/functions/get-momo-providers/index.ts",
                 "!supabase/functions/kyc-submit/index.ts",
                 "!supabase/functions/provisioning-request/index.ts",
                 "!supabase/functions/borderpay-transfer/index.ts",

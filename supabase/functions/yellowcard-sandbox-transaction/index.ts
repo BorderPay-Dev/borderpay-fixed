@@ -79,10 +79,20 @@ function receiveRamp(value: any): boolean {
 }
 
 function sendRamp(value: any): boolean {
-  return ["withdrawal", "send", "payment", "payout", "offramp", "off-ramp"].includes(lower(value));
+  return ["withdraw", "withdrawal", "send", "payment", "payout", "offramp", "off-ramp"].includes(lower(value));
 }
 
-function railToYc(channel: string): "bank" | "momo" {
+function yellowCardAccountTypes(channel: string): ReadonlySet<string> {
+  // Yellow Card identifies MoMo beneficiary accounts as `phone`; `momo` is
+  // the channel type, not the account-number type.
+  return channel === "mobile_money"
+    ? new Set(["phone", "momo", "mobile_money", "mobilemoney"])
+    : new Set(["bank"]);
+}
+
+function yellowCardPayloadAccountType(channel: string): "bank" | "momo" {
+  // The transaction API uses the rail account type while /networks describes
+  // the required account-number shape (`phone` for MoMo).
   return channel === "mobile_money" ? "momo" : "bank";
 }
 
@@ -123,13 +133,13 @@ function channelMatches(channel: any, input: { country: string; currency: string
     isActive(channel?.apiStatus || channel?.status);
 }
 
-function networkMatches(network: any, input: { country: string; channelId: string; accountType: string }): boolean {
+function networkMatches(network: any, input: { country: string; channelId: string; accountTypes: ReadonlySet<string> }): boolean {
   const channelIds = Array.isArray(network?.channelIds) ? network.channelIds.map(str) : [];
   const accountType = lower(network?.accountNumberType);
   return upper(network?.country) === input.country &&
     isActive(network?.status) &&
     channelIds.includes(input.channelId) &&
-    (!accountType || accountType === input.accountType);
+    (!accountType || input.accountTypes.has(accountType));
 }
 
 function publicTransaction(row: any) {
@@ -292,7 +302,7 @@ async function loadContext(userId: string, input: any) {
     if (!networksResult.ok) {
       return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
     }
-    const ycAccountType = railToYc(channel);
+    const ycAccountTypes = yellowCardAccountTypes(channel);
     const selectedNetworkId = str(input?.network_id);
     const allNetworks = rowsFrom(networksResult.data, "networks");
     if (!selectedChannel && selectedNetworkId) {
@@ -301,7 +311,7 @@ async function loadContext(userId: string, input: any) {
       selectedChannel = channels.find((candidate) => channelIds.includes(str(candidate?.id))) || null;
     }
     networks = selectedChannel ? allNetworks.filter((candidate) =>
-      networkMatches(candidate, { country, channelId: str(selectedChannel?.id), accountType: ycAccountType })
+      networkMatches(candidate, { country, channelId: str(selectedChannel?.id), accountTypes: ycAccountTypes })
     ) : [];
     selectedNetwork = selectedNetworkId
       ? networks.find((candidate) => str(candidate?.id) === selectedNetworkId)
@@ -504,7 +514,7 @@ Deno.serve(async (req) => {
       destination: {
         accountName: str(body?.recipient_name) || "Sandbox Recipient",
         accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
-        accountType: railToYc(context.channel),
+        accountType: yellowCardPayloadAccountType(context.channel),
         networkId: str(context.selectedNetwork?.id),
       },
       forceAccept: true,
@@ -529,7 +539,7 @@ Deno.serve(async (req) => {
       customerUID: access.user.id,
       recipient: context.kyc,
       source: {
-        accountType: railToYc(context.channel),
+        accountType: yellowCardPayloadAccountType(context.channel),
         accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
         ...(context.selectedNetwork?.id ? { networkId: str(context.selectedNetwork.id) } : {}),
       },

@@ -37,7 +37,7 @@ biggest missing piece), and wiring the **paid-plan + manual-review** gate.
 | 7 | FX rate display | ✅ Complete | 100 | **Live mid-market rates** (open.er-api.com), markup suspended |
 | 8 | FX convert **execution** | 🔴 Future | 0 | `getQuote`/`convert` are `RAILS_FUTURE_STATE` |
 | 9 | Transfers / money movement execution (`bridge-transfer`) | 🟡 Built, **OFF** | 60 | Hard-gated `BRIDGE_TRANSFERS_ENABLED`; needs sandbox-evidence sign-off; fee enforcement added (dormant) |
-| 10 | **African local payout rails** (NGN/KES/GHS/…) | 🔴 Not integrated | 5 | Types/contracts only; `bridge-transfer` returns `no_partner`. **Needs a partner integration (Flutterwave/Yativo).** |
+| 10 | **African local payout rails** | 🟡 Yellow Card sandbox | 5 | Yellow Card sandbox channels, networks, rates, Send, and Receive are in controlled tester validation. |
 | 11 | Cards (issuing/funding) | 🔴 Locked | 0 | Intentionally "locked", future-state |
 | 12 | Webhooks / email / reconciliation | ✅ Complete | 95 | `bridge-webhook` + `process-pending-events` + KYC/KYB email v1 live |
 | 13 | Fees (developer fee + payout markup) | 🟡 Source-only | 90 | Server-side enforcement added; **dormant** until transfers enabled |

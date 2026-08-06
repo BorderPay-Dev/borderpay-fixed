@@ -5,16 +5,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SERVER_GATE = ROOT / "supabase/functions/_shared/african-rails-access.ts"
 FRONTEND_GATE = ROOT / "utils/africanRailsAccess.ts"
 ENDPOINTS = [
-    "flutterwave-capabilities",
-    "flutterwave-account-resolve",
-    "flutterwave-transfer-rates",
-    "flutterwave-transfer-create",
-    "flutterwave-transfer-status",
-    "flutterwave-transfers-list",
-    "flutterwave-collection-create",
-    "flutterwave-collection-status",
-    "flutterwave-collections-list",
-    "get-momo-providers",
+    "yellowcard-capabilities",
+    "yellowcard-sandbox-transaction",
 ]
 
 TESTER = "adhiamboadhiambo22@gmail.com"
@@ -40,10 +32,9 @@ if "african_rails_closed_beta" not in server:
 for endpoint in ENDPOINTS:
     path = ROOT / f"supabase/functions/{endpoint}/index.ts"
     source = path.read_text()
-    if "authenticateAfricanRailsTester" not in source:
-        failures.append(f"{endpoint} does not enforce the shared server gate")
-    gate_pos = source.find("await authenticateAfricanRailsTester")
-    capability_pos = source.find("getFlutterwaveCapabilities()")
+    gate_tokens = ["await authenticateAfricanRailsTester", "isAfricanRailsTesterEmail(user.email)"]
+    gate_pos = min((source.find(token) for token in gate_tokens if source.find(token) >= 0), default=-1)
+    capability_pos = source.find("getYellowCardConfig()")
     if gate_pos < 0 or capability_pos < 0 or gate_pos > capability_pos:
         failures.append(f"{endpoint} checks provider runtime before tester access")
 

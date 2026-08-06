@@ -5,7 +5,7 @@ const AFRICAN_RAILS_TEST_EMAILS = new Set([
 ]);
 
 export function canUseAfricanRails(input?: { id?: string | null; email?: string | null } | null): boolean {
-  // Keep YC/FLW African rails in browser/PWA review only until partner
+  // Keep Yellow Card African rails in browser/PWA review only until partner
   // configuration is fully signed off. Native App Store / Play builds must not
   // expose this incomplete flow.
   if (isNativeRuntime()) return false;
