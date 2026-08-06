@@ -59,19 +59,19 @@ export type FeePlanKey =
  */
 export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> = {
   individual_starter:  1.0,
-  individual_premium:  0.5,
-  business_starter:    0.75,
-  business_growth:     0.5,
-  business_enterprise: 0.5,
+  individual_premium:  1.0,
+  business_starter:    1.0,
+  business_growth:     1.0,
+  business_enterprise: 1.0,
 };
 
-/** Lowest-tier markup used as the safe default when a plan key is unknown. */
-export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
+/** Unified Yellow Card markup used when a plan key is unknown. */
+export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 1.0;
 
 /** BorderPay markup on Yellow Card Send and Receive rails. */
 export const AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT: Record<"individual" | "business", number> = {
-  individual: 0.75,
-  business: 0.50,
+  individual: 1.0,
+  business: 1.0,
 };
 
 export function africanRailMarkupPercentForAccount(accountType: string | null | undefined): number {
@@ -99,8 +99,7 @@ export function bridgeDeveloperFeePercent(
 
 /**
  * BorderPay African payout markup percent for a subscription plan. Falls back
- * to the lowest tier (0.5%) for unknown / missing plan keys — fail-cheap, we
- * never accidentally over-charge by defaulting high.
+ * to the unified 1% Yellow Card markup for unknown / missing plan keys.
  */
 export function africanPayoutMarkupPercent(planKey: string | null | undefined): number {
   const k = String(planKey ?? "") as FeePlanKey;

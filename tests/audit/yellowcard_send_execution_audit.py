@@ -6,6 +6,7 @@ edge = (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.ts").rea
 ui = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 receive_ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
+commercial_policy = (ROOT / "supabase/functions/_shared/providers/yellowcard-commercial-policy.ts").read_text()
 
 for fragment in (
     'action === "preflight_send"',
@@ -53,4 +54,6 @@ for fragment in (
 
 assert "africanRailMarkupPercentForAccount(context.profile?.account_type)" in edge
 assert "total_amount_local: providerFeeAmount + markupFeeAmount" in edge
+assert 'SOURCE_DOCUMENT = "Yellow Card Treasury Portal Order Form - Standard Pricing, Addendum 1"' in commercial_policy
+assert 'SOURCE_DOCUMENT_DATE = "2026-07-08"' in commercial_policy
 print("yellowcard send execution audit passed")

@@ -36,25 +36,24 @@ export type FeePlanKey =
 /** BorderPay's fixed markup (percent) on the African payout leg, by plan. */
 export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> = {
   individual_starter:  1.0,
-  individual_premium:  0.5,
-  business_starter:    0.75,
-  business_growth:     0.5,
-  business_enterprise: 0.5,
+  individual_premium:  1.0,
+  business_starter:    1.0,
+  business_growth:     1.0,
+  business_enterprise: 1.0,
 };
 
-/** Lowest-tier markup used as the safe default when a plan key is unknown. */
-export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
+/** Unified Yellow Card markup used when a plan key is unknown. */
+export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 1.0;
 
 /**
- * African payout markup by ACCOUNT TYPE (current model — flat, plan-independent,
- * retained for compatibility with older access rows):
- *   • Individual: 0.75%
- *   • Business:   0.50%
+ * Yellow Card Send and Receive markup by account type:
+ *   • Individual: 1.00%
+ *   • Business:   1.00%
  * Stacked on the raw local-currency settlement (pass-through) cost.
  */
 export const AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT: Record<'individual' | 'business', number> = {
-  individual: 0.75,
-  business:   0.50,
+  individual: 1.0,
+  business:   1.0,
 };
 
 export function africanRailMarkupPercentForAccount(accountType: string | null | undefined): number {

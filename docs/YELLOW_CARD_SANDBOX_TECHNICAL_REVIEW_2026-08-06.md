@@ -36,9 +36,9 @@ Source: [Yellow Card Sandbox Testing](https://docs.yellowcard.engineering/docs/s
 - ERC20 failure settlement address: `0x742d35Cc6634C0532925a3b844Bc454e4438f44e`
 - crypto Receive into a Send transaction: `Successful` or `Failure` in sender name
 
-## Pricing discrepancy requiring Yellow Card confirmation
+## Pricing authority
 
-Customer pricing is sourced from the signed **Yellow Card Treasury Portal Order Form — Standard Pricing, Addendum 1**, dated 2026-07-08. Yellow Card's sandbox response currently reports a different fee schedule:
+Customer pricing is sourced exclusively from the signed **Yellow Card Treasury Portal Order Form — Standard Pricing, Addendum 1**, dated 2026-07-08. Yellow Card confirmed that commercial pricing is authoritative because sandbox pricing may not be updated. The sandbox response currently demonstrates that expected difference:
 
 | Kenya flow | Amount | Signed provider fee | Sandbox-reported provider fee |
 | --- | ---: | ---: | ---: |
@@ -47,6 +47,4 @@ Customer pricing is sourced from the signed **Yellow Card Treasury Portal Order 
 | Send / mobile money | KES 1,000 | KES 126 flat | KES 20.50 (2.05%) |
 | Send / bank | KES 1,000 | KES 29 (2.9%) | KES 10.25 (1.025%) |
 
-BorderPay displays the signed provider fee plus the server-controlled BorderPay rail markup: 0.75% for individual accounts and 0.50% for business accounts. Provider-reported sandbox fees are persisted for reconciliation, but do not silently replace the signed customer-pricing schedule.
-
-Yellow Card should confirm whether the sandbox tenant still has an older fee sheet attached and whether production will be configured to the signed 2026-07-08 schedule.
+BorderPay displays the commercial-document provider fee plus a server-controlled 1% BorderPay rail markup for both individual and business accounts. Provider-reported sandbox fees are diagnostic reconciliation data only and never replace customer pricing.
