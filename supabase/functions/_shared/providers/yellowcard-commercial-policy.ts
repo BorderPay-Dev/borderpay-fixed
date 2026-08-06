@@ -31,6 +31,25 @@ export interface YellowCardCommercialRail {
   source_document_date: string;
 }
 
+export interface YellowCardResolvedPricing {
+  provider_fee_percent: number | null;
+  provider_fee_local: number | null;
+  minimum_fee_local: number | null;
+  maximum_fee_local: number | null;
+  range: string | null;
+}
+
+export interface YellowCardCustomerFee extends YellowCardResolvedPricing {
+  provider_amount_local: number;
+  borderpay_amount_local: number;
+  customer_amount_local: number;
+  customer_fee_percent: number | null;
+  customer_fee_local: number | null;
+  customer_minimum_fee_local: number | null;
+  customer_maximum_fee_local: number | null;
+  effective_percent: number;
+}
+
 const SOURCE_DOCUMENT = "Yellow Card Treasury Portal Order Form - Standard Pricing, Addendum 1";
 const SOURCE_DOCUMENT_DATE = "2026-07-08";
 
@@ -214,4 +233,90 @@ export function findYellowCardCommercialRail(input: {
   return listYellowCardCommercialRails(input.direction, country).find((row) =>
     row.destination_currency === currency && row.channel === input.channel
   ) || null;
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function rangeMatches(range: unknown, amount: number): boolean {
+  const normalized = String(range || "").replaceAll(",", "").replaceAll(" ", "");
+  if (!normalized) return true;
+  const band = normalized.match(/^([0-9.]+)-([0-9.]+)(?:[A-Za-z]+)?$/);
+  if (band) return amount >= Number(band[1]) && amount <= Number(band[2]);
+  const comparison = normalized.match(/^(<=|>=|<|>)([0-9.]+)(?:[A-Za-z]+)?$/);
+  if (!comparison) return false;
+  const limit = Number(comparison[2]);
+  if (comparison[1] === "<=") return amount <= limit;
+  if (comparison[1] === ">=") return amount >= limit;
+  if (comparison[1] === "<") return amount < limit;
+  return amount > limit;
+}
+
+export function resolveYellowCardCommercialPricing(
+  rail: YellowCardCommercialRail,
+  amount: number,
+): YellowCardResolvedPricing | null {
+  const rules = Array.isArray(rail.pricing_rules) ? rail.pricing_rules : [];
+  const selected = rules.length > 0
+    ? [...rules].reverse().find((rule) => rangeMatches(rule.range, amount))
+    : null;
+  if (rules.length > 0 && !selected) return null;
+  return {
+    provider_fee_percent: finiteNumber(selected ? selected.fee_percent : rail.provider_fee_percent),
+    provider_fee_local: finiteNumber(selected ? selected.fee_local : rail.provider_fee_local),
+    minimum_fee_local: finiteNumber(selected ? selected.minimum_fee_local : rail.minimum_fee_local),
+    maximum_fee_local: finiteNumber(selected ? selected.maximum_fee_local : rail.maximum_fee_local),
+    range: selected?.range ? String(selected.range) : null,
+  };
+}
+
+const clamp = (value: number, minimum: number | null, maximum: number | null) =>
+  Math.max(minimum ?? 0, maximum === null ? value : Math.min(maximum, value));
+
+/**
+ * Customer fee contract:
+ * - add one percentage point to every percentage fee;
+ * - add 100% to every fixed, minimum, and maximum local-currency fee.
+ */
+export function calculateYellowCardCustomerFee(
+  rail: YellowCardCommercialRail,
+  amount: number,
+): YellowCardCustomerFee | null {
+  const pricing = resolveYellowCardCommercialPricing(rail, amount);
+  if (!pricing || !Number.isFinite(amount) || amount <= 0) return null;
+
+  const providerPercent = pricing.provider_fee_percent;
+  const providerFixed = pricing.provider_fee_local;
+  const providerMinimum = pricing.minimum_fee_local;
+  const providerMaximum = pricing.maximum_fee_local;
+  const customerPercent = providerPercent === null ? null : providerPercent + 1;
+  const customerFixed = providerFixed === null ? null : providerFixed * 2;
+  const customerMinimum = providerMinimum === null ? null : providerMinimum * 2;
+  const customerMaximum = providerMaximum === null ? null : providerMaximum * 2;
+
+  const providerAmount = providerFixed !== null
+    ? providerFixed
+    : providerPercent !== null
+      ? clamp((amount * providerPercent) / 100, providerMinimum, providerMaximum)
+      : providerMinimum ?? 0;
+  const customerAmount = customerFixed !== null
+    ? customerFixed
+    : customerPercent !== null
+      ? clamp((amount * customerPercent) / 100, customerMinimum, customerMaximum)
+      : customerMinimum ?? (amount * 1) / 100;
+
+  return {
+    ...pricing,
+    provider_amount_local: providerAmount,
+    borderpay_amount_local: Math.max(0, customerAmount - providerAmount),
+    customer_amount_local: customerAmount,
+    customer_fee_percent: customerPercent,
+    customer_fee_local: customerFixed,
+    customer_minimum_fee_local: customerMinimum,
+    customer_maximum_fee_local: customerMaximum,
+    effective_percent: (customerAmount / amount) * 100,
+  };
 }

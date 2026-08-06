@@ -7,7 +7,7 @@ import {
 } from "../_shared/african-rails-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
-import { findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
+import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
 import { africanRailMarkupPercentForAccount } from "../_shared/fees/schedule.ts";
 import {
@@ -431,19 +431,11 @@ Deno.serve(async (req) => {
   });
   if (!context.ok) return json({ success: false, code: context.code, error: "Yellow Card preflight failed." }, context.status);
 
-  const providerFeePercent = context.policy?.provider_fee_percent ?? null;
-  const providerFeeLocal = context.policy?.provider_fee_local ?? null;
+  const customerFee = calculateYellowCardCustomerFee(context.policy, context.localAmount);
+  if (!customerFee) {
+    return json({ success: false, code: "yellow_card_commercial_pricing_unavailable", error: "Commercial pricing is unavailable for this amount." }, 409);
+  }
   const markupPercent = africanRailMarkupPercentForAccount(context.profile?.account_type);
-  const providerFeeAmount = providerFeePercent !== null
-    ? Math.max(
-      Number(context.policy?.minimum_fee_local || 0),
-      Math.min(
-        Number(context.policy?.maximum_fee_local || Number.POSITIVE_INFINITY),
-        (context.localAmount * Number(providerFeePercent)) / 100,
-      ),
-    )
-    : Number(providerFeeLocal || 0);
-  const markupFeeAmount = (context.localAmount * markupPercent) / 100;
   const preflight = {
     corridor_allowed: true,
     country: context.country,
@@ -451,19 +443,20 @@ Deno.serve(async (req) => {
     channel: context.channel,
     local_amount: context.localAmount,
     transaction_fee: {
-      provider_percent: providerFeePercent,
-      provider_amount_local: providerFeeAmount,
+      provider_percent: customerFee.provider_fee_percent,
+      provider_amount_local: customerFee.provider_amount_local,
       markup_percent: markupPercent,
-      markup_amount_local: markupFeeAmount,
-      total_amount_local: providerFeeAmount + markupFeeAmount,
-      effective_percent: context.localAmount > 0
-        ? ((providerFeeAmount + markupFeeAmount) / context.localAmount) * 100
-        : 0,
-      percent: providerFeePercent,
-      usd: null,
-      local: context.policy?.provider_fee_local ?? null,
-      minimum_local: context.policy?.minimum_fee_local ?? null,
-      maximum_local: context.policy?.maximum_fee_local ?? null,
+      markup_amount_local: customerFee.borderpay_amount_local,
+      total_amount_local: customerFee.customer_amount_local,
+      effective_percent: customerFee.effective_percent,
+      percent: customerFee.customer_fee_percent,
+      local: customerFee.customer_fee_local,
+      minimum_local: customerFee.customer_minimum_fee_local,
+      maximum_local: customerFee.customer_maximum_fee_local,
+      provider_local: customerFee.provider_fee_local,
+      provider_minimum_local: customerFee.minimum_fee_local,
+      provider_maximum_local: customerFee.maximum_fee_local,
+      pricing_range: customerFee.range,
       source: context.policy?.source_document ?? null,
     },
     kyc_complete: context.missingKyc.length === 0,

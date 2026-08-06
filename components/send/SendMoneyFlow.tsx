@@ -30,7 +30,7 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
-import { africanRailMarkupPercentForAccount } from '../../utils/fees/schedule';
+import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
@@ -946,24 +946,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const africanPolicyFee = useMemo(() => {
     if (!isAfricanPayout || !selectedAfricanPolicyRow || !africanQuote?.destinationAmount) return null;
-    const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
-    const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
-    const minimumLocal = numberFromRaw(selectedAfricanPolicyRow, 'minimum_fee_local');
-    const maximumLocal = numberFromRaw(selectedAfricanPolicyRow, 'maximum_fee_local');
-    const markupPct = africanRailMarkupPercentForAccount(accountType);
-    const markupAmount = (africanQuote.destinationAmount * markupPct) / 100;
-    if (pct !== null) {
-      const rawProviderFee = (africanQuote.destinationAmount * pct) / 100;
-      const providerFee = Math.max(minimumLocal || 0, maximumLocal !== null ? Math.min(maximumLocal, rawProviderFee) : rawProviderFee);
-      return {
-        amount: providerFee + markupAmount,
-        currency: selectedCurrency,
-        percent: ((providerFee + markupAmount) / africanQuote.destinationAmount) * 100,
-      };
-    }
-    if (local !== null) return { amount: local + markupAmount, currency: selectedCurrency, percent: null };
-    return null;
-  }, [accountType, africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);
+    const fee = calculateYellowCardCustomerFee(selectedAfricanPolicyRow, africanQuote.destinationAmount);
+    return fee ? {
+      amount: fee.customerAmount,
+      currency: selectedCurrency,
+      percent: fee.effectivePercent,
+    } : null;
+  }, [africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);
 
   const networkFee = fallbackNetworkFee;
   const [limitError, setLimitError] = useState<string | null>(null);
@@ -1312,7 +1301,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         && reason.trim().length > 0;
     }
     if (isAfricanPayout) {
-      return africanRailsTester && num > 0 && !!activeFundingWallet && !africanInsufficientFunding && !africanQuoteLoading && !!africanQuote?.destinationAmount;
+      return africanRailsTester && num > 0 && !!activeFundingWallet && !africanInsufficientFunding &&
+        !africanQuoteLoading && !!africanQuote?.destinationAmount && !!africanPolicyFee;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
@@ -2532,6 +2522,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       Fee: {formatDisplayMoney(africanPolicyFee.amount, africanPolicyFee.currency)} {displayMoneyCurrency(africanPolicyFee.currency)}
                       {africanPolicyFee.percent !== null && africanPolicyFee.percent > 0 ? ` (${africanPolicyFee.percent.toFixed(africanPolicyFee.percent < 1 ? 2 : 3)}%)` : ''}
                     </p>
+                  )}
+                  {africanQuote?.destinationAmount && !africanPolicyFee && (
+                    <p className="px-1 text-xs text-red-400">No commercial-document price applies to this amount.</p>
                   )}
                 </div>
               )}

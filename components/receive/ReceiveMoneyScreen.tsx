@@ -25,7 +25,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
-import { africanRailMarkupPercentForAccount } from '../../utils/fees/schedule';
+import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
 import { loadIpCountry } from '../../utils/geoCountry';
 import {
   loadAfricanPolicyRows,
@@ -190,9 +190,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     email: (storedUser as any)?.email,
   });
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
-  const [accountType, setAccountType] = useState<'individual' | 'business'>(() =>
-    String(readCachedProfile()?.account_type || '').toLowerCase() === 'business' ? 'business' : 'individual'
-  );
   const [country, setCountry] = useState<string | null>(() => readCachedCountry());
   const [ipCountry, setIpCountry] = useState<string | null>(null);
 
@@ -422,7 +419,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             }
           }
           setIsVerified(deriveKycStatus(hydrated) === 'verified');
-          setAccountType(String(hydrated?.account_type || '').toLowerCase() === 'business' ? 'business' : 'individual');
           setCountry(profileCountry);
           try {
             localStorage.setItem('borderpay_user', JSON.stringify({
@@ -673,22 +669,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const collectionFee = useMemo(() => {
     if (!selectedAfricanPolicyRow || collectionAmountNumber <= 0) return null;
-    const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
-    const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
-    const usd = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_usd');
-    const minimumLocal = numberFromRaw(selectedAfricanPolicyRow, 'minimum_fee_local');
-    const maximumLocal = numberFromRaw(selectedAfricanPolicyRow, 'maximum_fee_local');
-    const markupPct = africanRailMarkupPercentForAccount(accountType);
-    const markupAmount = (collectionAmountNumber * markupPct) / 100;
-    if (pct !== null) {
-      const rawProviderFee = (collectionAmountNumber * pct) / 100;
-      const providerFee = Math.max(minimumLocal || 0, maximumLocal !== null ? Math.min(maximumLocal, rawProviderFee) : rawProviderFee);
-      return { amount: providerFee + markupAmount, currency: selectedAfricanRail?.currency || '', percent: ((providerFee + markupAmount) / collectionAmountNumber) * 100 };
-    }
-    if (local !== null) return { amount: local + markupAmount, currency: selectedAfricanRail?.currency || '', percent: null };
-    if (usd !== null) return { amount: usd, currency: 'USD', percent: null };
-    return null;
-  }, [accountType, collectionAmountNumber, selectedAfricanPolicyRow, selectedAfricanRail?.currency]);
+    const fee = calculateYellowCardCustomerFee(selectedAfricanPolicyRow, collectionAmountNumber);
+    return fee ? {
+      amount: fee.customerAmount,
+      currency: selectedAfricanRail?.currency || '',
+      percent: fee.effectivePercent,
+    } : null;
+  }, [collectionAmountNumber, selectedAfricanPolicyRow, selectedAfricanRail?.currency]);
 
   const collectionReceiveNet = useMemo(() => {
     if (collectionAmountNumber <= 0) return 0;
@@ -699,6 +686,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const canCreateAfricanCollection = useMemo(() => {
     if (!africanRailsTester) return false;
     if (collectionAmountNumber <= 0) return false;
+    if (!collectionFee) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
     if (!selectedCollectionNetworkId) return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
@@ -707,6 +695,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     return true;
   }, [
     collectionAmountNumber,
+    collectionFee,
     africanRailsTester,
     collectionSourceAccount,
     receiveUsesYellowCardForm,

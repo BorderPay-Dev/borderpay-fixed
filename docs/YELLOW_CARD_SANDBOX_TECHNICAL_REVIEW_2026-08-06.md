@@ -47,4 +47,4 @@ Customer pricing is sourced exclusively from the signed **Yellow Card Treasury P
 | Send / mobile money | KES 1,000 | KES 126 flat | KES 20.50 (2.05%) |
 | Send / bank | KES 1,000 | KES 29 (2.9%) | KES 10.25 (1.025%) |
 
-BorderPay displays the commercial-document provider fee plus a server-controlled 1% BorderPay rail markup for both individual and business accounts. Provider-reported sandbox fees are diagnostic reconciliation data only and never replace customer pricing.
+BorderPay displays the commercial-document fee plus its customer markup for both individual and business accounts. Percentage fees gain one percentage point; fixed, minimum, and maximum local-currency fee components gain 100%. For example, a Yellow Card fee of 1% with a KES 300 minimum becomes a 2% customer fee with a KES 600 minimum. Provider-reported sandbox fees are diagnostic reconciliation data only and never replace customer pricing.

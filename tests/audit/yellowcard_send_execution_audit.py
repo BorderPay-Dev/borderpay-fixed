@@ -48,12 +48,12 @@ for fragment in (
     "selectedCollectionNetworkId",
     "network_id: selectedCollectionNetworkId || undefined",
     "if (!selectedChannelId || !selectedNetworkId)",
-    "africanRailMarkupPercentForAccount(accountType)",
+    "calculateYellowCardCustomerFee(selectedAfricanPolicyRow",
 ):
     assert fragment in receive_ui, f"missing Yellow Card receive UI contract: {fragment}"
 
-assert "africanRailMarkupPercentForAccount(context.profile?.account_type)" in edge
-assert "total_amount_local: providerFeeAmount + markupFeeAmount" in edge
+assert "calculateYellowCardCustomerFee(context.policy, context.localAmount)" in edge
+assert "total_amount_local: customerFee.customer_amount_local" in edge
 assert 'SOURCE_DOCUMENT = "Yellow Card Treasury Portal Order Form - Standard Pricing, Addendum 1"' in commercial_policy
 assert 'SOURCE_DOCUMENT_DATE = "2026-07-08"' in commercial_policy
 print("yellowcard send execution audit passed")
