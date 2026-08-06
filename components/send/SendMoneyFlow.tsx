@@ -31,6 +31,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
 import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
+import { convertYellowCardLocalFeeToFunding } from '../../utils/fees/yellowCardMath';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
@@ -946,11 +947,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const africanPolicyFee = useMemo(() => {
     if (!isAfricanPayout || !selectedAfricanPolicyRow || !africanQuote?.destinationAmount) return null;
-    const fee = calculateYellowCardCustomerFee(selectedAfricanPolicyRow, africanQuote.destinationAmount);
+    const executionLocalAmount = Math.round(africanQuote.destinationAmount);
+    const fee = calculateYellowCardCustomerFee(selectedAfricanPolicyRow, executionLocalAmount);
     return fee ? {
       amount: fee.customerAmount,
       currency: selectedCurrency,
       percent: fee.effectivePercent,
+      basisAmount: executionLocalAmount,
     } : null;
   }, [africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);
 
@@ -961,9 +964,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return Number.isFinite(num) && num > 0 ? num : 0;
   }, [amount]);
   const africanFeeInFundingCurrency = useMemo(() => {
-    if (!isAfricanPayout || !africanPolicyFee || africanPolicyFee.currency !== activeFundingCurrency) return 0;
-    return Number.isFinite(africanPolicyFee.amount) && africanPolicyFee.amount > 0 ? africanPolicyFee.amount : 0;
-  }, [activeFundingCurrency, africanPolicyFee, isAfricanPayout]);
+    if (!isAfricanPayout || !africanPolicyFee || sourceAmount <= 0) return 0;
+    if (africanPolicyFee.currency === activeFundingCurrency) {
+      return Number.isFinite(africanPolicyFee.amount) && africanPolicyFee.amount > 0 ? africanPolicyFee.amount : 0;
+    }
+    const destinationAmount = Number(africanPolicyFee.basisAmount || 0);
+    if (destinationAmount <= 0 || africanPolicyFee.currency !== selectedCurrency) return 0;
+    return convertYellowCardLocalFeeToFunding(africanPolicyFee.amount, destinationAmount, sourceAmount);
+  }, [activeFundingCurrency, africanPolicyFee, isAfricanPayout, selectedCurrency, sourceAmount]);
   const africanTotalSourceDebit = sourceAmount + africanFeeInFundingCurrency;
   const africanComputedRate = useMemo(() => {
     if (!isAfricanPayout || sourceAmount <= 0) return null;

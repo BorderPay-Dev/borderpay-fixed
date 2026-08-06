@@ -1,13 +1,28 @@
 import {
   calculateYellowCardCustomerFee,
   findYellowCardCommercialRail,
+  YELLOW_CARD_COMMERCIAL_RAILS_2026,
 } from "../supabase/functions/_shared/providers/yellowcard-commercial-policy.ts";
+import { convertYellowCardLocalFeeToFunding } from "../utils/fees/yellowCardMath.ts";
 
 function fee(direction: "receive" | "payout", countryCode: string, currency: string, channel: "bank" | "mobile_money", amount: number) {
   const rail = findYellowCardCommercialRail({ direction, countryCode, currency, channel });
   if (!rail) throw new Error("missing test rail");
   return calculateYellowCardCustomerFee(rail, amount);
 }
+
+Deno.test("commercial policy contains all 70 signed Africa pricing rows without duplicate rails", () => {
+  const signedRows = YELLOW_CARD_COMMERCIAL_RAILS_2026.reduce(
+    (total, rail) => total + Math.max(1, rail.pricing_rules.length),
+    0,
+  );
+  const keys = YELLOW_CARD_COMMERCIAL_RAILS_2026.map((rail) =>
+    `${rail.direction}:${rail.country_code}:${rail.destination_currency}:${rail.channel}`
+  );
+  if (signedRows !== 70 || keys.length !== 55 || new Set(keys).size !== keys.length) {
+    throw new Error(`commercial policy coverage drift: rows=${signedRows}, rails=${keys.length}`);
+  }
+});
 
 Deno.test("adds one percentage point to pure percentage pricing", () => {
   const result = fee("receive", "KE", "KES", "mobile_money", 5_000);
@@ -50,4 +65,10 @@ Deno.test("uses the later signed band at an overlapping boundary", () => {
   if (result.provider_amount_local !== 1_000 || result.customer_amount_local !== 2_000) {
     throw new Error(`unexpected Malawi boundary fee: ${JSON.stringify(result)}`);
   }
+});
+
+Deno.test("converts the complete local customer fee into source-wallet currency", () => {
+  const sourceFee = convertYellowCardLocalFeeToFunding(252, 1_000, 8);
+  if (sourceFee !== 2.016) throw new Error(`unexpected source fee: ${sourceFee}`);
+  if (convertYellowCardLocalFeeToFunding(252, 0, 8) !== 0) throw new Error("invalid quote must fail closed");
 });

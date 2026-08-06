@@ -33,6 +33,8 @@ for fragment in (
     "action: 'preflight_send'",
     "action: 'create_send'",
     "yellowCardSandboxOutcome",
+    "convertYellowCardLocalFeeToFunding(africanPolicyFee.amount, destinationAmount, sourceAmount)",
+    "const executionLocalAmount = Math.round(africanQuote.destinationAmount)",
     "result.data?.transaction?.provider_transaction_id",
     "result.data?.transaction?.sequence_id",
 ):
