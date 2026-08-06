@@ -12,6 +12,7 @@ Environment: Yellow Card sandbox. Tester: `adhiamboadhiambo22@gmail.com`.
 | Send / bank | success | `5d5b862a-25d5-52ec-a45c-2ebd60fd37ac` | `5556c28d-5d5d-4b9f-90e6-9d6c500ae9e3` | `complete` |
 | Receive / mobile money | failure | `43768365-3ae1-550d-85e8-910c2c186b43` | `6ea8adde-6c9d-45c5-a815-d7aedc41282e` | `failed` |
 | Send / mobile money | failure | `38b61999-a842-5926-8938-aff43126b441` | `a2b010b6-4b00-4ff2-8706-ae28f59224d3` | `failed` |
+| Receive / bank | failure | `ac41a229-8984-5637-96ef-7a34cd26339e` | `f4023662-5917-4d23-b30b-6d322e418dae` | `pending_refund` |
 | Send / bank | failure | `35af19b1-fc5c-5656-9b19-fccff6b28181` | `e8695bcf-3140-4656-b3f0-70f2c82c65aa` | `failed` |
 
 The Receive / bank failure simulation is tracked separately because Yellow Card left the original request in `processing` when both independent failure controls were supplied at once:
@@ -21,7 +22,7 @@ The Receive / bank failure simulation is tracked separately because Yellow Card 
 - replacement provider transaction: `ac41a229-8984-5637-96ef-7a34cd26339e`
 - replacement sequence: `f4023662-5917-4d23-b30b-6d322e418dae`
 
-The replacement keeps the bank collection leg successful and uses Yellow Card's documented failure crypto address for the direct-settlement failure. Its final status must be captured before sending the evidence package.
+The replacement keeps the bank collection leg successful and uses Yellow Card's documented failure crypto address for the direct-settlement failure. Yellow Card accepted that failure and moved the transaction to `pending_refund`; its refund lifecycle documentation defines this as the provider processing the refund. Capture the later `refunded` or `refund_failed` transition if Yellow Card requests the terminal refund state.
 
 ## Sandbox controls used
 
