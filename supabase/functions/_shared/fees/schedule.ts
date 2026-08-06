@@ -68,6 +68,18 @@ export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> =
 /** Lowest-tier markup used as the safe default when a plan key is unknown. */
 export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
 
+/** BorderPay markup on Yellow Card Send and Receive rails. */
+export const AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT: Record<"individual" | "business", number> = {
+  individual: 0.75,
+  business: 0.50,
+};
+
+export function africanRailMarkupPercentForAccount(accountType: string | null | undefined): number {
+  return String(accountType ?? "").toLowerCase() === "business"
+    ? AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT.business
+    : AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT.individual;
+}
+
 /**
  * Resolve the Bridge developer-fee percent for a known product path.
  */

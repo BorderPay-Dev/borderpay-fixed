@@ -52,16 +52,19 @@ export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
  *   • Business:   0.50%
  * Stacked on the raw local-currency settlement (pass-through) cost.
  */
-export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT: Record<'individual' | 'business', number> = {
+export const AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT: Record<'individual' | 'business', number> = {
   individual: 0.75,
   business:   0.50,
 };
 
-export function africanPayoutMarkupPercentForAccount(accountType: string | null | undefined): number {
+export function africanRailMarkupPercentForAccount(accountType: string | null | undefined): number {
   return String(accountType ?? '').toLowerCase() === 'business'
-    ? AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT.business
-    : AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT.individual;
+    ? AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT.business
+    : AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT.individual;
 }
+
+export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT = AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT;
+export const africanPayoutMarkupPercentForAccount = africanRailMarkupPercentForAccount;
 
 /** Resolve the Bridge developer-fee percent for a known product path. */
 export function bridgeDeveloperFeePercent(

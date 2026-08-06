@@ -25,6 +25,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { africanRailMarkupPercentForAccount } from '../../utils/fees/schedule';
 import { loadIpCountry } from '../../utils/geoCountry';
 import {
   loadAfricanPolicyRows,
@@ -189,6 +190,9 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     email: (storedUser as any)?.email,
   });
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
+  const [accountType, setAccountType] = useState<'individual' | 'business'>(() =>
+    String(readCachedProfile()?.account_type || '').toLowerCase() === 'business' ? 'business' : 'individual'
+  );
   const [country, setCountry] = useState<string | null>(() => readCachedCountry());
   const [ipCountry, setIpCountry] = useState<string | null>(null);
 
@@ -255,6 +259,9 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   } | null>(null);
   const [collectionAmount, setCollectionAmount] = useState('');
   const [collectionSourceAccount, setCollectionSourceAccount] = useState('');
+  const [collectionNetworks, setCollectionNetworks] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedCollectionNetworkId, setSelectedCollectionNetworkId] = useState('');
+  const [collectionNetworksLoading, setCollectionNetworksLoading] = useState(false);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
 
@@ -415,6 +422,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             }
           }
           setIsVerified(deriveKycStatus(hydrated) === 'verified');
+          setAccountType(String(hydrated?.account_type || '').toLowerCase() === 'business' ? 'business' : 'individual');
           setCountry(profileCountry);
           try {
             localStorage.setItem('borderpay_user', JSON.stringify({
@@ -460,6 +468,8 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     setReceiveStep('method');
     setCollectionAmount('');
     setCollectionSourceAccount('');
+    setCollectionNetworks([]);
+    setSelectedCollectionNetworkId('');
     setCollectionResult(null);
   };
 
@@ -530,6 +540,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
         settlement_currency: settlementCurrency,
         settlement_network: settlementNetwork,
         reason: 'other',
+        network_id: selectedCollectionNetworkId || undefined,
       };
       const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
         action: 'preflight',
@@ -538,7 +549,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'Yellow Card preflight failed.');
       const selectedChannelId = String(preflight?.data?.selected_channel_id || '');
       const selectedNetworkId = String(preflight?.data?.selected_network_id || '');
-      if (!selectedChannelId || (selectedAfricanRail.channel === 'mobile_money' && !selectedNetworkId)) {
+      if (!selectedChannelId || !selectedNetworkId) {
         throw new Error('This Yellow Card rail needs explicit provider selection before a sandbox transaction can be created.');
       }
       const res: any = await backendAPI.payouts.yellowCardSandboxTransaction({
@@ -562,6 +573,38 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
+  useEffect(() => {
+    if (!selectedAfricanRail || !selectedAfricanCountryCode || selectedAfricanProvider !== 'yellow_card') {
+      setCollectionNetworks([]);
+      setSelectedCollectionNetworkId('');
+      return;
+    }
+    let active = true;
+    setCollectionNetworksLoading(true);
+    void backendAPI.payouts.yellowCardCapabilities('networks', { country: selectedAfricanCountryCode })
+      .then((res: any) => {
+        if (!active || !res?.success) return;
+        const raw = res?.data?.networks;
+        const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.networks) ? raw.networks : Array.isArray(raw?.data) ? raw.data : [];
+        const expected = selectedAfricanRail.channel === 'mobile_money'
+          ? new Set(['phone', 'momo', 'mobile_money', 'mobilemoney'])
+          : new Set(['bank']);
+        const next = rows
+          .filter((row: any) => {
+            const type = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
+            const status = String(row?.status || row?.apiStatus || 'active').toLowerCase();
+            return (!type || expected.has(type)) && ['active', 'enabled', 'available'].includes(status);
+          })
+          .map((row: any) => ({ id: String(row?.id || ''), name: String(row?.name || row?.code || 'Payment network') }))
+          .filter((row: any) => row.id && row.name);
+        setCollectionNetworks(next);
+        setSelectedCollectionNetworkId((current) => next.some((row: any) => row.id === current)
+          ? current
+          : next.length === 1 ? next[0].id : '');
+      })
+      .finally(() => { if (active) setCollectionNetworksLoading(false); });
+    return () => { active = false; };
+  }, [selectedAfricanCountryCode, selectedAfricanProvider, selectedAfricanRail]);
   useEffect(() => {
     const prewarmKey = `borderpay_receive_prewarm_v1:${userId}`;
     try {
@@ -633,11 +676,19 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
     const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
     const usd = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_usd');
-    if (pct !== null) return { amount: (collectionAmountNumber * pct) / 100, currency: selectedAfricanRail?.currency || '', percent: pct };
-    if (local !== null) return { amount: local, currency: selectedAfricanRail?.currency || '', percent: null };
+    const minimumLocal = numberFromRaw(selectedAfricanPolicyRow, 'minimum_fee_local');
+    const maximumLocal = numberFromRaw(selectedAfricanPolicyRow, 'maximum_fee_local');
+    const markupPct = africanRailMarkupPercentForAccount(accountType);
+    const markupAmount = (collectionAmountNumber * markupPct) / 100;
+    if (pct !== null) {
+      const rawProviderFee = (collectionAmountNumber * pct) / 100;
+      const providerFee = Math.max(minimumLocal || 0, maximumLocal !== null ? Math.min(maximumLocal, rawProviderFee) : rawProviderFee);
+      return { amount: providerFee + markupAmount, currency: selectedAfricanRail?.currency || '', percent: ((providerFee + markupAmount) / collectionAmountNumber) * 100 };
+    }
+    if (local !== null) return { amount: local + markupAmount, currency: selectedAfricanRail?.currency || '', percent: null };
     if (usd !== null) return { amount: usd, currency: 'USD', percent: null };
     return null;
-  }, [collectionAmountNumber, selectedAfricanPolicyRow, selectedAfricanRail?.currency]);
+  }, [accountType, collectionAmountNumber, selectedAfricanPolicyRow, selectedAfricanRail?.currency]);
 
   const collectionReceiveNet = useMemo(() => {
     if (collectionAmountNumber <= 0) return 0;
@@ -649,6 +700,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     if (!africanRailsTester) return false;
     if (collectionAmountNumber <= 0) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
+    if (!selectedCollectionNetworkId) return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
       return isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountryCode);
     }
@@ -660,6 +712,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     receiveUsesYellowCardForm,
     selectedAfricanRail?.channel,
     selectedAfricanProvider,
+    selectedCollectionNetworkId,
     selectedAfricanCountryCode,
   ]);
 
@@ -941,6 +994,8 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                     setSelectedAfricanRail(rail);
                     setCollectionAmount('');
                     setCollectionSourceAccount('');
+                    setCollectionNetworks([]);
+                    setSelectedCollectionNetworkId('');
                     setCollectionResult(null);
                     setReceiveStep('africa-details');
                   }}
@@ -985,6 +1040,22 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
               </div>
 
               <div className="space-y-3">
+                <div>
+                  <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>
+                    {selectedAfricanRail.channel === 'mobile_money' ? 'Mobile money provider' : 'Bank'}
+                  </label>
+                  <select
+                    value={selectedCollectionNetworkId}
+                    onChange={(event) => setSelectedCollectionNetworkId(event.target.value)}
+                    disabled={collectionNetworksLoading || collectionNetworks.length === 0}
+                    className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 disabled:opacity-60`}
+                  >
+                    <option value="">{collectionNetworksLoading ? 'Loading available providers…' : 'Choose a provider'}</option>
+                    {collectionNetworks.map((network) => (
+                      <option key={network.id} value={network.id}>{network.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Amount</label>
                   <input

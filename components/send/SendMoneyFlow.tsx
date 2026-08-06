@@ -30,6 +30,7 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
+import { africanRailMarkupPercentForAccount } from '../../utils/fees/schedule';
 import { classifyCorridor } from '../../utils/payouts/corridor';
 import { isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
@@ -947,16 +948,22 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (!isAfricanPayout || !selectedAfricanPolicyRow || !africanQuote?.destinationAmount) return null;
     const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
     const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
+    const minimumLocal = numberFromRaw(selectedAfricanPolicyRow, 'minimum_fee_local');
+    const maximumLocal = numberFromRaw(selectedAfricanPolicyRow, 'maximum_fee_local');
+    const markupPct = africanRailMarkupPercentForAccount(accountType);
+    const markupAmount = (africanQuote.destinationAmount * markupPct) / 100;
     if (pct !== null) {
+      const rawProviderFee = (africanQuote.destinationAmount * pct) / 100;
+      const providerFee = Math.max(minimumLocal || 0, maximumLocal !== null ? Math.min(maximumLocal, rawProviderFee) : rawProviderFee);
       return {
-        amount: (africanQuote.destinationAmount * pct) / 100,
+        amount: providerFee + markupAmount,
         currency: selectedCurrency,
-        percent: pct,
+        percent: ((providerFee + markupAmount) / africanQuote.destinationAmount) * 100,
       };
     }
-    if (local !== null) return { amount: local, currency: selectedCurrency, percent: null };
+    if (local !== null) return { amount: local + markupAmount, currency: selectedCurrency, percent: null };
     return null;
-  }, [africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);
+  }, [accountType, africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);
 
   const networkFee = fallbackNetworkFee;
   const [limitError, setLimitError] = useState<string | null>(null);

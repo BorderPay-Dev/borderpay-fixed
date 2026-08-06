@@ -9,6 +9,7 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
+import { africanRailMarkupPercentForAccount } from "../_shared/fees/schedule.ts";
 import {
   buildYellowCardSandboxReceivePayload,
   redactYellowCardReceivePayload,
@@ -48,6 +49,8 @@ const lower = (value: unknown) => str(value).toLowerCase();
 // wallet address or phone number to the sandbox transaction simulator.
 const SANDBOX_SUCCESS_EVM_ADDRESS = "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe";
 const SANDBOX_SUCCESS_TRON_ADDRESS = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+const SANDBOX_FAILURE_EVM_ADDRESS = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
+const SANDBOX_FAILURE_TRON_ADDRESS = "TFvde3D6NQrjXrjqUsdwLTCvVhdPDYEBRV";
 const COUNTRY_DIAL_CODES: Record<string, string> = {
   BJ: "229", BW: "267", BF: "226", CM: "237", CD: "243", CG: "242",
   CI: "225", TD: "235", GA: "241", GH: "233", KE: "254", MW: "265",
@@ -257,6 +260,7 @@ async function loadContext(userId: string, input: any) {
     }
   }
 
+  const useSandboxIdentitySample = input?.allow_sandbox_identity_sample === true;
   const kyc: YellowCardRetailKyc = {
     name: str(profile.full_name),
     country: upper(profile.country || bridgeIdentity?.country),
@@ -264,8 +268,8 @@ async function loadContext(userId: string, input: any) {
     address: profileAddress(profile, bridgeIdentity),
     dob: formatDob(profile.date_of_birth || bridgeIdentity?.date_of_birth),
     email: lower(profile.email),
-    idNumber: str(profile.id_number || bridgeIdentity?.id_number),
-    idType: str(profile.id_type || bridgeIdentity?.id_type),
+    idNumber: str(profile.id_number || bridgeIdentity?.id_number || (useSandboxIdentitySample ? "0123456789" : "")),
+    idType: str(profile.id_type || bridgeIdentity?.id_type || (useSandboxIdentitySample ? "license" : "")),
   };
   const missingKyc = Object.entries(kyc).filter(([, value]) => !value).map(([key]) => key);
 
@@ -421,9 +425,25 @@ Deno.serve(async (req) => {
     // Server-derived exception for the named Yellow Card integration account.
     // The client cannot enable this bypass for another user.
     allow_all_receive_countries: isAfricanRailsTesterEmail(access.user.email),
+    // Yellow Card documents these sample KYC values for sandbox requests.
+    // They are never persisted and this function refuses production routing.
+    allow_sandbox_identity_sample: isAfricanRailsTesterEmail(access.user.email),
   });
   if (!context.ok) return json({ success: false, code: context.code, error: "Yellow Card preflight failed." }, context.status);
 
+  const providerFeePercent = context.policy?.provider_fee_percent ?? null;
+  const providerFeeLocal = context.policy?.provider_fee_local ?? null;
+  const markupPercent = africanRailMarkupPercentForAccount(context.profile?.account_type);
+  const providerFeeAmount = providerFeePercent !== null
+    ? Math.max(
+      Number(context.policy?.minimum_fee_local || 0),
+      Math.min(
+        Number(context.policy?.maximum_fee_local || Number.POSITIVE_INFINITY),
+        (context.localAmount * Number(providerFeePercent)) / 100,
+      ),
+    )
+    : Number(providerFeeLocal || 0);
+  const markupFeeAmount = (context.localAmount * markupPercent) / 100;
   const preflight = {
     corridor_allowed: true,
     country: context.country,
@@ -431,7 +451,15 @@ Deno.serve(async (req) => {
     channel: context.channel,
     local_amount: context.localAmount,
     transaction_fee: {
-      percent: context.policy?.provider_fee_percent ?? null,
+      provider_percent: providerFeePercent,
+      provider_amount_local: providerFeeAmount,
+      markup_percent: markupPercent,
+      markup_amount_local: markupFeeAmount,
+      total_amount_local: providerFeeAmount + markupFeeAmount,
+      effective_percent: context.localAmount > 0
+        ? ((providerFeeAmount + markupFeeAmount) / context.localAmount) * 100
+        : 0,
+      percent: providerFeePercent,
       usd: null,
       local: context.policy?.provider_fee_local ?? null,
       minimum_local: context.policy?.minimum_fee_local ?? null,
@@ -504,7 +532,6 @@ Deno.serve(async (req) => {
     providerBody = isSend ? {
       channelId: str(context.selectedChannel.id),
       sequenceId,
-      localAmount: context.localAmount,
       reason: str(body?.reason || "other").toLowerCase(),
       sender: {
         ...context.kyc,
@@ -540,10 +567,22 @@ Deno.serve(async (req) => {
       recipient: context.kyc,
       source: {
         accountType: yellowCardPayloadAccountType(context.channel),
-        accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
+        // A direct-settlement Receive failure is driven by Yellow Card's
+        // documented failure wallet address. Keep the fiat collection leg on
+        // its success account so the transaction reaches settlement instead
+        // of combining two independent failure triggers.
+        accountNumber: sandboxAccount(context.country, context.channel, "success"),
         ...(context.selectedNetwork?.id ? { networkId: str(context.selectedNetwork.id) } : {}),
       },
-      settlementInfo: context.settlementInfo,
+      settlementInfo: context.settlementInfo.cryptoCurrency === "USDC"
+        ? {
+          ...context.settlementInfo,
+          walletAddress: sandboxOutcome === "success" ? SANDBOX_SUCCESS_EVM_ADDRESS : SANDBOX_FAILURE_EVM_ADDRESS,
+        }
+        : {
+          ...context.settlementInfo,
+          walletAddress: sandboxOutcome === "success" ? SANDBOX_SUCCESS_TRON_ADDRESS : SANDBOX_FAILURE_TRON_ADDRESS,
+        },
     });
   } catch (error) {
     return json({ success: false, code: error instanceof Error ? error.message : "yellow_card_payload_invalid" }, 400);

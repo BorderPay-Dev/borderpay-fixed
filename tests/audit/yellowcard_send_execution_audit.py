@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 edge = (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.ts").read_text()
 ui = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
+receive_ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
 
 for fragment in (
@@ -15,6 +16,9 @@ for fragment in (
     'name: `${sandboxOutcome === "success" ? "Successful" : "Failure"} ${context.kyc.name}`',
     'accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome)',
     'cryptoAmount: Number(body?.crypto_amount)',
+    'SANDBOX_FAILURE_EVM_ADDRESS',
+    'SANDBOX_FAILURE_TRON_ADDRESS',
+    'accountNumber: sandboxAccount(context.country, context.channel, "success")',
     'direction: isSend ? "payout" : "receive"',
     'existing.direction === "payout"',
     '"withdraw", "withdrawal"',
@@ -37,4 +41,16 @@ assert "backendAPI.payouts.createTransfer" not in ui
 assert "backendAPI.payouts.resolveAccount" not in ui
 assert "['phone', 'momo', 'mobile_money', 'mobilemoney'].includes(accountType)" in ui
 assert 'rates: { path: "/rates"' in capabilities
+
+for fragment in (
+    "yellowCardCapabilities('networks'",
+    "selectedCollectionNetworkId",
+    "network_id: selectedCollectionNetworkId || undefined",
+    "if (!selectedChannelId || !selectedNetworkId)",
+    "africanRailMarkupPercentForAccount(accountType)",
+):
+    assert fragment in receive_ui, f"missing Yellow Card receive UI contract: {fragment}"
+
+assert "africanRailMarkupPercentForAccount(context.profile?.account_type)" in edge
+assert "total_amount_local: providerFeeAmount + markupFeeAmount" in edge
 print("yellowcard send execution audit passed")
