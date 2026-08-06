@@ -750,6 +750,7 @@ function AppContent() {
     return (
       <ForgotPin
         onNavigateToLogin={handleNavigateToLogin}
+        onBack={() => setAppState('dashboard')}
       />
     );
   }

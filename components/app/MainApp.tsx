@@ -990,7 +990,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'receive-money':
       case 'ramps':
-        return <ReceiveMoneyScreen onBack={navigateBack} />;
+        return <ReceiveMoneyScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
       case 'external-accounts':
         if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }

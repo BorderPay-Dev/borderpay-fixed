@@ -19,6 +19,7 @@ import {
 import { toast } from 'sonner';
 import { backendAPI, type ExternalWallet } from '../../utils/api/backendAPI';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { TransactionSecurityGate } from '../security/TransactionSecurityGate';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import {
   InputOTP,
@@ -51,7 +52,7 @@ import {
 // ---------------------------------------------------------------------------
 
 type TransferMethod = 'us_ach_wire' | 'stablecoin' | AfricanRailChannel;
-type Step = 'method' | 'africa-destination' | 'africa-rail' | 'crypto-wallet' | 'details' | 'amount' | 'review' | 'pin' | 'processing' | 'success' | 'error';
+type Step = 'method' | 'africa-destination' | 'africa-rail' | 'crypto-wallet' | 'details' | 'amount' | 'review' | 'security-gate' | 'pin' | 'processing' | 'success' | 'error';
 
 type AfricanCountryOption = {
   countryCode: string;
@@ -1042,14 +1043,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       BiometricManager.isSupported(),
     ]).then(([security, biometricSupported]: any[]) => {
       if (!active) return;
-      if (security?.success) {
-        setHasPinFactor((current) => Boolean(security?.data?.pin_set) || current);
-      }
+      if (security?.success) setHasPinFactor(Boolean(security?.data?.pin_set));
       const serverBiometric = Boolean(security?.success && security?.data?.biometric_enrolled);
       if (serverBiometric) {
         try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* preserve server truth without blocking */ }
       }
-      setHasBiometricFactor((current) => Boolean(biometricSupported && (serverBiometric || BiometricManager.isEnrolled(userId) || current)));
+      setHasBiometricFactor(Boolean(biometricSupported && (serverBiometric || (!security?.success && BiometricManager.isEnrolled(userId)))));
     });
     return () => { active = false; };
   }, [userId]);
@@ -1288,6 +1287,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       case 'details': setStep(method === 'bank' || method === 'mobile_money' ? 'africa-rail' : 'method'); break;
       case 'amount': setStep('details'); break;
       case 'review': setStep('amount'); break;
+      case 'security-gate': setStep('review'); break;
       case 'pin': setStep('review'); break;
       case 'error': setStep('review'); break;
       default: onBack();
@@ -2923,8 +2923,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <button
               onClick={() => {
                 if (!hasAnyAuthFactor) {
-                  toast.error('Set a transaction PIN or biometric verification before sending payouts.');
-                  onNavigate?.('settings');
+                  setStep('security-gate');
                   return;
                 }
                 setStep('pin');
@@ -2934,6 +2933,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {isAfricanPayout ? 'Confirm your transaction' : t('send.confirmAndPay')}
             </button>
           </motion.div>
+        )}
+
+        {step === 'security-gate' && (
+          <TransactionSecurityGate
+            onBack={() => setStep('review')}
+            onSetupPin={() => onNavigate?.('pin-setup')}
+            onSetupBiometric={() => onNavigate?.('biometric-setup')}
+          />
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}

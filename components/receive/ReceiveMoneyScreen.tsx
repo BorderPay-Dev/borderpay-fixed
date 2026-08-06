@@ -25,6 +25,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { TransactionSecurityGate } from '../security/TransactionSecurityGate';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '../ui/input-otp';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
 import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
@@ -38,13 +39,14 @@ import {
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
+  onNavigate?: (screen: string) => void;
   /** Kept for caller compatibility; the new screen always shows everything. */
   preSelectedWalletId?: string;
 }
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
 interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
-type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-auth' | 'africa-success';
+type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-security-gate' | 'africa-auth' | 'africa-success';
 interface AfricanCountryOption {
   countryCode: string;
   countryName: string;
@@ -178,7 +180,7 @@ function readCachedCountry(): string | null {
   return normalizedCountry(u?.country);
 }
 
-export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
+export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const snapshotReader = backendAPI.financial.getSnapshot;
@@ -274,14 +276,12 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       BiometricManager.isSupported(),
     ]).then(([security, biometricSupported]: any[]) => {
       if (!active) return;
-      if (security?.success) {
-        setHasPinFactor((current) => Boolean(security?.data?.pin_set) || current);
-      }
+      if (security?.success) setHasPinFactor(Boolean(security?.data?.pin_set));
       const serverBiometric = Boolean(security?.success && security?.data?.biometric_enrolled);
       if (serverBiometric) {
         try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* preserve server truth without blocking */ }
       }
-      setHasBiometricFactor((current) => Boolean(biometricSupported && (serverBiometric || BiometricManager.isEnrolled(userId) || current)));
+      setHasBiometricFactor(Boolean(biometricSupported && (serverBiometric || (!security?.success && BiometricManager.isEnrolled(userId)))));
     });
     return () => { active = false; };
   }, [userId]);
@@ -494,6 +494,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   const goBack = () => {
+    if (receiveStep === 'africa-security-gate') {
+      setReceiveStep('africa-review');
+      return;
+    }
     if (receiveStep === 'africa-auth') {
       setCollectionPin('');
       setReceiveStep('africa-review');
@@ -1241,7 +1245,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                   type="button"
                   onClick={() => {
                     if (!hasPinFactor && !hasBiometricFactor) {
-                      toast.error('Set a transaction PIN or biometric verification before creating a collection request.');
+                      setReceiveStep('africa-security-gate');
                       return;
                     }
                     setCollectionPin('');
@@ -1255,6 +1259,14 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
               </div>
             </div>
           </div>
+        )}
+
+        {receiveStep === 'africa-security-gate' && (
+          <TransactionSecurityGate
+            onBack={() => setReceiveStep('africa-review')}
+            onSetupPin={() => onNavigate?.('pin-setup')}
+            onSetupBiometric={() => onNavigate?.('biometric-setup')}
+          />
         )}
 
         {receiveStep === 'africa-auth' && selectedAfricanCountry && selectedAfricanRail && (

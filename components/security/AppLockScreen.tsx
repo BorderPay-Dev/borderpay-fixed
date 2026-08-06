@@ -243,7 +243,7 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
           onClick={() => onForgotPIN?.()}
           className="w-full text-center text-sm text-[#C7FF00] hover:text-[#d4ff4d] transition-colors py-2 mb-2"
         >
-          Forgot PIN?
+          Reset PIN securely
         </button>
         <button
           onClick={() => {
