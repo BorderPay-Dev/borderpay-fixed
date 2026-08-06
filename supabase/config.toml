@@ -3,6 +3,14 @@
 
 project_id = "orwrcpwsffjlvzuraxjc"
 
+# PIN recovery starts before a valid app session and is protected by an
+# enumeration-safe request plus a random, hashed, single-use reset token.
+[functions.auth-request-pin-reset]
+verify_jwt = false
+
+[functions.auth-confirm-pin-reset]
+verify_jwt = false
+
 # ── Edge function-specific overrides ────────────────────────────────────────
 
 # kyc-submit — LEGACY, REMOVED. Repo source is a 410 "Gone" stub and the function

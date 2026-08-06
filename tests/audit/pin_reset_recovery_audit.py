@@ -5,6 +5,7 @@ REQUEST = (ROOT / 'supabase/functions/auth-request-pin-reset/index.ts').read_tex
 CONFIRM = (ROOT / 'supabase/functions/auth-confirm-pin-reset/index.ts').read_text()
 APP = (ROOT / 'App.tsx').read_text()
 SCREEN = (ROOT / 'components/auth/ResetPinScreen.tsx').read_text()
+CONFIG = (ROOT / 'supabase/config.toml').read_text()
 
 failures = []
 if '/auth/pin-reset?token=' not in REQUEST:
@@ -23,6 +24,8 @@ if 'borderpay_security_${resetUserId}' not in SCREEN or 'clearAppLocked()' not i
     failures.append('reset completion does not retire the obsolete local PIN and app lock')
 if "const isPinValid = /^\\d{6}$/.test(newPin)" not in SCREEN or "if (!/^\\d{6}$/.test(newPin))" not in CONFIRM:
     failures.append('reset PIN length differs between client and server')
+if '[functions.auth-request-pin-reset]' not in CONFIG or '[functions.auth-confirm-pin-reset]' not in CONFIG:
+    failures.append('public recovery endpoints are not pinned in function config')
 
 if failures:
     print('pin_reset_recovery_audit: FAIL')
