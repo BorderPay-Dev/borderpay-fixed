@@ -302,6 +302,23 @@ export const PINManager = {
     }
   },
 
+  /**
+   * App-lock compatibility for users enrolled before PIN verification moved
+   * from this device to the backend. A valid device-local legacy PIN may
+   * unlock only the local app session; it cannot authorize a transaction or
+   * replace the server PIN. New/server-backed users continue through verify-pin.
+   */
+  async verifyAppUnlockPIN(userId: string, pin: string): Promise<boolean> {
+    const legacy = loadState(userId);
+    if (legacy.pinHash && legacy.pinSalt) {
+      try {
+        const candidate = await sha256(pin, legacy.pinSalt);
+        if (candidate === legacy.pinHash) return true;
+      } catch { /* fall through to server verification */ }
+    }
+    return this.verifyPIN(userId, pin);
+  },
+
   async verifyTransactionPIN(_userId: string, pin: string): Promise<{ success: boolean; code?: string; error?: string }> {
     try {
       const { backendAPI } = await import('../api/backendAPI');

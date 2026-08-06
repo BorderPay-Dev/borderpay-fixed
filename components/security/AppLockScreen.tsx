@@ -11,6 +11,7 @@ import { motion } from 'motion/react';
 import { Lock, Fingerprint, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { backendAPI } from '../../utils/api/backendAPI';
 
 import {
   InputOTP,
@@ -65,9 +66,15 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
   }, [locked, lockTimer]);
 
   const checkBiometric = async () => {
-    const enrolled = BiometricManager.isEnrolled(userId);
-    const supported = await BiometricManager.isSupported();
-    setBiometricAvailable(enrolled && supported);
+    const [supported, security]: any[] = await Promise.all([
+      BiometricManager.isSupported(),
+      backendAPI.auth.getSecurityStatus(userId),
+    ]);
+    const serverEnrolled = Boolean(security?.success && security?.data?.biometric_enrolled);
+    if (serverEnrolled) {
+      try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* non-blocking cache */ }
+    }
+    setBiometricAvailable(Boolean(supported && (serverEnrolled || BiometricManager.isEnrolled(userId))));
   };
 
   const handlePinChange = async (value: string) => {
@@ -77,7 +84,7 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     if (value.length === 6) {
       setVerifying(true);
       try {
-        const isValid = await PINManager.verifyPIN(userId, value);
+        const isValid = await PINManager.verifyAppUnlockPIN(userId, value);
         if (isValid) {
           setAttempts(0);
           onUnlock();
