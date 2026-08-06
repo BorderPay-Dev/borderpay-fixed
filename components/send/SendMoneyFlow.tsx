@@ -113,6 +113,7 @@ interface Wallet {
   balance: number;
   symbol?: string;
   bridge_wallet_id?: string | null;
+  sandbox?: boolean;
 }
 
 interface ExternalAccountOption {
@@ -799,11 +800,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [selectedAfricanFundingCurrency, setSelectedAfricanFundingCurrency] = useState('');
   const [selectedExternalFundingCurrency, setSelectedExternalFundingCurrency] = useState('');
   const africanFundingWallets = useMemo(
-    () => wallets
+    () => (africanRailsTester ? [
+      { id: 'yellow-card-sandbox-usdc', currency: 'USDC', balance: 100000, sandbox: true },
+      { id: 'yellow-card-sandbox-usdt', currency: 'USDT', balance: 100000, sandbox: true },
+    ] : wallets)
       .map((wallet) => ({ ...wallet, currency: String(wallet.currency || '').toUpperCase() }))
       .filter((wallet) => AFRICAN_FUNDING_CURRENCY_PRIORITY.includes(wallet.currency))
       .sort((a, b) => AFRICAN_FUNDING_CURRENCY_PRIORITY.indexOf(a.currency) - AFRICAN_FUNDING_CURRENCY_PRIORITY.indexOf(b.currency)),
-    [wallets],
+    [africanRailsTester, wallets],
   );
   const externalFundingWallets = useMemo(
     () => wallets
@@ -1028,9 +1032,21 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     () => `borderpay_send_institutions_refreshed_at:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
-  const hasPinFactor = useMemo(() => PINManager.hasPIN(userId), [userId]);
-  const hasBiometricFactor = useMemo(() => BiometricManager.isEnrolled(userId), [userId]);
+  const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
+  const [hasBiometricFactor, setHasBiometricFactor] = useState(() => BiometricManager.isEnrolled(userId));
   const hasAnyAuthFactor = hasPinFactor || hasBiometricFactor;
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      backendAPI.auth.getSecurityStatus(userId),
+      BiometricManager.isSupported(),
+    ]).then(([security, biometricSupported]: any[]) => {
+      if (!active) return;
+      setHasPinFactor(Boolean(security?.success && security?.data?.pin_set));
+      setHasBiometricFactor(Boolean(biometricSupported && BiometricManager.isEnrolled(userId)));
+    });
+    return () => { active = false; };
+  }, [userId]);
   // ---------------------------------------------------------------------------
   // Snapshot hydration:
   // - first paint comes from cache
@@ -1318,7 +1334,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   // Process transaction
   // ---------------------------------------------------------------------------
-  const processTransaction = async (verifiedPin: string) => {
+  const processTransaction = async (verifiedPin: string, transactionAuthorization?: string) => {
     setStep('processing');
     setErrorMessage('');
 
@@ -1427,6 +1443,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           channel_id: preflight.data.selected_channel_id,
           sequence_id: globalThis.crypto.randomUUID(),
           operator_confirmed: true,
+          transaction_authorization: transactionAuthorization,
         });
       } else {
         throw new Error('Unsupported transfer method.');
@@ -1489,14 +1506,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setPin('');
         return;
       }
-      // Verify PIN locally first before sending to backend
-      const isValid = await PINManager.verifyPIN(userId, value);
-      if (!isValid) {
+      const authorization = await PINManager.authorizeTransaction(userId, value);
+      if (!authorization.success || !authorization.authorizationToken) {
         toast.error(t('send.incorrectPin') || 'Incorrect PIN');
         setPin('');
         return;
       }
-      processTransaction(value);
+      processTransaction(value, authorization.authorizationToken);
     }
   };
 
@@ -2458,7 +2474,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </label>
                 {isAfricanPayout && activeFundingWallet && (
                   <span className="shrink-0 rounded-full bg-[#C7FF00]/12 px-3 py-1 text-[11px] font-bold text-[#C7FF00] shadow-[0_0_18px_rgba(199,255,0,0.18)]">
-                    {formatMoney(Number(activeFundingWallet.balance || 0), 'USD')} available
+                    {activeFundingWallet.sandbox ? 'Sandbox test balance' : `${formatMoney(Number(activeFundingWallet.balance || 0), 'USD')} available`}
                   </span>
                 )}
                 {isExternalAccountOfframp && activeExternalFundingWallet && (
@@ -2505,7 +2521,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         >
                           <span className={`block text-sm font-bold ${selected ? 'text-[#C7FF00]' : tc.text}`}>{currency}</span>
                           <span className={`mt-1 block text-[11px] ${tc.textMuted}`}>
-                            {wallet ? `${formatMoney(Number(wallet.balance || 0), 'USD')} balance` : 'Wallet unavailable'}
+                            {wallet ? (wallet.sandbox ? 'Sandbox test funds' : `${formatMoney(Number(wallet.balance || 0), 'USD')} balance`) : 'Wallet unavailable'}
                           </span>
                         </button>
                       );
@@ -2728,7 +2744,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     {activeFundingWallet && (
                       <div className="flex justify-between">
                         <span className={`text-xs ${tc.textMuted}`}>Funding Source</span>
-                        <span className={`text-sm font-medium ${tc.text}`}>{activeFundingWallet.currency} Wallet</span>
+                        <span className={`text-sm font-medium ${tc.text}`}>
+                          {activeFundingWallet.sandbox ? `${activeFundingWallet.currency} sandbox test funds` : `${activeFundingWallet.currency} Wallet`}
+                        </span>
                       </div>
                     )}
                   </>
@@ -2964,8 +2982,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <button
                   onClick={async () => {
                     const result = await BiometricManager.verify(userId);
-                    if (result.success) {
-                      processTransaction('__biometric__');
+                    if (result.success && result.authorizationToken) {
+                      processTransaction('__biometric__', result.authorizationToken);
                     } else {
                       toast.error(friendlyError(result.error, 'Biometric verification failed'));
                     }

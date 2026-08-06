@@ -20,7 +20,7 @@ require(
         'return `+${dialCode}${digits}`',
         'accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome)',
         'sandbox_simulated: true',
-        'expected_outcome: "success"',
+        'expected_outcome: sandboxOutcome',
     ],
 )
 

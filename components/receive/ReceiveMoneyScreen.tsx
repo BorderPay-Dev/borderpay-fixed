@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Shield, Inbox, ChevronRight, Loader2, RefreshCw, Smartphone, Building2, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
+import { Shield, Inbox, ChevronRight, Loader2, RefreshCw, Smartphone, Building2, ArrowLeft, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { authAPI } from '../../utils/supabase/client';
@@ -24,6 +24,8 @@ import {
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '../ui/input-otp';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
 import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
 import { loadIpCountry } from '../../utils/geoCountry';
@@ -42,7 +44,7 @@ interface ReceiveMoneyScreenProps {
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
 interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
-type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-success';
+type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-auth' | 'africa-success';
 interface AfricanCountryOption {
   countryCode: string;
   countryName: string;
@@ -261,6 +263,22 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [collectionNetworksLoading, setCollectionNetworksLoading] = useState(false);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
+  const [collectionPin, setCollectionPin] = useState('');
+  const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
+  const [hasBiometricFactor, setHasBiometricFactor] = useState(() => BiometricManager.isEnrolled(userId));
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      backendAPI.auth.getSecurityStatus(userId),
+      BiometricManager.isSupported(),
+    ]).then(([security, biometricSupported]: any[]) => {
+      if (!active) return;
+      setHasPinFactor(Boolean(security?.success && security?.data?.pin_set));
+      setHasBiometricFactor(Boolean(biometricSupported && BiometricManager.isEnrolled(userId)));
+    });
+    return () => { active = false; };
+  }, [userId]);
 
   const africanCountries = useMemo(() => buildAfricanCountries(africanPolicyRows), [africanPolicyRows]);
   const regionalAfricanCountries = useMemo(
@@ -470,6 +488,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   };
 
   const goBack = () => {
+    if (receiveStep === 'africa-auth') {
+      setCollectionPin('');
+      setReceiveStep('africa-review');
+      return;
+    }
     if (receiveStep === 'africa-success') {
       resetAfricanReceiveFlow();
       return;
@@ -497,7 +520,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     onBack();
   };
 
-  const createAfricanCollection = async () => {
+  const createAfricanCollection = async (transactionAuthorization: string) => {
     if (!selectedAfricanCountry || !selectedAfricanRail) return;
     if (!africanRailsTester) {
       toast.error('Local top-up execution remains in controlled integration testing.');
@@ -525,8 +548,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       ) || stables.find((wallet) =>
         String(wallet.currency).toUpperCase() === 'USDT' && String(wallet.chain).toLowerCase() === 'tron'
       );
-      if (!settlementWallet) throw new Error('Add USDC on Base or USDT on TRON before testing a local top up.');
-      const settlementCurrency = String(settlementWallet.currency).toUpperCase();
+      // Yellow Card sandbox simulator funds are isolated from Bridge wallets.
+      // Existing wallets only choose the settlement asset; demo accounts can
+      // safely default to the documented USDC/Base sandbox route.
+      const settlementCurrency = String(settlementWallet?.currency || 'USDC').toUpperCase();
       const settlementNetwork = settlementCurrency === 'USDC' ? 'BASE' : 'TRC20';
       const baseRequest = {
         currency: selectedAfricanRail.currency,
@@ -555,6 +580,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
         network_id: selectedNetworkId || undefined,
         sequence_id: crypto.randomUUID(),
         operator_confirmed: true,
+        transaction_authorization: transactionAuthorization,
       });
       if (!res?.success) throw new Error(res?.error || 'Could not create collection request.');
       const data = res.data || {};
@@ -566,6 +592,18 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     } finally {
       setCollectionLoading(false);
     }
+  };
+
+  const authorizeCollectionWithPin = async (value: string) => {
+    setCollectionPin(value);
+    if (value.length !== 6) return;
+    const authorization = await PINManager.authorizeTransaction(userId, value);
+    if (!authorization.success || !authorization.authorizationToken) {
+      toast.error('Incorrect PIN');
+      setCollectionPin('');
+      return;
+    }
+    await createAfricanCollection(authorization.authorizationToken);
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
@@ -1196,14 +1234,78 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
                 <button
                   type="button"
-                  onClick={createAfricanCollection}
+                  onClick={() => {
+                    if (!hasPinFactor && !hasBiometricFactor) {
+                      toast.error('Set a transaction PIN or biometric verification before creating a collection request.');
+                      return;
+                    }
+                    setCollectionPin('');
+                    setReceiveStep('africa-auth');
+                  }}
                   disabled={collectionLoading || !canCreateAfricanCollection}
                   className="w-full h-12 rounded-full bg-[#C7FF00] text-black text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {collectionLoading ? 'Creating request...' : 'Confirm request'}
+                  Confirm request
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {receiveStep === 'africa-auth' && selectedAfricanCountry && selectedAfricanRail && (
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-6 mb-6`}>
+            <button
+              type="button"
+              onClick={() => {
+                setCollectionPin('');
+                setReceiveStep('africa-review');
+              }}
+              className={`mb-5 flex h-10 w-10 items-center justify-center rounded-full ${tc.hoverBg}`}
+              aria-label="Back to collection review"
+            >
+              <ArrowLeft className={`h-4 w-4 ${tc.textMuted}`} />
+            </button>
+            <div className="text-center mb-7">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#C7FF00]/10">
+                <Lock className="h-8 w-8 text-[#C7FF00]" />
+              </div>
+              <h2 className={`text-lg font-bold ${tc.text}`}>Authorize collection request</h2>
+              <p className={`mt-2 text-sm ${tc.textMuted}`}>Enter your transaction PIN or use biometric verification.</p>
+            </div>
+
+            {hasPinFactor && (
+              <div className="flex justify-center mb-6">
+                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} inputMode="numeric" pattern="[0-9]*">
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} />
+                    <InputOTPSlot index={1} />
+                    <InputOTPSlot index={2} />
+                    <InputOTPSlot index={3} />
+                    <InputOTPSlot index={4} />
+                    <InputOTPSlot index={5} />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+            )}
+
+            {hasBiometricFactor && (
+              <button
+                type="button"
+                disabled={collectionLoading}
+                onClick={async () => {
+                  const result = await BiometricManager.verify(userId);
+                  if (!result.success || !result.authorizationToken) {
+                    toast.error(friendlyError(result.error, 'Biometric verification failed'));
+                    return;
+                  }
+                  await createAfricanCollection(result.authorizationToken);
+                }}
+                className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {collectionLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Shield className="h-5 w-5 text-[#C7FF00]" />}
+                Use biometric verification
+              </button>
+            )}
           </div>
         )}
 

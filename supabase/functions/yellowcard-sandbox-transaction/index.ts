@@ -16,6 +16,7 @@ import {
   type YellowCardRetailKyc,
   type YellowCardSettlement,
 } from "../_shared/providers/yellowcard-payload.ts";
+import { verifyTransactionAuthorization } from "../_shared/security/transaction-authorization.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -273,18 +274,8 @@ async function loadContext(userId: string, input: any) {
   };
   const missingKyc = Object.entries(kyc).filter(([, value]) => !value).map(([key]) => key);
 
-  const bridgeChain = settlementCurrency === "USDC" ? "base" : "tron";
-  const { data: wallet } = await supa
-    .from("bridge_wallets")
-    .select("bridge_wallet_id,address,currency,chain,status")
-    .eq("user_id", userId)
-    .ilike("currency", settlementCurrency)
-    .ilike("chain", bridgeChain)
-    .eq("status", "active")
-    .maybeSingle();
-  if (!wallet?.address) {
-    return { ok: false as const, status: 409, code: "bridge_settlement_wallet_required" };
-  }
+  // Sandbox execution uses Yellow Card's documented simulator addresses.
+  // Never query or mutate a real Bridge wallet for this provider sandbox.
 
   const channelsResult = await yellowCardFetch({ method: "GET", path: "/channels", query: { country } });
   if (!channelsResult.ok) {
@@ -346,7 +337,6 @@ async function loadContext(userId: string, input: any) {
     profile,
     kyc,
     missingKyc,
-    wallet,
     settlementInfo,
     channels,
     selectedChannel,
@@ -461,7 +451,8 @@ Deno.serve(async (req) => {
     },
     kyc_complete: context.missingKyc.length === 0,
     missing_kyc_fields: context.missingKyc,
-    bridge_settlement_wallet_ready: true,
+    bridge_settlement_wallet_ready: false,
+    settlement_source: "yellow_card_sandbox",
     sandbox_simulated: true,
     sandbox_expected_outcome: sandboxOutcome,
     settlement_currency: context.settlementInfo.cryptoCurrency,
@@ -494,6 +485,14 @@ Deno.serve(async (req) => {
   }
   if (body?.operator_confirmed !== true) {
     return json({ success: false, code: "operator_confirmation_required", data: { preflight } }, 409);
+  }
+  const transactionAuthorization = await verifyTransactionAuthorization(body?.transaction_authorization, access.user.id);
+  if (!transactionAuthorization.valid) {
+    return json({
+      success: false,
+      code: "transaction_authorization_required",
+      error: "Confirm this transaction with your PIN or biometric verification.",
+    }, 401);
   }
   if (!preflight.can_create) {
     return json({ success: false, code: "yellow_card_preflight_incomplete", data: { preflight } }, 409);
@@ -620,7 +619,8 @@ Deno.serve(async (req) => {
         operator_confirmed: true,
         source: "yellow_card_sandbox",
         sandbox_simulated: true,
-        expected_outcome: "success",
+        expected_outcome: sandboxOutcome,
+        authorization_method: transactionAuthorization.method,
       },
     })
     .select("*")
