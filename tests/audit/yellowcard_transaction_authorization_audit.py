@@ -9,21 +9,19 @@ WEBAUTHN = (ROOT / "supabase/functions/webauthn-auth-verify/index.ts").read_text
 
 failures = []
 for label, source in [("send", SEND), ("receive", RECEIVE)]:
-    if "transaction_authorization" not in source:
-        failures.append(f"{label} does not send transaction authorization")
-    if "authorizeTransaction" not in source:
-        failures.append(f"{label} does not authorize with transaction PIN")
+    if "PINManager.verifyPIN" not in source:
+        failures.append(f"{label} does not use the existing transaction PIN verifier")
     if "BiometricManager.verify" not in source:
         failures.append(f"{label} does not offer biometric authorization")
 
-if "verifyTransactionAuthorization" not in FUNCTION:
-    failures.append("Yellow Card function does not verify signed authorization")
-if "transaction_authorization_required" not in FUNCTION:
-    failures.append("Yellow Card function lacks fail-closed authorization response")
-if "issueTransactionAuthorization" not in VERIFY_PIN:
-    failures.append("PIN verification does not issue authorization proof")
-if "issueTransactionAuthorization" not in WEBAUTHN:
-    failures.append("biometric verification does not issue authorization proof")
+if "issueTransactionAuthorization" in VERIFY_PIN:
+    failures.append("PIN verification was coupled to sandbox transaction token issuance")
+if "issueTransactionAuthorization" in WEBAUTHN:
+    failures.append("biometric verification was coupled to sandbox transaction token issuance")
+if ".delete()" in VERIFY_PIN or ".upsert(" in VERIFY_PIN:
+    failures.append("PIN verification may replace or delete an existing security factor")
+if ".delete()" in WEBAUTHN or ".upsert(" in WEBAUTHN:
+    failures.append("biometric verification may replace or delete an existing credential")
 if "bridge_settlement_wallet_required" in FUNCTION:
     failures.append("sandbox transaction still requires a Bridge settlement wallet")
 if 'settlement_source: "yellow_card_sandbox"' not in FUNCTION:

@@ -14,7 +14,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { verifyAuthenticationResponse } from "https://esm.sh/@simplewebauthn/server@10.0.0";
-import { issueTransactionAuthorization } from "../_shared/security/transaction-authorization.ts";
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -115,6 +114,5 @@ Deno.serve(async (req) => {
     .update({ consumed_at: new Date().toISOString() })
     .eq('id', chal.id);
 
-  const authorization_token = await issueTransactionAuthorization(user.id, 'biometric');
-  return json({ success: true, data: { authorization_token, authorization_method: 'biometric', expires_in: 120 } });
+  return json({ success: true });
 });

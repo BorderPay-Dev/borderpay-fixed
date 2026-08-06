@@ -26,15 +26,23 @@ serve(async (req) => {
       );
     }
 
-    const { data, error } = await supabase
-      .from('user_security')
-      .select('pin_set, two_factor_enabled, pin_failed_attempts, failed_pin_attempts')
-      .eq('user_id', user.id)
-      .single();
+    const [{ data, error }, { count: biometricCount, error: biometricError }] = await Promise.all([
+      supabase
+        .from('user_security')
+        .select('pin_set, two_factor_enabled, pin_failed_attempts, failed_pin_attempts')
+        .eq('user_id', user.id)
+        .single(),
+      supabase
+        .from('webauthn_credentials')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+    ]);
+
+    const biometricEnrolled = !biometricError && Number(biometricCount || 0) > 0;
 
     if (error || !data) {
       return new Response(
-        JSON.stringify({ success: true, data: { pin_set: false, two_factor_enabled: false } }),
+        JSON.stringify({ success: true, data: { pin_set: false, two_factor_enabled: false, biometric_enrolled: biometricEnrolled } }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -45,6 +53,7 @@ serve(async (req) => {
         data: {
           pin_set: data.pin_set,
           two_factor_enabled: data.two_factor_enabled,
+          biometric_enrolled: biometricEnrolled,
           failed_pin_attempts: data.pin_failed_attempts ?? data.failed_pin_attempts ?? 0,
         },
       }),

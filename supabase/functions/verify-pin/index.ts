@@ -1,7 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { derivePinHashV2, derivePinHashV2FromStored, hashLegacyPin } from '../_shared/security/pin.ts';
-import { issueTransactionAuthorization } from '../_shared/security/transaction-authorization.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -89,9 +88,8 @@ serve(async (req) => {
     const row = Array.isArray(verifyData) ? verifyData[0] : verifyData;
 
     if (row?.verified === true) {
-      const authorization_token = await issueTransactionAuthorization(user.id, 'pin');
       return new Response(
-        JSON.stringify({ success: true, data: { authorization_token, authorization_method: 'pin', expires_in: 120 } }),
+        JSON.stringify({ success: true }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

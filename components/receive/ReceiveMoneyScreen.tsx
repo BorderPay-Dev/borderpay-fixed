@@ -274,8 +274,14 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       BiometricManager.isSupported(),
     ]).then(([security, biometricSupported]: any[]) => {
       if (!active) return;
-      setHasPinFactor(Boolean(security?.success && security?.data?.pin_set));
-      setHasBiometricFactor(Boolean(biometricSupported && BiometricManager.isEnrolled(userId)));
+      if (security?.success) {
+        setHasPinFactor((current) => Boolean(security?.data?.pin_set) || current);
+      }
+      const serverBiometric = Boolean(security?.success && security?.data?.biometric_enrolled);
+      if (serverBiometric) {
+        try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* preserve server truth without blocking */ }
+      }
+      setHasBiometricFactor((current) => Boolean(biometricSupported && (serverBiometric || BiometricManager.isEnrolled(userId) || current)));
     });
     return () => { active = false; };
   }, [userId]);
@@ -520,7 +526,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     onBack();
   };
 
-  const createAfricanCollection = async (transactionAuthorization: string) => {
+  const createAfricanCollection = async () => {
     if (!selectedAfricanCountry || !selectedAfricanRail) return;
     if (!africanRailsTester) {
       toast.error('Local top-up execution remains in controlled integration testing.');
@@ -580,7 +586,6 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
         network_id: selectedNetworkId || undefined,
         sequence_id: crypto.randomUUID(),
         operator_confirmed: true,
-        transaction_authorization: transactionAuthorization,
       });
       if (!res?.success) throw new Error(res?.error || 'Could not create collection request.');
       const data = res.data || {};
@@ -597,13 +602,13 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const authorizeCollectionWithPin = async (value: string) => {
     setCollectionPin(value);
     if (value.length !== 6) return;
-    const authorization = await PINManager.authorizeTransaction(userId, value);
-    if (!authorization.success || !authorization.authorizationToken) {
+    const isValid = await PINManager.verifyPIN(userId, value);
+    if (!isValid) {
       toast.error('Incorrect PIN');
       setCollectionPin('');
       return;
     }
-    await createAfricanCollection(authorization.authorizationToken);
+    await createAfricanCollection();
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
@@ -1294,11 +1299,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                 disabled={collectionLoading}
                 onClick={async () => {
                   const result = await BiometricManager.verify(userId);
-                  if (!result.success || !result.authorizationToken) {
+                  if (!result.success) {
                     toast.error(friendlyError(result.error, 'Biometric verification failed'));
                     return;
                   }
-                  await createAfricanCollection(result.authorizationToken);
+                  await createAfricanCollection();
                 }}
                 className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white disabled:opacity-50"
               >

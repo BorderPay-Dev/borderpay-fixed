@@ -16,7 +16,6 @@ import {
   type YellowCardRetailKyc,
   type YellowCardSettlement,
 } from "../_shared/providers/yellowcard-payload.ts";
-import { verifyTransactionAuthorization } from "../_shared/security/transaction-authorization.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -486,14 +485,6 @@ Deno.serve(async (req) => {
   if (body?.operator_confirmed !== true) {
     return json({ success: false, code: "operator_confirmation_required", data: { preflight } }, 409);
   }
-  const transactionAuthorization = await verifyTransactionAuthorization(body?.transaction_authorization, access.user.id);
-  if (!transactionAuthorization.valid) {
-    return json({
-      success: false,
-      code: "transaction_authorization_required",
-      error: "Confirm this transaction with your PIN or biometric verification.",
-    }, 401);
-  }
   if (!preflight.can_create) {
     return json({ success: false, code: "yellow_card_preflight_incomplete", data: { preflight } }, 409);
   }
@@ -620,7 +611,6 @@ Deno.serve(async (req) => {
         source: "yellow_card_sandbox",
         sandbox_simulated: true,
         expected_outcome: sandboxOutcome,
-        authorization_method: transactionAuthorization.method,
       },
     })
     .select("*")

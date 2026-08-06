@@ -302,20 +302,6 @@ export const PINManager = {
     }
   },
 
-  async authorizeTransaction(_userId: string, pin: string): Promise<{ success: boolean; authorizationToken?: string; error?: string }> {
-    try {
-      const { backendAPI } = await import('../api/backendAPI');
-      const response: any = await backendAPI.auth.verifyPIN(pin);
-      const authorizationToken = String(response?.data?.authorization_token || '');
-      if (!response?.success || !authorizationToken) {
-        return { success: false, error: response?.error || 'Incorrect PIN' };
-      }
-      return { success: true, authorizationToken };
-    } catch (error: any) {
-      return { success: false, error: error?.message || 'Could not verify PIN' };
-    }
-  },
-
   async changePIN(_userId: string, currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> {
     if (!/^\d{4,6}$/.test(newPin)) return { success: false, error: 'PIN must be 4 to 6 digits' };
     try {
@@ -680,7 +666,7 @@ export const BiometricManager = {
    * navigator.credentials.get, ships the assertion to webauthn-auth-verify
    * which checks the signature + counter and bumps the row.
    */
-  async verify(_userId: string): Promise<{ success: boolean; authorizationToken?: string; error?: string }> {
+  async verify(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
       const { backendAPI } = await import('../api/backendAPI');
       const optsRes: any = await backendAPI.webauthn.authOptions();
@@ -704,10 +690,7 @@ export const BiometricManager = {
       if (!verifyRes?.success) {
         return { success: false, error: verifyRes?.error || 'Server could not verify the assertion' };
       }
-      return {
-        success: true,
-        authorizationToken: String(verifyRes?.data?.authorization_token || '') || undefined,
-      };
+      return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message || 'Authentication failed' };
     }

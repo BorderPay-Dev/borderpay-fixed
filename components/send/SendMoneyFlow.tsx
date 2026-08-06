@@ -1042,8 +1042,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       BiometricManager.isSupported(),
     ]).then(([security, biometricSupported]: any[]) => {
       if (!active) return;
-      setHasPinFactor(Boolean(security?.success && security?.data?.pin_set));
-      setHasBiometricFactor(Boolean(biometricSupported && BiometricManager.isEnrolled(userId)));
+      if (security?.success) {
+        setHasPinFactor((current) => Boolean(security?.data?.pin_set) || current);
+      }
+      const serverBiometric = Boolean(security?.success && security?.data?.biometric_enrolled);
+      if (serverBiometric) {
+        try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* preserve server truth without blocking */ }
+      }
+      setHasBiometricFactor((current) => Boolean(biometricSupported && (serverBiometric || BiometricManager.isEnrolled(userId) || current)));
     });
     return () => { active = false; };
   }, [userId]);
@@ -1334,7 +1340,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   // Process transaction
   // ---------------------------------------------------------------------------
-  const processTransaction = async (verifiedPin: string, transactionAuthorization?: string) => {
+  const processTransaction = async (verifiedPin: string) => {
     setStep('processing');
     setErrorMessage('');
 
@@ -1443,7 +1449,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           channel_id: preflight.data.selected_channel_id,
           sequence_id: globalThis.crypto.randomUUID(),
           operator_confirmed: true,
-          transaction_authorization: transactionAuthorization,
         });
       } else {
         throw new Error('Unsupported transfer method.');
@@ -1506,13 +1511,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setPin('');
         return;
       }
-      const authorization = await PINManager.authorizeTransaction(userId, value);
-      if (!authorization.success || !authorization.authorizationToken) {
+      const isValid = await PINManager.verifyPIN(userId, value);
+      if (!isValid) {
         toast.error(t('send.incorrectPin') || 'Incorrect PIN');
         setPin('');
         return;
       }
-      processTransaction(value, authorization.authorizationToken);
+      processTransaction(value);
     }
   };
 
@@ -2982,8 +2987,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <button
                   onClick={async () => {
                     const result = await BiometricManager.verify(userId);
-                    if (result.success && result.authorizationToken) {
-                      processTransaction('__biometric__', result.authorizationToken);
+                    if (result.success) {
+                      processTransaction('__biometric__');
                     } else {
                       toast.error(friendlyError(result.error, 'Biometric verification failed'));
                     }
