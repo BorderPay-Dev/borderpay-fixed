@@ -84,11 +84,11 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     if (value.length === 6) {
       setVerifying(true);
       try {
-        const isValid = await PINManager.verifyAppUnlockPIN(userId, value);
-        if (isValid) {
+        const result = await PINManager.verifyAppUnlockPINResult(userId, value);
+        if (result.success) {
           setAttempts(0);
           onUnlock();
-        } else {
+        } else if (result.code === 'invalid_pin' || /invalid pin/i.test(result.error || '')) {
           const newAttempts = attempts + 1;
           setAttempts(newAttempts);
           setPin('');
@@ -100,6 +100,11 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
           } else {
             setError(`Incorrect PIN. ${MAX_ATTEMPTS - newAttempts} attempts remaining.`);
           }
+        } else {
+          // Transport/auth failures are not wrong PIN attempts. Do not lock a
+          // customer out because the verification service could not be reached.
+          setPin('');
+          setError(friendlyError(result.error, 'Secure PIN verification is temporarily unavailable. Try again.'));
         }
       } catch {
         setError('Verification failed');

@@ -7,9 +7,10 @@ import { clearAppLocked } from '../../utils/supabase/client';
 
 interface ResetPinScreenProps {
   onNavigateToLogin: () => void;
+  onResetComplete?: () => void;
 }
 
-export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
+export function ResetPinScreen({ onNavigateToLogin, onResetComplete }: ResetPinScreenProps) {
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [showNewPin, setShowNewPin] = useState(false);
@@ -68,7 +69,9 @@ export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
       clearAppLocked();
       setSuccess(true);
       toast.success('PIN reset successful');
-      setTimeout(() => onNavigateToLogin(), 2000);
+      // Clearing localStorage alone does not clear App.tsx's in-memory lock.
+      // Let the root router clear that state before returning to login.
+      setTimeout(() => (onResetComplete || onNavigateToLogin)(), 1200);
     } catch (e) {
       toast.error(friendlyError(e, 'Unable to reset PIN'));
     } finally {

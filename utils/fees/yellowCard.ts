@@ -19,7 +19,7 @@ const finiteNumber = (value: unknown): number | null => {
 };
 
 function rangeMatches(range: unknown, amount: number): boolean {
-  const normalized = String(range || '').replaceAll(',', '').replaceAll(' ', '');
+  const normalized = String(range || '').replace(/,/g, '').replace(/ /g, '');
   if (!normalized) return true;
   const band = normalized.match(/^([0-9.]+)-([0-9.]+)(?:[A-Za-z]+)?$/);
   if (band) return amount >= Number(band[1]) && amount <= Number(band[2]);

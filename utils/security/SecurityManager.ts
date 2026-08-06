@@ -309,14 +309,27 @@ export const PINManager = {
    * replace the server PIN. New/server-backed users continue through verify-pin.
    */
   async verifyAppUnlockPIN(userId: string, pin: string): Promise<boolean> {
+    const result = await this.verifyAppUnlockPINResult(userId, pin);
+    return result.success;
+  },
+
+  async verifyAppUnlockPINResult(userId: string, pin: string): Promise<{ success: boolean; code?: string; error?: string }> {
     const legacy = loadState(userId);
     if (legacy.pinHash && legacy.pinSalt) {
       try {
         const candidate = await sha256(pin, legacy.pinSalt);
-        if (candidate === legacy.pinHash) return true;
+        if (candidate === legacy.pinHash) return { success: true };
       } catch { /* fall through to server verification */ }
     }
-    return this.verifyPIN(userId, pin);
+    try {
+      const { backendAPI } = await import('../api/backendAPI');
+      const response: any = await backendAPI.auth.verifyPIN(pin);
+      return response?.success
+        ? { success: true }
+        : { success: false, code: response?.code, error: response?.error || 'PIN verification unavailable' };
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'PIN verification unavailable' };
+    }
   },
 
   async verifyTransactionPIN(_userId: string, pin: string): Promise<{ success: boolean; code?: string; error?: string }> {

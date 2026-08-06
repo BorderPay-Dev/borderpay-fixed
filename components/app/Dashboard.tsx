@@ -103,6 +103,8 @@ function dashboardWalletRowsFromSnapshot(snapshotData: any): DashboardWalletRow[
       balance: Number(w?.balance || 0),
       symbol: CURRENCY_CONFIG[c]?.symbol || c,
       color: CURRENCY_CONFIG[c]?.color || '#666',
+      bridge_wallet_id: w?.bridge_wallet_id || null,
+      status: w?.status || null,
     };
   }).filter(isSpendableDashboardWallet);
 }
@@ -172,7 +174,14 @@ const STABLE_ICON_URL: Record<string, string> = {
   EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
-type DashboardWalletRow = { currency: string; balance: number; symbol: string; color: string };
+type DashboardWalletRow = {
+  currency: string;
+  balance: number;
+  symbol: string;
+  color: string;
+  bridge_wallet_id?: string | null;
+  status?: string | null;
+};
 type DashboardVaRow = {
   id: string;
   currency: string;
@@ -209,9 +218,13 @@ function normalizeDashboardVaRows(raw: unknown, country: string | null | undefin
   return Array.from(byCurrency.values());
 }
 
-function isSpendableDashboardWallet(row: { balance?: number }): boolean {
+function isSpendableDashboardWallet(row: { balance?: number; bridge_wallet_id?: string | null; status?: string | null }): boolean {
   const balance = Number(row?.balance || 0);
-  return Number.isFinite(balance) && balance > 0;
+  const status = String(row?.status || 'active').toLowerCase();
+  if (['closed', 'suspended', 'deactivated', 'inactive'].includes(status)) return false;
+  // A provisioned Bridge wallet remains a real account at a zero balance.
+  // Positive ledger-only rows remain visible while their projection catches up.
+  return Boolean(row?.bridge_wallet_id) || (Number.isFinite(balance) && balance > 0);
 }
 
 function formatDashboardWalletBalance(row: { currency: string; balance: number }): string {
@@ -332,7 +345,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [txLoaded, setTxLoaded]           = useState<boolean>(cachedRecent.length > 0);
   // We hydrated synchronously — start with `loading: false` so banners that
   // were gated on `!loading` render immediately.
-  const [loading, setLoading]             = useState(false);
+  const [loading, setLoading]             = useState(cachedWallets.length === 0 && cachedVirtualAccounts.length === 0);
+  const [dataLoadError, setDataLoadError] = useState<string | null>(null);
   // Use parentScreen from MainApp for active state tracking; fallback to 'dashboard'
   const activeScreen = parentScreen || 'dashboard';
 
@@ -390,6 +404,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       return;
     }
     const run = (async () => {
+    if (accountChipCount === 0) setLoading(true);
     // Fast path: show cached user data immediately
     const storedUser = authAPI.getStoredUser();
     if (storedUser?.profile_picture_url) setProfilePicUrl(storedUser.profile_picture_url);
@@ -412,7 +427,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       const [snapshotRes, securityRes] = await Promise.allSettled([
         withTimeout(
           backendAPI.financial.getSnapshot(5),
-          1800,
+          12_000,
           { success: false, data: null, error: 'snapshot_timeout' } as any,
         ),
         withTimeout(
@@ -423,6 +438,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       ]);
       const snapshotOk = snapshotRes.status === 'fulfilled' && snapshotRes.value?.success;
       const snapshotData = snapshotOk ? (snapshotRes.value as any).data : null;
+      if (snapshotOk) setDataLoadError(null);
+      else setDataLoadError('Could not reconcile your accounts with the secure server.');
 
       // ── Profile ──────────────────────────────────────────────────────────
       if (snapshotData?.profile) {
@@ -456,6 +473,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               balance: Number(w?.balance || 0),
               symbol: CURRENCY_CONFIG[c]?.symbol || c,
               color: CURRENCY_CONFIG[c]?.color || '#666',
+              bridge_wallet_id: w?.bridge_wallet_id || null,
+              status: w?.status || null,
             };
           }).filter(isSpendableDashboardWallet);
           setWallets(rows);
@@ -471,9 +490,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           setHasVirtualAccounts(vaRows.length > 0);
           writeJSON(dashVaKey, vaRows);
         }
-        // Loading must always terminate even when API fails; empty-state is
-        // represented by zero rows, not an infinite loading placeholder.
-        setWalletsLoaded(true);
+        // Only a successful server snapshot may confirm the empty state.
+        if (snapshotOk) setWalletsLoaded(true);
       }
       // On failure we keep the cached wallets/balance already on screen rather
       // than flashing $0.00.
@@ -506,16 +524,16 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         writeJSON(financialCacheKey(TX_CACHE_KEY, { userId }), txns);
       }
       // On failure keep cached recent activity rather than blanking it.
-      setTxLoaded(true);
-      try { localStorage.setItem(dashRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+      if (snapshotOk) {
+        setTxLoaded(true);
+        try { localStorage.setItem(dashRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+      }
 
     } catch (error) {
-      // silent — synchronous cache already populated the UI
+      setDataLoadError('Could not reconcile your accounts with the secure server.');
     } finally {
-      // Fail-open: never leave dashboard in loading placeholders when refresh
-      // fails or a partial parse throws. Cached data stays visible.
-      setWalletsLoaded(true);
-      setTxLoaded(true);
+      // Cached data stays visible, but a failed cold load must never be
+      // presented as a confirmed zero balance / no-account state.
       setLoading(false);
     }
     })();
@@ -527,7 +545,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         dashboardLoadInFlightRef.current = null;
       }
     }
-  }, [dashRecentKey, dashRefreshTsKey, dashVaKey, dashWalletsKey, userCountry, verificationResolved, userId]);
+  }, [accountChipCount, dashRecentKey, dashRefreshTsKey, dashVaKey, dashWalletsKey, userCountry, verificationResolved, userId]);
+
+  const retryDashboardData = useCallback(() => {
+    backendAPI.financial.invalidateForUser(userId);
+    setDataLoadError(null);
+    if (accountChipCount === 0) {
+      setWalletsLoaded(false);
+      setTxLoaded(false);
+    }
+    setLoading(true);
+    void loadDashboardData();
+  }, [accountChipCount, loadDashboardData, userId]);
 
   useEffect(() => {
     loadDashboardData();
@@ -680,7 +709,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               {tt('dashboard.totalBalance', 'Total balance')}
             </p>
             <div className="flex items-end gap-2">
-              <h1 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[40px] sm:text-[52px]">
+              {!walletsLoaded && accountChipCount === 0 ? (
+                <Skeleton className="h-12 w-40 rounded-xl" />
+              ) : <h1 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[40px] sm:text-[52px]">
                 {balanceHidden ? (
                   <span>••••••</span>
                 ) : (
@@ -692,7 +723,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                     </span>
                   </>
                 )}
-              </h1>
+              </h1>}
               <button
                 onClick={() => { const n = !balanceHidden; setBalanceHidden(n); updatePrefs({ hide_balance: n }); }}
                 aria-label={balanceHidden ? 'Show balance' : 'Hide balance'}
@@ -704,9 +735,13 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               </button>
             </div>
             <p className="text-[11px] text-white/40 mt-1.5">
-              {accountChipCount > 0
+              {!walletsLoaded && accountChipCount === 0
+                ? tt('dashboard.loadingAccounts', 'Loading your accounts…')
+                : accountChipCount > 0
                 ? `${tt('dashboard.across', 'Across')} ${accountChipCount} ${accountChipCount === 1 ? 'account' : 'accounts'}`
-                : tt('dashboard.empty.subtitle', 'Open your first account to start.')}
+                : dataLoadError
+                  ? tt('dashboard.accountsUnavailable', 'Accounts are temporarily unavailable.')
+                  : tt('dashboard.empty.subtitle', 'Open your first account to start.')}
             </p>
           </div>
 
@@ -850,7 +885,20 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
         <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-            {accountChipCount === 0 ? (
+            {!walletsLoaded && accountChipCount === 0 ? (
+              <div className="flex gap-2.5" aria-label="Loading accounts">
+                <Skeleton className="w-[164px] h-[156px] rounded-2xl" />
+                <Skeleton className="w-[164px] h-[156px] rounded-2xl" />
+              </div>
+            ) : dataLoadError && accountChipCount === 0 ? (
+              <div className={`w-[280px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4`}>
+                <p className={`text-sm font-semibold ${tc.text}`}>Accounts could not be loaded</p>
+                <p className={`text-[11px] ${tc.textMuted} mt-1`}>Your production data is still secure. Reconnect to load it.</p>
+                <button onClick={retryDashboardData} className="mt-3 rounded-xl bg-[#C7FF00] px-4 py-2 text-xs font-bold text-black">
+                  Retry
+                </button>
+              </div>
+            ) : accountChipCount === 0 ? (
               <button
                 onPointerDown={() => prefetchScreen('add-wallet')}
                 onMouseEnter={() => prefetchScreen('add-wallet')}

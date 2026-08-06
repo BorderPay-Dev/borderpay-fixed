@@ -501,6 +501,13 @@ function AppContent() {
 
   const handleLoginSuccess = async (loginUser: any) => {
     try {
+      // Explicit credential/biometric authentication is authoritative. Clear
+      // both the persisted marker and the live React lock state; otherwise a
+      // PIN reset in the same SPA session can leave the old lock screen mounted.
+      clearAppLocked();
+      setAppLocked(false);
+      setLockChecked(true);
+      backendAPI.financial.invalidateForUser(String(loginUser?.id || ''));
       // Never block dashboard first paint on remote profile/session calls.
       // Resolve from local/auth hints immediately, then enrich in background.
       let fullName = loginUser.user_metadata?.full_name || loginUser.user_metadata?.name;
@@ -759,6 +766,13 @@ function AppContent() {
     return (
       <ResetPinScreen
         onNavigateToLogin={handleNavigateToLogin}
+        onResetComplete={() => {
+          clearAppLocked();
+          setAppLocked(false);
+          setLockChecked(true);
+          try { window.history.replaceState({}, '', '/'); } catch { /* ignore */ }
+          setAppState('login');
+        }}
       />
     );
   }
