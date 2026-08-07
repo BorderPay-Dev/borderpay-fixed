@@ -53,6 +53,7 @@ import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
+import { AccountSubscriptionCard } from '../subscriptions/AccountSubscriptionCard';
 
 // Pull cached profile once at module-eval — every initial-state hook below
 // reads from this synchronously so the dashboard never flickers.
@@ -974,6 +975,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </div>
         </div>
       </section>
+
+      {isVerified && <div className="mt-6"><AccountSubscriptionCard /></div>}
 
       {/* ── BorderPay infrastructure — single fold-out (Revolut-clean) ──
           We collapsed the previous 5-card stack (KYC + virtual accounts +

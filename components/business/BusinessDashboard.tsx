@@ -29,6 +29,7 @@ import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManage
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
 import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
+import { AccountSubscriptionCard } from '../subscriptions/AccountSubscriptionCard';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
@@ -697,6 +698,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
             </div>
           )}
         </section>
+
+        {kybVerified && <AccountSubscriptionCard />}
 
         {/* ── 4. Quick actions ─────────────────────────────────────── */}
         <section className="px-5 sm:px-6">

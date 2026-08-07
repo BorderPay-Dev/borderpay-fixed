@@ -927,7 +927,10 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
     .eq("event_id", ev.event_id);
 
   // Terminal KYC/KYB decision → best-effort email (approved/rejected only).
-  if (normalized === "approved" || normalized === "rejected") {
+  // Approved accounts now receive the subscription-aware verification email
+  // from the database transition trigger. Keep this legacy template only for
+  // rejected decisions so users never receive duplicate approval messages.
+  if (normalized === "rejected") {
     await emailKycDecisionBestEffort(resolved, isKyb || account_type === "business", normalized);
   }
 

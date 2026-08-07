@@ -2528,23 +2528,32 @@ export const webauthnAPI = {
 };
 
 export const subscriptionAPI = {
-  /** Fetch the caller's legacy access row + recent legacy invoices. */
+  /** Fetch the caller's internal account-maintenance subscription. */
   current: async () =>
     apiCall<{
       subscription: {
         id: string;
-        plan_key: string;
+        account_type: 'individual' | 'business';
+        monthly_fee: number;
+        currency: 'USD';
         status: string;
-        current_period_start: string;
-        current_period_end: string;
-        cancel_at_period_end: boolean;
+        payment_status: 'active' | 'failed' | 'pending';
+        next_billing_date: string;
+        last_billed_at: string | null;
+        grace_started_at: string | null;
+        restricted_at: string | null;
+        created_at: string;
       } | null;
-      recent_invoices: Array<{
+      recent_transactions: Array<{
         id: string;
-        plan_key: string;
-        amount_usd_cents: number;
+        billing_period: string;
+        amount: number;
+        collected_amount: number;
+        asset: 'USDC' | 'USDT' | 'MIXED' | null;
+        asset_breakdown: Record<string, number>;
         status: string;
-        paid_at: string | null;
+        failure_code: string | null;
+        completed_at: string | null;
         created_at: string;
       }>;
     }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),

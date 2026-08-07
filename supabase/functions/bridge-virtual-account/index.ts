@@ -401,6 +401,17 @@ Deno.serve(async (req) => {
   const productCountry = profile.country;
   const verificationStatus = profile.verification_status;
 
+  // Existing accounts and inbound funding remain visible. Only creation of a
+  // new receiving account is paused after the seven-day billing grace period.
+  const { data: subscriptionRestricted } = await supa.rpc("subscription_feature_restricted", { p_user_id: user.id });
+  if (subscriptionRestricted === true) {
+    return json({
+      success: false,
+      code: "subscription_payment_due",
+      error: "Fund your wallet to complete the account maintenance payment before creating a new receiving account.",
+    }, 402);
+  }
+
   if (isBridgeBlocked(productCountry)) {
     return json(bridgeCountryBlockResponse(productCountry!), 403);
   }

@@ -152,6 +152,18 @@ verify_jwt = true
 [functions.yellowcard-corridor-sync]
 verify_jwt = true
 
+# Internal custodial subscription billing worker. Authenticates the dedicated
+# worker token (or service-role bearer) in code.
+[functions.subscription-billing-worker]
+verify_jwt = false
+
+[functions.subscription-billing-admin]
+verify_jwt = true
+
+# Permanently retired legacy maintenance collector. Always returns 410.
+[functions.maintenance-collect]
+verify_jwt = false
+
 # Public API gateway — external clients authenticate in-code with BorderPay API
 # keys, signatures, tenant status, and allowlists. Supabase platform JWT must
 # stay disabled or non-Supabase API clients are rejected before gateway auth runs.

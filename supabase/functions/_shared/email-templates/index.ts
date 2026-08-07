@@ -32,6 +32,9 @@ import { render as individualAffiliateProgram }           from "./individual/aff
 import { render as individualStablecoinFreeAnnouncement } from "./individual/stablecoin-free-announcement.ts";
 import { render as individualUsdAccountOperational }       from "./individual/usd-account-operational.ts";
 import { render as individualVirtualAccountInactive }      from "./individual/virtual-account-inactive.ts";
+import { render as individualAccountVerifiedSubscription } from "./individual/account-verified-subscription.ts";
+import { render as individualSubscriptionMaintenanceAnnouncement } from "./individual/subscription-maintenance-announcement.ts";
+import { render as individualSubscriptionPaymentStatus } from "./individual/subscription-payment-status.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessPinResetLink }            from "./business/pin-reset-link.ts";
@@ -55,6 +58,9 @@ import { render as businessAffiliateProgram }           from "./business/affilia
 import { render as businessStablecoinFreeAnnouncement } from "./business/stablecoin-free-announcement.ts";
 import { render as businessUsdAccountOperational }       from "./business/usd-account-operational.ts";
 import { render as businessVirtualAccountInactive }      from "./business/virtual-account-inactive.ts";
+import { render as businessAccountVerifiedSubscription } from "./business/account-verified-subscription.ts";
+import { render as businessSubscriptionMaintenanceAnnouncement } from "./business/subscription-maintenance-announcement.ts";
+import { render as businessSubscriptionPaymentStatus } from "./business/subscription-payment-status.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 
 export type TemplateName =
@@ -79,6 +85,9 @@ export type TemplateName =
   | "individual.stablecoin_free_announcement"
   | "individual.usd_account_operational"
   | "individual.virtual_account_inactive"
+  | "individual.account_verified_subscription"
+  | "individual.subscription_maintenance_announcement"
+  | "individual.subscription_payment_status"
   | "business.email_verification"
   | "business.pin_reset_link"
   | "business.kyb_submitted"
@@ -101,6 +110,9 @@ export type TemplateName =
   | "business.stablecoin_free_announcement"
   | "business.usd_account_operational"
   | "business.virtual_account_inactive"
+  | "business.account_verified_subscription"
+  | "business.subscription_maintenance_announcement"
+  | "business.subscription_payment_status"
   | "admin.incident_alert";
 
 type Renderer = (props: any) => RenderedEmail;
@@ -127,6 +139,9 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.stablecoin_free_announcement": individualStablecoinFreeAnnouncement,
   "individual.usd_account_operational": individualUsdAccountOperational,
   "individual.virtual_account_inactive": individualVirtualAccountInactive,
+  "individual.account_verified_subscription": individualAccountVerifiedSubscription,
+  "individual.subscription_maintenance_announcement": individualSubscriptionMaintenanceAnnouncement,
+  "individual.subscription_payment_status": individualSubscriptionPaymentStatus,
   "business.email_verification":        businessEmailVerification,
   "business.pin_reset_link":            businessPinResetLink,
   "business.kyb_submitted":             businessKybSubmitted,
@@ -149,6 +164,9 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.stablecoin_free_announcement": businessStablecoinFreeAnnouncement,
   "business.usd_account_operational": businessUsdAccountOperational,
   "business.virtual_account_inactive": businessVirtualAccountInactive,
+  "business.account_verified_subscription": businessAccountVerifiedSubscription,
+  "business.subscription_maintenance_announcement": businessSubscriptionMaintenanceAnnouncement,
+  "business.subscription_payment_status": businessSubscriptionPaymentStatus,
   "admin.incident_alert":                adminIncidentAlert,
 };
 
