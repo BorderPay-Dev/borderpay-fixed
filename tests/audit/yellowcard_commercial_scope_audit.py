@@ -26,9 +26,15 @@ assert 'return `${direction}:${userId}:${country}`' in cache
 assert "if (provider !== 'yellow_card') return" in cache
 assert "if (!africanRailsTester) {" in send
 assert "disabled={!africanRailsTester}" not in send
+assert '<MotionConfig reducedMotion="always">' in send
+assert 'autoFocus' not in send
+assert '[overflow-anchor:none]' in send
 assert "yellowCardSandboxTransaction" in receive
 assert "payouts.createCollection" not in receive
-assert "{africanRailsTester && regionalAfricanCountries.length > 0 ? <button" in receive
+assert '[overflow-anchor:none]' in receive
+assert "{africanRailsTester ? <button" in receive
+assert 'disabled={africanPolicyLoading || regionalAfricanCountries.length === 0}' in receive
+assert 'className={`w-full min-h-[72px]' in receive
 assert "African receive rails coming soon" in receive
 assert "africanPolicyLoading || africanCountries.length > 0" not in receive
 assert "Checking rails for your account country" not in receive

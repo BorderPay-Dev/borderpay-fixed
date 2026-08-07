@@ -8,8 +8,8 @@
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
+import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import {
   ArrowLeft, Building2, Search,
   CheckCircle, AlertCircle, Lock, Loader2, ChevronDown,
@@ -571,6 +571,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Step & method
   const [step, setStep] = useState<Step>('method');
+  const screenTopRef = useRef<HTMLDivElement>(null);
+
+  // MainApp owns the scroll container. Reset before paint when this internal
+  // flow changes step so a shorter screen never inherits the previous step's
+  // scroll offset and appears to jump after rendering.
+  useLayoutEffect(() => {
+    screenTopRef.current?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+  }, [step]);
   const [method, setMethod] = useState<TransferMethod>('stablecoin');
   const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
     africanRailsTester ? readCachedAfricanPolicyRows('payout') : []
@@ -1621,7 +1629,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className={`min-h-screen ${tc.bg} ${tc.text} pb-safe relative`}>
+    <div ref={screenTopRef} className={`min-h-dvh overflow-x-hidden [overflow-anchor:none] ${tc.bg} ${tc.text} pb-safe relative`}>
       {!isFullEnrollment(kycStatus) && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0E11]/95 backdrop-blur-sm px-6">
           <div className="text-center max-w-sm">
@@ -1652,7 +1660,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         </div>
       </div>
 
-      <AnimatePresence mode="wait">
+      <MotionConfig reducedMotion="always">
+      <AnimatePresence initial={false} mode="wait">
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* STEP 1: Choose Transfer Method                                     */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
@@ -2226,7 +2235,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                             onChange={e => setBankSearch(e.target.value)}
                             placeholder={t('send.searchBanks')}
                             className={`w-full ${tc.inputBg} rounded-xl pl-9 pr-3 py-2.5 text-sm placeholder:${tc.textMuted} focus:outline-none`}
-                            autoFocus
+                            autoComplete="off"
                           />
                         </div>
                       </div>
@@ -3185,6 +3194,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           </motion.div>
         )}
       </AnimatePresence>
+      </MotionConfig>
     </div>
   );
 }

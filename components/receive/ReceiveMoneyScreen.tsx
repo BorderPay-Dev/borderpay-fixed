@@ -9,7 +9,7 @@
  * had drifted from the Wallet tab). One source, one component, one design.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Shield, Inbox, ChevronRight, Loader2, RefreshCw, Smartphone, Building2, ArrowLeft, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
@@ -247,6 +247,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
   const [receiveStep, setReceiveStep] = useState<ReceiveStep>('method');
+  const screenTopRef = useRef<HTMLDivElement>(null);
+
+  // Keep internal steps aligned to the top of MainApp's scroll container.
+  // Running before paint avoids a visible correction after a tall prior step.
+  useLayoutEffect(() => {
+    screenTopRef.current?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+  }, [receiveStep]);
   const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
     africanRailsTester ? readCachedAfricanPolicyRows('receive') : []
   );
@@ -766,7 +773,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {
     return (
-      <div className={`min-h-screen ${tc.bg}`}>
+      <div ref={screenTopRef} className={`min-h-dvh overflow-x-hidden [overflow-anchor:none] ${tc.bg}`}>
         <FloatingBackButton onBack={onBack} />
         <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
@@ -788,7 +795,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   }
 
   return (
-    <div className={`min-h-screen ${tc.bg}`}>
+    <div ref={screenTopRef} className={`min-h-dvh overflow-x-hidden [overflow-anchor:none] ${tc.bg}`}>
       <FloatingBackButton onBack={goBack} />
       <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-28">
 
@@ -820,7 +827,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
             </h2>
 
             <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-              {africanRailsTester && regionalAfricanCountries.length > 0 ? <button
+              {africanRailsTester ? <button
                 type="button"
                 onClick={() => {
                   setSelectedAfricanCountryCode('');
@@ -828,7 +835,9 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   setCollectionResult(null);
                   setReceiveStep('africa-destination');
                 }}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg}`}
+                disabled={africanPolicyLoading || regionalAfricanCountries.length === 0}
+                aria-busy={africanPolicyLoading}
+                className={`w-full min-h-[72px] flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} disabled:cursor-default`}
               >
                 <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
                   <Smartphone className="w-5 h-5 text-[#58D66D]" />
@@ -837,13 +846,19 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
                     African receive rails
                   </div>
-                  <div className="text-[11px] text-[#58D66D]">
-                    {`${regionalAfricanCountries.length} countries · Bank · Mobile money`}
+                  <div className={`text-[11px] ${africanPolicyLoading || regionalAfricanCountries.length === 0 ? tc.textMuted : 'text-[#58D66D]'}`}>
+                    {africanPolicyLoading
+                      ? 'Loading available rails…'
+                      : regionalAfricanCountries.length > 0
+                        ? `${regionalAfricanCountries.length} countries · Bank · Mobile money`
+                        : 'African receive rails are temporarily unavailable'}
                   </div>
                 </div>
-                <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
+                {africanPolicyLoading
+                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin flex-shrink-0 ml-1`} />
+                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />}
               </button> : !africanRailsTester ? <div
-                className="flex w-full cursor-not-allowed items-center gap-3 px-4 py-3.5 text-left opacity-60"
+                className="flex min-h-[72px] w-full cursor-not-allowed items-center gap-3 px-4 py-3.5 text-left opacity-60"
                 aria-disabled="true"
                 aria-label="African receive rails coming soon"
               >
