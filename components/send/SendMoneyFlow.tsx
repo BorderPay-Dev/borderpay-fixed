@@ -39,6 +39,7 @@ import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { buildReceiptPdf } from '../../utils/receipts/buildReceiptPdf';
 import {
   hasFreshAfricanPolicyRows,
   loadAfricanPolicyRows,
@@ -339,58 +340,6 @@ function escapeHtml(value: unknown) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function escapePdfText(value: unknown) {
-  return String(value ?? '')
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/[\r\n]+/g, ' ');
-}
-
-function buildReceiptPdf(lines: Array<{ label?: string; value: string; large?: boolean }>) {
-  const content: string[] = [
-    'BT',
-    '/F1 20 Tf',
-    '72 760 Td',
-    '(BorderPay Africa) Tj',
-  ];
-  let yGap = 34;
-  lines.forEach((line) => {
-    content.push(`0 -${yGap} Td`);
-    if (line.label) {
-      content.push('/F1 10 Tf');
-      content.push(`(${escapePdfText(line.label)}) Tj`);
-      content.push('0 -16 Td');
-    }
-    content.push(line.large ? '/F1 24 Tf' : '/F1 12 Tf');
-    content.push(`(${escapePdfText(line.value)}) Tj`);
-    yGap = line.large ? 34 : 28;
-  });
-  content.push('ET');
-  const stream = content.join('\n');
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
-  ];
-  let pdf = '%PDF-1.4\n';
-  const offsets = [0];
-  objects.forEach((obj, index) => {
-    offsets.push(pdf.length);
-    pdf += `${index + 1} 0 obj\n${obj}\nendobj\n`;
-  });
-  const xrefStart = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += '0000000000 65535 f \n';
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return new Blob([pdf], { type: 'application/pdf' });
 }
 
 function firstFiniteNumber(...values: unknown[]) {
@@ -1246,7 +1195,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } catch (error: any) {
       setInstitutions([]);
       setSelectedBank(null);
-      toast.error(friendlyError(error?.message, 'Unable to load available payout rails.'));
+      toast.error(friendlyError(error?.message, 'This route is temporarily unavailable. Try again.'));
     } finally {
       setLoadingInstitutions(false);
     }
@@ -2192,20 +2141,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   ) : (
                     <button
                       onClick={() => setShowBankList(!showBankList)}
-                      className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center justify-between ${tc.hoverBg} transition-colors`}
+                      disabled={loadingInstitutions}
+                      className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl px-4 py-3.5 flex items-center justify-between ${tc.hoverBg} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
                     >
                       <span className={`text-sm ${selectedBank ? `font-semibold ${tc.text}` : tc.textMuted}`}>
                         {selectedBank ? selectedBank.name : (method === 'bank' ? t('send.chooseBankPlaceholder') : t('send.chooseProviderPlaceholder'))}
                       </span>
-                      {loadingInstitutions ? (
-                        <Loader2 size={16} className="text-[#C7FF00] animate-spin" />
-                      ) : (
-                        <ChevronDown size={18} className={`${tc.textMuted} transition-transform ${showBankList ? 'rotate-180' : ''}`} />
-                      )}
+                      <ChevronDown size={18} className={`${tc.textMuted} transition-transform ${showBankList ? 'rotate-180' : ''}`} />
                     </button>
                   )}
 
-                  {(!selectedAfricanRail || requiresInstitutionSelection) && showBankList && (
+                  {(!selectedAfricanRail || requiresInstitutionSelection) && showBankList && !loadingInstitutions && (
                     <motion.div
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -2228,7 +2174,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
                       <div className="max-h-56 overflow-y-auto">
                         {filteredBanks.length === 0 ? (
-                          <p className={`text-sm ${tc.textMuted} text-center py-6`}>{loadingInstitutions ? t('common.loading') : t('send.noBanksFound')}</p>
+                          <p className={`text-sm ${tc.textMuted} text-center py-6`}>
+                            This route is temporarily unavailable.
+                          </p>
                         ) : (
                           filteredBanks.map(bank => (
                             <button

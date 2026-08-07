@@ -1115,9 +1115,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     disabled={collectionNetworksLoading || collectionNetworks.length === 0}
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 disabled:opacity-60`}
                   >
-                    <option value="">{collectionNetworksLoading
-                      ? 'Loading available networks…'
-                      : selectedAfricanRail.channel === 'bank' ? 'Automatic bank routing' : 'Choose a network'}</option>
+                    <option value="">{selectedAfricanRail.channel === 'bank' ? 'Automatic bank routing' : 'Choose a network'}</option>
                     {collectionNetworks.map((network) => (
                       <option key={network.id} value={network.id}>{network.name}</option>
                     ))}
