@@ -88,3 +88,30 @@ Deno.test("Yellow Card sandbox receive fails closed without full KYC", () => {
     settlementInfo: { cryptoCurrency: "USDT", cryptoNetwork: "TRC20", walletAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC" },
   }), /yellow_card_missing_recipient_id_number/);
 });
+
+Deno.test("Yellow Card receive supports provider channelType auto-routing", () => {
+  const payload = buildYellowCardSandboxReceivePayload({
+    sequenceId: "53f7c7fa-f2bb-450c-8f6d-9ff0000f0099",
+    channelType: "bank",
+    localAmount: 1000,
+    country: "ET",
+    currency: "USD",
+    reason: "other",
+    customerUID: "user-test",
+    recipient: {
+      name: "Test User",
+      country: "US",
+      phone: "+12222222222",
+      address: "Test address",
+      dob: "01/02/1990",
+      email: "tester@example.com",
+      idNumber: "ID-123",
+      idType: "license",
+    },
+    source: { accountType: "bank" },
+    settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0x1111111111111111111111111111111111111111" },
+  });
+  assertEqual(payload.channelType, "bank");
+  assertEqual(payload.channelId, undefined);
+  assertEqual((payload.source as any).networkId, undefined);
+});

@@ -7,6 +7,7 @@ ui = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 receive_ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
 commercial_policy = (ROOT / "supabase/functions/_shared/providers/yellowcard-commercial-policy.ts").read_text()
+routing = (ROOT / "supabase/functions/_shared/providers/yellowcard-routing.ts").read_text()
 
 for fragment in (
     'action === "preflight_send"',
@@ -22,14 +23,15 @@ for fragment in (
     'accountNumber: sandboxAccount(context.country, context.channel, "success")',
     'direction: isSend ? "payout" : "receive"',
     'existing.direction === "payout"',
-    '"withdraw", "withdrawal"',
-    'new Set(["phone", "momo", "mobile_money", "mobilemoney"])',
+    'channelType: yellowCardProviderChannelType(context.channel',
+    'accountBank: str(context.selectedNetwork?.code)',
+    'const networkRequired = isSend || context.channel === "mobile_money"',
 ):
     assert fragment in edge, f"missing Yellow Card send server contract: {fragment}"
 
 for fragment in (
     "yellowCardCapabilities('rates'",
-    "yellowCardCapabilities('networks'",
+    "yellowCardCapabilities('routing'",
     "action: 'preflight_send'",
     "action: 'create_send'",
     "yellowCardSandboxOutcome",
@@ -42,14 +44,16 @@ for fragment in (
 
 assert "backendAPI.payouts.createTransfer" not in ui
 assert "backendAPI.payouts.resolveAccount" not in ui
-assert "['phone', 'momo', 'mobile_money', 'mobilemoney'].includes(accountType)" in ui
+assert "['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'].includes(accountType)" in ui
 assert 'rates: { path: "/rates"' in capabilities
+assert 'if (["bank", "eft", "p2p"].includes(normalized)) return "bank"' in routing
+assert 'selectedChannel = amountChannels.find' in routing
 
 for fragment in (
-    "yellowCardCapabilities('networks'",
+    "yellowCardCapabilities('routing'",
     "selectedCollectionNetworkId",
     "network_id: selectedCollectionNetworkId || undefined",
-    "if (!selectedChannelId || !selectedNetworkId)",
+    "const networkRequired = selectedAfricanRail.channel === 'mobile_money'",
     "calculateYellowCardCustomerFee(selectedAfricanPolicyRow",
 ):
     assert fragment in receive_ui, f"missing Yellow Card receive UI contract: {fragment}"

@@ -9,6 +9,7 @@
  * transaction limits, quotes and execution status. They must not add countries
  * or rails that are absent from this signed commercial schedule.
  */
+import { AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT } from "../fees/schedule.ts";
 
 export type YellowCardCommercialDirection = "receive" | "payout";
 export type YellowCardCommercialChannel = "bank" | "mobile_money";
@@ -278,7 +279,7 @@ const clamp = (value: number, minimum: number | null, maximum: number | null) =>
 
 /**
  * Customer fee contract:
- * - add one percentage point to every percentage fee;
+ * - add the configured two percentage-point markup to every percentage fee;
  * - add 100% to every fixed, minimum, and maximum local-currency fee.
  */
 export function calculateYellowCardCustomerFee(
@@ -292,7 +293,7 @@ export function calculateYellowCardCustomerFee(
   const providerFixed = pricing.provider_fee_local;
   const providerMinimum = pricing.minimum_fee_local;
   const providerMaximum = pricing.maximum_fee_local;
-  const customerPercent = providerPercent === null ? null : providerPercent + 1;
+  const customerPercent = providerPercent === null ? null : providerPercent + AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT;
   const customerFixed = providerFixed === null ? null : providerFixed * 2;
   const customerMinimum = providerMinimum === null ? null : providerMinimum * 2;
   const customerMaximum = providerMaximum === null ? null : providerMaximum * 2;
@@ -306,7 +307,7 @@ export function calculateYellowCardCustomerFee(
     ? customerFixed
     : customerPercent !== null
       ? clamp((amount * customerPercent) / 100, customerMinimum, customerMaximum)
-      : customerMinimum ?? (amount * 1) / 100;
+      : customerMinimum ?? (amount * AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT) / 100;
 
   return {
     ...pricing,

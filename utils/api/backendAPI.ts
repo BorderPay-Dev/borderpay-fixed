@@ -2560,7 +2560,7 @@ const approvedPayoutFunction = (suffix: string): string =>
 /** African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
   yellowCardCapabilities: async (
-    action: 'corridor_policy' | 'channels' | 'networks' | 'rates',
+    action: 'corridor_policy' | 'routing' | 'channels' | 'networks' | 'rates',
     payload: Record<string, unknown> = {},
   ) => apiCall<Record<string, unknown>>(yellowCardFunction('capabilities'), {
     method: 'POST',

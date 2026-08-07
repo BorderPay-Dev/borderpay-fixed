@@ -16,7 +16,8 @@ export interface YellowCardRetailKyc {
 
 export interface YellowCardReceivePayloadInput {
   sequenceId: string;
-  channelId: string;
+  channelId?: string;
+  channelType?: YellowCardAccountType;
   localAmount: number;
   country: string;
   currency: string;
@@ -88,8 +89,14 @@ export function buildYellowCardSandboxReceivePayload(
     (settlementInfo.cryptoCurrency === "USDT" && settlementInfo.cryptoNetwork === "TRC20");
   if (!supportedSettlement) throw new Error("yellow_card_unsupported_settlement_route");
 
+  const channelId = String(input.channelId || "").trim();
+  const channelType = input.channelType;
+  if (!channelId && channelType !== "bank" && channelType !== "momo") {
+    throw new Error("yellow_card_missing_channel_routing");
+  }
+
   return {
-    channelId: required(input.channelId, "channel_id"),
+    ...(channelId ? { channelId } : { channelType }),
     sequenceId: required(input.sequenceId, "sequence_id"),
     localAmount,
     reason,

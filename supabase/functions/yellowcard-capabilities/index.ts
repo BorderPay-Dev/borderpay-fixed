@@ -3,6 +3,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { isAfricanRailsTesterEmail } from "../_shared/african-rails-access.ts";
 import { listYellowCardCommercialRails, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
+import {
+  resolveYellowCardRouting,
+  yellowCardProviderChannelType,
+} from "../_shared/providers/yellowcard-routing.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +36,10 @@ Deno.serve(async (req) => {
   const action = String(body?.action || "corridor_policy").trim().toLowerCase();
   const country = String(body?.country || "").trim().toUpperCase();
   const currency = String(body?.currency || "").trim().toUpperCase();
+  const config = getYellowCardConfig();
+  if (!config.configured || config.environment !== "sandbox") {
+    return json({ success: false, code: "yellow_card_sandbox_unavailable", error: "African rails testing is unavailable." }, 503);
+  }
   if (action === "corridor_policy") {
     const direction = String(body?.direction || "receive").trim().toLowerCase();
     const testerAllReceiveCountries = direction === "receive" && isAfricanRailsTesterEmail(user.email);
@@ -54,10 +62,39 @@ Deno.serve(async (req) => {
         } } });
       }
     }
-    const publicRows = listYellowCardCommercialRails(
+    const commercialRows = listYellowCardCommercialRails(
       direction as "receive" | "payout",
       direction === "receive" && !testerAllReceiveCountries ? profileCountry : null,
     );
+    const [channelsResult, networksResult] = await Promise.all([
+      yellowCardFetch({ method: "GET", path: "/channels" }),
+      yellowCardFetch({ method: "GET", path: "/networks" }),
+    ]);
+    if (!channelsResult.ok || !networksResult.ok) {
+      return json({
+        success: false,
+        code: channelsResult.error || networksResult.error || "yellow_card_routing_discovery_failed",
+        error: "Unable to load available African rails.",
+      }, 502);
+    }
+    const availability = commercialRows.map((row) => {
+      const routing = resolveYellowCardRouting({
+        channels: channelsResult.data,
+        networks: networksResult.data,
+        direction: row.direction,
+        country: row.country_code,
+        currency: row.destination_currency,
+        rail: row.channel,
+      });
+      const networkRequired = row.direction === "payout" || row.channel === "mobile_money";
+      return {
+        row,
+        available: routing.channelAvailable && (!networkRequired || routing.networkAvailable),
+        active_channel_count: routing.channels.length,
+        active_network_count: routing.networks.length,
+      };
+    });
+    const publicRows = availability.filter((item) => item.available).map((item) => item.row);
     return json({ success: true, data: { local_rail_policy: {
       provider: "yellow_card",
       direction,
@@ -68,11 +105,62 @@ Deno.serve(async (req) => {
         : direction === "receive" ? "account_country_only" : "global_sender",
       account_country: direction === "receive" ? profileCountry : null,
       rows: publicRows,
+      unavailable_rows: availability.filter((item) => !item.available).map((item) => ({
+        country_code: item.row.country_code,
+        destination_currency: item.row.destination_currency,
+        channel: item.row.channel,
+        active_channel_count: item.active_channel_count,
+        active_network_count: item.active_network_count,
+      })),
     } } });
   }
-  const config = getYellowCardConfig();
-  if (!config.configured || config.environment !== "sandbox") {
-    return json({ success: false, code: "yellow_card_sandbox_unavailable", error: "African rails testing is unavailable." }, 503);
+  if (action === "routing") {
+    const direction = String(body?.direction || "payout").trim().toLowerCase();
+    const rail = String(body?.channel || "").trim().toLowerCase();
+    if (!/^[A-Z]{2}$/.test(country) || !/^[A-Z]{3}$/.test(currency) ||
+      !["receive", "payout"].includes(direction) || !["bank", "mobile_money"].includes(rail)) {
+      return json({ success: false, code: "yellow_card_invalid_routing_request" }, 400);
+    }
+    const signed = listYellowCardCommercialRails(direction as "receive" | "payout", country).some((row) =>
+      row.destination_currency === currency && row.channel === rail
+    );
+    if (!signed) return json({ success: false, code: "yellow_card_commercial_corridor_unavailable" }, 403);
+    const [channelsResult, networksResult] = await Promise.all([
+      yellowCardFetch({ method: "GET", path: "/channels", query: { country } }),
+      yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
+    ]);
+    if (!channelsResult.ok || !networksResult.ok) {
+      return json({
+        success: false,
+        code: channelsResult.error || networksResult.error || "yellow_card_routing_discovery_failed",
+        error: "Unable to load available payout rails.",
+      }, 502);
+    }
+    const routing = resolveYellowCardRouting({
+      channels: channelsResult.data,
+      networks: networksResult.data,
+      direction: direction as "receive" | "payout",
+      country,
+      currency,
+      rail: rail as "bank" | "mobile_money",
+    });
+    const networkRequired = direction === "payout" || rail === "mobile_money";
+    return json({ success: true, data: { routing: {
+      available: routing.channelAvailable && (!networkRequired || routing.networkAvailable),
+      channel_type: yellowCardProviderChannelType(rail as "bank" | "mobile_money"),
+      channels: routing.channels.map((row) => ({
+        id: String(row?.id || ""),
+        minimum: row?.min ?? null,
+        maximum: row?.max ?? null,
+      })),
+      networks: routing.networks.map((row) => ({
+        id: String(row?.id || ""),
+        name: String(row?.name || row?.code || "Payment network"),
+        code: String(row?.code || ""),
+        accountNumberType: String(row?.accountNumberType || ""),
+        status: String(row?.status || row?.apiStatus || "active"),
+      })),
+    } } });
   }
   const paths: Record<string, { path: string; query?: Record<string, string> }> = {
     channels: { path: "/channels", query: country ? { country } : undefined },

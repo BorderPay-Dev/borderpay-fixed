@@ -24,10 +24,10 @@ Deno.test("commercial policy contains all 70 signed Africa pricing rows without 
   }
 });
 
-Deno.test("adds one percentage point to pure percentage pricing", () => {
+Deno.test("adds two percentage points to pure percentage pricing", () => {
   const result = fee("receive", "KE", "KES", "mobile_money", 5_000);
   if (!result) throw new Error("missing fee");
-  if (result.customer_fee_percent !== 1.77 || result.customer_amount_local !== 88.5) {
+  if (result.customer_fee_percent !== 2.77 || result.customer_amount_local !== 138.5) {
     throw new Error(`unexpected Kenya MoMo receive fee: ${JSON.stringify(result)}`);
   }
 });
@@ -40,12 +40,12 @@ Deno.test("doubles fixed local-currency pricing", () => {
   }
 });
 
-Deno.test("adds one point and doubles minimum and maximum fees", () => {
+Deno.test("adds two points and doubles minimum and maximum fees", () => {
   const minimum = fee("receive", "KE", "KES", "bank", 50_000);
   if (minimum !== null) throw new Error("Kenya bank pricing must not be inferred outside its signed >250,000 band");
   const capped = fee("receive", "KE", "KES", "bank", 300_000);
   if (!capped) throw new Error("missing capped fee");
-  if (capped.customer_fee_percent !== 2 || capped.customer_minimum_fee_local !== 1_500 ||
+  if (capped.customer_fee_percent !== 3 || capped.customer_minimum_fee_local !== 1_500 ||
       capped.customer_maximum_fee_local !== 3_000 || capped.customer_amount_local !== 3_000) {
     throw new Error(`unexpected Kenya bank receive fee: ${JSON.stringify(capped)}`);
   }

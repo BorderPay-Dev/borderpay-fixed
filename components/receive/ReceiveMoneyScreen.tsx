@@ -56,7 +56,7 @@ interface AfricanCountryOption {
 }
 
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
-const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 6500;
+const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 15000;
 
 function flagFromCountryCode(countryCode: string) {
   const code = String(countryCode || '').trim().toUpperCase();
@@ -582,15 +582,17 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         ...baseRequest,
       });
       if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'The receive preflight failed.');
-      const selectedChannelId = String(preflight?.data?.selected_channel_id || '');
       const selectedNetworkId = String(preflight?.data?.selected_network_id || '');
-      if (!selectedChannelId || !selectedNetworkId) {
+      const networkRequired = selectedAfricanRail.channel === 'mobile_money';
+      if (!preflight?.data?.can_create || (networkRequired && !selectedNetworkId)) {
+        const blockers = Array.isArray(preflight?.data?.blockers) ? preflight.data.blockers : [];
+        if (blockers.includes('active_channel_unavailable')) throw new Error('This Yellow Card corridor is not currently active.');
+        if (blockers.includes('kyc_incomplete')) throw new Error('The sandbox recipient profile is incomplete.');
         throw new Error('Select a payment network before creating this sandbox transaction.');
       }
       const res: any = await backendAPI.payouts.yellowCardSandboxTransaction({
         action: 'create_receive',
         ...baseRequest,
-        channel_id: selectedChannelId,
         network_id: selectedNetworkId || undefined,
         sequence_id: crypto.randomUUID(),
         operator_confirmed: true,
@@ -628,14 +630,19 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     }
     let active = true;
     setCollectionNetworksLoading(true);
-    void backendAPI.payouts.yellowCardCapabilities('networks', { country: selectedAfricanCountryCode })
+    void backendAPI.payouts.yellowCardCapabilities('routing', {
+      country: selectedAfricanCountryCode,
+      currency: selectedAfricanRail.currency,
+      channel: selectedAfricanRail.channel,
+      direction: 'receive',
+    })
       .then((res: any) => {
         if (!active || !res?.success) return;
-        const raw = res?.data?.networks;
+        const raw = res?.data?.routing?.networks;
         const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.networks) ? raw.networks : Array.isArray(raw?.data) ? raw.data : [];
         const expected = selectedAfricanRail.channel === 'mobile_money'
-          ? new Set(['phone', 'momo', 'mobile_money', 'mobilemoney'])
-          : new Set(['bank']);
+          ? new Set(['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'])
+          : new Set(['bank', 'eft', 'p2p']);
         const next = rows
           .filter((row: any) => {
             const type = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
@@ -739,7 +746,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     if (collectionAmountNumber <= 0) return false;
     if (!collectionFee) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
-    if (!selectedCollectionNetworkId) return false;
+    if (selectedAfricanRail?.channel === 'mobile_money' && !selectedCollectionNetworkId) return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
       return isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountryCode);
     }
@@ -1085,7 +1092,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
               <div className="space-y-3">
                 <div>
                   <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>
-                    {selectedAfricanRail.channel === 'mobile_money' ? 'Mobile money network' : 'Bank'}
+                    {selectedAfricanRail.channel === 'mobile_money' ? 'Mobile money network' : 'Bank (optional)'}
                   </label>
                   <select
                     value={selectedCollectionNetworkId}
@@ -1093,7 +1100,9 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     disabled={collectionNetworksLoading || collectionNetworks.length === 0}
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 disabled:opacity-60`}
                   >
-                    <option value="">{collectionNetworksLoading ? 'Loading available networks…' : 'Choose a network'}</option>
+                    <option value="">{collectionNetworksLoading
+                      ? 'Loading available networks…'
+                      : selectedAfricanRail.channel === 'bank' ? 'Automatic bank routing' : 'Choose a network'}</option>
                     {collectionNetworks.map((network) => (
                       <option key={network.id} value={network.id}>{network.name}</option>
                     ))}

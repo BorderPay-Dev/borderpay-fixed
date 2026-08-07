@@ -1,4 +1,5 @@
 import type { AfricanPolicyRow } from '../africanRailsPolicyCache';
+import { AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT } from './schedule';
 
 export type YellowCardCustomerFee = {
   providerAmount: number;
@@ -48,7 +49,7 @@ export function calculateYellowCardCustomerFee(
   const providerFixed = finiteNumber(selected ? selected.fee_local : raw.provider_fee_local);
   const providerMinimum = finiteNumber(selected ? selected.minimum_fee_local : raw.minimum_fee_local);
   const providerMaximum = finiteNumber(selected ? selected.maximum_fee_local : raw.maximum_fee_local);
-  const customerPercent = providerPercent === null ? null : providerPercent + 1;
+  const customerPercent = providerPercent === null ? null : providerPercent + AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT;
   const customerFixed = providerFixed === null ? null : providerFixed * 2;
   const customerMinimum = providerMinimum === null ? null : providerMinimum * 2;
   const customerMaximum = providerMaximum === null ? null : providerMaximum * 2;
@@ -62,7 +63,7 @@ export function calculateYellowCardCustomerFee(
     ? customerFixed
     : customerPercent !== null
       ? clamp((amount * customerPercent) / 100, customerMinimum, customerMaximum)
-      : customerMinimum ?? amount / 100;
+      : customerMinimum ?? (amount * AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT) / 100;
 
   return {
     providerAmount,

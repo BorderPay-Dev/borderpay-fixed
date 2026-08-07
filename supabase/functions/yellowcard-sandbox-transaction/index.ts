@@ -9,6 +9,10 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
+import {
+  resolveYellowCardRouting,
+  yellowCardProviderChannelType,
+} from "../_shared/providers/yellowcard-routing.ts";
 import { africanRailMarkupPercentForAccount } from "../_shared/fees/schedule.ts";
 import {
   buildYellowCardSandboxReceivePayload,
@@ -66,44 +70,10 @@ function sandboxAccount(country: string, channel: string, outcome: "success" | "
   return `+${dialCode}${digits}`;
 }
 
-function rowsFrom(value: any, key: string): any[] {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.[key])) return value[key];
-  if (Array.isArray(value?.data)) return value.data;
-  return [];
-}
-
-function isActive(value: any): boolean {
-  return ["active", "enabled", "available"].includes(lower(value));
-}
-
-function receiveRamp(value: any): boolean {
-  return ["deposit", "receive", "collection", "payin", "pay-in", "onramp", "on-ramp"].includes(lower(value));
-}
-
-function sendRamp(value: any): boolean {
-  return ["withdraw", "withdrawal", "send", "payment", "payout", "offramp", "off-ramp"].includes(lower(value));
-}
-
-function yellowCardAccountTypes(channel: string): ReadonlySet<string> {
-  // Yellow Card identifies MoMo beneficiary accounts as `phone`; `momo` is
-  // the channel type, not the account-number type.
-  return channel === "mobile_money"
-    ? new Set(["phone", "momo", "mobile_money", "mobilemoney"])
-    : new Set(["bank"]);
-}
-
 function yellowCardPayloadAccountType(channel: string): "bank" | "momo" {
   // The transaction API uses the rail account type while /networks describes
   // the required account-number shape (`phone` for MoMo).
   return channel === "mobile_money" ? "momo" : "bank";
-}
-
-function ycToPolicyRail(channel: unknown): "bank" | "mobile_money" | null {
-  const value = lower(channel);
-  if (value === "bank") return "bank";
-  if (["momo", "mobile_money", "mobilemoney"].includes(value)) return "mobile_money";
-  return null;
 }
 
 function formatDob(value: unknown): string {
@@ -126,23 +96,6 @@ function profileAddress(profile: any, bridgeIdentity: any): string {
     .map(str)
     .filter(Boolean)
     .join(", ");
-}
-
-function channelMatches(channel: any, input: { country: string; currency: string; rail: string; direction: "receive" | "payout" }): boolean {
-  return upper(channel?.country) === input.country &&
-    upper(channel?.currency || channel?.countryCurrency) === input.currency &&
-    ycToPolicyRail(channel?.channelType) === input.rail &&
-    (input.direction === "receive" ? receiveRamp(channel?.rampType) : sendRamp(channel?.rampType)) &&
-    isActive(channel?.apiStatus || channel?.status);
-}
-
-function networkMatches(network: any, input: { country: string; channelId: string; accountTypes: ReadonlySet<string> }): boolean {
-  const channelIds = Array.isArray(network?.channelIds) ? network.channelIds.map(str) : [];
-  const accountType = lower(network?.accountNumberType);
-  return upper(network?.country) === input.country &&
-    isActive(network?.status) &&
-    channelIds.includes(input.channelId) &&
-    (!accountType || input.accountTypes.has(accountType));
 }
 
 function publicTransaction(row: any) {
@@ -262,12 +215,12 @@ async function loadContext(userId: string, input: any) {
 
   const useSandboxIdentitySample = input?.allow_sandbox_identity_sample === true;
   const kyc: YellowCardRetailKyc = {
-    name: str(profile.full_name),
-    country: upper(profile.country || bridgeIdentity?.country),
-    phone: str(profile.phone || bridgeIdentity?.phone),
-    address: profileAddress(profile, bridgeIdentity),
-    dob: formatDob(profile.date_of_birth || bridgeIdentity?.date_of_birth),
-    email: lower(profile.email),
+    name: str(profile.full_name || (useSandboxIdentitySample ? "Sample Name" : "")),
+    country: normalizeYellowCardCountryCode(profile.country || bridgeIdentity?.country) || (useSandboxIdentitySample ? "US" : ""),
+    phone: str(profile.phone || bridgeIdentity?.phone || (useSandboxIdentitySample ? "+12222222222" : "")),
+    address: profileAddress(profile, bridgeIdentity) || (useSandboxIdentitySample ? "Sample Address" : ""),
+    dob: formatDob(profile.date_of_birth || bridgeIdentity?.date_of_birth) || (useSandboxIdentitySample ? "01/01/1990" : ""),
+    email: lower(profile.email || (useSandboxIdentitySample ? "sandbox@borderpayafrica.com" : "")),
     idNumber: str(profile.id_number || bridgeIdentity?.id_number || (useSandboxIdentitySample ? "0123456789" : "")),
     idType: str(profile.id_type || bridgeIdentity?.id_type || (useSandboxIdentitySample ? "license" : "")),
   };
@@ -280,45 +233,22 @@ async function loadContext(userId: string, input: any) {
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
   }
-  const channels = rowsFrom(channelsResult.data, "channels").filter((candidate) =>
-    channelMatches(candidate, { country, currency, rail: channel, direction })
-  );
-
-  const selectedChannelId = str(input?.channel_id);
-  let selectedChannel = selectedChannelId
-    ? channels.find((candidate) => str(candidate?.id) === selectedChannelId)
-    : (channels.length === 1 ? channels[0] : null);
-
-  let networks: any[] = [];
-  let selectedNetwork: any = null;
-  if (channels.length > 0) {
-    const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
-    if (!networksResult.ok) {
-      return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
-    }
-    const ycAccountTypes = yellowCardAccountTypes(channel);
-    const selectedNetworkId = str(input?.network_id);
-    const allNetworks = rowsFrom(networksResult.data, "networks");
-    if (!selectedChannel && selectedNetworkId) {
-      const chosen = allNetworks.find((candidate) => str(candidate?.id) === selectedNetworkId);
-      const channelIds = Array.isArray(chosen?.channelIds) ? chosen.channelIds.map(str) : [];
-      selectedChannel = channels.find((candidate) => channelIds.includes(str(candidate?.id))) || null;
-    }
-    networks = selectedChannel ? allNetworks.filter((candidate) =>
-      networkMatches(candidate, { country, channelId: str(selectedChannel?.id), accountTypes: ycAccountTypes })
-    ) : [];
-    selectedNetwork = selectedNetworkId
-      ? networks.find((candidate) => str(candidate?.id) === selectedNetworkId)
-      : (networks.length === 1 ? networks[0] : null);
+  const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
+  if (!networksResult.ok) {
+    return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
   }
-
-  if (selectedChannel) {
-    const minimum = Number(selectedChannel?.min);
-    const maximum = Number(selectedChannel?.max);
-    if ((Number.isFinite(minimum) && localAmount < minimum) ||
-      (Number.isFinite(maximum) && maximum > 0 && localAmount > maximum)) {
-      return { ok: false as const, status: 422, code: "yellow_card_amount_outside_provider_limits" };
-    }
+  const routing = resolveYellowCardRouting({
+    channels: channelsResult.data,
+    networks: networksResult.data,
+    country,
+    currency,
+    rail: channel as "bank" | "mobile_money",
+    direction,
+    networkId: input?.network_id,
+    amount: localAmount,
+  });
+  if (routing.channelAvailable && !routing.amountAvailable) {
+    return { ok: false as const, status: 422, code: "yellow_card_amount_outside_provider_limits" };
   }
 
   const settlementInfo: YellowCardSettlement = settlementCurrency === "USDC"
@@ -337,10 +267,10 @@ async function loadContext(userId: string, input: any) {
     kyc,
     missingKyc,
     settlementInfo,
-    channels,
-    selectedChannel,
-    networks,
-    selectedNetwork,
+    channels: routing.channels,
+    selectedChannel: routing.selectedChannel,
+    networks: routing.networks,
+    selectedNetwork: routing.selectedNetwork,
   };
 }
 
@@ -425,6 +355,12 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "yellow_card_commercial_pricing_unavailable", error: "Commercial pricing is unavailable for this amount." }, 409);
   }
   const markupPercent = africanRailMarkupPercentForAccount(context.profile?.account_type);
+  const networkRequired = isSend || context.channel === "mobile_money";
+  const blockers = [
+    ...(context.missingKyc.length > 0 ? ["kyc_incomplete"] : []),
+    ...(!context.selectedChannel ? ["active_channel_unavailable"] : []),
+    ...(networkRequired && !context.selectedNetwork ? ["payment_network_required"] : []),
+  ];
   const preflight = {
     corridor_allowed: true,
     country: context.country,
@@ -473,8 +409,8 @@ Deno.serve(async (req) => {
       account_type: lower(row?.accountNumberType),
     })),
     selected_network_id: str(context.selectedNetwork?.id) || null,
-    can_create: context.missingKyc.length === 0 && Boolean(context.selectedChannel) &&
-      Boolean(context.selectedNetwork),
+    blockers,
+    can_create: blockers.length === 0,
   };
   if (action === "preflight" || action === "preflight_send") return json({ success: true, data: preflight });
   if (action !== "create_receive" && action !== "create_send") return json({ success: false, code: "unsupported_action" }, 400);
@@ -513,7 +449,7 @@ Deno.serve(async (req) => {
       throw new Error("yellow_card_invalid_crypto_amount");
     }
     providerBody = isSend ? {
-      channelId: str(context.selectedChannel.id),
+      channelType: yellowCardProviderChannelType(context.channel as "bank" | "mobile_money"),
       sequenceId,
       reason: str(body?.reason || "other").toLowerCase(),
       sender: {
@@ -526,6 +462,12 @@ Deno.serve(async (req) => {
         accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
         accountType: yellowCardPayloadAccountType(context.channel),
         networkId: str(context.selectedNetwork?.id),
+        accountBank: str(context.selectedNetwork?.code),
+        networkName: str(context.selectedNetwork?.name),
+        country: context.country,
+        ...(context.channel === "bank" && context.selectedNetwork?.code
+          ? { branch: str(context.selectedNetwork.code), branchCode: str(context.selectedNetwork.code) }
+          : {}),
       },
       forceAccept: true,
       customerType: "retail",
@@ -541,7 +483,7 @@ Deno.serve(async (req) => {
       },
     } : buildYellowCardSandboxReceivePayload({
       sequenceId,
-      channelId: str(context.selectedChannel.id),
+      channelType: yellowCardProviderChannelType(context.channel as "bank" | "mobile_money"),
       localAmount: context.localAmount,
       country: context.country,
       currency: context.currency,
@@ -581,7 +523,7 @@ Deno.serve(async (req) => {
       country_code: context.country,
       currency: context.currency,
       channel: context.channel,
-      provider_channel_id: str(context.selectedChannel.id),
+      provider_channel_id: str(context.selectedChannel?.id) || null,
       provider_network_id: str(context.selectedNetwork?.id) || null,
       local_amount: context.localAmount,
       settlement_currency: context.settlementInfo.cryptoCurrency,

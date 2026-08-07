@@ -63,7 +63,7 @@ type AfricanCountryOption = {
 };
 
 const UI_CRYPTO_MIN_GROSS_USD = 5.0;
-const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 6500;
+const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 15000;
 
 function normalizeCryptoRoute(network?: string, token?: string): CryptoWithdrawalValues {
   const n = String(network || '').toLowerCase();
@@ -1030,11 +1030,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
   const institutionsCacheKey = useMemo(
-    () => `borderpay_send_institutions_v1:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
+    () => `borderpay_send_institutions_v2:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
   const institutionsRefreshTsKey = useMemo(
-    () => `borderpay_send_institutions_refreshed_at:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
+    () => `borderpay_send_institutions_refreshed_at_v2:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
   const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
@@ -1198,12 +1198,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setLoadingInstitutions(true);
     try {
       const res: any = selectedAfricanProvider === 'yellow_card'
-        ? await backendAPI.payouts.yellowCardCapabilities('networks', { country: selectedAfricanCountryCode })
+        ? await backendAPI.payouts.yellowCardCapabilities('routing', {
+          country: selectedAfricanCountryCode,
+          currency: selectedCurrency,
+          channel: method,
+          direction: 'payout',
+        })
         : null;
       if (!res?.success) {
         throw new Error(res?.error || 'Unable to load available payout rails.');
       }
-      const providerNetworks = res?.data?.networks;
+      const providerNetworks = res?.data?.routing?.networks;
       const rawList = Array.isArray(providerNetworks)
         ? providerNetworks
         : (Array.isArray(providerNetworks?.networks) ? providerNetworks.networks
@@ -1212,8 +1217,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         .filter((row: any) => {
           const accountType = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
           return !accountType || (method === 'mobile_money'
-            ? ['phone', 'momo', 'mobile_money', 'mobilemoney'].includes(accountType)
-            : accountType === 'bank');
+            ? ['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'].includes(accountType)
+            : ['bank', 'eft', 'p2p'].includes(accountType));
         })
         .map((row: any, idx: number) => ({
           code: String(
@@ -1444,8 +1449,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           action: 'preflight_send',
           ...request,
         });
-        if (!preflight?.success || !preflight?.data?.can_create) {
-          throw new Error(preflight?.error || preflight?.code || 'The send preflight is incomplete.');
+        if (!preflight?.success) {
+          throw new Error(preflight?.error || preflight?.code || 'The send preflight failed.');
+        }
+        if (!preflight?.data?.can_create) {
+          const blockers = Array.isArray(preflight?.data?.blockers) ? preflight.data.blockers : [];
+          if (blockers.includes('payment_network_required')) throw new Error('Select an available payment network and try again.');
+          if (blockers.includes('active_channel_unavailable')) throw new Error('This Yellow Card corridor is not currently active.');
+          if (blockers.includes('kyc_incomplete')) throw new Error('The sandbox sender profile is incomplete.');
+          throw new Error('The send preflight is incomplete.');
         }
         result = await backendAPI.payouts.yellowCardSandboxTransaction({
           action: 'create_send',

@@ -9,7 +9,7 @@ Guards the money-math invariants for the BorderPay fee schedule:
       external-account off-ramp 1.0%, crypto-to-crypto saved route 1.0%;
       same-token crypto payout 0.0%).
       USDT 0.999 is a fixed trade rate, not a developer fee.
-  F2  Edge African payout markup is 1% for every individual and business plan.
+  F2  Edge African payout markup is 2% for every individual and business plan.
   F3  Frontend mirror exists and carries byte-identical numbers to the edge
       module (display can never drift from what the server charges).
   F4  bridge-transfer enforces the developer fee SERVER-SIDE: fixed-amount
@@ -65,11 +65,11 @@ DEV_FEE = {
 }
 FIXED_TRADE_RATE = {"USDT": 0.999}
 PAYOUT = {
-    "individual_starter": 1.0,
-    "individual_premium": 1.0,
-    "business_starter": 1.0,
-    "business_growth": 1.0,
-    "business_enterprise": 1.0,
+    "individual_starter": 2.0,
+    "individual_premium": 2.0,
+    "business_starter": 2.0,
+    "business_growth": 2.0,
+    "business_enterprise": 2.0,
 }
 
 # F1 -----------------------------------------------------------------------
@@ -93,8 +93,8 @@ if edge:
         r"AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT[\s\S]*?individual\s*:\s*([0-9.]+)[\s\S]*?business\s*:\s*([0-9.]+)",
         edge,
     )
-    if not account_markup or tuple(map(float, account_markup.groups())) != (1.0, 1.0):
-        failures.append("F2 Yellow Card account markup must be 1% for individual and business")
+    if not account_markup or tuple(map(float, account_markup.groups())) != (2.0, 2.0):
+        failures.append("F2 Yellow Card account markup must be 2% for individual and business")
 
 # F3 — frontend mirror identical ------------------------------------------
 if front:
@@ -106,8 +106,8 @@ if front:
         r"AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT[\s\S]*?individual\s*:\s*([0-9.]+)[\s\S]*?business\s*:\s*([0-9.]+)",
         front,
     )
-    if not account_markup or tuple(map(float, account_markup.groups())) != (1.0, 1.0):
-        failures.append("F3 frontend Yellow Card account markup must mirror 1% for both account types")
+    if not account_markup or tuple(map(float, account_markup.groups())) != (2.0, 2.0):
+        failures.append("F3 frontend Yellow Card account markup must mirror 2% for both account types")
 
 # F4 — server-side enforcement --------------------------------------------
 if xfer:

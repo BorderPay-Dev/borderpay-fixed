@@ -31,7 +31,7 @@ if 'walletAddress: str(wallet.address)' in transaction:
 require(
     "utils/africanRailsPolicyCache.ts",
     [
-        "const CACHE_VERSION = 'v2'",
+        "const CACHE_VERSION = 'v3'",
         "const CACHE_TTL_MS = 5 * 60 * 1000",
         "backendAPI.payouts.yellowCardCapabilities('corridor_policy'",
         "if (provider !== 'yellow_card') return",
