@@ -61,6 +61,7 @@ import {
   navPerfStartRoute,
 } from '../../utils/performance/navigationPerf';
 import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
+import { canUseAfricanRails } from '../../utils/africanRailsAccess';
 import { isBridgeAccountPaused } from '../../utils/bridgeAccountStatus';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
@@ -422,6 +423,10 @@ type StablecoinConfirmData = {
 };
 
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
+  const africanRailsTester = canUseAfricanRails({
+    id: userId,
+    email: (authAPI.getStoredUser() as any)?.email,
+  });
   const initialScreenFromCallback = useMemo<AppScreen>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -908,6 +913,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // already instant because MainApp seeds their caches before screen open;
   // Africa rails need the same treatment instead of waiting for Send/Receive.
   React.useEffect(() => {
+    if (!africanRailsTester) return;
     let cancelled = false;
     const warmTsKey = financialCacheKey('borderpay_african_rails_policy_warm_ts_v1', { userId });
     const warm = async () => {
@@ -929,7 +935,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1200 });
     else setTimeout(() => { void warm(); }, 300);
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, africanRailsTester]);
 
   const navigateBack = () => {
     if (navigationStack.length > 1) {

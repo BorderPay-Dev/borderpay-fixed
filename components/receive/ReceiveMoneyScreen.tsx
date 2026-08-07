@@ -247,7 +247,9 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
   const [receiveStep, setReceiveStep] = useState<ReceiveStep>('method');
-  const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() => readCachedAfricanPolicyRows('receive'));
+  const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
+    africanRailsTester ? readCachedAfricanPolicyRows('receive') : []
+  );
   const [africanPolicyLoading, setAfricanPolicyLoading] = useState(false);
   const africanPolicyLoadingRef = useRef(false);
   const [africanPolicyRequested, setAfricanPolicyRequested] = useState(false);
@@ -338,6 +340,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   }, []);
 
   const loadAfricanReceivePolicy = useCallback(async (force = false) => {
+    if (!africanRailsTester) return;
     if (africanPolicyLoadingRef.current) return;
     if (!force && africanPolicyRows.length > 0) return;
     africanPolicyLoadingRef.current = true;
@@ -357,9 +360,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       africanPolicyLoadingRef.current = false;
       setAfricanPolicyLoading(false);
     }
-  }, [africanPolicyRows.length]);
+  }, [africanPolicyRows.length, africanRailsTester]);
 
   useEffect(() => {
+    if (!africanRailsTester) return;
     if (africanPolicyRows.length > 0) return;
     let active = true;
     void loadAfricanPolicyRows('receive', {
@@ -376,7 +380,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     return () => {
       active = false;
     };
-  }, [africanPolicyRows.length]);
+  }, [africanPolicyRows.length, africanRailsTester]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -809,22 +813,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
             </h2>
 
             <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-              {regionalAfricanCountries.length > 0 && <button
+              {africanRailsTester && regionalAfricanCountries.length > 0 ? <button
                 type="button"
                 onClick={() => {
-                  if (africanRailsTester) {
-                    setSelectedAfricanCountryCode('');
-                    setSelectedAfricanRail(null);
-                    setCollectionResult(null);
-                    setReceiveStep('africa-destination');
-                    return;
-                  }
-                  const regional = regionalAfricanCountries[0];
-                  if (!regional) return;
-                  setSelectedAfricanCountryCode(regional.countryCode);
+                  setSelectedAfricanCountryCode('');
                   setSelectedAfricanRail(null);
                   setCollectionResult(null);
-                  setReceiveStep('africa-rail');
+                  setReceiveStep('africa-destination');
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg}`}
               >
@@ -836,14 +831,26 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     African receive rails
                   </div>
                   <div className="text-[11px] text-[#58D66D]">
-                    {africanRailsTester
-                      ? `${regionalAfricanCountries.length} countries · Bank · Mobile money`
-                      : `${regionalAfricanCountries[0].countryName} · ${getRailOptions(regionalAfricanCountries[0]).map((rail) => railLabel(rail.channel)).join(' · ')}`}
+                    {`${regionalAfricanCountries.length} countries · Bank · Mobile money`}
                   </div>
-                  {!africanRailsTester && <div className="text-[11px] text-white/40">Integration preview</div>}
                 </div>
                 <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
-              </button>}
+              </button> : !africanRailsTester ? <div
+                className="flex w-full cursor-not-allowed items-center gap-3 px-4 py-3.5 text-left opacity-60"
+                aria-disabled="true"
+                aria-label="African receive rails coming soon"
+              >
+                <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
+                  <Smartphone className="w-5 h-5 text-[#58D66D]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>African receive rails</div>
+                  <div className="text-[11px] text-white/40">African receive rails are coming soon</div>
+                </div>
+                <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
+                  Soon
+                </span>
+              </div> : null}
 
               {loading ? (
                 <div className={`border-t ${tc.borderLight} px-4 py-8 text-center`}>

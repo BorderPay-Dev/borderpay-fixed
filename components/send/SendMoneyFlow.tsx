@@ -572,7 +572,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Step & method
   const [step, setStep] = useState<Step>('method');
   const [method, setMethod] = useState<TransferMethod>('stablecoin');
-  const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() => readCachedAfricanPolicyRows('payout'));
+  const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
+    africanRailsTester ? readCachedAfricanPolicyRows('payout') : []
+  );
   const [africanPolicyLoading, setAfricanPolicyLoading] = useState(false);
   const africanPolicyLoadingRef = useRef(false);
   const [africanPolicyError, setAfricanPolicyError] = useState('');
@@ -584,6 +586,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   } | null>(null);
 
   const loadAfricanPolicy = useCallback(async (force = false) => {
+    if (!africanRailsTester) return;
     if (africanPolicyLoadingRef.current) return;
     const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
     if (!force && africanPolicyRows.length > 0 && cacheIsFresh) return;
@@ -603,9 +606,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       africanPolicyLoadingRef.current = false;
       setAfricanPolicyLoading(false);
     }
-  }, [africanPolicyRows.length]);
+  }, [africanPolicyRows.length, africanRailsTester]);
 
   useEffect(() => {
+    if (!africanRailsTester) return;
     const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
     if (africanPolicyRows.length > 0 && cacheIsFresh) return;
     let active = true;
@@ -625,7 +629,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return () => {
       active = false;
     };
-  }, [africanPolicyRows.length]);
+  }, [africanPolicyRows.length, africanRailsTester]);
 
   useEffect(() => {
     if (step === 'africa-destination' || step === 'africa-rail') {
@@ -1654,7 +1658,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <div className="space-y-3">
-              <button
+              {africanRailsTester ? <button
                 type="button"
                 onClick={() => {
                   setStep('africa-destination');
@@ -1676,7 +1680,23 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   </p>
                 </div>
                 <ArrowRight size={18} className={tc.textMuted} />
-              </button>
+              </button> : <div
+                className={`flex w-full cursor-not-allowed items-center gap-3 rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 text-left opacity-60`}
+                aria-disabled="true"
+                aria-label="Send to Africa coming soon"
+              >
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#58D66D]/25 bg-[#58D66D]/12">
+                  <Smartphone className="h-5 w-5 text-[#58D66D]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className={`truncate text-sm font-semibold ${tc.text}`}>Send to Africa</p>
+                  <p className="mt-1 truncate text-xs font-semibold text-[#58D66D]">Mobile money and local bank rails</p>
+                  <p className="mt-1 truncate text-xs text-white/40">African send rails are coming soon</p>
+                </div>
+                <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
+                  Soon
+                </span>
+              </div>}
 
               {TRANSFERS_LIVE ? (
                 <button

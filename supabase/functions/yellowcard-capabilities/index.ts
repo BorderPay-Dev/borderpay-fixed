@@ -23,6 +23,9 @@ Deno.serve(async (req) => {
   const { data: authData, error: authError } = await supa.auth.getUser(token);
   const user = authData?.user;
   if (authError || !user?.id) return json({ success: false, code: "unauthorized", error: "Unauthorized" }, 401);
+  if (!isAfricanRailsTesterEmail(user.email)) {
+    return json({ success: false, code: "african_rails_closed_beta", error: "Yellow Card integration testing is restricted." }, 403);
+  }
 
   let body: any = {};
   try { body = await req.json(); } catch { return json({ success: false, code: "invalid_json" }, 400); }
@@ -66,9 +69,6 @@ Deno.serve(async (req) => {
       account_country: direction === "receive" ? profileCountry : null,
       rows: publicRows,
     } } });
-  }
-  if (!isAfricanRailsTesterEmail(user.email)) {
-    return json({ success: false, code: "african_rails_closed_beta", error: "Yellow Card integration testing is restricted." }, 403);
   }
   const config = getYellowCardConfig();
   if (!config.configured || config.environment !== "sandbox") {
