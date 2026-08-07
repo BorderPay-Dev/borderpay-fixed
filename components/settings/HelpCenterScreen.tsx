@@ -26,6 +26,10 @@ const faqItems = [
     answer: 'BorderPay charges low, transparent fees. You can see the exact fee before confirming any transaction.',
   },
   {
+    question: 'What is the account maintenance fee?',
+    answer: 'Verified Individual accounts cost $5 per month and verified Business accounts cost $15 per month. Billing starts from the next billing cycle and is deducted from your BorderPay wallet in USDC first, then USDT if needed.',
+  },
+  {
     question: 'How do I get a virtual card?',
     answer: 'Cards are locked for now. BorderPay will enable card creation only after the card backend is approved and live.',
   },

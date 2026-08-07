@@ -39,6 +39,18 @@ require(
 )
 
 require(
+    "supabase/functions/yellowcard-capabilities/index.ts",
+    [
+        "const publicRows = commercialRows",
+        "unavailable_rows: availability.filter",
+    ],
+)
+
+capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
+if "const publicRows = availability.filter" in capabilities:
+    raise SystemExit("incomplete sandbox discovery must not shrink the signed 21-country, 28-rail catalogue")
+
+require(
     "components/send/SendMoneyFlow.tsx",
     [
         "const amountToValidate = isAfricanPayout ? Number(africanQuote?.destinationAmount) : sourceAmount",

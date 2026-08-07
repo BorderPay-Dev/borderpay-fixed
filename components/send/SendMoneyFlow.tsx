@@ -1900,20 +1900,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
             )}
 
-            <div className="mt-5 grid grid-cols-3 rounded-2xl border border-white/[0.08] bg-black/35 py-3">
-              {[
-                { icon: Shield, title: 'Secure', body: 'Verified routes' },
-                { icon: Zap, title: 'Fast', body: 'Built for speed' },
-                { icon: Users, title: 'Reliable', body: 'Clear status' },
-              ].map((item, index) => (
-                <div key={item.title} className={`px-3 text-center ${index > 0 ? 'border-l border-white/10' : ''}`}>
-                  <item.icon className="mx-auto mb-1.5 h-5 w-5 text-[#58D66D]" />
-                  <p className={`text-xs font-semibold ${tc.text}`}>{item.title}</p>
-                  <p className="mt-0.5 text-[11px] leading-tight text-white/45">{item.body}</p>
-                </div>
-              ))}
-            </div>
-
             <div className={`mt-6 flex items-start gap-2 px-4 py-3 ${tc.card} rounded-xl border ${tc.borderLight}`}>
               <Info size={16} className="text-[#C7FF00] mt-0.5 flex-shrink-0" />
               <p className={`text-xs ${tc.textMuted}`}>

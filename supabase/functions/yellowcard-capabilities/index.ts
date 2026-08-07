@@ -94,7 +94,11 @@ Deno.serve(async (req) => {
         active_network_count: routing.networks.length,
       };
     });
-    const publicRows = availability.filter((item) => item.available).map((item) => item.row);
+    // Keep the signed commercial schedule visible in the sandbox catalogue.
+    // Provider discovery is retained as diagnostics and is re-checked when a
+    // tester selects a corridor; it must not silently shrink the 21-country,
+    // 28-rail test matrix when Yellow Card omits sandbox network metadata.
+    const publicRows = commercialRows;
     return json({ success: true, data: { local_rail_policy: {
       provider: "yellow_card",
       direction,
