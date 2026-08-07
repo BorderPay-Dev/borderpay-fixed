@@ -15,6 +15,8 @@ for label, source in [("send", SEND), ("receive", RECEIVE)]:
         failures.append(f"{label} does not offer biometric authorization")
     if '<InputOTPSlot index={0} mask />' not in source:
         failures.append(f"{label} transaction PIN is not masked")
+    if 'type="password"' not in source:
+        failures.append(f"{label} transaction PIN does not use a password input")
 
 if "if (step !== 'pin') setPin('');" not in SEND:
     failures.append("send transaction PIN is not cleared after leaving authorization")

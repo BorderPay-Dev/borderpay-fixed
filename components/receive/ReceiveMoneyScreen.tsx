@@ -1325,7 +1325,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
             {hasPinFactor && (
               <div className="flex justify-center mb-6">
-                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} inputMode="numeric" pattern="[0-9]*">
+                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} type="password" autoComplete="off" inputMode="numeric" pattern="[0-9]*">
                   <InputOTPGroup>
                     <InputOTPSlot index={0} mask />
                     <InputOTPSlot index={1} mask />

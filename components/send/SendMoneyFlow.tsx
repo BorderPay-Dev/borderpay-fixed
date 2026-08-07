@@ -2954,6 +2954,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 maxLength={6}
                 value={pin}
                 onChange={handlePinComplete}
+                type="password"
+                autoComplete="off"
                 inputMode="numeric"
                 pattern="[0-9]*"
               >
