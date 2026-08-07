@@ -978,6 +978,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // PIN & result
   const [pin, setPin] = useState('');
+  useEffect(() => {
+    if (step !== 'pin') setPin('');
+  }, [step]);
   const [snapshotReady, setSnapshotReady] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
@@ -1192,10 +1195,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       });
       try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
       try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
-    } catch (error: any) {
-      setInstitutions([]);
-      setSelectedBank(null);
-      toast.error(friendlyError(error?.message, 'This route is temporarily unavailable. Try again.'));
+    } catch {
+      // A transient provider refresh must not erase a previously validated
+      // corridor list or expose provider-network loading errors to the user.
+      if (!seededFromCache) {
+        setInstitutions([]);
+        setSelectedBank(null);
+      }
     } finally {
       setLoadingInstitutions(false);
     }
@@ -1307,6 +1313,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Process transaction
   // ---------------------------------------------------------------------------
   const processTransaction = async (verifiedPin: string) => {
+    // Never retain a transaction PIN while a request is in flight or after a
+    // route transition. Non-stablecoin flows have already verified it locally.
+    setPin('');
     setStep('processing');
     setErrorMessage('');
 
@@ -1490,7 +1499,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setPin('');
         return;
       }
-      processTransaction(value);
+      setPin('');
+      void processTransaction(method === 'stablecoin' ? value : '__verified__');
     }
   };
 
@@ -2948,12 +2958,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 pattern="[0-9]*"
               >
                 <InputOTPGroup>
-                  <InputOTPSlot index={0} />
-                  <InputOTPSlot index={1} />
-                  <InputOTPSlot index={2} />
-                  <InputOTPSlot index={3} />
-                  <InputOTPSlot index={4} />
-                  <InputOTPSlot index={5} />
+                  <InputOTPSlot index={0} mask />
+                  <InputOTPSlot index={1} mask />
+                  <InputOTPSlot index={2} mask />
+                  <InputOTPSlot index={3} mask />
+                  <InputOTPSlot index={4} mask />
+                  <InputOTPSlot index={5} mask />
                 </InputOTPGroup>
               </InputOTP>
             </div>

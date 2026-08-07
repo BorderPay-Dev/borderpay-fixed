@@ -75,10 +75,13 @@ export function resolveYellowCardRouting(input: {
     yellowCardActive(channel?.apiStatus || channel?.status)
   );
   const amountChannels = channels.filter((channel) => supportsAmount(channel, input.amount));
+  const eligibleChannelIds = new Set(amountChannels.map((channel) => text(channel?.id)).filter(Boolean));
   const networks = networkRows.filter((network) =>
     (normalizeYellowCardCountryCode(network?.country) || upper(network?.country)) === country &&
     yellowCardActive(network?.status || network?.apiStatus) &&
-    yellowCardAccountType(network?.accountNumberType || network?.account_type) === input.rail
+    yellowCardAccountType(network?.accountNumberType || network?.account_type) === input.rail &&
+    Array.isArray(network?.channelIds) &&
+    network.channelIds.some((channelId: unknown) => eligibleChannelIds.has(text(channelId)))
   );
   const requestedNetworkId = text(input.networkId);
   const selectedNetwork = requestedNetworkId
@@ -87,8 +90,13 @@ export function resolveYellowCardRouting(input: {
   const linkedIds = new Set(
     Array.isArray(selectedNetwork?.channelIds) ? selectedNetwork.channelIds.map(text) : [],
   );
-  const selectedChannel = amountChannels.find((channel) => linkedIds.has(text(channel?.id))) ||
-    amountChannels[0] || null;
+  const selectedChannel = requestedNetworkId
+    ? selectedNetwork
+      ? amountChannels.find((channel) => linkedIds.has(text(channel?.id))) || null
+      : null
+    : selectedNetwork
+      ? amountChannels.find((channel) => linkedIds.has(text(channel?.id))) || null
+      : amountChannels[0] || null;
 
   return {
     channels,

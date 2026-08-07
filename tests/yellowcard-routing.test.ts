@@ -22,7 +22,7 @@ const network = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-Deno.test("channelType routing accepts an active country network even when sandbox channelIds drift", () => {
+Deno.test("routing rejects a network that is not linked to the selected corridor channel", () => {
   const result = resolveYellowCardRouting({
     channels: [channel()],
     networks: [network({ channelIds: ["stale-channel-id"] })],
@@ -33,8 +33,8 @@ Deno.test("channelType routing accepts an active country network even when sandb
     networkId: "network-1",
     amount: 25_620,
   });
-  if (!result.selectedChannel || !result.selectedNetwork || !result.networkAvailable) {
-    throw new Error(`expected channelType auto-routing, got ${JSON.stringify(result)}`);
+  if (result.selectedChannel || result.selectedNetwork || result.networkAvailable) {
+    throw new Error(`unlinked networks must fail closed, got ${JSON.stringify(result)}`);
   }
 });
 
@@ -85,7 +85,7 @@ Deno.test("provider availability fails closed for inactive or missing networks",
 Deno.test("provider limits are evaluated across all active auto-routed channels", () => {
   const result = resolveYellowCardRouting({
     channels: [channel({ id: "low", max: 100 }), channel({ id: "high", min: 101, max: 1_000_000 })],
-    networks: [network()],
+    networks: [network({ channelIds: ["high"] })],
     direction: "payout",
     country: "KE",
     currency: "KES",

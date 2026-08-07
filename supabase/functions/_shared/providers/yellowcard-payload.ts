@@ -3,6 +3,10 @@ export type YellowCardSettlement =
   | { cryptoCurrency: "USDC"; cryptoNetwork: "BASE"; walletAddress: string }
   | { cryptoCurrency: "USDT"; cryptoNetwork: "TRC20"; walletAddress: string };
 
+export type YellowCardSendSettlement =
+  | { cryptoCurrency: "USDC"; cryptoNetwork: "BASE"; cryptoAmount: number; refundAddress: string }
+  | { cryptoCurrency: "USDT"; cryptoNetwork: "TRC20"; cryptoAmount: number; refundAddress: string };
+
 export interface YellowCardRetailKyc {
   name: string;
   country: string;
@@ -32,6 +36,24 @@ export interface YellowCardReceivePayloadInput {
   settlementInfo: YellowCardSettlement;
 }
 
+export interface YellowCardSendPayloadInput {
+  sequenceId: string;
+  channelId: string;
+  localAmount: number;
+  country: string;
+  currency: string;
+  reason: string;
+  customerUID: string;
+  sender: YellowCardRetailKyc;
+  destination: {
+    accountName: string;
+    accountNumber: string;
+    accountType: YellowCardAccountType;
+    networkId: string;
+  };
+  settlementInfo: YellowCardSendSettlement;
+}
+
 const PAYMENT_REASONS = new Set([
   "gift",
   "bills",
@@ -48,6 +70,69 @@ function required(value: unknown, field: string): string {
   const normalized = String(value ?? "").trim();
   if (!normalized) throw new Error(`yellow_card_missing_${field}`);
   return normalized;
+}
+
+function retailKyc(input: YellowCardRetailKyc, prefix: "sender" | "recipient") {
+  return {
+    name: required(input.name, `${prefix}_name`),
+    country: required(input.country, `${prefix}_country`).toUpperCase(),
+    phone: required(input.phone, `${prefix}_phone`),
+    address: required(input.address, `${prefix}_address`),
+    dob: required(input.dob, `${prefix}_dob`),
+    email: required(input.email, `${prefix}_email`).toLowerCase(),
+    idNumber: required(input.idNumber, `${prefix}_id_number`),
+    idType: required(input.idType, `${prefix}_id_type`),
+  };
+}
+
+export function buildYellowCardSandboxSendPayload(
+  input: YellowCardSendPayloadInput,
+): Record<string, unknown> {
+  const localAmount = Number(input.localAmount);
+  if (!Number.isFinite(localAmount) || !Number.isInteger(localAmount) || localAmount <= 0) {
+    throw new Error("yellow_card_invalid_local_amount");
+  }
+  const cryptoAmount = Number(input.settlementInfo.cryptoAmount);
+  if (!Number.isFinite(cryptoAmount) || cryptoAmount <= 0) {
+    throw new Error("yellow_card_invalid_crypto_amount");
+  }
+  const reason = required(input.reason, "reason").toLowerCase();
+  if (!PAYMENT_REASONS.has(reason)) throw new Error("yellow_card_invalid_reason");
+  const accountType = input.destination.accountType;
+  if (accountType !== "bank" && accountType !== "momo") {
+    throw new Error("yellow_card_invalid_account_type");
+  }
+  const settlementInfo = {
+    cryptoCurrency: input.settlementInfo.cryptoCurrency,
+    cryptoNetwork: input.settlementInfo.cryptoNetwork,
+    cryptoAmount,
+    refundAddress: required(input.settlementInfo.refundAddress, "refund_address"),
+  };
+  const supportedSettlement =
+    (settlementInfo.cryptoCurrency === "USDC" && settlementInfo.cryptoNetwork === "BASE") ||
+    (settlementInfo.cryptoCurrency === "USDT" && settlementInfo.cryptoNetwork === "TRC20");
+  if (!supportedSettlement) throw new Error("yellow_card_unsupported_settlement_route");
+
+  return {
+    channelId: required(input.channelId, "channel_id"),
+    sequenceId: required(input.sequenceId, "sequence_id"),
+    localAmount,
+    reason,
+    sender: retailKyc(input.sender, "sender"),
+    destination: {
+      accountName: required(input.destination.accountName, "destination_account_name"),
+      accountNumber: required(input.destination.accountNumber, "destination_account_number"),
+      accountType,
+      networkId: required(input.destination.networkId, "network_id"),
+    },
+    forceAccept: true,
+    customerType: "retail",
+    customerUID: required(input.customerUID, "customer_uid"),
+    country: required(input.country, "country").toUpperCase(),
+    currency: required(input.currency, "currency").toUpperCase(),
+    directSettlement: true,
+    settlementInfo,
+  };
 }
 
 export function buildYellowCardSandboxReceivePayload(
@@ -68,16 +153,7 @@ export function buildYellowCardSandboxReceivePayload(
     throw new Error("yellow_card_missing_network_id");
   }
 
-  const recipient = {
-    name: required(input.recipient.name, "recipient_name"),
-    country: required(input.recipient.country, "recipient_country").toUpperCase(),
-    phone: required(input.recipient.phone, "recipient_phone"),
-    address: required(input.recipient.address, "recipient_address"),
-    dob: required(input.recipient.dob, "recipient_dob"),
-    email: required(input.recipient.email, "recipient_email").toLowerCase(),
-    idNumber: required(input.recipient.idNumber, "recipient_id_number"),
-    idType: required(input.recipient.idType, "recipient_id_type"),
-  };
+  const recipient = retailKyc(input.recipient, "recipient");
 
   const settlementInfo = {
     cryptoCurrency: input.settlementInfo.cryptoCurrency,

@@ -25,8 +25,9 @@ for fragment in (
     'accountNumber: sandboxAccount(context.country, context.channel, "success")',
     'direction: isSend ? "payout" : "receive"',
     'existing.direction === "payout"',
-    'channelType: yellowCardProviderChannelType(context.channel',
-    'accountBank: str(context.selectedNetwork?.code)',
+    'buildYellowCardSandboxSendPayload({',
+    'channelId: str(context.selectedChannel?.id)',
+    'localAmount: context.localAmount',
     'const networkRequired = isSend || context.channel === "mobile_money"',
 ):
     assert fragment in edge, f"missing Yellow Card send server contract: {fragment}"
@@ -49,7 +50,8 @@ assert "backendAPI.payouts.resolveAccount" not in ui
 assert "['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'].includes(accountType)" in ui
 assert 'rates: { path: "/rates"' in capabilities
 assert 'if (["bank", "eft", "p2p"].includes(normalized)) return "bank"' in routing
-assert 'selectedChannel = amountChannels.find' in routing
+assert 'const selectedChannel = requestedNetworkId' in routing
+assert 'amountChannels.find((channel) => linkedIds.has(text(channel?.id)))' in routing
 
 for fragment in (
     "yellowCardCapabilities('routing'",

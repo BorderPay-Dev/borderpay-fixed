@@ -13,6 +13,13 @@ for label, source in [("send", SEND), ("receive", RECEIVE)]:
         failures.append(f"{label} does not use the existing transaction PIN verifier")
     if "BiometricManager.verify" not in source:
         failures.append(f"{label} does not offer biometric authorization")
+    if '<InputOTPSlot index={0} mask />' not in source:
+        failures.append(f"{label} transaction PIN is not masked")
+
+if "if (step !== 'pin') setPin('');" not in SEND:
+    failures.append("send transaction PIN is not cleared after leaving authorization")
+if "if (receiveStep !== 'africa-auth') setCollectionPin('');" not in RECEIVE:
+    failures.append("receive transaction PIN is not cleared after leaving authorization")
 
 if "issueTransactionAuthorization" in VERIFY_PIN:
     failures.append("PIN verification was coupled to sandbox transaction token issuance")

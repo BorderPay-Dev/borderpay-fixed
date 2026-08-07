@@ -10,13 +10,12 @@ import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-
 import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
 import {
-  mergeYellowCardRows,
   resolveYellowCardRouting,
-  yellowCardProviderChannelType,
 } from "../_shared/providers/yellowcard-routing.ts";
 import { africanRailMarkupPercentForAccount } from "../_shared/fees/schedule.ts";
 import {
   buildYellowCardSandboxReceivePayload,
+  buildYellowCardSandboxSendPayload,
   redactYellowCardReceivePayload,
   type YellowCardRetailKyc,
   type YellowCardSettlement,
@@ -234,31 +233,13 @@ async function loadContext(userId: string, input: any) {
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
   }
-  const channelOnly = resolveYellowCardRouting({
-    channels: channelsResult.data,
-    networks: [],
-    country,
-    currency,
-    rail: channel as "bank" | "mobile_money",
-    direction,
-    amount: localAmount,
-  });
-  const networkResults = await Promise.all([
-    yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
-    ...channelOnly.channels.filter((candidate) => str(candidate?.id)).map((candidate) => yellowCardFetch({
-      method: "GET",
-      path: "/networks",
-      query: { country, channelId: str(candidate?.id) },
-    })),
-  ]);
-  const successfulNetworkPayloads = networkResults.filter((result) => result.ok).map((result) => result.data);
-  if (successfulNetworkPayloads.length === 0) {
-    return { ok: false as const, status: 502, code: networkResults[0]?.error || "yellow_card_networks_failed" };
+  const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
+  if (!networksResult.ok) {
+    return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
   }
-  const mergedNetworks = mergeYellowCardRows(successfulNetworkPayloads, "networks");
   const routing = resolveYellowCardRouting({
     channels: channelsResult.data,
-    networks: mergedNetworks,
+    networks: networksResult.data,
     country,
     currency,
     rail: channel as "bank" | "mobile_money",
@@ -467,9 +448,10 @@ Deno.serve(async (req) => {
     if (isSend && (!Number.isFinite(Number(body?.crypto_amount)) || Number(body.crypto_amount) <= 0)) {
       throw new Error("yellow_card_invalid_crypto_amount");
     }
-    providerBody = isSend ? {
-      channelType: yellowCardProviderChannelType(context.channel as "bank" | "mobile_money"),
+    providerBody = isSend ? buildYellowCardSandboxSendPayload({
+      channelId: str(context.selectedChannel?.id),
       sequenceId,
+      localAmount: context.localAmount,
       reason: str(body?.reason || "other").toLowerCase(),
       sender: {
         ...context.kyc,
@@ -481,28 +463,26 @@ Deno.serve(async (req) => {
         accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
         accountType: yellowCardPayloadAccountType(context.channel),
         networkId: str(context.selectedNetwork?.id),
-        accountBank: str(context.selectedNetwork?.code),
-        networkName: str(context.selectedNetwork?.name),
-        country: context.country,
-        ...(context.channel === "bank" && context.selectedNetwork?.code
-          ? { branch: str(context.selectedNetwork.code), branchCode: str(context.selectedNetwork.code) }
-          : {}),
       },
-      forceAccept: true,
-      customerType: "retail",
       customerUID: access.user.id,
       country: context.country,
       currency: context.currency,
-      directSettlement: true,
-      settlementInfo: {
-        cryptoCurrency: context.settlementInfo.cryptoCurrency,
-        cryptoNetwork: context.settlementInfo.cryptoNetwork,
-        cryptoAmount: Number(body?.crypto_amount),
-        refundAddress: context.settlementInfo.walletAddress,
-      },
-    } : buildYellowCardSandboxReceivePayload({
+      settlementInfo: context.settlementInfo.cryptoCurrency === "USDC"
+        ? {
+          cryptoCurrency: "USDC",
+          cryptoNetwork: "BASE",
+          cryptoAmount: Number(body?.crypto_amount),
+          refundAddress: context.settlementInfo.walletAddress,
+        }
+        : {
+          cryptoCurrency: "USDT",
+          cryptoNetwork: "TRC20",
+          cryptoAmount: Number(body?.crypto_amount),
+          refundAddress: context.settlementInfo.walletAddress,
+        },
+    }) : buildYellowCardSandboxReceivePayload({
       sequenceId,
-      channelType: yellowCardProviderChannelType(context.channel as "bank" | "mobile_money"),
+      channelId: str(context.selectedChannel?.id),
       localAmount: context.localAmount,
       country: context.country,
       currency: context.currency,

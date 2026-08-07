@@ -275,6 +275,9 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
   const [collectionPin, setCollectionPin] = useState('');
+  useEffect(() => {
+    if (receiveStep !== 'africa-auth') setCollectionPin('');
+  }, [receiveStep]);
   const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
   const [hasBiometricFactor, setHasBiometricFactor] = useState(() => BiometricManager.isEnrolled(userId));
 
@@ -625,6 +628,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       setCollectionPin('');
       return;
     }
+    setCollectionPin('');
     await createAfricanCollection();
   };
 
@@ -1323,12 +1327,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
               <div className="flex justify-center mb-6">
                 <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} inputMode="numeric" pattern="[0-9]*">
                   <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                    <InputOTPSlot index={3} />
-                    <InputOTPSlot index={4} />
-                    <InputOTPSlot index={5} />
+                    <InputOTPSlot index={0} mask />
+                    <InputOTPSlot index={1} mask />
+                    <InputOTPSlot index={2} mask />
+                    <InputOTPSlot index={3} mask />
+                    <InputOTPSlot index={4} mask />
+                    <InputOTPSlot index={5} mask />
                   </InputOTPGroup>
                 </InputOTP>
               </div>

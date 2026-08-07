@@ -4,7 +4,6 @@ import { isAfricanRailsTesterEmail } from "../_shared/african-rails-access.ts";
 import { listYellowCardCommercialRails, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
 import {
-  mergeYellowCardRows,
   resolveYellowCardRouting,
   yellowCardProviderChannelType,
 } from "../_shared/providers/yellowcard-routing.ts";
@@ -106,30 +105,16 @@ Deno.serve(async (req) => {
         error: "Unable to load available payout rails.",
       }, 502);
     }
-    const channelOnly = resolveYellowCardRouting({
-      channels: channelsResult.data,
-      networks: [],
-      direction: direction as "receive" | "payout",
-      country,
-      currency,
-      rail: rail as "bank" | "mobile_money",
-    });
-    const networkResults = await Promise.all([
-      yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
-      ...channelOnly.channels.filter((channel) => String(channel?.id || "").trim()).map((channel) => yellowCardFetch({
-        method: "GET",
-        path: "/networks",
-        query: { country, channelId: String(channel?.id || "") },
-      })),
-    ]);
-    const successfulNetworkPayloads = networkResults.filter((result) => result.ok).map((result) => result.data);
-    if (successfulNetworkPayloads.length === 0) {
-      return json({ success: false, code: networkResults[0]?.error || "yellow_card_routing_discovery_failed", error: "Unable to load available payout rails." }, 502);
+    // Yellow Card's published Networks contract supports country filtering.
+    // Do not fan out undocumented channelId requests: that multiplies provider
+    // calls per screen and can rate-limit every corridor during sandbox review.
+    const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
+    if (!networksResult.ok) {
+      return json({ success: false, code: networksResult.error || "yellow_card_routing_discovery_failed", error: "Unable to load available payout rails." }, 502);
     }
-    const mergedNetworks = mergeYellowCardRows(successfulNetworkPayloads, "networks");
     const routing = resolveYellowCardRouting({
       channels: channelsResult.data,
-      networks: mergedNetworks,
+      networks: networksResult.data,
       direction: direction as "receive" | "payout",
       country,
       currency,

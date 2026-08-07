@@ -43,15 +43,15 @@ require(
     [
         "const publicRows = commercialRows",
         'discovery_status: "deferred_until_corridor_selection"',
-        'query: { country, channelId: String(channel?.id || "") }',
+        'path: "/networks", query: { country }',
     ],
 )
 
 require(
     "supabase/functions/yellowcard-sandbox-transaction/index.ts",
     [
-        'query: { country, channelId: str(candidate?.id) }',
-        'mergeYellowCardRows(successfulNetworkPayloads, "networks")',
+        'path: "/networks", query: { country }',
+        'buildYellowCardSandboxSendPayload({',
     ],
 )
 
@@ -60,6 +60,8 @@ if "const publicRows = availability.filter" in capabilities:
     raise SystemExit("incomplete sandbox discovery must not shrink the signed 21-country, 28-rail catalogue")
 if 'path: "/channels" }),\n      yellowCardFetch({ method: "GET", path: "/networks" })' in capabilities:
     raise SystemExit("catalogue loading must not wait for provider discovery")
+if "channelId:" in capabilities:
+    raise SystemExit("routing discovery must not call undocumented Networks channelId queries")
 
 require(
     "components/send/SendMoneyFlow.tsx",
