@@ -54,6 +54,20 @@ Deno.test("bank routing treats Yellow Card EFT and P2P channels as bank", () => 
   }
 });
 
+Deno.test("bank routing accepts Yellow Card account networks and ISO-3 country codes", () => {
+  const result = resolveYellowCardRouting({
+    channels: [channel({ country: "ETH", currency: "USD", channelType: "bank" })],
+    networks: [network({ country: "ETH", accountNumberType: "account" })],
+    direction: "payout",
+    country: "ET",
+    currency: "USD",
+    rail: "bank",
+  });
+  if (!result.channelAvailable || !result.networkAvailable) {
+    throw new Error("expected ISO-3 account network to map to the Ethiopia bank corridor");
+  }
+});
+
 Deno.test("provider availability fails closed for inactive or missing networks", () => {
   const inactive = resolveYellowCardRouting({
     channels: [channel()],

@@ -37,6 +37,8 @@ if "africanRailsTester ? <button" not in send_ui or "Send to Africa coming soon"
     failures.append("send UI does not render a disabled coming-soon state for live users")
 if "!africanRailsTester ? <div" not in receive_ui or "African receive rails coming soon" not in receive_ui:
     failures.append("receive UI does not render a disabled coming-soon state for live users")
+if "isNativeRuntime" in frontend:
+    failures.append("native runtime blocks the three explicitly approved review accounts")
 
 for endpoint in ENDPOINTS:
     path = ROOT / f"supabase/functions/{endpoint}/index.ts"

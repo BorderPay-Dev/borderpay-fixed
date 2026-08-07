@@ -1226,7 +1226,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           const accountType = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
           return !accountType || (method === 'mobile_money'
             ? ['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'].includes(accountType)
-            : ['bank', 'eft', 'p2p'].includes(accountType));
+            : ['account', 'account_number', 'bank', 'bank_account', 'eft', 'p2p'].includes(accountType));
         })
         .map((row: any, idx: number) => ({
           code: String(

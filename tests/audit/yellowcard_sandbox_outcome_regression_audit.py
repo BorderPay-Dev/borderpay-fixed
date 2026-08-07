@@ -42,13 +42,24 @@ require(
     "supabase/functions/yellowcard-capabilities/index.ts",
     [
         "const publicRows = commercialRows",
-        "unavailable_rows: availability.filter",
+        'discovery_status: "deferred_until_corridor_selection"',
+        'query: { country, channelId: String(channel?.id || "") }',
+    ],
+)
+
+require(
+    "supabase/functions/yellowcard-sandbox-transaction/index.ts",
+    [
+        'query: { country, channelId: str(candidate?.id) }',
+        'mergeYellowCardRows(successfulNetworkPayloads, "networks")',
     ],
 )
 
 capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
 if "const publicRows = availability.filter" in capabilities:
     raise SystemExit("incomplete sandbox discovery must not shrink the signed 21-country, 28-rail catalogue")
+if 'path: "/channels" }),\n      yellowCardFetch({ method: "GET", path: "/networks" })' in capabilities:
+    raise SystemExit("catalogue loading must not wait for provider discovery")
 
 require(
     "components/send/SendMoneyFlow.tsx",

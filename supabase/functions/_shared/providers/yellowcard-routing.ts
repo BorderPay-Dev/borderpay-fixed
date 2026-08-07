@@ -1,3 +1,5 @@
+import { normalizeYellowCardCountryCode } from "./yellowcard-commercial-policy.ts";
+
 export type YellowCardDirection = "receive" | "payout";
 export type YellowCardRail = "bank" | "mobile_money";
 
@@ -34,7 +36,7 @@ export function yellowCardDirection(value: unknown): YellowCardDirection | null 
 export function yellowCardAccountType(value: unknown): YellowCardRail | null {
   const normalized = lower(value).replaceAll("-", "_");
   if (["phone", "momo", "mobile", "mobile_money", "mobilemoney", "msisdn"].includes(normalized)) return "mobile_money";
-  if (["bank", "eft", "p2p"].includes(normalized)) return "bank";
+  if (["account", "account_number", "bank", "bank_account", "eft", "p2p"].includes(normalized)) return "bank";
   return null;
 }
 
@@ -66,7 +68,7 @@ export function resolveYellowCardRouting(input: {
   const channelRows = yellowCardRows(input.channels, "channels");
   const networkRows = yellowCardRows(input.networks, "networks");
   const channels = channelRows.filter((channel) =>
-    upper(channel?.country) === country &&
+    (normalizeYellowCardCountryCode(channel?.country) || upper(channel?.country)) === country &&
     upper(channel?.currency || channel?.countryCurrency) === currency &&
     yellowCardRail(channel?.channelType) === input.rail &&
     yellowCardDirection(channel?.rampType) === input.direction &&
@@ -74,7 +76,7 @@ export function resolveYellowCardRouting(input: {
   );
   const amountChannels = channels.filter((channel) => supportsAmount(channel, input.amount));
   const networks = networkRows.filter((network) =>
-    upper(network?.country) === country &&
+    (normalizeYellowCardCountryCode(network?.country) || upper(network?.country)) === country &&
     yellowCardActive(network?.status || network?.apiStatus) &&
     yellowCardAccountType(network?.accountNumberType || network?.account_type) === input.rail
   );
@@ -98,4 +100,16 @@ export function resolveYellowCardRouting(input: {
     amountAvailable: amountChannels.length > 0,
     networkAvailable: networks.length > 0,
   };
+}
+
+export function mergeYellowCardRows(values: any[], key: string): any[] {
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  values.flatMap((value) => yellowCardRows(value, key)).forEach((row, index) => {
+    const identity = text(row?.id || row?.code || `${upper(row?.country)}:${text(row?.name)}:${index}`);
+    if (!identity || seen.has(identity)) return;
+    seen.add(identity);
+    merged.push(row);
+  });
+  return merged;
 }

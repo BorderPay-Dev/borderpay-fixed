@@ -4,6 +4,7 @@ import { isAfricanRailsTesterEmail } from "../_shared/african-rails-access.ts";
 import { listYellowCardCommercialRails, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
 import {
+  mergeYellowCardRows,
   resolveYellowCardRouting,
   yellowCardProviderChannelType,
 } from "../_shared/providers/yellowcard-routing.ts";
@@ -66,34 +67,6 @@ Deno.serve(async (req) => {
       direction as "receive" | "payout",
       direction === "receive" && !testerAllReceiveCountries ? profileCountry : null,
     );
-    const [channelsResult, networksResult] = await Promise.all([
-      yellowCardFetch({ method: "GET", path: "/channels" }),
-      yellowCardFetch({ method: "GET", path: "/networks" }),
-    ]);
-    if (!channelsResult.ok || !networksResult.ok) {
-      return json({
-        success: false,
-        code: channelsResult.error || networksResult.error || "yellow_card_routing_discovery_failed",
-        error: "Unable to load available African rails.",
-      }, 502);
-    }
-    const availability = commercialRows.map((row) => {
-      const routing = resolveYellowCardRouting({
-        channels: channelsResult.data,
-        networks: networksResult.data,
-        direction: row.direction,
-        country: row.country_code,
-        currency: row.destination_currency,
-        rail: row.channel,
-      });
-      const networkRequired = row.direction === "payout" || row.channel === "mobile_money";
-      return {
-        row,
-        available: routing.channelAvailable && (!networkRequired || routing.networkAvailable),
-        active_channel_count: routing.channels.length,
-        active_network_count: routing.networks.length,
-      };
-    });
     // Keep the signed commercial schedule visible in the sandbox catalogue.
     // Provider discovery is retained as diagnostics and is re-checked when a
     // tester selects a corridor; it must not silently shrink the 21-country,
@@ -109,13 +82,9 @@ Deno.serve(async (req) => {
         : direction === "receive" ? "account_country_only" : "global_sender",
       account_country: direction === "receive" ? profileCountry : null,
       rows: publicRows,
-      unavailable_rows: availability.filter((item) => !item.available).map((item) => ({
-        country_code: item.row.country_code,
-        destination_currency: item.row.destination_currency,
-        channel: item.row.channel,
-        active_channel_count: item.active_channel_count,
-        active_network_count: item.active_network_count,
-      })),
+      discovery_status: "deferred_until_corridor_selection",
+      discovery_error: null,
+      unavailable_rows: [],
     } } });
   }
   if (action === "routing") {
@@ -129,20 +98,38 @@ Deno.serve(async (req) => {
       row.destination_currency === currency && row.channel === rail
     );
     if (!signed) return json({ success: false, code: "yellow_card_commercial_corridor_unavailable" }, 403);
-    const [channelsResult, networksResult] = await Promise.all([
-      yellowCardFetch({ method: "GET", path: "/channels", query: { country } }),
-      yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
-    ]);
-    if (!channelsResult.ok || !networksResult.ok) {
+    const channelsResult = await yellowCardFetch({ method: "GET", path: "/channels", query: { country } });
+    if (!channelsResult.ok) {
       return json({
         success: false,
-        code: channelsResult.error || networksResult.error || "yellow_card_routing_discovery_failed",
+        code: channelsResult.error || "yellow_card_routing_discovery_failed",
         error: "Unable to load available payout rails.",
       }, 502);
     }
+    const channelOnly = resolveYellowCardRouting({
+      channels: channelsResult.data,
+      networks: [],
+      direction: direction as "receive" | "payout",
+      country,
+      currency,
+      rail: rail as "bank" | "mobile_money",
+    });
+    const networkResults = await Promise.all([
+      yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
+      ...channelOnly.channels.filter((channel) => String(channel?.id || "").trim()).map((channel) => yellowCardFetch({
+        method: "GET",
+        path: "/networks",
+        query: { country, channelId: String(channel?.id || "") },
+      })),
+    ]);
+    const successfulNetworkPayloads = networkResults.filter((result) => result.ok).map((result) => result.data);
+    if (successfulNetworkPayloads.length === 0) {
+      return json({ success: false, code: networkResults[0]?.error || "yellow_card_routing_discovery_failed", error: "Unable to load available payout rails." }, 502);
+    }
+    const mergedNetworks = mergeYellowCardRows(successfulNetworkPayloads, "networks");
     const routing = resolveYellowCardRouting({
       channels: channelsResult.data,
-      networks: networksResult.data,
+      networks: mergedNetworks,
       direction: direction as "receive" | "payout",
       country,
       currency,

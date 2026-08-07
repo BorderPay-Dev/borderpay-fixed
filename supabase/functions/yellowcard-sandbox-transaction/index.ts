@@ -10,6 +10,7 @@ import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-
 import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
 import {
+  mergeYellowCardRows,
   resolveYellowCardRouting,
   yellowCardProviderChannelType,
 } from "../_shared/providers/yellowcard-routing.ts";
@@ -233,13 +234,31 @@ async function loadContext(userId: string, input: any) {
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
   }
-  const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
-  if (!networksResult.ok) {
-    return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
+  const channelOnly = resolveYellowCardRouting({
+    channels: channelsResult.data,
+    networks: [],
+    country,
+    currency,
+    rail: channel as "bank" | "mobile_money",
+    direction,
+    amount: localAmount,
+  });
+  const networkResults = await Promise.all([
+    yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
+    ...channelOnly.channels.filter((candidate) => str(candidate?.id)).map((candidate) => yellowCardFetch({
+      method: "GET",
+      path: "/networks",
+      query: { country, channelId: str(candidate?.id) },
+    })),
+  ]);
+  const successfulNetworkPayloads = networkResults.filter((result) => result.ok).map((result) => result.data);
+  if (successfulNetworkPayloads.length === 0) {
+    return { ok: false as const, status: 502, code: networkResults[0]?.error || "yellow_card_networks_failed" };
   }
+  const mergedNetworks = mergeYellowCardRows(successfulNetworkPayloads, "networks");
   const routing = resolveYellowCardRouting({
     channels: channelsResult.data,
-    networks: networksResult.data,
+    networks: mergedNetworks,
     country,
     currency,
     rail: channel as "bank" | "mobile_money",

@@ -8,6 +8,8 @@ receive_ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
 commercial_policy = (ROOT / "supabase/functions/_shared/providers/yellowcard-commercial-policy.ts").read_text()
 routing = (ROOT / "supabase/functions/_shared/providers/yellowcard-routing.ts").read_text()
+server_fees = (ROOT / "supabase/functions/_shared/fees/schedule.ts").read_text()
+client_fees = (ROOT / "utils/fees/schedule.ts").read_text()
 
 for fragment in (
     'action === "preflight_send"',
@@ -62,4 +64,7 @@ assert "calculateYellowCardCustomerFee(context.policy, context.localAmount)" in 
 assert "total_amount_local: customerFee.customer_amount_local" in edge
 assert 'SOURCE_DOCUMENT = "Yellow Card Treasury Portal Order Form - Standard Pricing, Addendum 1"' in commercial_policy
 assert 'SOURCE_DOCUMENT_DATE = "2026-07-08"' in commercial_policy
+assert 'AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT = 2.0' in server_fees
+assert 'AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT = 2.0' in client_fees
+assert 'if (isAfricanPayout) return null' in ui
 print("yellowcard send execution audit passed")
