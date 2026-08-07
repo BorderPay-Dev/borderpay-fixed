@@ -214,23 +214,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     window.location.href = url;
   }, []);
 
-  const openTopLevelTos = useCallback((url: string) => {
-    // ToS must be a first-party browser navigation. Embedded provider pages can
-    // render blank when Safari, Firefox, privacy browsers, or mobile webviews
-    // block third-party frame storage. The same-tab callback retains this
-    // marker and resumes the hosted KYC/KYB flow after acceptance.
-    try {
-      sessionStorage.setItem(resumeAfterTosKey, '1');
-      sessionStorage.setItem('borderpay_post_callback_screen', 'kyc');
-      sessionStorage.removeItem('borderpay_verification_embed_open');
-      sessionStorage.removeItem('borderpay_verification_embed_title');
-      sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
-    } catch { /* noop */ }
-    setEmbeddedPolling(false);
-    setEmbeddedUrl(null);
-    window.location.href = url;
-  }, [resumeAfterTosKey]);
-
   useEffect(() => {
     if (!embeddedUrl) return;
     const t = window.setTimeout(() => {
@@ -303,7 +286,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (r?.success && r.data?.tos_link_url) {
         persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
-        openTopLevelTos(r.data.tos_link_url);
+        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
       }
       if (r?.success && r.data?.already_approved) {
@@ -314,7 +297,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     }
 
     toast.error('Could not continue verification automatically. Tap Continue verification.');
-  }, [openHostedVerificationUrl, openTopLevelTos, persistTosAccepted, refresh, requestHostedLink, resolveVerificationContext]);
+  }, [openHostedVerificationUrl, persistTosAccepted, refresh, requestHostedLink, resolveVerificationContext]);
 
   const probeVerificationState = useCallback(async (fromTosCallback = false) => {
     try {
@@ -428,7 +411,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url);
           localStorage.setItem(`borderpay_last_tos_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        openTopLevelTos(r.data.tos_link_url);
+        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
+        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
       }
       if (r?.success && r.data?.link_url) {
