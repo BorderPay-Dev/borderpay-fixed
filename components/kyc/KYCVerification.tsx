@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -619,7 +620,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         </div>
       </main>
 
-      {embeddedUrl && (
+      {embeddedUrl && typeof document !== 'undefined' && createPortal((
         <div className="fixed inset-0 z-[20] bg-[#0B0E11] flex flex-col h-[100dvh] w-full">
           <iframe
             key={`${embedNonce}:${embeddedUrl}`}
@@ -661,7 +662,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             </div>
           )}
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

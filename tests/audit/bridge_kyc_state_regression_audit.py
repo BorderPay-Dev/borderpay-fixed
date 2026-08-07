@@ -21,5 +21,7 @@ assert "title: 'Terms of Service', returnEnabled: false" in kyc
 assert 'if (!embedLoaded && embeddedReturnEnabled)' in kyc
 assert 'referrerPolicy="no-referrer"' not in kyc
 assert 'Continue verification <ArrowRight' in kyc
+assert "import { createPortal } from 'react-dom'" in kyc
+assert 'createPortal((' in kyc and '), document.body)' in kyc
 
 print('bridge KYC state regression audit passed')
