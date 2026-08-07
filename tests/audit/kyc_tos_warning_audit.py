@@ -9,16 +9,16 @@ def require(condition: bool, message: str) -> None:
     if not condition:
         failures.append(message)
 
-require("!embeddedReturnEnabled" in kyc,
-        "KYC ToS warning must live in the embedded ToS branch.")
-require("You must accept the Terms of Service before continuing verification." in kyc,
-        "KYC ToS warning must explicitly say Terms acceptance is required.")
-require("Skipping this step can delay or block account approval." in kyc,
-        "KYC ToS warning must explain approval delay/block risk.")
-require("text-red-400" in kyc and "border-red-500/40" in kyc and "bg-red-500/15" in kyc,
-        "KYC ToS warning must be visibly red, not neutral helper copy.")
-require("Continue verification <ArrowRight" in kyc,
-        "KYC ToS branch must still expose Continue verification CTA after warning.")
+require("const openTopLevelTos" in kyc,
+        "KYC ToS must have a dedicated top-level browser navigation path.")
+require("sessionStorage.setItem(resumeAfterTosKey, '1')" in kyc,
+        "KYC ToS navigation must persist automatic verification resume state.")
+require("sessionStorage.setItem('borderpay_post_callback_screen', 'kyc')" in kyc,
+        "KYC ToS navigation must return users to the KYC/KYB screen.")
+require("openTopLevelTos(r.data.tos_link_url)" in kyc,
+        "Every provider ToS response must use top-level navigation.")
+require("openHostedVerificationUrl(r.data.tos_link_url" not in kyc,
+        "Provider ToS must never be embedded in an iframe because privacy-enabled browsers can render it blank.")
 
 if failures:
     print("kyc_tos_warning_audit: FAIL")

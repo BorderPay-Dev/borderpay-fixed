@@ -17,7 +17,9 @@ assert "if (bridgeKyc === 'incomplete') return 'incomplete'" in derive
 assert "if (bridgeKyc === 'not_started') return 'not_started'" in derive
 assert "kyc_status: 'not_started'" in signup
 assert 'Verification incomplete' in kyc
-assert "title: 'Terms of Service', returnEnabled: false" in kyc
+assert 'const openTopLevelTos' in kyc
+assert 'openTopLevelTos(r.data.tos_link_url)' in kyc
+assert "openHostedVerificationUrl(r.data.tos_link_url" not in kyc
 assert 'if (!embedLoaded && embeddedReturnEnabled)' in kyc
 assert 'referrerPolicy="no-referrer"' not in kyc
 assert 'Continue verification <ArrowRight' in kyc
