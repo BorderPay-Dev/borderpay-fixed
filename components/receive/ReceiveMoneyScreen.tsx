@@ -738,7 +738,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     return fee ? {
       amount: fee.customerAmount,
       currency: selectedAfricanRail?.currency || '',
-      percent: fee.effectivePercent,
+      percent: fee.customerPercent,
     } : null;
   }, [collectionAmountNumber, selectedAfricanPolicyRow, selectedAfricanRail?.currency]);
 

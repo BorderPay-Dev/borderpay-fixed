@@ -969,7 +969,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return fee ? {
       amount: fee.customerAmount,
       currency: selectedCurrency,
-      percent: fee.effectivePercent,
+      percent: fee.customerPercent,
       basisAmount: executionLocalAmount,
     } : null;
   }, [africanQuote?.destinationAmount, isAfricanPayout, selectedAfricanPolicyRow, selectedCurrency]);

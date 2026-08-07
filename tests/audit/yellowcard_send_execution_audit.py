@@ -67,4 +67,8 @@ assert 'SOURCE_DOCUMENT_DATE = "2026-07-08"' in commercial_policy
 assert 'AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT = 2.0' in server_fees
 assert 'AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT = 2.0' in client_fees
 assert 'if (isAfricanPayout) return null' in ui
+assert 'percent: fee.customerPercent' in ui
+assert 'percent: fee.customerPercent' in receive_ui
+assert 'percent: fee.effectivePercent' not in ui
+assert 'percent: fee.effectivePercent' not in receive_ui
 print("yellowcard send execution audit passed")
