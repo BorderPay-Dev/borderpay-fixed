@@ -32,6 +32,11 @@ for fragment in (
 ):
     assert fragment in edge, f"missing Yellow Card send server contract: {fragment}"
 
+payload_builder = (ROOT / "supabase/functions/_shared/providers/yellowcard-payload.ts").read_text()
+send_payload = payload_builder.split("export function buildYellowCardSandboxReceivePayload", 1)[0]
+assert "directSettlement: true" in send_payload
+assert "localAmount," not in send_payload
+
 for fragment in (
     "yellowCardCapabilities('rates'",
     "yellowCardCapabilities('routing'",

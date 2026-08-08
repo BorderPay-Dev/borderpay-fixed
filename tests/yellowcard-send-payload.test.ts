@@ -35,7 +35,9 @@ const base = () => ({
 Deno.test("Yellow Card Send payload follows the exact selected corridor", () => {
   const payload = buildYellowCardSandboxSendPayload(base()) as Record<string, any>;
   if (payload.channelId !== "channel-ke-momo-send") throw new Error("missing exact channelId");
-  if (payload.localAmount !== 12_810 || "amount" in payload) throw new Error("Send must use localAmount only");
+  if ("localAmount" in payload || "amount" in payload) {
+    throw new Error("direct-settlement Send must omit amount and localAmount");
+  }
   if (payload.channelType) throw new Error("exact corridor Send must not auto-route by channelType");
   if (payload.destination.networkId !== "network-ke-momo") throw new Error("missing exact networkId");
   if (payload.destination.accountType !== "momo") throw new Error("invalid destination accountType");

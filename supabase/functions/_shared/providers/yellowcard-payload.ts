@@ -116,7 +116,9 @@ export function buildYellowCardSandboxSendPayload(
   return {
     channelId: required(input.channelId, "channel_id"),
     sequenceId: required(input.sequenceId, "sequence_id"),
-    localAmount,
+    // Yellow Card direct-settlement Send derives the transfer amount from
+    // settlementInfo.cryptoAmount. Its API rejects both amount and
+    // localAmount when directSettlement is true.
     reason,
     sender: retailKyc(input.sender, "sender"),
     destination: {
