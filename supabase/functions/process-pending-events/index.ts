@@ -153,6 +153,70 @@ async function emailKycDecisionBestEffort(
   }
 }
 
+/**
+ * Notify a customer when Bridge places the account into its paused state.
+ * send-email owns the delivery log and idempotency record, so a retried
+ * customer.updated webhook cannot produce duplicate customer messages.
+ */
+async function emailAccountPausedBestEffort(
+  userId: string,
+  accountType: AccountType,
+  bridgeCustomerId: string,
+  pausedAt: string,
+): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(userId);
+    if (!rcpt) return;
+
+    const isBusiness = accountType === "business";
+    let companyName: string | null = null;
+    if (isBusiness) {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      companyName = biz?.company_name ?? null;
+    }
+
+    const template = isBusiness
+      ? "business.account_suspended"
+      : "individual.account_suspended";
+    const props = isBusiness
+      ? {
+          full_name: rcpt.full_name,
+          company_name: companyName,
+          reason_public: "Your business account is temporarily restricted while we complete a review.",
+        }
+      : {
+          full_name: rcpt.full_name,
+          reason_public: "Your account is temporarily restricted while we complete a review.",
+        };
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: rcpt.email,
+        user_id: userId,
+        idempotency_key: `wh:account-paused:${bridgeCustomerId}:${pausedAt}`,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email account-paused send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email account-paused best-effort error: ${(e as Error).message}`);
+  }
+}
+
 async function emailTransactionStatusBestEffort(params: {
   userId: string;
   accountType: AccountType;
@@ -949,6 +1013,12 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
 
   const accountStatus = String(d?.status ?? d?.account_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
   if (accountStatus) {
+    const { data: previousProfile } = await supabase
+      .from("user_profiles")
+      .select("id,account_type,bridge_account_status")
+      .eq("bridge_customer_id", String(customer))
+      .maybeSingle();
+    const previousAccountStatus = String(previousProfile?.bridge_account_status || "").trim().toLowerCase();
     // #53 item 4 — terminal-status propagation into canonical kyc_status.
     // Bridge customer terminal states (confirmed from our webhook data):
     //   active   = KYC passed  -> canonical kyc_status 'verified'
@@ -971,8 +1041,9 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     // A pause is an account-access hold, not a KYC rejection. Persist Bridge's
     // transition time separately so every paused customer sees the correct date.
     // Clear it as soon as Bridge moves the customer out of `paused`.
+    const pausedAt = String(ev.payload?.event_created_at ?? d?.updated_at ?? new Date().toISOString());
     update.bridge_account_paused_at = accountStatus === "paused"
-      ? (ev.payload?.event_created_at ?? d?.updated_at ?? new Date().toISOString())
+      ? pausedAt
       : null;
     if (canonicalKyc) update.kyc_status = canonicalKyc;
 
@@ -1005,6 +1076,18 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     await supabase.from("user_profiles")
       .update(update)
       .eq("bridge_customer_id", String(customer));
+
+    if (accountStatus === "paused" && previousAccountStatus !== "paused") {
+      try {
+        const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+        await emailAccountPausedBestEffort(
+          owner.resolved,
+          owner.account_type,
+          String(customer),
+          pausedAt,
+        );
+      } catch { /* best-effort: never fail the webhook on email */ }
+    }
 
     try {
       const owner = await resolveOwnerFromBridgeCustomer(String(customer));
