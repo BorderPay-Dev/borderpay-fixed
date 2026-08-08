@@ -9,8 +9,8 @@ One-time activation model + VA maintenance audit (#A3), fail-closed.
   OT4  subscription-upgrade one-time fee catalogue = activated keys 999/2999.
   OT5  bridge-virtual-account currency matrix uses activated keys; free starter
        is view-only (empty currency set).
-  OT6  Maintenance: migration adds maintenance_overdue + charge_va_maintenance;
-       bridge-transfer blocks outbound with 'maintenance_due'.
+  OT6  Legacy VA maintenance remains auditable, but bridge-transfer does not
+       hard-block outbound transfers from the legacy maintenance flag.
   OT7  UI is de-subscriptioned: no "/ month" or "Monthly price" in pricing UI.
 
 Text-parsing, dependency-free.
@@ -99,8 +99,8 @@ if maint:
     if "maintenance_overdue" not in maint or "charge_va_maintenance" not in maint:
         failures.append("OT6 maintenance migration missing overdue flag / charge RPC")
 if xfer:
-    if "maintenance_due" not in xfer or "maintenance_overdue" not in xfer:
-        failures.append("OT6 bridge-transfer does not block outbound on maintenance_due")
+    if "maintenance_due" in xfer or "maintenance_overdue" in xfer:
+        failures.append("OT6 bridge-transfer must not hard-block outbound transfers from the legacy maintenance flag")
 
 # OT7 ---------------------------------------------------------------------
 for name, src in [("PricingScreen", price), ("UpgradeModal", upmodl)]:

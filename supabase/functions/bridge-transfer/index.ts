@@ -74,6 +74,7 @@ import {
 } from "../_shared/bridge-payout-validator.ts";
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail } from "../_shared/providers/types.ts";
+import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -285,6 +286,8 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  const accessBlock = await getFinancialAccessBlock(supa, user.id);
+  if (accessBlock) return json({ success: false, ...accessBlock }, 423);
   fxLog("request_received", { user_id: user.id, method: req.method });
 
   let body: any;
@@ -362,23 +365,13 @@ Deno.serve(async (req) => {
     return await failAfterAuth({ success: false, ...identity.failure }, 409);
   }
   const profile = identity.context;
-  const { data: maintenance } = await supa
-    .from("user_profiles")
-    .select("maintenance_overdue")
-    .eq("id", user.id)
-    .maybeSingle();
   if (isBridgeBlocked(profile?.country)) {
     return await failAfterAuth(bridgeCountryBlockResponse(profile!.country!) as Record<string, unknown>, 403, profile.account_type);
   }
-  // Maintenance gate (#3): block OUTBOUND money movement while a virtual-account
-  // maintenance fee is unpaid. Inbound/top-ups stay open so the user can clear it.
-  if (maintenance?.maintenance_overdue === true) {
-    return await failAfterAuth({
-      success: false,
-      code:    "maintenance_due",
-      error:   "Top up your wallet to cover your account maintenance fee before sending. Outbound transfers are paused until then.",
-    }, 402, profile.account_type);
-  }
+  // Account-maintenance billing is not active until the configured billing
+  // cycle begins. A legacy overdue flag must never become an
+  // independent money-movement authority. Billing restrictions belong to the
+  // subscription grace-period workflow, not this provider transfer boundary.
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
     return await failAfterAuth({ success: false, error: "Complete account setup before sending transfers", code: "no_customer" }, 409, profile.account_type);
@@ -593,7 +586,6 @@ Deno.serve(async (req) => {
   const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
   const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
   const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
-  const transferChain = enforcedCryptoPayout ? undefined : body.source.chain ?? body.destination.chain;
   const normalizedSourceType = normalizeBridgeEndpointType(sourceRail);
   const normalizedDestinationType = normalizeBridgeEndpointType(enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail);
   const transactionDirection = normalizedSourceType === "wallet" ? "debit" : "credit";
@@ -651,17 +643,17 @@ Deno.serve(async (req) => {
       source: {
         payment_rail: sourceRail,
         currency:     transferSourceCurrency,
-        chain:        transferChain,
         from_address: body.source.from_address,
         bridge_wallet_id: body.source.bridge_wallet_id,
         external_account_id: body.source.external_account_id,
         amount:       transferAmount,
       },
       destination: {
-        ...body.destination,
+        ...Object.fromEntries(
+          Object.entries(body.destination || {}).filter(([key]) => key !== "chain"),
+        ),
         payment_rail: enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail,
         currency: transferDestinationCurrency,
-        ...(transferChain ? { chain: transferChain } : {}),
       },
       developer_fee: isFiatExternalOfframp
         ? {
