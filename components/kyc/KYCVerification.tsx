@@ -147,7 +147,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [lastHostedUrlTs, setLastHostedUrlTs] = useState<number>(() => {
     try { return Number(localStorage.getItem(`borderpay_last_verify_url_ts:${userId}`) || '0'); } catch { return 0; }
   });
-  const resumeAfterTosKey = useMemo(() => `borderpay_resume_verification_after_tos:${userId}`, [userId]);
   const tosAcceptedKey = useMemo(() => `borderpay_tos_accepted_v1:${userId}`, [userId]);
   const [tosAccepted, setTosAccepted] = useState<boolean>(() => {
     try { return localStorage.getItem(`borderpay_tos_accepted_v1:${userId}`) === '1'; } catch { return false; }
@@ -225,26 +224,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     return () => window.clearTimeout(t);
   }, [embeddedUrl, embeddedReturnEnabled, embedLoaded, openTopLevelHostedFallback, embedNonce]);
 
-  // If the previous attempt required Bridge ToS, resume automatically on return
-  // to fetch/open the actual hosted KYC/KYB link.
-  useEffect(() => {
-    let cancelled = false;
-    const shouldResume = (() => {
-      try { return sessionStorage.getItem(resumeAfterTosKey) === '1'; } catch { return false; }
-    })();
-    if (!shouldResume) return;
-    try { sessionStorage.removeItem(resumeAfterTosKey); } catch { /* noop */ }
-    const timer = window.setTimeout(async () => {
-      if (cancelled) return;
-      await autoResumeVerificationAfterTos();
-    }, 200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeAfterTosKey]);
-
   const resolveVerificationContext = useCallback(async (): Promise<{ accountType: AccountType; emailConfirmed: boolean }> => {
     let currentAccountType: AccountType = accountType;
     let emailConfirmed = true;
@@ -268,39 +247,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
   }, []);
 
-  const autoResumeVerificationAfterTos = useCallback(async () => {
-    const ctx = await resolveVerificationContext();
-    if (!ctx.emailConfirmed) {
-      toast.error('Verify your email first, then retry verification.');
-      return;
-    }
-
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const r: any = await requestHostedLink(ctx.accountType);
-      if (r?.success && r.data?.link_url) {
-        persistTosAccepted(true);
-        setTosLinkUrl(null);
-        setLastHostedUrl(r.data.link_url);
-        openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
-        return;
-      }
-      if (r?.success && r.data?.tos_link_url) {
-        persistTosAccepted(false);
-        setTosLinkUrl(r.data.tos_link_url);
-        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
-        return;
-      }
-      if (r?.success && r.data?.already_approved) {
-        await refresh();
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    }
-
-    toast.error('Could not continue verification automatically. Tap Continue verification.');
-  }, [openHostedVerificationUrl, persistTosAccepted, refresh, requestHostedLink, resolveVerificationContext]);
-
-  const probeVerificationState = useCallback(async (fromTosCallback = false) => {
+  const probeVerificationState = useCallback(async () => {
     try {
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
@@ -327,7 +274,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
           localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
         } catch { /* noop */ }
-        if (fromTosCallback) openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
         return;
       }
       if (r?.success && r.data?.already_approved) {
@@ -336,11 +282,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     } catch {
       // silent probe: never block verification screen
     }
-  }, [persistTosAccepted, requestHostedLink, resolveVerificationContext, refresh, openHostedVerificationUrl]);
+  }, [persistTosAccepted, requestHostedLink, resolveVerificationContext, refresh, userId]);
 
   useEffect(() => {
     if (status === 'verified' || status === 'under_review' || status === 'rejected') return;
-    void probeVerificationState(false);
+    void probeVerificationState();
   }, [status, probeVerificationState]);
 
   useEffect(() => {
@@ -367,7 +313,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
         } catch { /* noop */ }
         await refresh();
-        await probeVerificationState(true);
+        await probeVerificationState();
       } catch {
         // Ignore cross-origin frame access until callback returns to app origin.
       }
@@ -412,7 +358,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url);
           localStorage.setItem(`borderpay_last_tos_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        try { sessionStorage.setItem(resumeAfterTosKey, '1'); } catch { /* noop */ }
         openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
       }

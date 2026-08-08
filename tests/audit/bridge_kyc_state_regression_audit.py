@@ -23,5 +23,9 @@ assert 'referrerPolicy="no-referrer"' not in kyc
 assert 'Continue verification <ArrowRight' in kyc
 assert "import { createPortal } from 'react-dom'" in kyc
 assert 'createPortal((' in kyc and '), document.body)' in kyc
+assert 'borderpay_resume_verification_after_tos' not in kyc
+assert 'autoResumeVerificationAfterTos' not in kyc
+assert 'probeVerificationState(true)' not in kyc
+assert 'window.location.href = r.data.link_url' in kyc
 
 print('bridge KYC state regression audit passed')
