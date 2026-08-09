@@ -153,6 +153,57 @@ async function emailKycDecisionBestEffort(
   }
 }
 
+function currentMonthEndDate(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+}
+
+/** Separate post-approval maintenance notice; never combined with KYC/KYB or account-limit emails. */
+async function emailAccountMaintenanceFeeBestEffort(userId: string, accountType: AccountType): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(userId);
+    if (!rcpt) return;
+
+    const billingStartDate = currentMonthEndDate();
+    let template: string;
+    let props: Record<string, unknown>;
+    if (accountType === "business") {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      template = "business.account_maintenance_fee";
+      props = { company_name: biz?.company_name ?? null, billing_start_date: billingStartDate };
+    } else {
+      template = "individual.account_maintenance_fee";
+      props = { full_name: rcpt.full_name, billing_start_date: billingStartDate };
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template,
+        to: rcpt.email,
+        user_id: userId,
+        idempotency_key: `wh:account-maintenance-approved:${userId}:v1`,
+        props,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log(`webhook-email account-maintenance send failed: HTTP ${res.status} ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.log(`webhook-email account-maintenance best-effort error: ${(e as Error).message}`);
+  }
+}
+
 async function emailTransactionStatusBestEffort(params: {
   userId: string;
   accountType: AccountType;
@@ -909,6 +960,12 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
   // Terminal KYC/KYB decision → best-effort email (approved/rejected only).
   if (normalized === "approved" || normalized === "rejected") {
     await emailKycDecisionBestEffort(resolved, isKyb || account_type === "business", normalized);
+    if (normalized === "approved") {
+      await emailAccountMaintenanceFeeBestEffort(
+        resolved,
+        isKyb || account_type === "business" ? "business" : "individual",
+      );
+    }
   }
 
   await supabase.rpc("complete_pending_event", {
@@ -995,6 +1052,9 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
             owner.resolved, false,
             canonicalKyc === "verified" ? "approved" : "rejected",
           );
+          if (canonicalKyc === "verified") {
+            await emailAccountMaintenanceFeeBestEffort(owner.resolved, "individual");
+          }
         }
       } catch { /* best-effort: never fail the webhook on email */ }
     }

@@ -31,6 +31,7 @@ import { render as individualBulkPaymentInvite }         from "./individual/bulk
 import { render as individualAffiliateProgram }           from "./individual/affiliate-program.ts";
 import { render as individualStablecoinFreeAnnouncement } from "./individual/stablecoin-free-announcement.ts";
 import { render as individualAppStoreAnnouncement } from "./individual/app-store-announcement.ts";
+import { render as individualAccountMaintenanceFee } from "./individual/account-maintenance-fee.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessPinResetLink }            from "./business/pin-reset-link.ts";
@@ -53,6 +54,7 @@ import { render as businessTeamInvite }                from "./business/team-inv
 import { render as businessAffiliateProgram }           from "./business/affiliate-program.ts";
 import { render as businessStablecoinFreeAnnouncement } from "./business/stablecoin-free-announcement.ts";
 import { render as businessAppStoreAnnouncement } from "./business/app-store-announcement.ts";
+import { render as businessAccountMaintenanceFee } from "./business/account-maintenance-fee.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 
 export type TemplateName =
@@ -76,6 +78,7 @@ export type TemplateName =
   | "individual.affiliate_program"
   | "individual.stablecoin_free_announcement"
   | "individual.app_store_announcement"
+  | "individual.account_maintenance_fee"
   | "business.email_verification"
   | "business.pin_reset_link"
   | "business.kyb_submitted"
@@ -97,6 +100,7 @@ export type TemplateName =
   | "business.affiliate_program"
   | "business.stablecoin_free_announcement"
   | "business.app_store_announcement"
+  | "business.account_maintenance_fee"
   | "admin.incident_alert";
 
 type Renderer = (props: any) => RenderedEmail;
@@ -122,6 +126,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.affiliate_program":        individualAffiliateProgram,
   "individual.stablecoin_free_announcement": individualStablecoinFreeAnnouncement,
   "individual.app_store_announcement": individualAppStoreAnnouncement,
+  "individual.account_maintenance_fee": individualAccountMaintenanceFee,
   "business.email_verification":        businessEmailVerification,
   "business.pin_reset_link":            businessPinResetLink,
   "business.kyb_submitted":             businessKybSubmitted,
@@ -143,6 +148,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.affiliate_program":          businessAffiliateProgram,
   "business.stablecoin_free_announcement": businessStablecoinFreeAnnouncement,
   "business.app_store_announcement": businessAppStoreAnnouncement,
+  "business.account_maintenance_fee": businessAccountMaintenanceFee,
   "admin.incident_alert":                adminIncidentAlert,
 };
 
