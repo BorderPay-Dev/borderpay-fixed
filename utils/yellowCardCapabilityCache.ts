@@ -9,7 +9,9 @@ type CacheEntry = {
 
 const memory = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<any>>();
-const CACHE_PREFIX = 'borderpay_yellowcard_capability_v1:';
+// Bump when response eligibility rules change so a stale empty sandbox route
+// cannot survive a corrected deployment in sessionStorage.
+const CACHE_PREFIX = 'borderpay_yellowcard_capability_v2:';
 
 function stablePayload(payload: Record<string, unknown>) {
   return Object.keys(payload)
@@ -47,6 +49,16 @@ function writeCache(key: string, value: unknown, ttlMs: number) {
   try { sessionStorage.setItem(key, JSON.stringify(entry)); } catch { /* cache is best-effort */ }
 }
 
+function hasUsableCapability(action: CapabilityAction, result: any): boolean {
+  if (!result?.success) return false;
+  if (action === 'routing') {
+    const routing = result?.data?.routing;
+    const networks = Array.isArray(routing?.networks) ? routing.networks : [];
+    return Boolean(routing?.available) && networks.length > 0;
+  }
+  return Boolean(result?.data);
+}
+
 /**
  * Cache read-only Yellow Card sandbox discovery. Transaction preflight/create
  * responses are intentionally excluded so execution and idempotency stay live.
@@ -63,7 +75,7 @@ export async function loadYellowCardCapability(
 
   const request = backendAPI.payouts.yellowCardCapabilities(action, payload)
     .then((result: any) => {
-      if (result?.success) {
+      if (hasUsableCapability(action, result)) {
         writeCache(key, result, action === 'routing' ? 5 * 60_000 : 30_000);
       }
       return result;
