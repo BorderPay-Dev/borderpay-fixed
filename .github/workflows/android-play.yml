@@ -54,11 +54,28 @@ jobs:
           java-version: 21
           cache: gradle
 
+      - name: Set up Deno for release safety tests
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Install dependencies
         run: npm ci
 
       - name: Type check
         run: npm run type-check
+
+      - name: Verify Play Store closed-beta safety gates
+        run: |
+          set -euo pipefail
+          deno test tests/african-rails-access.test.ts
+          python3 tests/audit/african_rails_closed_beta_gate_audit.py
+          python3 tests/audit/yellowcard_transaction_authorization_audit.py
+
+      - name: Record Android source revision
+        run: |
+          set -euo pipefail
+          echo "Building Android from ${GITHUB_REF_NAME} at ${GITHUB_SHA}"
 
       - name: Build web app
         run: npm run build
@@ -148,4 +165,4 @@ jobs:
           packageName: ${{ env.PACKAGE_NAME }}
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: internal
-          status: draft
+          status: completed
