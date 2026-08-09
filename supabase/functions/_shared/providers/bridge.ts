@@ -835,7 +835,17 @@ export class BridgeProvider implements PaymentProvider {
       destination_currency: String(input.destination_currency).toLowerCase(),
       destination_address: input.destination_address,
       return_address: input.return_address,
-      ...(input.developer_fee_percent ? { developer_fee_percent: input.developer_fee_percent } : {}),
+      // Bridge's liquidation-address API uses this field name. The shorter
+      // `developer_fee_percent` belongs to other Bridge resources and is not
+      // the source of truth for liquidation addresses.
+      ...(input.developer_fee_percent
+        ? String(input.chain).toLowerCase() === "tron"
+          // Bridge currently rejects custom_developer_fee_percent on its
+          // legacy USDT/Tron liquidation routes. Preserve route creation;
+          // never simulate or deduct the missing provider fee ourselves.
+          ? { developer_fee_percent: input.developer_fee_percent }
+          : { custom_developer_fee_percent: input.developer_fee_percent }
+        : {}),
     };
     const r = await bridgeFetch({
       method: "POST",
@@ -876,6 +886,46 @@ export class BridgeProvider implements PaymentProvider {
       state: String(data?.state || data?.status || "active").toLowerCase(),
       raw: r.data,
     };
+  }
+
+  async getLiquidationAddress(customerId: string, liquidationAddressId: string): Promise<Record<string, unknown>> {
+    const r = await bridgeFetch({
+      method: "GET",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/liquidation_addresses/${encodeURIComponent(liquidationAddressId)}`,
+    });
+    if (!r.ok) {
+      throw new BridgeProviderError(`Bridge getLiquidationAddress failed [${r.status}]`, {
+        status: r.status,
+        request_id: r.request_id,
+        bridge_error: r.error,
+        raw_text: r.raw_text?.slice(0, 1000),
+      });
+    }
+    const data = (r.data as any)?.data ?? r.data;
+    return data && typeof data === "object" ? data as Record<string, unknown> : {};
+  }
+
+  async updateLiquidationAddressDeveloperFee(
+    customerId: string,
+    liquidationAddressId: string,
+    feePercent: string,
+  ): Promise<Record<string, unknown>> {
+    const r = await bridgeFetch({
+      method: "PUT",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/liquidation_addresses/${encodeURIComponent(liquidationAddressId)}`,
+      body: { custom_developer_fee_percent: feePercent },
+      idempotencyKey: null,
+    });
+    if (!r.ok) {
+      throw new BridgeProviderError(`Bridge updateLiquidationAddressDeveloperFee failed [${r.status}]`, {
+        status: r.status,
+        request_id: r.request_id,
+        bridge_error: r.error,
+        raw_text: r.raw_text?.slice(0, 1000),
+      });
+    }
+    const data = (r.data as any)?.data ?? r.data;
+    return data && typeof data === "object" ? data as Record<string, unknown> : {};
   }
 }
 

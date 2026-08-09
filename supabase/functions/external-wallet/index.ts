@@ -15,6 +15,7 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail, StablecoinSymbol } from "../_shared/providers/types.ts";
+import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -53,12 +54,11 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function routeRawWithFeeMetadata(routeRaw: unknown): Record<string, unknown> {
   const raw = asRecord(routeRaw);
-  const existing = String(raw.developer_fee_percent ?? "").trim();
-  const fee = existing || ROUTE_DEVELOPER_FEE_PERCENT_STRING;
+  const providerFee = String(raw.custom_developer_fee_percent ?? raw.global_developer_fee_percent ?? "").trim();
   return {
     ...raw,
-    developer_fee_percent: fee,
-    borderpay_route_fee_percent: fee,
+    ...(providerFee ? { custom_developer_fee_percent: providerFee } : {}),
+    borderpay_route_fee_percent: ROUTE_DEVELOPER_FEE_PERCENT_STRING,
     borderpay_route_fee_source: "server_fee_schedule",
   };
 }
@@ -214,6 +214,87 @@ async function repairMissingRoutes(limit: number) {
   return results;
 }
 
+async function auditOrRepairLiquidationRouteFees(limit: number, repair: boolean) {
+  const { data: wallets, error } = await supa
+    .from("external_wallets")
+    .select("id,user_id,chain,asset,bridge_payment_route_id")
+    .eq("status", "active")
+    .not("bridge_payment_route_id", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(Math.max(1, Math.min(limit || 100, 100)));
+  if (error) throw new Error(error.message);
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const wallet of wallets || []) {
+    const walletId = String((wallet as any).id || "");
+    const userId = String((wallet as any).user_id || "");
+    const routeId = String((wallet as any).bridge_payment_route_id || "");
+    const routeSuffix = routeId.slice(-8);
+    try {
+      const identity = await loadAndAssertBridgeIdentityInvariant(supa, userId);
+      if (!identity.ok || !identity.context.bridge_customer_id) {
+        results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "skipped", reason: identity.ok ? "missing_bridge_customer" : identity.failure.reason });
+        continue;
+      }
+      const customerId = identity.context.bridge_customer_id;
+      const before = await bridgeProvider.getLiquidationAddress(customerId, routeId);
+      const customFee = before.custom_developer_fee_percent == null ? null : Number(before.custom_developer_fee_percent);
+      const globalFee = before.global_developer_fee_percent == null ? null : Number(before.global_developer_fee_percent);
+      const beforeFee = customFee != null && Number.isFinite(customFee) ? customFee : globalFee;
+      const routeContext = {
+        custom_fee_percent: customFee != null && Number.isFinite(customFee) ? customFee : null,
+        global_fee_percent: globalFee != null && Number.isFinite(globalFee) ? globalFee : null,
+        source_currency: String(before.currency || "").toLowerCase() || null,
+        source_chain: String(before.chain || "").toLowerCase() || null,
+        destination_currency: String(before.destination_currency || "").toLowerCase() || null,
+        destination_payment_rail: String(before.destination_payment_rail || "").toLowerCase() || null,
+      };
+      if (beforeFee != null && Number.isFinite(beforeFee) && beforeFee === ROUTE_DEVELOPER_FEE_PERCENT) {
+        results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "already_correct", fee_percent: beforeFee, ...routeContext });
+        continue;
+      }
+      if (!repair) {
+        results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "missing_or_wrong", fee_percent: beforeFee != null && Number.isFinite(beforeFee) ? beforeFee : null, ...routeContext });
+        continue;
+      }
+
+      const updated = await bridgeProvider.updateLiquidationAddressDeveloperFee(
+        customerId,
+        routeId,
+        ROUTE_DEVELOPER_FEE_PERCENT_STRING,
+      );
+      const updatedFee = Number(updated.custom_developer_fee_percent);
+      if (!Number.isFinite(updatedFee) || updatedFee !== ROUTE_DEVELOPER_FEE_PERCENT) {
+        throw new Error("bridge_fee_verification_failed");
+      }
+      const { error: updateError } = await supa
+        .from("external_wallets")
+        .update({
+          bridge_payment_route_raw: routeRawWithFeeMetadata(updated),
+          bridge_payment_route_status: String(updated.state || updated.status || "active"),
+          bridge_payment_route_error: null,
+        })
+        .eq("id", walletId)
+        .eq("bridge_payment_route_id", routeId);
+      if (updateError) throw updateError;
+      results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "repaired", fee_percent: updatedFee });
+    } catch (e) {
+      const err = e as any;
+      results.push({
+        wallet_id: walletId,
+        route_suffix: routeSuffix,
+        status: "error",
+        reason: String(err?.message || "liquidation_fee_audit_failed"),
+        bridge_status: err?.status ?? null,
+        bridge_request_id: err?.request_id ?? null,
+        bridge_error: err?.bridge_error ?? null,
+        bridge_raw: err?.raw_text ?? null,
+      });
+    }
+  }
+  return results;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -223,12 +304,15 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
   const action = String(body.action || "list");
 
-  if (action === "repair_missing_routes") {
+  if (["repair_missing_routes", "audit_liquidation_route_fees", "repair_liquidation_route_fees"].includes(action)) {
+    const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const role = jwtRole(token);
-    if (role !== "service_role") {
-      return json({ success: false, error: "service role required", received_role: role || "missing" }, 401);
+    if ((!serviceRole || token !== serviceRole) && role !== "service_role") {
+      return json({ success: false, error: "service role required" }, 401);
     }
-    const results = await repairMissingRoutes(Number(body.limit || 50));
+    const results = action === "repair_missing_routes"
+      ? await repairMissingRoutes(Number(body.limit || 50))
+      : await auditOrRepairLiquidationRouteFees(Number(body.limit || 100), action === "repair_liquidation_route_fees");
     return json({ success: true, data: { results } });
   }
 
@@ -236,6 +320,8 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  const accessBlock = await getFinancialAccessBlock(supa, user.id);
+  if (accessBlock) return json({ success: false, ...accessBlock }, 423);
 
   if (action === "list") {
     const { data } = await supa

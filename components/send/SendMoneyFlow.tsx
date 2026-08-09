@@ -283,9 +283,12 @@ function displayMoneyCurrency(currency: string) {
 function routeDeveloperFeePercent(wallet: ExternalWallet | null | undefined): number {
   const raw = wallet?.bridge_payment_route_raw;
   const candidates = [
-    raw?.developer_fee_percent,
-    raw?.payment_route?.developer_fee_percent,
-    raw?.features?.developer_fee_percent,
+    raw?.custom_developer_fee_percent,
+    raw?.global_developer_fee_percent,
+    raw?.payment_route?.custom_developer_fee_percent,
+    raw?.payment_route?.global_developer_fee_percent,
+    raw?.features?.custom_developer_fee_percent,
+    raw?.features?.global_developer_fee_percent,
   ];
   for (const value of candidates) {
     const num = Number(value);

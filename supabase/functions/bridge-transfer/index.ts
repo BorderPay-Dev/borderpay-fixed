@@ -520,7 +520,8 @@ Deno.serve(async (req) => {
       }, 409, profile.account_type);
     }
     cryptoRouteDepositAddress = routeDepositAddress(savedWallet?.bridge_payment_route_raw);
-    cryptoRouteFeePercent = Number(asRecord(savedWallet?.bridge_payment_route_raw).developer_fee_percent);
+    const routeRaw = asRecord(savedWallet?.bridge_payment_route_raw);
+    cryptoRouteFeePercent = Number(routeRaw.custom_developer_fee_percent ?? routeRaw.global_developer_fee_percent);
     if (!Number.isFinite(cryptoRouteFeePercent)) cryptoRouteFeePercent = null;
     if (!cryptoRouteDepositAddress) {
       return await failAfterAuth({
