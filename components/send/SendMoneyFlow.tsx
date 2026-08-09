@@ -989,7 +989,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [snapshotReady, setSnapshotReady] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
-  const institutionsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -1128,11 +1127,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step, method, selectedCurrency, selectedAfricanCountryCode, selectedAfricanRail]);
 
   const loadInstitutions = async () => {
-    if (institutionsLoadInFlightRef.current) {
-      await institutionsLoadInFlightRef.current;
-      return;
-    }
-    const run = (async () => {
     // Fast route re-entry: render cached institutions instantly when available.
     let seededFromCache = false;
     try {
@@ -1150,7 +1144,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     // Throttle duplicate rail fetches on quick step toggles.
     try {
       const last = Number(localStorage.getItem(institutionsRefreshTsKey) || '0');
-      if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
+      if (seededFromCache && Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
     } catch { /* noop */ }
 
     if (!selectedAfricanCountryCode || (method !== 'bank' && method !== 'mobile_money')) {
@@ -1193,6 +1187,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           type: method,
         }))
         .filter((row) => row.code && row.name);
+      if (list.length === 0) {
+        try { localStorage.removeItem(institutionsRefreshTsKey); } catch { /* noop */ }
+        throw new Error('No active network is available for the selected route.');
+      }
       setInstitutions(list);
       setSelectedBank((prev) => {
         if (!prev) return null;
@@ -1209,15 +1207,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
     } finally {
       setLoadingInstitutions(false);
-    }
-    })();
-    institutionsLoadInFlightRef.current = run;
-    try {
-      await run;
-    } finally {
-      if (institutionsLoadInFlightRef.current === run) {
-        institutionsLoadInFlightRef.current = null;
-      }
     }
   };
 
