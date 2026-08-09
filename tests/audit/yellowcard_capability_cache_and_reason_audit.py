@@ -11,11 +11,14 @@ for fragment in (
     "const inFlight = new Map",
     "action === 'routing' ? 5 * 60_000 : 30_000",
     "sessionStorage.setItem",
-    "if (result?.success)",
+    "if (hasUsableCapability(action, result))",
+    "borderpay_yellowcard_capability_v2:",
+    "hasUsableCapability",
 ):
     assert fragment in cache, f"missing client capability cache contract: {fragment}"
 
 assert "yellowCardSandboxTransaction" not in cache, "transaction execution must never be cached"
+assert "Boolean(routing?.available) && networks.length > 0" in cache
 assert "loadYellowCardCapability('rates'" in send
 assert "loadYellowCardCapability('routing'" in send
 assert "loadYellowCardCapability('routing'" in receive
@@ -29,6 +32,9 @@ assert "reason: reason.trim()" in send
 assert "reason: collectionReason.trim()" in receive
 assert "if (!collectionReason.trim()) return false" in receive
 assert "reason.trim().length > 0" in send
+assert "institutionsLoadInFlightRef" not in send
+assert "seededFromCache && Number.isFinite(last)" in send
+assert "No active network is available for the selected route." in send
 
 assert "await Promise.all([" in capabilities
 assert 'cachedDiscovery(`channels:${country}`' in capabilities
