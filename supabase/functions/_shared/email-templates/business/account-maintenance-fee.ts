@@ -27,7 +27,7 @@ export function render(p: BusinessAccountMaintenanceFeeProps): RenderedEmail {
   return {
     subject: "Your BorderPay Business Account Maintenance Fee",
     html: htmlLayout({
-      preview: "Your verified Business account maintenance fee is $15 per month.",
+      preview: "Your verified Business account maintenance fee is $15/month.",
       heading: "Business account maintenance",
       introText: "Monthly billing begins at the end of the month.",
       body,
