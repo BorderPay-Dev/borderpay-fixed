@@ -36,6 +36,7 @@ import {
   type AfricanPolicyRow,
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
+import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -268,6 +269,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     rows: AfricanPolicyRow[];
   } | null>(null);
   const [collectionAmount, setCollectionAmount] = useState('');
+  const [collectionReason, setCollectionReason] = useState('');
   const [collectionSourceAccount, setCollectionSourceAccount] = useState('');
   const [collectionNetworks, setCollectionNetworks] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedCollectionNetworkId, setSelectedCollectionNetworkId] = useState('');
@@ -501,6 +503,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     setSelectedAfricanRail(null);
     setReceiveStep('method');
     setCollectionAmount('');
+    setCollectionReason('');
     setCollectionSourceAccount('');
     setCollectionNetworks([]);
     setSelectedCollectionNetworkId('');
@@ -584,7 +587,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         local_amount: amount,
         settlement_currency: settlementCurrency,
         settlement_network: settlementNetwork,
-        reason: 'other',
+        reason: collectionReason.trim(),
         network_id: selectedCollectionNetworkId || undefined,
       };
       const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
@@ -641,7 +644,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     }
     let active = true;
     setCollectionNetworksLoading(true);
-    void backendAPI.payouts.yellowCardCapabilities('routing', {
+    void loadYellowCardCapability('routing', {
       country: selectedAfricanCountryCode,
       currency: selectedAfricanRail.currency,
       channel: selectedAfricanRail.channel,
@@ -756,6 +759,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     if (!africanRailsTester) return false;
     if (collectionAmountNumber <= 0) return false;
     if (!collectionFee) return false;
+    if (!collectionReason.trim()) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
     if (selectedAfricanRail?.channel === 'mobile_money' && !selectedCollectionNetworkId) return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
@@ -765,6 +769,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   }, [
     collectionAmountNumber,
     collectionFee,
+    collectionReason,
     africanRailsTester,
     collectionSourceAccount,
     receiveUsesYellowCardForm,
@@ -1062,6 +1067,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   onClick={() => {
                     setSelectedAfricanRail(rail);
                     setCollectionAmount('');
+                    setCollectionReason('');
                     setCollectionSourceAccount('');
                     setCollectionNetworks([]);
                     setSelectedCollectionNetworkId('');
@@ -1135,6 +1141,20 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     placeholder={`0.00 ${selectedAfricanRail.currency}`}
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
                   />
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Transaction reason</label>
+                  <select
+                    value={collectionReason}
+                    onChange={(event) => setCollectionReason(event.target.value)}
+                    required
+                    className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
+                  >
+                    <option value="">Choose a transaction reason</option>
+                    {YELLOW_CARD_PAYMENT_REASONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
                 </div>
                 {receiveUsesYellowCardForm && (
                   <div>
@@ -1242,6 +1262,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   <div className="flex justify-between gap-4 text-xs">
                     <span className={tc.textMuted}>Payment method</span>
                     <span className={`${tc.text} text-right`}>{railLabel(selectedAfricanRail.channel)}</span>
+                  </div>
+                  <div className="flex justify-between gap-4 text-xs">
+                    <span className={tc.textMuted}>Reason</span>
+                    <span className={`${tc.text} text-right`}>{YELLOW_CARD_PAYMENT_REASONS.find((item) => item.value === collectionReason)?.label || collectionReason}</span>
                   </div>
                   {collectionSourceAccount.trim() && (
                     <div className="flex justify-between gap-4 text-xs">
