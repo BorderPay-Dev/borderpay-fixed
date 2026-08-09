@@ -1,0 +1,43 @@
+name: Android Play Listing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish-listing:
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE_NAME: com.borderpayafrica.app
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Google Play service account
+        run: |
+          : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON GitHub secret}"
+          echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/google-play-service-account.json"
+
+      - name: Install Google Play listing uploader
+        run: |
+          gem install --user-install fastlane --no-document
+          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
+
+      - name: Publish BorderPay name and icon
+        run: |
+          set -euo pipefail
+          mkdir -p android/fastlane/metadata/android/en-US/images
+          cp public/icons/icon-512x512.png android/fastlane/metadata/android/en-US/images/icon.png
+          fastlane supply \
+            --json_key "$RUNNER_TEMP/google-play-service-account.json" \
+            --package_name "$PACKAGE_NAME" \
+            --metadata_path android/fastlane/metadata/android \
+            --track internal \
+            --version_code 14 \
+            --skip_upload_apk true \
+            --skip_upload_aab true \
+            --skip_upload_changelogs true \
+            --skip_upload_screenshots true
