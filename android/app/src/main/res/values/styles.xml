@@ -17,6 +17,11 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <!-- Android always renders an OS launch frame. Keep it on the app
+             background without a second logo; React owns the animated splash. -->
+        <item name="android:background">#0B0E11</item>
+        <item name="windowSplashScreenBackground">#0B0E11</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>
