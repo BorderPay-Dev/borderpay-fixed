@@ -22,7 +22,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useInactivityTimer } from './utils/auth/useInactivityTimer';
 import { PINManager } from './utils/security/SecurityManager';
 import { AppLockScreen } from './components/security/AppLockScreen';
-import { isNativeRuntime } from './utils/native/mobileRuntime';
+import { isNativeRuntime, nativePlatform } from './utils/native/mobileRuntime';
 
 type AppState =
   | 'splash'
@@ -102,6 +102,7 @@ function trustCurrentDevice() {
 
 function AppContent() {
   const [appState, setAppState] = useState<AppState>('loading');
+  const [isNativeAndroid] = useState(() => isNativeRuntime() && nativePlatform() === 'android');
   const [skipSplashOnce] = useState(() => {
     try {
       const path = String(window.location.pathname || '').replace(/\/+$/, '');
@@ -119,7 +120,7 @@ function AppContent() {
       return false;
     }
   });
-  const [showSplash, setShowSplash] = useState(() => !skipSplashOnce);
+  const [showSplash, setShowSplash] = useState(() => !skipSplashOnce && !isNativeAndroid);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
     return localStorage.getItem('borderpay_onboarding_done') === 'true';
   });
@@ -698,10 +699,14 @@ function AppContent() {
   // P0: startup must always render branded splash while auth/route bootstrap is unresolved.
   // `skipSplashOnce` should only skip the extra animation hop, never force the app
   // into the generic loading fallback.
-  const showSplashScreen =
+  // Android already displays the branded OS launch screen. Rendering the web
+  // splash afterwards creates a visible second launch sequence in Play builds.
+  // Keep the web splash unchanged for browsers/PWA and iOS.
+  const showSplashScreen = !isNativeAndroid && (
     appState === 'loading' ||
     effectiveAuthLoading ||
-    (!skipSplashOnce && showSplash);
+    (!skipSplashOnce && showSplash)
+  );
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
