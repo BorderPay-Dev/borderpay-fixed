@@ -822,7 +822,10 @@ function AppContent() {
       return (
         <AppLockScreen
           userId={user.id}
-          onUnlock={() => setAppLocked(false)}
+          onUnlock={() => {
+            clearAppLocked();
+            setAppLocked(false);
+          }}
           onLogout={handleLogout}
           onForgotPIN={handleNavigateToForgotPin}
         />
