@@ -436,6 +436,32 @@ Deno.serve(async (req) => {
     .eq("sequence_id", sequenceId)
     .maybeSingle();
   if (prior) {
+    // A previous POST may have reached Yellow Card even when our caller timed
+    // out before receiving the response. Reconcile the same sequence before
+    // answering the retry; never generate or submit a replacement sequence.
+    if (!prior.provider_transaction_id) {
+      const reconciled = await yellowCardFetch({
+        method: "GET",
+        path: prior.direction === "payout"
+          ? `/send/sequence-id/${encodeURIComponent(sequenceId)}`
+          : `/receive/sequence-id/${encodeURIComponent(sequenceId)}`,
+      });
+      if (reconciled.ok) {
+        const updates = providerFields(reconciled.data);
+        const { data: updated } = await supa
+          .from("yellowcard_transactions")
+          .update(updates)
+          .eq("id", prior.id)
+          .select("*")
+          .single();
+        const transaction = updated || { ...prior, ...updates };
+        return json({
+          success: Boolean(transaction.provider_transaction_id),
+          code: "idempotent_reconciled",
+          data: { transaction: publicTransaction(transaction) },
+        }, transaction.provider_transaction_id ? 200 : 409);
+      }
+    }
     return json({
       success: Boolean(prior.provider_transaction_id),
       code: prior.provider_transaction_id ? "idempotent_replay" : "yellow_card_reconciliation_required",
