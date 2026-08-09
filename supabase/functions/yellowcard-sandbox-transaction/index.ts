@@ -229,11 +229,16 @@ async function loadContext(userId: string, input: any) {
   // Sandbox execution uses Yellow Card's documented simulator addresses.
   // Never query or mutate a real Bridge wallet for this provider sandbox.
 
-  const channelsResult = await yellowCardFetch({ method: "GET", path: "/channels", query: { country } });
+  // These provider catalog calls are independent. Running them sequentially can
+  // consume two full upstream timeout windows and makes the UI abandon a valid
+  // preflight before it completes.
+  const [channelsResult, networksResult] = await Promise.all([
+    yellowCardFetch({ method: "GET", path: "/channels", query: { country } }),
+    yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
+  ]);
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
   }
-  const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
   if (!networksResult.ok) {
     return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
   }
@@ -586,7 +591,14 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "yellow_card_persistence_failed", error: "The test transaction was not sent." }, 500);
   }
 
-  const provider = await yellowCardFetch({ method: "POST", path: isSend ? "/send" : "/receive", body: providerBody });
+  const provider = await yellowCardFetch({
+    method: "POST",
+    path: isSend ? "/send" : "/receive",
+    body: providerBody,
+    // Sandbox creation is slower than catalog reads. The client waits 60s and
+    // retries reconcile the same sequence ID, so allow the provider to finish.
+    timeoutMs: 45_000,
+  });
   if (!provider.ok) {
     const updates = {
       status: "failed",
