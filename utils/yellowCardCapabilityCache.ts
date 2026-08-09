@@ -73,7 +73,16 @@ export async function loadYellowCardCapability(
   const pending = inFlight.get(key);
   if (pending) return pending;
 
-  const request = backendAPI.payouts.yellowCardCapabilities(action, payload)
+  const fetchWithRetry = async () => {
+    let result: any = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      result = await backendAPI.payouts.yellowCardCapabilities(action, payload);
+      if (result?.success) return result;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+    return result;
+  };
+  const request = fetchWithRetry()
     .then((result: any) => {
       if (hasUsableCapability(action, result)) {
         writeCache(key, result, action === 'routing' ? 5 * 60_000 : 30_000);
