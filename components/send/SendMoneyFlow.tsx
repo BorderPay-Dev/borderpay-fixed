@@ -840,6 +840,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [africanQuoteLoading, setAfricanQuoteLoading] = useState(false);
   const [africanQuoteError, setAfricanQuoteError] = useState('');
   const [yellowCardSandboxOutcome, setYellowCardSandboxOutcome] = useState<'success' | 'failure'>('success');
+  // One Yellow Card sequence per African payout intent. A retry of the same
+  // corridor, amount and beneficiary must reuse the original sequence so a
+  // timeout or double tap cannot create a second provider transaction.
+  const yellowCardSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
   const africanQuoteReqRef = useRef(0);
 
   // Instant fallback fee — shown immediately on first paint.
@@ -1411,6 +1415,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           recipient_name: beneficiaryName,
           sandbox_outcome: yellowCardSandboxOutcome,
         };
+        const intentFingerprint = JSON.stringify(request);
+        if (yellowCardSequenceRef.current?.fingerprint !== intentFingerprint) {
+          yellowCardSequenceRef.current = {
+            fingerprint: intentFingerprint,
+            sequenceId: globalThis.crypto.randomUUID(),
+          };
+        }
+        const sequenceId = yellowCardSequenceRef.current.sequenceId;
         const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
           action: 'preflight_send',
           ...request,
@@ -1429,7 +1441,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           action: 'create_send',
           ...request,
           channel_id: preflight.data.selected_channel_id,
-          sequence_id: globalThis.crypto.randomUUID(),
+          sequence_id: sequenceId,
           operator_confirmed: true,
         });
       } else {
@@ -1456,6 +1468,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           || ''
         );
         setNewBalance(result.data?.new_balance ?? null);
+        if (isAfricanPayout) yellowCardSequenceRef.current = null;
         setStep('success');
         toast.success(t('send.txSuccessful'));
       } else {
