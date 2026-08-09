@@ -19,6 +19,23 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+const discoveryCache = new Map<string, { expiresAt: number; data: unknown }>();
+const discoveryInFlight = new Map<string, Promise<unknown>>();
+
+async function cachedDiscovery(key: string, ttlMs: number, load: () => Promise<any>) {
+  const cached = discoveryCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+  if (cached) discoveryCache.delete(key);
+  const pending = discoveryInFlight.get(key);
+  if (pending) return pending;
+  const request = load().then((data) => {
+    if (data?.ok) discoveryCache.set(key, { expiresAt: Date.now() + ttlMs, data });
+    return data;
+  }).finally(() => discoveryInFlight.delete(key));
+  discoveryInFlight.set(key, request);
+  return request;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -97,7 +114,10 @@ Deno.serve(async (req) => {
       row.destination_currency === currency && row.channel === rail
     );
     if (!signed) return json({ success: false, code: "yellow_card_commercial_corridor_unavailable" }, 403);
-    const channelsResult = await yellowCardFetch({ method: "GET", path: "/channels", query: { country } });
+    const [channelsResult, networksResult]: any[] = await Promise.all([
+      cachedDiscovery(`channels:${country}`, 5 * 60_000, () => yellowCardFetch({ method: "GET", path: "/channels", query: { country } })),
+      cachedDiscovery(`networks:${country}`, 5 * 60_000, () => yellowCardFetch({ method: "GET", path: "/networks", query: { country } })),
+    ]);
     if (!channelsResult.ok) {
       return json({
         success: false,
@@ -108,7 +128,6 @@ Deno.serve(async (req) => {
     // Yellow Card's published Networks contract supports country filtering.
     // Do not fan out undocumented channelId requests: that multiplies provider
     // calls per screen and can rate-limit every corridor during sandbox review.
-    const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
     if (!networksResult.ok) {
       return json({ success: false, code: networksResult.error || "yellow_card_routing_discovery_failed", error: "Unable to load available payout rails." }, 502);
     }
@@ -145,6 +164,8 @@ Deno.serve(async (req) => {
   };
   const selected = paths[action];
   if (!selected) return json({ success: false, code: "unsupported_action" }, 400);
-  const res = await yellowCardFetch({ method: "GET", ...selected });
+  const ttlMs = action === "rates" ? 30_000 : 5 * 60_000;
+  const cacheScope = action === "rates" ? currency : country;
+  const res: any = await cachedDiscovery(`${action}:${cacheScope}`, ttlMs, () => yellowCardFetch({ method: "GET", ...selected }));
   return json({ success: res.ok, code: res.ok ? "ok" : res.error, data: { [action]: res.data } }, res.ok ? 200 : 502);
 });
