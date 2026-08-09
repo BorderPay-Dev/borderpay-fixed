@@ -12,6 +12,7 @@ import { Lock, Fingerprint, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { supabase } from '../../utils/supabase/client';
 
 import {
   InputOTP,
@@ -77,6 +78,21 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     setBiometricAvailable(Boolean(supported && (serverEnrolled || BiometricManager.isEnrolled(userId))));
   };
 
+  // Locking intentionally removes the active access token. Restore a session
+  // behind the still-active lock before calling authenticated PIN/WebAuthn APIs.
+  // This does not unlock or navigate; only a successful factor can do that.
+  const restoreLockedSession = async (): Promise<boolean> => {
+    const existing = localStorage.getItem('borderpay_token');
+    if (existing) return true;
+    const refreshToken = localStorage.getItem('borderpay_refresh_token');
+    if (!refreshToken) return false;
+    const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (refreshError || !data.session) return false;
+    localStorage.setItem('borderpay_token', data.session.access_token);
+    localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
+    return true;
+  };
+
   const handlePinChange = async (value: string) => {
     setPin(value);
     setError('');
@@ -84,6 +100,11 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     if (value.length === 6) {
       setVerifying(true);
       try {
+        if (!(await restoreLockedSession())) {
+          setPin('');
+          setError('Session expired. Sign in again to unlock BorderPay.');
+          return;
+        }
         const result = await PINManager.verifyAppUnlockPINResult(userId, value);
         if (result.success) {
           setAttempts(0);
@@ -121,6 +142,10 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     setError('');
 
     try {
+      if (!(await restoreLockedSession())) {
+        setError('Session expired. Sign in again to unlock BorderPay.');
+        return;
+      }
       const result = await BiometricManager.verify(userId);
       if (result.success) {
         onUnlock();
