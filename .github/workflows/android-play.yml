@@ -71,6 +71,7 @@ jobs:
           deno test tests/african-rails-access.test.ts
           python3 tests/audit/african_rails_closed_beta_gate_audit.py
           python3 tests/audit/yellowcard_transaction_authorization_audit.py
+          python3 tests/audit/android_native_auth_audit.py
 
       - name: Record Android source revision
         run: |
@@ -175,6 +176,7 @@ jobs:
 
       - name: Publish Google Play name and icon
         if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
+        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p android/fastlane/metadata/android/en-US/images
