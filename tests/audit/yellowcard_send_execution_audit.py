@@ -38,8 +38,8 @@ assert "directSettlement: true" in send_payload
 assert "localAmount," not in send_payload
 
 for fragment in (
-    "yellowCardCapabilities('rates'",
-    "yellowCardCapabilities('routing'",
+    "loadYellowCardCapability('rates'",
+    "loadYellowCardCapability('routing'",
     "action: 'preflight_send'",
     "action: 'create_send'",
     "yellowCardSandboxOutcome",
@@ -59,7 +59,7 @@ assert 'const selectedChannel = requestedNetworkId' in routing
 assert 'amountChannels.find((channel) => linkedIds.has(text(channel?.id)))' in routing
 
 for fragment in (
-    "yellowCardCapabilities('routing'",
+    "loadYellowCardCapability('routing'",
     "selectedCollectionNetworkId",
     "network_id: selectedCollectionNetworkId || undefined",
     "const networkRequired = selectedAfricanRail.channel === 'mobile_money'",
