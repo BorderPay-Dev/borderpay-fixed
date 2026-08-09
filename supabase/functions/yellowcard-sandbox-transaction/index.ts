@@ -49,6 +49,15 @@ const str = (value: unknown) => String(value ?? "").trim();
 const upper = (value: unknown) => str(value).toUpperCase();
 const lower = (value: unknown) => str(value).toLowerCase();
 
+async function yellowCardReadWithRetry(options: Parameters<typeof yellowCardFetch>[0]) {
+  let result = await yellowCardFetch(options);
+  for (let attempt = 0; !result.ok && attempt < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    result = await yellowCardFetch(options);
+  }
+  return result;
+}
+
 // Yellow Card sandbox outcome controls. Never send a customer's real Bridge
 // wallet address or phone number to the sandbox transaction simulator.
 const SANDBOX_SUCCESS_EVM_ADDRESS = "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe";
@@ -233,8 +242,8 @@ async function loadContext(userId: string, input: any) {
   // consume two full upstream timeout windows and makes the UI abandon a valid
   // preflight before it completes.
   const [channelsResult, networksResult] = await Promise.all([
-    yellowCardFetch({ method: "GET", path: "/channels", query: { country } }),
-    yellowCardFetch({ method: "GET", path: "/networks", query: { country } }),
+    yellowCardReadWithRetry({ method: "GET", path: "/channels", query: { country } }),
+    yellowCardReadWithRetry({ method: "GET", path: "/networks", query: { country } }),
   ]);
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
@@ -599,6 +608,41 @@ Deno.serve(async (req) => {
     // retries reconcile the same sequence ID, so allow the provider to finish.
     timeoutMs: 45_000,
   });
+  if (!provider.ok && provider.status >= 500) {
+    // A transport delay or upstream 5xx does not prove rejection. Reconcile
+    // the same idempotent sequence before returning an honest pending state.
+    const reconciled = await yellowCardReadWithRetry({
+      method: "GET",
+      path: isSend
+        ? `/send/sequence-id/${encodeURIComponent(sequenceId)}`
+        : `/receive/sequence-id/${encodeURIComponent(sequenceId)}`,
+      timeoutMs: 20_000,
+    });
+    if (reconciled.ok) {
+      const reconciledUpdates = providerFields(reconciled.data);
+      const { data: reconciledRow } = await supa
+        .from("yellowcard_transactions")
+        .update(reconciledUpdates)
+        .eq("id", inserted.id)
+        .select("*")
+        .single();
+      return json({ success: true, code: "provider_reconciled", data: { transaction: publicTransaction(reconciledRow || { ...inserted, ...reconciledUpdates }) } });
+    }
+    const pendingUpdates = {
+      status: "submitted",
+      provider_status: "confirmation_pending",
+      provider_response: provider.data && typeof provider.data === "object" ? provider.data : {},
+      last_error: provider.error || "provider_confirmation_pending",
+      last_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await supa.from("yellowcard_transactions").update(pendingUpdates).eq("id", inserted.id);
+    return json({
+      success: true,
+      code: "provider_confirmation_pending",
+      data: { transaction: publicTransaction({ ...inserted, ...pendingUpdates }) },
+    }, 202);
+  }
   if (!provider.ok) {
     const updates = {
       status: "failed",
