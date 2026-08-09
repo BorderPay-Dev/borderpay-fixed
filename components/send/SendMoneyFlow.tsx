@@ -47,6 +47,7 @@ import {
   type AfricanPolicyRow,
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
+import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -891,7 +892,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setAfricanQuoteError('');
     (async () => {
       try {
-        const res: any = await backendAPI.payouts.yellowCardCapabilities('rates', {
+        const res: any = await loadYellowCardCapability('rates', {
           currency: selectedCurrency,
           country: selectedAfricanCountryCode,
           amount: num,
@@ -1162,7 +1163,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setLoadingInstitutions(true);
     try {
       const res: any = selectedAfricanProvider === 'yellow_card'
-        ? await backendAPI.payouts.yellowCardCapabilities('routing', {
+        ? await loadYellowCardCapability('routing', {
           country: selectedAfricanCountryCode,
           currency: selectedCurrency,
           channel: method,
@@ -1308,7 +1309,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
     if (isAfricanPayout) {
       return africanRailsTester && num > 0 && !!activeFundingWallet && !africanInsufficientFunding &&
-        !africanQuoteLoading && !!africanQuote?.destinationAmount && !!africanPolicyFee;
+        !africanQuoteLoading && !!africanQuote?.destinationAmount && !!africanPolicyFee && reason.trim().length > 0;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
@@ -1411,7 +1412,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           settlement_network: settlementNetwork,
           crypto_amount: parseFloat(amount),
           network_id: selectedBank.code,
-          reason: 'other',
+          reason: reason.trim(),
           recipient_name: beneficiaryName,
           sandbox_outcome: yellowCardSandboxOutcome,
         };
@@ -2638,13 +2639,28 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             {/* Reason */}
             <div className="mb-6">
               <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>{t('send.reason')}</label>
-              <input
-                type="text"
-                value={reason}
-                onChange={e => setReason(e.target.value)}
-                placeholder={method === 'us_ach_wire' ? t('send.usReasonPlaceholder') : t('send.reasonPlaceholder')}
-                className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
-              />
+              {isAfricanPayout ? (
+                <select
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  required
+                  className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                >
+                  <option value="">Choose a transaction reason</option>
+                  {YELLOW_CARD_PAYMENT_REASONS.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  required
+                  placeholder={method === 'us_ach_wire' ? t('send.usReasonPlaceholder') : t('send.reasonPlaceholder')}
+                  className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                />
+              )}
             </div>
 
             <button
