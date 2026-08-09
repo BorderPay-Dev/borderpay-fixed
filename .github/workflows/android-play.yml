@@ -75,6 +75,7 @@ jobs:
           python3 tests/audit/android_native_launch_and_listing_audit.py
           python3 tests/audit/yellowcard_timeout_contract_audit.py
           python3 tests/audit/yellowcard_capability_cache_and_reason_audit.py
+          python3 tests/audit/yellowcard_honest_submission_state_audit.py
 
       - name: Record Android source revision
         run: |
