@@ -30,6 +30,7 @@ import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLogi
 import { ENV_CONFIG, isKycVerified } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { bootstrapAppReviewDemoCache, isAppReviewDemoEmail } from '../../utils/review/appReviewDemoBootstrap';
+import { isNativeRuntime, nativePlatform } from '../../utils/native/mobileRuntime';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -251,7 +252,8 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
     try {
       // Step 1: Device support
-      if (!window.PublicKeyCredential) {
+      const nativeAndroid = isNativeRuntime() && nativePlatform() === 'android';
+      if (!nativeAndroid && !window.PublicKeyCredential) {
         toast.error('Biometric authentication not supported on this browser');
         return;
       }
@@ -276,7 +278,9 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         return;
       }
 
-      const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      const available = nativeAndroid
+        ? await BiometricManager.isSupported()
+        : await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       if (!available) {
         toast.info('Platform biometric not available. Please sign in with your password.');
         if (userProfile.email) setEmail(userProfile.email);
