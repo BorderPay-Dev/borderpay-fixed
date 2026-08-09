@@ -991,6 +991,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
+  const [transactionPending, setTransactionPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
   const institutionsCacheKey = useMemo(
@@ -1307,6 +1308,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // Process transaction
   // ---------------------------------------------------------------------------
   const processTransaction = async (verifiedPin: string) => {
+    setTransactionPending(false);
     // Never retain a transaction PIN while a request is in flight or after a
     // route transition. Non-stablecoin flows have already verified it locally.
     setPin('');
@@ -1458,9 +1460,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           || ''
         );
         setNewBalance(result.data?.new_balance ?? null);
+        const providerState = String(result.data?.transaction?.provider_status || result.data?.transaction?.status || '').toLowerCase();
+        const pendingConfirmation = (result as any)?.code === 'provider_confirmation_pending' || providerState === 'confirmation_pending';
+        setTransactionPending(pendingConfirmation);
         if (isAfricanPayout) yellowCardSequenceRef.current = null;
         setStep('success');
-        toast.success(t('send.txSuccessful'));
+        if (pendingConfirmation) toast.info('Transfer submitted. Confirmation is pending.');
+        else toast.success(t('send.txSuccessful'));
       } else {
         // Map structured server codes to friendly user-facing messages.
         const code = (result as any)?.code;
@@ -1529,7 +1535,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
       case 'processing': return t('send.processingTx');
-      case 'success': return t('send.txSuccessful');
+      case 'success': return transactionPending ? 'Confirmation pending' : t('send.txSuccessful');
       case 'error': return t('send.txFailed');
       default: return t('send.title');
     }
@@ -3052,7 +3058,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <CheckCircle className="w-12 h-12 text-green-500" />
             </motion.div>
 
-            <h2 className={`text-xl font-bold mb-2 ${tc.text}`}>{t('send.txSuccessful')}</h2>
+            <h2 className={`text-xl font-bold mb-2 ${tc.text}`}>{transactionPending ? 'Transfer submitted' : t('send.txSuccessful')}</h2>
+            {transactionPending && (
+              <p className={`mb-4 text-sm ${tc.textMuted}`}>Confirmation is pending. Do not submit this transfer again.</p>
+            )}
             <p className="text-2xl font-bold text-[#C7FF00] mb-1">
               {formatSourceMoney(parseFloat(amount))}
             </p>
@@ -3102,6 +3111,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   setPin('');
                   setTransactionId('');
                   setTransactionRef('');
+                  setTransactionPending(false);
                   setNewBalance(null);
                   setStep(isAfricanPayout ? 'africa-destination' : 'method');
                 }}
