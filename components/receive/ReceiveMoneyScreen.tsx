@@ -611,10 +611,14 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         operator_confirmed: true,
       });
       if (!res?.success) throw new Error(res?.error || 'Could not create collection request.');
-      const data = res.data || {};
+      const data = res.data?.transaction || res.data || {};
       setCollectionResult(data);
       setReceiveStep('africa-success');
-      toast.success('Collection request created.');
+      if (res?.code === 'provider_confirmation_pending' || data?.provider_status === 'confirmation_pending') {
+        toast.info('Collection submitted. Confirmation is pending.');
+      } else {
+        toast.success('Collection request created.');
+      }
     } catch (error: any) {
       toast.error(friendlyError(error?.message, 'Could not create collection request.'));
     } finally {
@@ -1388,7 +1392,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-500/15">
               <CheckCircle className="h-9 w-9 text-green-400" />
             </div>
-            <h2 className={`text-xl font-bold ${tc.text}`}>Collection request created</h2>
+            <h2 className={`text-xl font-bold ${tc.text}`}>
+              {(collectionResult as any)?.provider_status === 'confirmation_pending' ? 'Collection submitted' : 'Collection request created'}
+            </h2>
+            {(collectionResult as any)?.provider_status === 'confirmation_pending' && (
+              <p className={`mt-2 text-sm ${tc.textMuted}`}>Confirmation is pending. Do not submit this collection again.</p>
+            )}
             <p className={`mt-2 text-sm ${tc.textMuted}`}>
               {formatMoney(collectionAmountNumber, selectedAfricanRail.currency)} {selectedAfricanRail.currency} · {selectedAfricanCountry.countryName}
             </p>
