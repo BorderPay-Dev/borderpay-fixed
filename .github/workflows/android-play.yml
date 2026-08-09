@@ -183,6 +183,8 @@ jobs:
             --json_key "$RUNNER_TEMP/google-play-service-account.json" \
             --package_name "$PACKAGE_NAME" \
             --metadata_path android/fastlane/metadata/android \
+            --track internal \
+            --version_code "$BUILD_NUMBER" \
             --skip_upload_apk true \
             --skip_upload_aab true \
             --skip_upload_changelogs true \
