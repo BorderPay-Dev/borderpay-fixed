@@ -35,11 +35,25 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
 
 type Action = "config" | "channels" | "networks" | "rates";
 
+function jwtRole(token: string): string {
+  try {
+    const encoded = token.split(".")[1] || "";
+    const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return String(JSON.parse(atob(padded))?.role || "");
+  } catch {
+    return "";
+  }
+}
+
 async function authorize(req: Request): Promise<{ ok: true; actorId: string; isAdmin: boolean } | { ok: false; status: number; body: unknown }> {
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return { ok: false, status: 401, body: { success: false, error: "Authorization required" } };
 
-  if (SUPABASE_SERVICE_ROLE && token === SUPABASE_SERVICE_ROLE) {
+  // The Edge gateway verifies legacy JWTs before invocation. Accept the
+  // verified service-role claim as well as the runtime secret's exact value;
+  // projects can rotate API keys without redeploying the platform secret.
+  if ((SUPABASE_SERVICE_ROLE && token === SUPABASE_SERVICE_ROLE) || jwtRole(token) === "service_role") {
     return { ok: true, actorId: "service_role", isAdmin: true };
   }
 
