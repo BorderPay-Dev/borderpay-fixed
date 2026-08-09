@@ -32,7 +32,7 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   // longer than the generic UI deadline, so aborting at 8s creates false
   // failures while the idempotent server request continues in the background.
   if (endpoint === 'yellowcard-capabilities') return 30000;
-  if (endpoint === 'yellowcard-sandbox-transaction') return 60000;
+  if (endpoint === 'yellowcard-sandbox-transaction') return 90000;
   return 8000;
 }
 
@@ -150,7 +150,7 @@ async function apiCall<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
-      return { success: false, error: 'Request timed out. Please try again.' };
+      return { success: false, code: 'response_unconfirmed', error: 'We could not confirm the response. Please try again.' } as any;
     }
     // Retry once on network failure for critical calls
     if (retries < 1 && !options.signal?.aborted) {
@@ -228,7 +228,7 @@ async function apiCallPublic<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
-      return { success: false, error: 'Request timed out. Please try again.' };
+      return { success: false, code: 'response_unconfirmed', error: 'We could not confirm the response. Please try again.' } as any;
     }
     return { success: false, error: sanitizeError(error.message || 'Connection error. Please check your internet and try again.') };
   }
