@@ -11,7 +11,22 @@
  */
 
 import { BASE_URL, ANON_KEY } from '../supabase/client';
-import { isNativeRuntime } from '../native/mobileRuntime';
+import { isNativeRuntime, nativePlatform } from '../native/mobileRuntime';
+
+const isNativeAndroid = () => isNativeRuntime() && nativePlatform() === 'android';
+
+async function authenticateNativeAndroid(reason: string): Promise<void> {
+  const { BiometricAuth, AndroidBiometryStrength } = await import('@aparajita/capacitor-biometric-auth');
+  await BiometricAuth.authenticate({
+    reason,
+    cancelTitle: 'Cancel',
+    allowDeviceCredential: false,
+    androidTitle: 'BorderPay security',
+    androidSubtitle: reason,
+    androidConfirmationRequired: false,
+    androidBiometryStrength: AndroidBiometryStrength.weak,
+  });
+}
 
 // ============================================================================
 // TYPES
@@ -585,6 +600,14 @@ function _serializeAssertionResponse(cred: PublicKeyCredential): any {
 export const BiometricManager = {
   /** Platform-authenticator capability check. */
   async isSupported(): Promise<boolean> {
+    if (isNativeAndroid()) {
+      try {
+        const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth');
+        return Boolean((await BiometricAuth.checkBiometry()).isAvailable);
+      } catch {
+        return false;
+      }
+    }
     if (isNativeRuntime()) return false;
     if (!window.PublicKeyCredential) return false;
     try {
@@ -639,6 +662,13 @@ export const BiometricManager = {
       const supported = await this.isSupported();
       if (!supported) {
         return { success: false, error: 'Biometric authentication is not supported on this device' };
+      }
+
+      if (isNativeAndroid()) {
+        await authenticateNativeAndroid('Confirm your identity to enable biometric login');
+        localStorage.setItem('borderpay_biometric_enrolled', 'true');
+        localStorage.setItem('borderpay_biometric_user_id', userId);
+        return { success: true };
       }
 
       const { backendAPI } = await import('../api/backendAPI');
@@ -710,6 +740,10 @@ export const BiometricManager = {
    */
   async verify(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
+      if (isNativeAndroid()) {
+        await authenticateNativeAndroid('Confirm your identity to unlock BorderPay');
+        return { success: true };
+      }
       const { backendAPI } = await import('../api/backendAPI');
       const optsRes: any = await backendAPI.webauthn.authOptions();
       if (!optsRes?.success || !optsRes.data?.options) {
@@ -747,6 +781,12 @@ export const BiometricManager = {
    */
   async disable(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
+      if (isNativeAndroid()) {
+        localStorage.removeItem('borderpay_biometric_enrolled');
+        localStorage.removeItem('borderpay_biometric_user_id');
+        localStorage.removeItem('borderpay_biometric_credential_id');
+        return { success: true };
+      }
       const { backendAPI } = await import('../api/backendAPI');
       const r: any = await backendAPI.webauthn.disable();
       if (!r?.success) {
