@@ -157,6 +157,10 @@ jobs:
           : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON GitHub secret}"
           echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/google-play-service-account.json"
 
+      - name: Install Google Play listing uploader
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
+        run: gem install fastlane --no-document
+
       - name: Upload to Google Play internal testing
         if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
         uses: r0adkll/upload-google-play@v1
@@ -166,3 +170,18 @@ jobs:
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: internal
           status: completed
+
+      - name: Publish Google Play name and icon
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p android/fastlane/metadata/android/en-US/images
+          cp public/icons/icon-512x512.png android/fastlane/metadata/android/en-US/images/icon.png
+          fastlane supply \
+            --json_key "$RUNNER_TEMP/google-play-service-account.json" \
+            --package_name "$PACKAGE_NAME" \
+            --metadata_path android/fastlane/metadata/android \
+            --skip_upload_apk true \
+            --skip_upload_aab true \
+            --skip_upload_changelogs true \
+            --skip_upload_screenshots true
