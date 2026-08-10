@@ -12,7 +12,7 @@ const memory = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<any>>();
 // Bump when response eligibility rules change so a stale empty sandbox route
 // cannot survive a corrected deployment in localStorage.
-const CACHE_PREFIX = 'borderpay_yellowcard_capability_v2:';
+const CACHE_PREFIX = 'borderpay_yellowcard_capability_v3:';
 
 function stablePayload(payload: Record<string, unknown>) {
   return Object.keys(payload)
@@ -57,6 +57,11 @@ function readStaleCache(key: string): any | null {
   return null;
 }
 
+function deleteCache(key: string) {
+  memory.delete(key);
+  try { localStorage.removeItem(key); } catch { /* cache is best-effort */ }
+}
+
 function writeCache(key: string, value: unknown, ttlMs: number) {
   const entry = { expiresAt: Date.now() + ttlMs, staleUntil: Date.now() + (ttlMs === 5 * 60_000 ? 24 * 60 * 60_000 : 15 * 60_000), value };
   memory.set(key, entry);
@@ -83,8 +88,13 @@ export async function loadYellowCardCapability(
 ): Promise<any> {
   const key = cacheKey(action, payload);
   const cached = readCache(key);
-  if (cached) return cached;
-  const lastValidated = readStaleCache(key);
+  if (cached && hasUsableCapability(action, cached)) return cached;
+  if (cached) deleteCache(key);
+  const staleCandidate = readStaleCache(key);
+  const lastValidated = staleCandidate && hasUsableCapability(action, staleCandidate)
+    ? staleCandidate
+    : null;
+  if (staleCandidate && !lastValidated) deleteCache(key);
   const pending = inFlight.get(key);
   if (pending) return pending;
 

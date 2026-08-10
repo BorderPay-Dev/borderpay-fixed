@@ -1004,11 +1004,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
   const institutionsCacheKey = useMemo(
-    () => `borderpay_send_institutions_v2:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
+    () => `borderpay_send_institutions_v3:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
   const institutionsRefreshTsKey = useMemo(
-    () => `borderpay_send_institutions_refreshed_at_v2:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
+    () => `borderpay_send_institutions_refreshed_at_v3:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
   const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));

@@ -12,7 +12,7 @@ for fragment in (
     "action === 'routing' ? 5 * 60_000 : 60_000",
     "localStorage.setItem",
     "if (hasUsableCapability(action, result))",
-    "borderpay_yellowcard_capability_v2:",
+    "borderpay_yellowcard_capability_v3:",
     "hasUsableCapability",
 ):
     assert fragment in cache, f"missing client capability cache contract: {fragment}"
@@ -46,5 +46,7 @@ assert "readStaleCache" in cache
 assert "24 * 60 * 60_000" in cache
 assert "if (local && local.staleUntil <= now) memory.delete(key)" in cache
 assert "if (!parsed || parsed.staleUntil <= now) localStorage.removeItem(key)" in cache
+assert "cached && hasUsableCapability(action, cached)" in cache
+assert "staleCandidate && hasUsableCapability(action, staleCandidate)" in cache
 
 print("yellowcard capability cache and required reason audit passed")

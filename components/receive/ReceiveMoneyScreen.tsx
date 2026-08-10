@@ -9,8 +9,8 @@
  * had drifted from the Wallet tab). One source, one component, one design.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Shield, Inbox, ChevronRight, Loader2, RefreshCw, Smartphone, Building2, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Shield, Inbox, ChevronRight, Loader2, RefreshCw, Smartphone, Building2, ArrowLeft, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { authAPI } from '../../utils/supabase/client';
@@ -24,23 +24,30 @@ import {
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { TransactionSecurityGate } from '../security/TransactionSecurityGate';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '../ui/input-otp';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
+import { loadIpCountry } from '../../utils/geoCountry';
 import {
   loadAfricanPolicyRows,
   readCachedAfricanPolicyRows,
   type AfricanPolicyRow,
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
+import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
+  onNavigate?: (screen: string) => void;
   /** Kept for caller compatibility; the new screen always shows everything. */
   preSelectedWalletId?: string;
 }
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
 interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
-type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-success';
+type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-security-gate' | 'africa-auth' | 'africa-success';
 interface AfricanCountryOption {
   countryCode: string;
   countryName: string;
@@ -50,7 +57,7 @@ interface AfricanCountryOption {
 }
 
 const RAIL_NAME: Record<string, string> = { USD: 'ACH / Wire', EUR: 'SEPA', GBP: 'Faster Payments' };
-const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 6500;
+const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 15000;
 
 function flagFromCountryCode(countryCode: string) {
   const code = String(countryCode || '').trim().toUpperCase();
@@ -103,6 +110,7 @@ function numberFromRaw(row: AfricanPolicyRow | null | undefined, key: string) {
 
 const COUNTRY_DIAL_CODES: Record<string, string> = {
   BJ: '229', BW: '267', BF: '226', CM: '237', CI: '225', CD: '243',
+  CG: '242', TD: '235', GA: '241', TG: '228',
   EG: '20', ET: '251', GH: '233', GN: '224', KE: '254', MW: '265',
   ML: '223', MA: '212', MZ: '258', NG: '234', RW: '250', SN: '221',
   SL: '232', ZA: '27', TZ: '255', UG: '256', ZM: '260',
@@ -173,7 +181,7 @@ function readCachedCountry(): string | null {
   return normalizedCountry(u?.country);
 }
 
-export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
+export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
   const snapshotReader = backendAPI.financial.getSnapshot;
@@ -188,6 +196,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   });
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
   const [country, setCountry] = useState<string | null>(() => readCachedCountry());
+  const [ipCountry, setIpCountry] = useState<string | null>(null);
 
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
@@ -239,7 +248,16 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   const [selectedStable, setSelectedStable] = useState<StableRow | null>(null);
   const [selectedVa, setSelectedVa] = useState<VaRow | null>(null);
   const [receiveStep, setReceiveStep] = useState<ReceiveStep>('method');
-  const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() => readCachedAfricanPolicyRows('receive'));
+  const screenTopRef = useRef<HTMLDivElement>(null);
+
+  // Keep internal steps aligned to the top of MainApp's scroll container.
+  // Running before paint avoids a visible correction after a tall prior step.
+  useLayoutEffect(() => {
+    screenTopRef.current?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+  }, [receiveStep]);
+  const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
+    africanRailsTester ? readCachedAfricanPolicyRows('receive') : []
+  );
   const [africanPolicyLoading, setAfricanPolicyLoading] = useState(false);
   const africanPolicyLoadingRef = useRef(false);
   const [africanPolicyRequested, setAfricanPolicyRequested] = useState(false);
@@ -251,13 +269,45 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     rows: AfricanPolicyRow[];
   } | null>(null);
   const [collectionAmount, setCollectionAmount] = useState('');
-  const [collectionPayerName, setCollectionPayerName] = useState('');
-  const [collectionPayerEmail, setCollectionPayerEmail] = useState('');
+  const [collectionReason, setCollectionReason] = useState('');
   const [collectionSourceAccount, setCollectionSourceAccount] = useState('');
+  const [collectionNetworks, setCollectionNetworks] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedCollectionNetworkId, setSelectedCollectionNetworkId] = useState('');
+  const [collectionNetworksLoading, setCollectionNetworksLoading] = useState(false);
+  const collectionSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
+  const [collectionPin, setCollectionPin] = useState('');
+  useEffect(() => {
+    if (receiveStep !== 'africa-auth') setCollectionPin('');
+  }, [receiveStep]);
+  const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
+  const [hasBiometricFactor, setHasBiometricFactor] = useState(() => BiometricManager.isEnrolled(userId));
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      backendAPI.auth.getSecurityStatus(userId),
+      BiometricManager.isSupported(),
+    ]).then(([security, biometricSupported]: any[]) => {
+      if (!active) return;
+      if (security?.success) setHasPinFactor(Boolean(security?.data?.pin_set));
+      const serverBiometric = Boolean(security?.success && security?.data?.biometric_enrolled);
+      if (serverBiometric) {
+        try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* preserve server truth without blocking */ }
+      }
+      setHasBiometricFactor(Boolean(biometricSupported && (serverBiometric || (!security?.success && BiometricManager.isEnrolled(userId)))));
+    });
+    return () => { active = false; };
+  }, [userId]);
 
   const africanCountries = useMemo(() => buildAfricanCountries(africanPolicyRows), [africanPolicyRows]);
+  const regionalAfricanCountries = useMemo(
+    () => africanRailsTester
+      ? africanCountries
+      : ipCountry ? africanCountries.filter((item) => item.countryCode === ipCountry) : [],
+    [africanCountries, africanRailsTester, ipCountry],
+  );
   const selectedAfricanCountry = useMemo(
     () => africanCountries.find((item) => item.countryCode === selectedAfricanCountryCode) || null,
     [africanCountries, selectedAfricanCountryCode],
@@ -290,13 +340,20 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     })[0] || null;
   }, [selectedAfricanRail]);
   const selectedAfricanProvider = providerFromPolicy(selectedAfricanPolicyRow);
-  const receiveUsesFlutterwaveForm = selectedAfricanProvider === 'flutterwave';
   const receiveUsesYellowCardForm = selectedAfricanProvider === 'yellow_card';
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
+  useEffect(() => {
+    let active = true;
+    void loadIpCountry().then((value) => {
+      if (active) setIpCountry(value);
+    });
+    return () => { active = false; };
+  }, []);
 
   const loadAfricanReceivePolicy = useCallback(async (force = false) => {
+    if (!africanRailsTester) return;
     if (africanPolicyLoadingRef.current) return;
     if (!force && africanPolicyRows.length > 0) return;
     africanPolicyLoadingRef.current = true;
@@ -316,10 +373,11 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
       africanPolicyLoadingRef.current = false;
       setAfricanPolicyLoading(false);
     }
-  }, [africanPolicyRows.length]);
+  }, [africanPolicyRows.length, africanRailsTester]);
 
   useEffect(() => {
-    if (!africanRailsTester || africanPolicyRows.length > 0) return;
+    if (!africanRailsTester) return;
+    if (africanPolicyRows.length > 0) return;
     let active = true;
     void loadAfricanPolicyRows('receive', {
       timeoutMs: AFRICAN_POLICY_REQUEST_TIMEOUT_MS,
@@ -335,7 +393,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     return () => {
       active = false;
     };
-  }, [africanRailsTester, africanPolicyRows.length]);
+  }, [africanPolicyRows.length, africanRailsTester]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -446,13 +504,23 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     setSelectedAfricanRail(null);
     setReceiveStep('method');
     setCollectionAmount('');
-    setCollectionPayerName('');
-    setCollectionPayerEmail('');
+    setCollectionReason('');
     setCollectionSourceAccount('');
+    setCollectionNetworks([]);
+    setSelectedCollectionNetworkId('');
     setCollectionResult(null);
   };
 
   const goBack = () => {
+    if (receiveStep === 'africa-security-gate') {
+      setReceiveStep('africa-review');
+      return;
+    }
+    if (receiveStep === 'africa-auth') {
+      setCollectionPin('');
+      setReceiveStep('africa-review');
+      return;
+    }
     if (receiveStep === 'africa-success') {
       resetAfricanReceiveFlow();
       return;
@@ -482,21 +550,17 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const createAfricanCollection = async () => {
     if (!selectedAfricanCountry || !selectedAfricanRail) return;
+    if (!africanRailsTester) {
+      toast.error('Local top-up execution remains in controlled integration testing.');
+      return;
+    }
     const amount = Number(collectionAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Enter a valid amount.');
       return;
     }
-    if (selectedAfricanProvider !== 'flutterwave' && selectedAfricanProvider !== 'yellow_card') {
+    if (selectedAfricanProvider !== 'yellow_card') {
       toast.error('This receive corridor is not available yet.');
-      return;
-    }
-    if (receiveUsesFlutterwaveForm && (!collectionPayerName.trim() || !collectionPayerEmail.trim())) {
-      toast.error('Enter the payer name and email for this collection.');
-      return;
-    }
-    if (receiveUsesFlutterwaveForm && selectedAfricanRail.channel === 'mobile_money' && !isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)) {
-      toast.error(`Enter a valid ${selectedAfricanCountry.countryName} mobile money number.`);
       return;
     }
     if (receiveUsesYellowCardForm && selectedAfricanRail.channel === 'mobile_money' && !isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)) {
@@ -506,53 +570,64 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     setCollectionLoading(true);
     setCollectionResult(null);
     try {
-      const txRef = `bp-collect-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const sourceAccount = selectedAfricanRail.channel === 'mobile_money'
-        ? formatInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)
-        : collectionSourceAccount.trim();
-      const res: any = await backendAPI.payouts.createCollection({
-        source: selectedAfricanProvider === 'yellow_card' ? 'yellow_card' : 'flutterwave',
-        amount,
+      if (!Number.isInteger(amount)) throw new Error('Local top-up amounts must be whole currency units.');
+      const settlementWallet = stables.find((wallet) =>
+        String(wallet.currency).toUpperCase() === 'USDC' && String(wallet.chain).toLowerCase() === 'base'
+      ) || stables.find((wallet) =>
+        String(wallet.currency).toUpperCase() === 'USDT' && String(wallet.chain).toLowerCase() === 'tron'
+      );
+      // Yellow Card sandbox simulator funds are isolated from Bridge wallets.
+      // Existing wallets only choose the settlement asset; demo accounts can
+      // safely default to the documented USDC/Base sandbox route.
+      const settlementCurrency = String(settlementWallet?.currency || 'USDC').toUpperCase();
+      const settlementNetwork = settlementCurrency === 'USDC' ? 'BASE' : 'TRC20';
+      const baseRequest = {
         currency: selectedAfricanRail.currency,
         country: selectedAfricanCountry.countryCode,
-        destination_country: selectedAfricanCountry.countryCode,
-        destination_currency: selectedAfricanRail.currency,
         channel: selectedAfricanRail.channel,
-        account_number: sourceAccount || undefined,
-        phone: selectedAfricanRail.channel === 'mobile_money' ? sourceAccount || undefined : undefined,
-        network_id: selectedAfricanPolicyRow?.raw?.provider_network_id
-          ? String(selectedAfricanPolicyRow.raw.provider_network_id)
-          : undefined,
-        tx_ref: txRef,
-        reference: txRef,
-        fullname: receiveUsesFlutterwaveForm ? collectionPayerName.trim() || undefined : undefined,
-        email: receiveUsesFlutterwaveForm ? collectionPayerEmail.trim() || undefined : undefined,
-        customer: receiveUsesFlutterwaveForm
-          ? {
-            name: collectionPayerName.trim() || undefined,
-            email: collectionPayerEmail.trim() || undefined,
-          }
-          : undefined,
-        yellow_card: receiveUsesYellowCardForm
-          ? {
-            source: {
-              accountNumber: sourceAccount || undefined,
-              accountType: selectedAfricanRail.channel === 'mobile_money' ? 'momo' : 'bank',
-              networkId: selectedAfricanPolicyRow?.raw?.provider_network_id,
-            },
-          }
-          : undefined,
-        meta: {
-          borderpay_ui_route: 'receive_from_africa',
-          selected_channel: selectedAfricanRail.channel,
-          selected_provider: selectedAfricanProvider || undefined,
-        },
+        local_amount: amount,
+        settlement_currency: settlementCurrency,
+        settlement_network: settlementNetwork,
+        reason: collectionReason.trim(),
+        network_id: selectedCollectionNetworkId || undefined,
+      };
+      const intentFingerprint = JSON.stringify(baseRequest);
+      if (collectionSequenceRef.current?.fingerprint !== intentFingerprint) {
+        collectionSequenceRef.current = {
+          fingerprint: intentFingerprint,
+          sequenceId: crypto.randomUUID(),
+        };
+      }
+      const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+        action: 'preflight',
+        ...baseRequest,
+      });
+      if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'The receive preflight failed.');
+      const selectedNetworkId = String(preflight?.data?.selected_network_id || '');
+      const networkRequired = selectedAfricanRail.channel === 'mobile_money';
+      if (!preflight?.data?.can_create || (networkRequired && !selectedNetworkId)) {
+        const blockers = Array.isArray(preflight?.data?.blockers) ? preflight.data.blockers : [];
+        if (blockers.includes('active_channel_unavailable')) throw new Error('This Yellow Card corridor is not currently active.');
+        if (blockers.includes('kyc_incomplete')) throw new Error('The sandbox recipient profile is incomplete.');
+        throw new Error('Select a payment network before creating this sandbox transaction.');
+      }
+      const res: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+        action: 'create_receive',
+        ...baseRequest,
+        network_id: selectedNetworkId || undefined,
+        sequence_id: collectionSequenceRef.current.sequenceId,
+        operator_confirmed: true,
       });
       if (!res?.success) throw new Error(res?.error || 'Could not create collection request.');
-      const data = res.data || {};
+      const data = res.data?.transaction || res.data || {};
       setCollectionResult(data);
+      collectionSequenceRef.current = null;
       setReceiveStep('africa-success');
-      toast.success('Collection request created.');
+      if (res?.code === 'provider_confirmation_pending' || data?.provider_status === 'confirmation_pending') {
+        toast.info('Collection submitted. Confirmation is pending.');
+      } else {
+        toast.success('Collection request created.');
+      }
     } catch (error: any) {
       toast.error(friendlyError(error?.message, 'Could not create collection request.'));
     } finally {
@@ -560,7 +635,57 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
     }
   };
 
+  const authorizeCollectionWithPin = async (value: string) => {
+    setCollectionPin(value);
+    if (value.length !== 6) return;
+    const verification = await PINManager.verifyTransactionPIN(userId, value);
+    if (!verification.success) {
+      toast.error(friendlyError(verification.error, 'Incorrect PIN'));
+      setCollectionPin('');
+      return;
+    }
+    setCollectionPin('');
+    await createAfricanCollection();
+  };
+
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
+  useEffect(() => {
+    if (!selectedAfricanRail || !selectedAfricanCountryCode || selectedAfricanProvider !== 'yellow_card') {
+      setCollectionNetworks([]);
+      setSelectedCollectionNetworkId('');
+      return;
+    }
+    let active = true;
+    setCollectionNetworksLoading(true);
+    void loadYellowCardCapability('routing', {
+      country: selectedAfricanCountryCode,
+      currency: selectedAfricanRail.currency,
+      channel: selectedAfricanRail.channel,
+      direction: 'receive',
+    })
+      .then((res: any) => {
+        if (!active || !res?.success) return;
+        const raw = res?.data?.routing?.networks;
+        const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.networks) ? raw.networks : Array.isArray(raw?.data) ? raw.data : [];
+        const expected = selectedAfricanRail.channel === 'mobile_money'
+          ? new Set(['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'])
+          : new Set(['bank', 'eft', 'p2p']);
+        const next = rows
+          .filter((row: any) => {
+            const type = String(row?.accountNumberType || row?.account_type || '').toLowerCase();
+            const status = String(row?.status || row?.apiStatus || 'active').toLowerCase();
+            return (!type || expected.has(type)) && ['active', 'enabled', 'available'].includes(status);
+          })
+          .map((row: any) => ({ id: String(row?.id || ''), name: String(row?.name || row?.code || 'Payment network') }))
+          .filter((row: any) => row.id && row.name);
+        setCollectionNetworks(next);
+        setSelectedCollectionNetworkId((current) => next.some((row: any) => row.id === current)
+          ? current
+          : next.length === 1 ? next[0].id : '');
+      })
+      .finally(() => { if (active) setCollectionNetworksLoading(false); });
+    return () => { active = false; };
+  }, [selectedAfricanCountryCode, selectedAfricanProvider, selectedAfricanRail]);
   useEffect(() => {
     const prewarmKey = `borderpay_receive_prewarm_v1:${userId}`;
     try {
@@ -569,7 +694,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
         const prefetch = (window as any).__borderpay_prefetch;
         if (typeof prefetch === 'function') {
           const warm = () => {
-            ['wallet-detail', 'send-money', 'transactions', 'exchange', 'external-accounts'].forEach((s) => {
+            ['wallet-detail', 'send-money', 'transactions', 'external-accounts'].forEach((s) => {
               try { prefetch(s); } catch { /* noop */ }
             });
           };
@@ -629,13 +754,12 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
   const collectionFee = useMemo(() => {
     if (!selectedAfricanPolicyRow || collectionAmountNumber <= 0) return null;
-    const pct = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_percent');
-    const local = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_local');
-    const usd = numberFromRaw(selectedAfricanPolicyRow, 'provider_fee_usd');
-    if (pct !== null) return { amount: (collectionAmountNumber * pct) / 100, currency: selectedAfricanRail?.currency || '', percent: pct };
-    if (local !== null) return { amount: local, currency: selectedAfricanRail?.currency || '', percent: null };
-    if (usd !== null) return { amount: usd, currency: 'USD', percent: null };
-    return null;
+    const fee = calculateYellowCardCustomerFee(selectedAfricanPolicyRow, collectionAmountNumber);
+    return fee ? {
+      amount: fee.customerAmount,
+      currency: selectedAfricanRail?.currency || '',
+      percent: fee.customerPercent,
+    } : null;
   }, [collectionAmountNumber, selectedAfricanPolicyRow, selectedAfricanRail?.currency]);
 
   const collectionReceiveNet = useMemo(() => {
@@ -645,33 +769,33 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   }, [collectionAmountNumber, collectionFee, selectedAfricanRail?.currency]);
 
   const canCreateAfricanCollection = useMemo(() => {
+    if (!africanRailsTester) return false;
     if (collectionAmountNumber <= 0) return false;
-    if (selectedAfricanProvider !== 'flutterwave' && selectedAfricanProvider !== 'yellow_card') return false;
-    if (receiveUsesFlutterwaveForm) {
-      if (!collectionPayerName.trim() || !collectionPayerEmail.trim()) return false;
-      if (selectedAfricanRail?.channel === 'mobile_money') return isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountryCode);
-      return true;
-    }
+    if (!collectionFee) return false;
+    if (!collectionReason.trim()) return false;
+    if (selectedAfricanProvider !== 'yellow_card') return false;
+    if (selectedAfricanRail?.channel === 'mobile_money' && !selectedCollectionNetworkId) return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
       return isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountryCode);
     }
     return true;
   }, [
     collectionAmountNumber,
-    collectionPayerEmail,
-    collectionPayerName,
+    collectionFee,
+    collectionReason,
+    africanRailsTester,
     collectionSourceAccount,
-    receiveUsesFlutterwaveForm,
     receiveUsesYellowCardForm,
     selectedAfricanRail?.channel,
     selectedAfricanProvider,
+    selectedCollectionNetworkId,
     selectedAfricanCountryCode,
   ]);
 
   // ── KYC gate ─────────────────────────────────────────────────────────────
   if (!isVerified) {
     return (
-      <div className={`min-h-screen ${tc.bg}`}>
+      <div ref={screenTopRef} className={`min-h-dvh overflow-x-hidden [overflow-anchor:none] ${tc.bg}`}>
         <FloatingBackButton onBack={onBack} />
         <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
@@ -693,7 +817,7 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
   }
 
   return (
-    <div className={`min-h-screen ${tc.bg}`}>
+    <div ref={screenTopRef} className={`min-h-dvh overflow-x-hidden [overflow-anchor:none] ${tc.bg}`}>
       <FloatingBackButton onBack={goBack} />
       <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-28">
 
@@ -725,36 +849,52 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             </h2>
 
             <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-              <button
+              {africanRailsTester ? <button
                 type="button"
                 onClick={() => {
-                  if (!africanRailsTester) return;
+                  setSelectedAfricanCountryCode('');
+                  setSelectedAfricanRail(null);
+                  setCollectionResult(null);
                   setReceiveStep('africa-destination');
-                  void loadAfricanReceivePolicy();
                 }}
-                disabled={!africanRailsTester}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${africanRailsTester ? tc.hoverBg : 'cursor-not-allowed opacity-60'}`}
+                disabled={africanPolicyLoading || regionalAfricanCountries.length === 0}
+                aria-busy={africanPolicyLoading}
+                className={`w-full min-h-[72px] flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} disabled:cursor-default`}
               >
                 <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
                   <Smartphone className="w-5 h-5 text-[#58D66D]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>Receive to Africa</div>
-                  <div className="text-[11px] text-[#58D66D]">
-                    {africanRailsTester ? 'Mobile money and local bank collections' : 'Coming soon'}
+                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>
+                    African receive rails
                   </div>
-                  {!africanRailsTester && (
-                    <div className="text-[11px] text-white/40">Sandbox review in progress</div>
-                  )}
+                  <div className={`text-[11px] ${africanPolicyLoading || regionalAfricanCountries.length === 0 ? tc.textMuted : 'text-[#58D66D]'}`}>
+                    {africanPolicyLoading
+                      ? 'Loading available rails…'
+                      : regionalAfricanCountries.length > 0
+                        ? `${regionalAfricanCountries.length} countries · Bank · Mobile money`
+                        : 'African receive rails are temporarily unavailable'}
+                  </div>
                 </div>
-                {africanRailsTester ? (
-                  <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />
-                ) : (
-                  <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
-                    Soon
-                  </span>
-                )}
-              </button>
+                {africanPolicyLoading
+                  ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin flex-shrink-0 ml-1`} />
+                  : <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />}
+              </button> : !africanRailsTester ? <div
+                className="flex min-h-[72px] w-full cursor-not-allowed items-center gap-3 px-4 py-3.5 text-left opacity-60"
+                aria-disabled="true"
+                aria-label="African receive rails coming soon"
+              >
+                <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
+                  <Smartphone className="w-5 h-5 text-[#58D66D]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[15px] font-semibold ${tc.text} truncate`}>African receive rails</div>
+                  <div className="text-[11px] text-white/40">African receive rails are coming soon</div>
+                </div>
+                <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
+                  Soon
+                </span>
+              </div> : null}
 
               {loading ? (
                 <div className={`border-t ${tc.borderLight} px-4 py-8 text-center`}>
@@ -917,10 +1057,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                   type="button"
                   onClick={() => {
                     setSelectedAfricanCountryCode('');
-                    setReceiveStep('africa-destination');
+                    setReceiveStep('method');
                   }}
                   className={`w-9 h-9 rounded-full ${tc.hoverBg} flex items-center justify-center`}
-                  aria-label="Back to African countries"
+                  aria-label="Back to receive methods"
                 >
                   <ArrowLeft className={`w-4 h-4 ${tc.textMuted}`} />
                 </button>
@@ -940,9 +1080,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                   onClick={() => {
                     setSelectedAfricanRail(rail);
                     setCollectionAmount('');
-                    setCollectionPayerName('');
-                    setCollectionPayerEmail('');
+                    setCollectionReason('');
                     setCollectionSourceAccount('');
+                    setCollectionNetworks([]);
+                    setSelectedCollectionNetworkId('');
                     setCollectionResult(null);
                     setReceiveStep('africa-details');
                   }}
@@ -988,6 +1129,22 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
               <div className="space-y-3">
                 <div>
+                  <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>
+                    {selectedAfricanRail.channel === 'mobile_money' ? 'Mobile money network' : 'Bank (optional)'}
+                  </label>
+                  <select
+                    value={selectedCollectionNetworkId}
+                    onChange={(event) => setSelectedCollectionNetworkId(event.target.value)}
+                    disabled={collectionNetworksLoading || collectionNetworks.length === 0}
+                    className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 disabled:opacity-60`}
+                  >
+                    <option value="">{selectedAfricanRail.channel === 'bank' ? 'Automatic bank routing' : 'Choose a network'}</option>
+                    {collectionNetworks.map((network) => (
+                      <option key={network.id} value={network.id}>{network.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Amount</label>
                   <input
                     type="number"
@@ -998,45 +1155,20 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
                   />
                 </div>
-                {receiveUsesFlutterwaveForm && (
-                  <>
-                    <div>
-                      <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Payer name</label>
-                      <input
-                        type="text"
-                        value={collectionPayerName}
-                        onChange={(e) => setCollectionPayerName(e.target.value)}
-                        placeholder="Sender name"
-                        className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
-                      />
-                    </div>
-                    <div>
-                      <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Payer email</label>
-                      <input
-                        type="email"
-                        value={collectionPayerEmail}
-                        onChange={(e) => setCollectionPayerEmail(e.target.value)}
-                        placeholder="sender@example.com"
-                        className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
-                      />
-                    </div>
-                    {selectedAfricanRail.channel === 'mobile_money' && (
-                      <div>
-                        <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Payer mobile money number</label>
-                        <input
-                          type="text"
-                          inputMode="tel"
-                          value={collectionSourceAccount}
-                          onChange={(e) => setCollectionSourceAccount(e.target.value.replace(/[^\d+]/g, '').replace(/(?!^)\+/g, ''))}
-                          onBlur={() => setCollectionSourceAccount(formatInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode))}
-                          placeholder={`+${COUNTRY_DIAL_CODES[selectedAfricanCountry.countryCode] || '254'}7xxxxxxxx`}
-                          className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
-                        />
-                      </div>
-                    )}
-                  </>
-                )}
-
+                <div>
+                  <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Transaction reason</label>
+                  <select
+                    value={collectionReason}
+                    onChange={(event) => setCollectionReason(event.target.value)}
+                    required
+                    className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
+                  >
+                    <option value="">Choose a transaction reason</option>
+                    {YELLOW_CARD_PAYMENT_REASONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </div>
                 {receiveUsesYellowCardForm && (
                   <div>
                     <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>
@@ -1144,18 +1276,10 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
                     <span className={tc.textMuted}>Payment method</span>
                     <span className={`${tc.text} text-right`}>{railLabel(selectedAfricanRail.channel)}</span>
                   </div>
-                  {collectionPayerName.trim() && (
-                    <div className="flex justify-between gap-4 text-xs">
-                      <span className={tc.textMuted}>Payer name</span>
-                      <span className={`${tc.text} text-right`}>{collectionPayerName.trim()}</span>
-                    </div>
-                  )}
-                  {collectionPayerEmail.trim() && (
-                    <div className="flex justify-between gap-4 text-xs">
-                      <span className={tc.textMuted}>Payer email</span>
-                      <span className={`${tc.text} text-right break-all`}>{collectionPayerEmail.trim()}</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between gap-4 text-xs">
+                    <span className={tc.textMuted}>Reason</span>
+                    <span className={`${tc.text} text-right`}>{YELLOW_CARD_PAYMENT_REASONS.find((item) => item.value === collectionReason)?.label || collectionReason}</span>
+                  </div>
                   {collectionSourceAccount.trim() && (
                     <div className="flex justify-between gap-4 text-xs">
                       <span className={tc.textMuted}>
@@ -1189,14 +1313,86 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
 
                 <button
                   type="button"
-                  onClick={createAfricanCollection}
+                  onClick={() => {
+                    if (!hasPinFactor && !hasBiometricFactor) {
+                      setReceiveStep('africa-security-gate');
+                      return;
+                    }
+                    setCollectionPin('');
+                    setReceiveStep('africa-auth');
+                  }}
                   disabled={collectionLoading || !canCreateAfricanCollection}
                   className="w-full h-12 rounded-full bg-[#C7FF00] text-black text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {collectionLoading ? 'Creating request...' : 'Confirm request'}
+                  Confirm request
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {receiveStep === 'africa-security-gate' && (
+          <TransactionSecurityGate
+            onBack={() => setReceiveStep('africa-review')}
+            onSetupPin={() => onNavigate?.('pin-setup')}
+            onSetupBiometric={() => onNavigate?.('biometric-setup')}
+          />
+        )}
+
+        {receiveStep === 'africa-auth' && selectedAfricanCountry && selectedAfricanRail && (
+          <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-6 mb-6`}>
+            <button
+              type="button"
+              onClick={() => {
+                setCollectionPin('');
+                setReceiveStep('africa-review');
+              }}
+              className={`mb-5 flex h-10 w-10 items-center justify-center rounded-full ${tc.hoverBg}`}
+              aria-label="Back to collection review"
+            >
+              <ArrowLeft className={`h-4 w-4 ${tc.textMuted}`} />
+            </button>
+            <div className="text-center mb-7">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#C7FF00]/10">
+                <Lock className="h-8 w-8 text-[#C7FF00]" />
+              </div>
+              <h2 className={`text-lg font-bold ${tc.text}`}>Authorize collection request</h2>
+              <p className={`mt-2 text-sm ${tc.textMuted}`}>Enter your transaction PIN or use biometric verification.</p>
+            </div>
+
+            {hasPinFactor && (
+              <div className="flex justify-center mb-6">
+                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} type="password" autoComplete="off" inputMode="numeric" pattern="[0-9]*">
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} mask />
+                    <InputOTPSlot index={1} mask />
+                    <InputOTPSlot index={2} mask />
+                    <InputOTPSlot index={3} mask />
+                    <InputOTPSlot index={4} mask />
+                    <InputOTPSlot index={5} mask />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+            )}
+
+            {hasBiometricFactor && (
+              <button
+                type="button"
+                disabled={collectionLoading}
+                onClick={async () => {
+                  const result = await BiometricManager.verify(userId);
+                  if (!result.success) {
+                    toast.error(friendlyError(result.error, 'Biometric verification failed'));
+                    return;
+                  }
+                  await createAfricanCollection();
+                }}
+                className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {collectionLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Shield className="h-5 w-5 text-[#C7FF00]" />}
+                Use biometric verification
+              </button>
+            )}
           </div>
         )}
 
@@ -1205,7 +1401,12 @@ export function ReceiveMoneyScreen({ onBack }: ReceiveMoneyScreenProps) {
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-500/15">
               <CheckCircle className="h-9 w-9 text-green-400" />
             </div>
-            <h2 className={`text-xl font-bold ${tc.text}`}>Collection request created</h2>
+            <h2 className={`text-xl font-bold ${tc.text}`}>
+              {(collectionResult as any)?.provider_status === 'confirmation_pending' ? 'Collection submitted' : 'Collection request created'}
+            </h2>
+            {(collectionResult as any)?.provider_status === 'confirmation_pending' && (
+              <p className={`mt-2 text-sm ${tc.textMuted}`}>Confirmation is pending. Do not submit this collection again.</p>
+            )}
             <p className={`mt-2 text-sm ${tc.textMuted}`}>
               {formatMoney(collectionAmountNumber, selectedAfricanRail.currency)} {selectedAfricanRail.currency} · {selectedAfricanCountry.countryName}
             </p>
