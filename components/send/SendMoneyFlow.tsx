@@ -40,6 +40,7 @@ import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
 import { buildReceiptPdf } from '../../utils/receipts/buildReceiptPdf';
+import { exportReceiptPdf } from '../../utils/receipts/exportReceiptPdf';
 import {
   hasFreshAfricanPolicyRows,
   loadAfricanPolicyRows,
@@ -1563,7 +1564,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     ? `${selectedExternalAccount.currency} account`
     : 'External account';
 
-  const downloadReceiptPdf = () => {
+  const downloadReceiptPdf = async () => {
     const recipientAccount = isAfricanPayout && method === 'mobile_money'
       ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
       : accountNumber;
@@ -1592,14 +1593,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       { label: 'Note', value: 'This receipt confirms your BorderPay money out request. Final settlement status may depend on the receiving rail.' },
     ];
     const blob = buildReceiptPdf(receiptLines);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `BorderPay-receipt-${transactionId || transactionRef || Date.now()}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    try {
+      await exportReceiptPdf(blob, `BorderPay-receipt-${transactionId || transactionRef || Date.now()}.pdf`);
+    } catch (error) {
+      toast.error(friendlyError(error, 'Could not open the receipt. Please try again.'));
+    }
   };
 
   // ---------------------------------------------------------------------------
