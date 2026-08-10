@@ -6,11 +6,11 @@ on:
       app_version:
         description: "Marketing version shown in App Store Connect"
         required: true
-        default: "1.0"
+        default: "1.0.1"
       build_number:
-        description: "App Store build number. Must be higher than rejected build 32."
+        description: "App Store build number. Must be 35 or higher."
         required: true
-        default: "33"
+        default: "35"
       upload_to_testflight:
         description: "Upload the signed IPA to TestFlight"
         required: true
@@ -88,8 +88,8 @@ jobs:
             echo "Build number must be a positive integer, got: $BUILD_NUMBER" >&2
             exit 1
           fi
-          if [ "$BUILD_NUMBER" -le 32 ]; then
-            echo "Build number must be higher than rejected App Store build 32, got: $BUILD_NUMBER" >&2
+          if [ "$BUILD_NUMBER" -le 34 ]; then
+            echo "Build number must be 35 or higher, got: $BUILD_NUMBER" >&2
             exit 1
           fi
           echo "number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
