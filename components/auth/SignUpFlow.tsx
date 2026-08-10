@@ -37,7 +37,6 @@ import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/clie
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
-  getSignupEligibleCountries,
   getSignupCountriesFromBridge,
   getCountryByCode,
   POPULAR_COUNTRY_CODES,
@@ -168,11 +167,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         setBridgeCountriesLoading(false);
         return;
       }
-      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; name?: string | null }>;
+      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; code3?: string | null; name?: string | null }>;
       const bridgeCountries = getSignupCountriesFromBridge(providerCountries);
-      const eligible = getSignupEligibleCountries();
-      const eligibleCodes = new Set(eligible.map((c) => c.code));
-      setBridgeSignupCountries(bridgeCountries.filter((c) => eligibleCodes.has(c.code)));
+      setBridgeSignupCountries(bridgeCountries);
       setBridgeCountriesLoading(false);
     })();
     return () => { cancelled = true; };
@@ -491,7 +488,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         email: data.user.email,
                         full_name: formData.fullName,
                         ...(formData.accountType === 'business' ? { company_name: formData.companyName } : {}),
-                        kyc_status: 'pending',
+                        kyc_status: 'not_started',
+                        bridge_kyc_status: 'not_started',
                         account_type: formData.accountType,
                       }));
                       if (data.session?.access_token) {
@@ -581,9 +579,14 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         return;
                       }
 
-                      // ─── Individual signup (unchanged) ──────────────────
-                      toast.success('Email verified! Continue with verification.');
-                      setCurrentStep('identity');
+                      // Individual KYC is completed through the same hosted
+                      // verification flow used by the web/PWA dashboard. Do
+                      // not re-enter the retired in-app identity/address/
+                      // proof-of-address enrollment screens after email
+                      // verification (including inside native app shells).
+                      toast.success('Email verified! Continue with verification from your dashboard.');
+                      onSignUpSuccess(data.user);
+                      return;
                     }
                   } catch (err: any) {
                     toast.error(friendlyError(err, 'Sign in failed. Please try logging in.'));
