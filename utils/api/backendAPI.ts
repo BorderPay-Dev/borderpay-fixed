@@ -27,6 +27,12 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-customer') return 30000;
   if (endpoint === 'bridge-transfer') return 45000;
   if (endpoint === 'bridge-external-account') return 30000;
+  // Yellow Card sandbox orchestration performs authenticated routing discovery,
+  // preflight persistence and provider submission. Its upstream deadline is
+  // longer than the generic UI deadline, so aborting at 8s creates false
+  // failures while the idempotent server request continues in the background.
+  if (endpoint === 'yellowcard-capabilities') return 30000;
+  if (endpoint === 'yellowcard-sandbox-transaction') return 90000;
   return 8000;
 }
 
@@ -144,7 +150,7 @@ async function apiCall<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
-      return { success: false, error: 'Request timed out. Please try again.' };
+      return { success: false, code: 'response_unconfirmed', error: 'We could not confirm the response. Please try again.' } as any;
     }
     // Retry once on network failure for critical calls
     if (retries < 1 && !options.signal?.aborted) {
@@ -222,7 +228,7 @@ async function apiCallPublic<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
-      return { success: false, error: 'Request timed out. Please try again.' };
+      return { success: false, code: 'response_unconfirmed', error: 'We could not confirm the response. Please try again.' } as any;
     }
     return { success: false, error: sanitizeError(error.message || 'Connection error. Please check your internet and try again.') };
   }
@@ -852,6 +858,40 @@ export const financialReadModelAPI = (() => {
     }
   }
 
+  function invalidateForUser(userIdRaw: string) {
+    const userId = String(userIdRaw || '').trim();
+    if (!userId) return;
+
+    if (lastSnapshotKey.startsWith(`${userId}:`)) {
+      lastSnapshot = null;
+      lastSnapshotAt = 0;
+      lastSnapshotKey = '';
+    }
+    if (lastAnySnapshotUserId === userId) {
+      lastAnySnapshot = null;
+      lastAnySnapshotAt = 0;
+      lastAnySnapshotUserId = '';
+    }
+
+    try {
+      const snapshotPrefix = `borderpay_snapshot_cache_v2:${userId}:`;
+      const financialSuffix = `:financial-v2:${userId}`;
+      const remove: string[] = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith(snapshotPrefix) || key.endsWith(financialSuffix))) remove.push(key);
+      }
+      remove.push(
+        `borderpay_wallet_total_${userId}`,
+        `borderpay_wallet_balances_${userId}`,
+      );
+      for (const key of new Set(remove)) localStorage.removeItem(key);
+    } catch {
+      // Cache invalidation is best effort; the next uncached snapshot remains
+      // the source of truth.
+    }
+  }
+
   function refreshSnapshotInBackground(userId: string, snapshotKey: string, limit: number) {
     if (inFlight && inFlightKey === snapshotKey) return;
     inFlightKey = snapshotKey;
@@ -997,6 +1037,8 @@ export const financialReadModelAPI = (() => {
   }
 
   return {
+    invalidateForUser,
+
     async getSnapshot(limit = 50) {
       // Fast path: session user is locally available and avoids an extra
       // auth round-trip on every route mount.
@@ -2492,303 +2534,58 @@ export const webauthnAPI = {
 };
 
 export const subscriptionAPI = {
-  /** Fetch the caller's legacy access row + recent legacy invoices. */
+  /** Fetch the caller's internal account-maintenance subscription. */
   current: async () =>
     apiCall<{
       subscription: {
         id: string;
-        plan_key: string;
+        account_type: 'individual' | 'business';
+        monthly_fee: number;
+        currency: 'USD';
         status: string;
-        current_period_start: string;
-        current_period_end: string;
-        cancel_at_period_end: boolean;
+        payment_status: 'active' | 'failed' | 'pending';
+        next_billing_date: string;
+        last_billed_at: string | null;
+        grace_started_at: string | null;
+        restricted_at: string | null;
+        created_at: string;
       } | null;
-      recent_invoices: Array<{
+      recent_transactions: Array<{
         id: string;
-        plan_key: string;
-        amount_usd_cents: number;
+        billing_period: string;
+        amount: number;
+        collected_amount: number;
+        asset: 'USDC' | 'USDT' | 'MIXED' | null;
+        asset_breakdown: Record<string, number>;
         status: string;
-        paid_at: string | null;
+        failure_code: string | null;
+        completed_at: string | null;
         created_at: string;
       }>;
     }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),
 
 };
 
-const privateName = (codes: number[]): string =>
-  codes.map((code) => String.fromCharCode(code)).join('');
-
-const internalProviderFunction = (suffix: string): string =>
-  `${privateName([102, 108, 117, 116, 116, 101, 114, 119, 97, 118, 101])}-${suffix}`;
+const yellowCardFunction = (suffix: string): string =>
+  `yellowcard-${suffix}`;
 
 const approvedPayoutFunction = (suffix: string): string =>
-  `${privateName([98, 114, 105, 100, 103, 101])}-${suffix}`;
+  `bridge-${suffix}`;
 
 /** African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
-  /** List banks for a 2-letter country code (e.g. 'NG', 'KE', 'GH', 'UG'). */
-  listBanks: async (country: string) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      country: string;
-      banks: Array<Record<string, unknown>>;
-    }>(internalProviderFunction('capabilities'), {
-      method: 'POST',
-      body: JSON.stringify({ action: 'banks', country }),
-    }),
-
-  /** List mobile money networks/providers by country. */
-  listMobileNetworks: async (country: string) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      country: string;
-      mobile_networks: Array<Record<string, unknown>>;
-    }>(internalProviderFunction('capabilities'), {
-      method: 'POST',
-      body: JSON.stringify({ action: 'mobile_networks', country }),
-    }),
-
-  /** Fetch rail capabilities + corridor policy exposed by backend. */
-  capabilities: async (
-    action: 'health' | 'payment_methods' | 'banks' | 'mobile_networks' | 'corridor_policy' = 'corridor_policy',
+  yellowCardCapabilities: async (
+    action: 'corridor_policy' | 'routing' | 'channels' | 'networks' | 'rates' | 'quote',
     payload: Record<string, unknown> = {},
-  ) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      static_ip_guard?: {
-        required?: boolean;
-        ready?: boolean;
-        blocked?: boolean;
-      };
-      local_rail_policy?: {
-        countries?: string[];
-        currencies?: string[];
-        methods?: Array<'bank' | 'mobile_money'>;
-        rows?: Array<Record<string, unknown>>;
-      };
-      payment_methods?: Array<Record<string, unknown>>;
-      banks?: Array<Record<string, unknown>>;
-      mobile_networks?: Array<Record<string, unknown>>;
-      provider_status?: Record<string, unknown>;
-    }>(internalProviderFunction('capabilities'), {
-      method: 'POST',
-      body: JSON.stringify({ action, ...payload }),
-    }),
+  ) => apiCall<Record<string, unknown>>(yellowCardFunction('capabilities'), {
+    method: 'POST',
+    body: JSON.stringify({ action, ...payload }),
+  }),
 
-  /** Verify a bank account number → account holder name before payout. */
-  resolveAccount: async (account_number: string, bank_code: string, country?: string) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      resolution?: Record<string, unknown>;
-    }>(internalProviderFunction('account-resolve'), {
-      method: 'POST',
-      body: JSON.stringify({ account_number, bank_code, ...(country ? { country } : {}) }),
-    }),
-
-  /** Create a local payout transfer (bank/mobile rails). */
-  createTransfer: async (payload: {
-    source?: 'flutterwave' | 'yellow_card';
-    amount: number | string;
-    currency: string;
-    account_bank: string;
-    account_number: string;
-    account_type?: 'individual' | 'business';
-    country?: string;
-    destination_country?: string;
-    destination_currency?: string;
-    channel?: 'bank' | 'mobile_money';
-    reference: string;
-    narration?: string;
-    callback_url?: string;
-    debit_currency?: string;
-    source_currency?: string;
-    beneficiary_name?: string;
-    network_id?: string;
-    yellow_card?: Record<string, unknown>;
-    meta?: Record<string, unknown>;
-  }) =>
-    apiCall<{
-      mode: 'create' | 'retry';
-      capabilities?: Record<string, unknown>;
-      account_context?: {
-        requested_account_type?: string;
-        resolved_account_type?: string;
-      };
-      provider_request_id?: string | null;
-      transfer?: Record<string, unknown>;
-    }>(internalProviderFunction('transfer-create'), {
+  yellowCardSandboxTransaction: async (payload: Record<string, unknown>) =>
+    apiCall<Record<string, unknown>>(yellowCardFunction('sandbox-transaction'), {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
-
-  /** Retry a previously created transfer by provider transfer id. */
-  retryTransfer: async (input: {
-    transfer_id: string;
-    account_type?: 'individual' | 'business';
-    retry_payload?: Record<string, unknown>;
-  }) =>
-    apiCall<{
-      mode: 'retry';
-      capabilities?: Record<string, unknown>;
-      account_context?: {
-        requested_account_type?: string;
-        resolved_account_type?: string;
-      };
-      transfer?: Record<string, unknown>;
-    }>(internalProviderFunction('transfer-create'), {
-      method: 'POST',
-      body: JSON.stringify({
-        mode: 'retry',
-        transfer_id: input.transfer_id,
-        ...(input.account_type ? { account_type: input.account_type } : {}),
-        ...(input.retry_payload ? { retry_payload: input.retry_payload } : {}),
-      }),
-    }),
-
-  /** Retrieve transfer status by provider transfer id. */
-  transferStatus: async (
-    transfer_id: string,
-    account_type?: 'individual' | 'business',
-  ) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      transfer_id: string;
-      account_context?: {
-        requested_account_type?: string;
-        resolved_account_type?: string;
-      };
-      resolved_account_type?: string;
-      provider_request_id?: string | null;
-      transfer?: Record<string, unknown>;
-    }>(internalProviderFunction('transfer-status'), {
-      method: 'POST',
-      body: JSON.stringify({ transfer_id, ...(account_type ? { account_type } : {}) }),
-    }),
-
-  /** List payout transfers with optional filters. */
-  transfersList: async (filters: {
-    status?: string;
-    from?: string;
-    to?: string;
-    page?: number;
-    limit?: number;
-    account_type?: 'individual' | 'business';
-  } = {}) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      account_context?: {
-        requested_account_type?: string;
-        resolved_account_type?: string;
-      };
-      provider_request_id?: string | null;
-      transfers?: Record<string, unknown>;
-      projected_transfers?: Array<Record<string, unknown>>;
-    }>(internalProviderFunction('transfers-list'), {
-      method: 'POST',
-      body: JSON.stringify(filters),
-    }),
-
-  /** Fetch transfer rates for corridor preview. */
-  transferRates: async (input: {
-    source_currency: string;
-    destination_currency: string;
-    destination_country?: string;
-    channel?: 'bank' | 'mobile_money';
-    amount?: number | string;
-  }) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      source_currency: string;
-      destination_currency: string;
-      amount: number | null;
-      rates?: Record<string, unknown>;
-    }>(internalProviderFunction('transfer-rates'), {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-
-  /** Create a local collection request/charge for receive flows. */
-  createCollection: async (payload: {
-    source?: 'flutterwave' | 'yellow_card';
-    amount: number | string;
-    currency: string;
-    usd_amount?: number | string;
-    amount_usd?: number | string;
-    account_type?: 'individual' | 'business';
-    country?: string;
-    destination_country?: string;
-    destination_currency?: string;
-    channel?: 'bank' | 'mobile_money';
-    reference?: string;
-    tx_ref: string;
-    email?: string;
-    fullname?: string;
-    phone?: string;
-    account_number?: string;
-    network_id?: string;
-    channel_id?: string;
-    customer?: Record<string, unknown>;
-    yellow_card?: Record<string, unknown>;
-    payment_options?: string;
-    redirect_url?: string;
-    customizations?: Record<string, unknown>;
-    meta?: Record<string, unknown>;
-  }) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      account_context?: {
-        requested_account_type?: string;
-        resolved_account_type?: string;
-      };
-      provider_request_id?: string | null;
-      collection?: Record<string, unknown>;
-    }>(internalProviderFunction('collection-create'), {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  /** Retrieve one collection/charge status. */
-  collectionStatus: async (
-    collection_id: string,
-    account_type?: 'individual' | 'business',
-  ) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      collection_id: string;
-      account_context?: {
-        requested_account_type?: string;
-        resolved_account_type?: string;
-      };
-      resolved_account_type?: string;
-      provider_request_id?: string | null;
-      collection?: Record<string, unknown>;
-    }>(internalProviderFunction('collection-status'), {
-      method: 'POST',
-      body: JSON.stringify({ collection_id, ...(account_type ? { account_type } : {}) }),
-    }),
-
-  /** List collections/charges with optional filters. */
-  collectionsList: async (filters: {
-    tx_ref?: string;
-    status?: string;
-    from?: string;
-    to?: string;
-    page?: number;
-    limit?: number;
-    account_type?: 'individual' | 'business';
-  } = {}) =>
-    apiCall<{
-      capabilities?: Record<string, unknown>;
-      account_context?: {
-        requested_account_type?: string;
-        resolved_account_type?: string;
-      };
-      provider_request_id?: string | null;
-      collections?: Record<string, unknown>;
-      projected_collections?: Array<Record<string, unknown>>;
-    }>(internalProviderFunction('collections-list'), {
-      method: 'POST',
-      body: JSON.stringify(filters),
     }),
 
   /**
@@ -2811,27 +2608,6 @@ export const payoutsAPI = {
       summary: { total: number; submitted: number; failed: number; total_amount: number; currency: string };
     }>(approvedPayoutFunction('bulk-payout'), { method: 'POST', body: JSON.stringify(payload) }),
 
-  /** Server-side corridor fee quote (non-blocking UI hint for payout review). */
-  feeQuote: async (input: {
-    direction: 'payout' | 'receive';
-    channel: 'bank' | 'mobile_money';
-    currency: string;
-    amount: number | string;
-  }) =>
-    apiCall<{
-      direction: 'payout' | 'receive';
-      channel: 'bank' | 'mobile_money';
-      currency: string;
-      amount: number;
-      product: string;
-      provider_fee: number;
-      markup_fee: number;
-      total_fee: number;
-      effective_multiplier: number;
-      hard_cap_multiplier: number | null;
-      pricing_version: string;
-      quoted_at: string;
-    }>(internalProviderFunction('fee-quote'), { method: 'POST', body: JSON.stringify(input) }),
 };
 
 /** Saved external stablecoin payout addresses (withdraw to your own wallet). */
