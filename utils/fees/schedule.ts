@@ -35,33 +35,37 @@ export type FeePlanKey =
 
 /** BorderPay's fixed markup (percent) on the African payout leg, by plan. */
 export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_PLAN: Record<FeePlanKey, number> = {
-  individual_starter:  1.0,
-  individual_premium:  0.5,
-  business_starter:    0.75,
-  business_growth:     0.5,
-  business_enterprise: 0.5,
+  individual_starter:  2.0,
+  individual_premium:  2.0,
+  business_starter:    2.0,
+  business_growth:     2.0,
+  business_enterprise: 2.0,
 };
 
-/** Lowest-tier markup used as the safe default when a plan key is unknown. */
-export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 0.5;
+/** Unified Yellow Card markup used when a plan key is unknown. */
+export const AFRICAN_PAYOUT_MARKUP_DEFAULT_PERCENT = 2.0;
 
 /**
- * African payout markup by ACCOUNT TYPE (current model — flat, plan-independent,
- * retained for compatibility with older access rows):
- *   • Individual: 0.75%
- *   • Business:   0.50%
+ * Yellow Card Send and Receive markup by account type:
+ *   • Individual: 2.00%
+ *   • Business:   2.00%
  * Stacked on the raw local-currency settlement (pass-through) cost.
  */
-export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT: Record<'individual' | 'business', number> = {
-  individual: 0.75,
-  business:   0.50,
+export const AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT: Record<'individual' | 'business', number> = {
+  individual: 2.0,
+  business:   2.0,
 };
 
-export function africanPayoutMarkupPercentForAccount(accountType: string | null | undefined): number {
+export const AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT = 2.0;
+
+export function africanRailMarkupPercentForAccount(accountType: string | null | undefined): number {
   return String(accountType ?? '').toLowerCase() === 'business'
-    ? AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT.business
-    : AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT.individual;
+    ? AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT.business
+    : AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT.individual;
 }
+
+export const AFRICAN_PAYOUT_MARKUP_PERCENT_BY_ACCOUNT = AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT;
+export const africanPayoutMarkupPercentForAccount = africanRailMarkupPercentForAccount;
 
 /** Resolve the Bridge developer-fee percent for a known product path. */
 export function bridgeDeveloperFeePercent(
