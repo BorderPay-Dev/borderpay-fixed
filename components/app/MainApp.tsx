@@ -21,6 +21,7 @@ import { WalletScreen } from '../wallet/WalletScreen';
 import { AddWalletScreen } from '../wallet/AddWalletScreen';
 import { ReceiveMoneyScreen } from '../receive/ReceiveMoneyScreen';
 import { ExternalWalletsScreen } from '../wallets/ExternalWalletsScreen';
+import { ExchangeScreen } from '../exchange/ExchangeScreen';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import { ProfileScreen } from '../profile/ProfileScreen';
 import { NotificationsScreen } from '../notifications/NotificationsScreen';
@@ -34,7 +35,6 @@ import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 import { PreferencesScreen } from './PreferencesScreen';
 import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
-import { PausedAccountScreen } from '../account/PausedAccountScreen';
 import { HelpCenterScreen } from '../settings/HelpCenterScreen';
 import { SupportScreen } from '../settings/SupportScreen';
 import { CardsScreen } from '../cards/CardsScreen';
@@ -60,9 +60,8 @@ import {
   navPerfReset,
   navPerfStartRoute,
 } from '../../utils/performance/navigationPerf';
-import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
-import { isBridgeAccountPaused } from '../../utils/bridgeAccountStatus';
+import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
 import { initializeNativePush } from '../../utils/notifications/nativePush';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
@@ -123,6 +122,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   cards: eagerPreload,
   'send-money': (SendMoneyFlow as any).preload,
   'receive-money': eagerPreload,
+  exchange: eagerPreload,
   'two-factor-setup': eagerPreload,
   'pin-setup': (PINSetup as any).preload,
   'biometric-setup': eagerPreload,
@@ -171,13 +171,11 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
       return 'receive-money';
     case 'home':
       return 'dashboard';
-    case 'exchange':
-      // Legacy links must not expose the removed customer exchange service.
-      return 'dashboard';
     case 'dashboard':
     case 'cards':
     case 'send-money':
     case 'receive-money':
+    case 'exchange':
     case 'transactions':
     case 'wallet-detail':
     case 'two-factor-setup':
@@ -346,6 +344,7 @@ export type AppScreen =
   | 'cards'
   | 'send-money'
   | 'receive-money'
+  | 'exchange'
   | 'transactions'
   | 'wallet-detail'
   | 'add-wallet'
@@ -424,10 +423,6 @@ type StablecoinConfirmData = {
 };
 
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
-  const africanRailsTester = canUseAfricanRails({
-    id: userId,
-    email: (authAPI.getStoredUser() as any)?.email,
-  });
   const initialScreenFromCallback = useMemo<AppScreen>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -459,14 +454,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
-  const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean }>(() => {
-    try {
-      const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
-      return { paused: isBridgeAccountPaused(cached), pausedAt: cached?.account_frozen_at || cached?.bridge_account_paused_at || null, reason: cached?.account_frozen_reason || null, locallyFrozen: String(cached?.account_status || '').toLowerCase() === 'frozen' };
-    } catch {
-      return { paused: false, pausedAt: null, reason: null, locallyFrozen: false };
-    }
-  });
 
   // Clear one-time module-reload fuse once the app boots successfully.
   useEffect(() => {
@@ -556,7 +543,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         if (cancelled) return;
         if (r?.success && r.data?.user) {
           const u: any = r.data.user;
-          setPausedAccount({ paused: isBridgeAccountPaused(u), pausedAt: u.account_frozen_at || u.bridge_account_paused_at || null, reason: u.account_frozen_reason || null, locallyFrozen: String(u.account_status || '').toLowerCase() === 'frozen' });
           let cached: any = {};
           try { cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}'); } catch { cached = {}; }
           const cachedBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
@@ -925,13 +911,22 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     return () => { cancelled = true; };
   }, [userId]);
 
-  // Warm Yellow Card Africa corridor policy at app level. VA/crypto routes are
+  // Warm YC/FLW Africa corridor policy at app level. VA/crypto routes are
   // already instant because MainApp seeds their caches before screen open;
   // Africa rails need the same treatment instead of waiting for Send/Receive.
   React.useEffect(() => {
-    if (!africanRailsTester) return;
     let cancelled = false;
     const warmTsKey = financialCacheKey('borderpay_african_rails_policy_warm_ts_v1', { userId });
+    const canWarmAfrica = (() => {
+      try {
+        const cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}');
+        return canUseAfricanRails({ id: userId || cached?.id, email: cached?.email });
+      } catch {
+        return canUseAfricanRails({ id: userId });
+      }
+    })();
+    if (!canWarmAfrica) return () => { cancelled = true; };
+
     const warm = async () => {
       try {
         const last = Number(localStorage.getItem(warmTsKey) || '0');
@@ -951,7 +946,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1200 });
     else setTimeout(() => { void warm(); }, 300);
     return () => { cancelled = true; };
-  }, [userId, africanRailsTester]);
+  }, [userId]);
 
   const navigateBack = () => {
     if (navigationStack.length > 1) {
@@ -1012,7 +1007,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
       case 'receive-money':
       case 'ramps':
-        return <ReceiveMoneyScreen onBack={navigateBack} onNavigate={navigateTo} />;
+        return <ReceiveMoneyScreen onBack={navigateBack} />;
 
       case 'external-accounts':
         if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
@@ -1057,6 +1052,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onAdded={() => { /* list reloads on mount when navigated back */ }}
           />
         );
+
+      case 'exchange':
+        return <ExchangeScreen onBack={navigateBack} />;
 
       case 'two-factor-setup':
         return (
@@ -1188,10 +1186,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         );
     }
   };
-
-  if (pausedAccount.paused) {
-    return <PausedAccountScreen pausedAt={pausedAccount.pausedAt} reason={pausedAccount.reason} locallyFrozen={pausedAccount.locallyFrozen} onSignOut={onLogout} />;
-  }
 
   return (
     <div
