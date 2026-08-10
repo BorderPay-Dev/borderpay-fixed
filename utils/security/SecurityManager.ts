@@ -11,11 +11,9 @@
  */
 
 import { BASE_URL, ANON_KEY } from '../supabase/client';
-import { isNativeRuntime, nativePlatform } from '../native/mobileRuntime';
+import { isNativeRuntime } from '../native/mobileRuntime';
 
-const isNativeAndroid = () => isNativeRuntime() && nativePlatform() === 'android';
-
-async function authenticateNativeAndroid(reason: string): Promise<void> {
+async function authenticateNativeBiometric(reason: string): Promise<void> {
   const { BiometricAuth, AndroidBiometryStrength } = await import('@aparajita/capacitor-biometric-auth');
   await BiometricAuth.authenticate({
     reason,
@@ -600,7 +598,7 @@ function _serializeAssertionResponse(cred: PublicKeyCredential): any {
 export const BiometricManager = {
   /** Platform-authenticator capability check. */
   async isSupported(): Promise<boolean> {
-    if (isNativeAndroid()) {
+    if (isNativeRuntime()) {
       try {
         const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth');
         return Boolean((await BiometricAuth.checkBiometry()).isAvailable);
@@ -664,8 +662,8 @@ export const BiometricManager = {
         return { success: false, error: 'Biometric authentication is not supported on this device' };
       }
 
-      if (isNativeAndroid()) {
-        await authenticateNativeAndroid('Confirm your identity to enable biometric login');
+      if (isNativeRuntime()) {
+        await authenticateNativeBiometric('Confirm your identity to enable biometric login');
         localStorage.setItem('borderpay_biometric_enrolled', 'true');
         localStorage.setItem('borderpay_biometric_user_id', userId);
         return { success: true };
@@ -740,8 +738,8 @@ export const BiometricManager = {
    */
   async verify(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      if (isNativeAndroid()) {
-        await authenticateNativeAndroid('Confirm your identity to unlock BorderPay');
+      if (isNativeRuntime()) {
+        await authenticateNativeBiometric('Confirm your identity to unlock BorderPay');
         return { success: true };
       }
       const { backendAPI } = await import('../api/backendAPI');
@@ -781,7 +779,7 @@ export const BiometricManager = {
    */
   async disable(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      if (isNativeAndroid()) {
+      if (isNativeRuntime()) {
         localStorage.removeItem('borderpay_biometric_enrolled');
         localStorage.removeItem('borderpay_biometric_user_id');
         localStorage.removeItem('borderpay_biometric_credential_id');

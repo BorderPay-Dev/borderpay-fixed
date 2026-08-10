@@ -11,6 +11,8 @@ import { motion } from 'motion/react';
 import { Lock, Fingerprint, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { backendAPI } from '../../utils/api/backendAPI';
+import { supabase } from '../../utils/supabase/client';
 
 import {
   InputOTP,
@@ -65,9 +67,30 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
   }, [locked, lockTimer]);
 
   const checkBiometric = async () => {
-    const enrolled = BiometricManager.isEnrolled(userId);
-    const supported = await BiometricManager.isSupported();
-    setBiometricAvailable(enrolled && supported);
+    const [supported, security]: any[] = await Promise.all([
+      BiometricManager.isSupported(),
+      backendAPI.auth.getSecurityStatus(userId),
+    ]);
+    const serverEnrolled = Boolean(security?.success && security?.data?.biometric_enrolled);
+    if (serverEnrolled) {
+      try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* non-blocking cache */ }
+    }
+    setBiometricAvailable(Boolean(supported && (serverEnrolled || BiometricManager.isEnrolled(userId))));
+  };
+
+  // Locking intentionally removes the active access token. Restore a session
+  // behind the still-active lock before calling authenticated PIN/WebAuthn APIs.
+  // This does not unlock or navigate; only a successful factor can do that.
+  const restoreLockedSession = async (): Promise<boolean> => {
+    const existing = localStorage.getItem('borderpay_token');
+    if (existing) return true;
+    const refreshToken = localStorage.getItem('borderpay_refresh_token');
+    if (!refreshToken) return false;
+    const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (refreshError || !data.session) return false;
+    localStorage.setItem('borderpay_token', data.session.access_token);
+    localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
+    return true;
   };
 
   const handlePinChange = async (value: string) => {
@@ -77,11 +100,16 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     if (value.length === 6) {
       setVerifying(true);
       try {
-        const isValid = await PINManager.verifyPIN(userId, value);
-        if (isValid) {
+        if (!(await restoreLockedSession())) {
+          setPin('');
+          setError('Session expired. Sign in again to unlock BorderPay.');
+          return;
+        }
+        const result = await PINManager.verifyAppUnlockPINResult(userId, value);
+        if (result.success) {
           setAttempts(0);
           onUnlock();
-        } else {
+        } else if (result.code === 'invalid_pin' || /invalid pin/i.test(result.error || '')) {
           const newAttempts = attempts + 1;
           setAttempts(newAttempts);
           setPin('');
@@ -93,6 +121,11 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
           } else {
             setError(`Incorrect PIN. ${MAX_ATTEMPTS - newAttempts} attempts remaining.`);
           }
+        } else {
+          // Transport/auth failures are not wrong PIN attempts. Do not lock a
+          // customer out because the verification service could not be reached.
+          setPin('');
+          setError(friendlyError(result.error, 'Secure PIN verification is temporarily unavailable. Try again.'));
         }
       } catch {
         setError('Verification failed');
@@ -109,6 +142,10 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     setError('');
 
     try {
+      if (!(await restoreLockedSession())) {
+        setError('Session expired. Sign in again to unlock BorderPay.');
+        return;
+      }
       const result = await BiometricManager.verify(userId);
       if (result.success) {
         onUnlock();
@@ -185,12 +222,12 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
                 disabled={verifying || locked}
               >
                 <InputOTPGroup>
-                  <InputOTPSlot index={0} />
-                  <InputOTPSlot index={1} />
-                  <InputOTPSlot index={2} />
-                  <InputOTPSlot index={3} />
-                  <InputOTPSlot index={4} />
-                  <InputOTPSlot index={5} />
+                  <InputOTPSlot index={0} mask />
+                  <InputOTPSlot index={1} mask />
+                  <InputOTPSlot index={2} mask />
+                  <InputOTPSlot index={3} mask />
+                  <InputOTPSlot index={4} mask />
+                  <InputOTPSlot index={5} mask />
                 </InputOTPGroup>
               </InputOTP>
             </div>
@@ -236,7 +273,7 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
           onClick={() => onForgotPIN?.()}
           className="w-full text-center text-sm text-[#C7FF00] hover:text-[#d4ff4d] transition-colors py-2 mb-2"
         >
-          Forgot PIN?
+          Reset PIN securely
         </button>
         <button
           onClick={() => {

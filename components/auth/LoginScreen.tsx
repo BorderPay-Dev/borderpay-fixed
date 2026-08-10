@@ -30,6 +30,7 @@ import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLogi
 import { ENV_CONFIG, isKycVerified } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { bootstrapAppReviewDemoCache, isAppReviewDemoEmail } from '../../utils/review/appReviewDemoBootstrap';
+import { isNativeRuntime } from '../../utils/native/mobileRuntime';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -147,7 +148,7 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
             phone:        data.user.user_metadata?.phone || data.user.phone || '',
             country:      data.user.user_metadata?.country || '',
             account_type: data.user.user_metadata?.account_type || 'individual',
-            kyc_status:   data.user.user_metadata?.kyc_status || 'pending',
+            kyc_status:   data.user.user_metadata?.kyc_status || 'not_started',
             created_at:   data.user.created_at,
           };
         } else if (!userProfile.full_name || userProfile.full_name === 'User') {
@@ -251,7 +252,8 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
     try {
       // Step 1: Device support
-      if (!window.PublicKeyCredential) {
+      const nativeMobile = isNativeRuntime();
+      if (!nativeMobile && !window.PublicKeyCredential) {
         toast.error('Biometric authentication not supported on this browser');
         return;
       }
@@ -276,7 +278,9 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         return;
       }
 
-      const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      const available = nativeMobile
+        ? await BiometricManager.isSupported()
+        : await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       if (!available) {
         toast.info('Platform biometric not available. Please sign in with your password.');
         if (userProfile.email) setEmail(userProfile.email);
