@@ -11,7 +11,22 @@
  */
 
 import { BASE_URL, ANON_KEY } from '../supabase/client';
-import { isNativeRuntime } from '../native/mobileRuntime';
+import { isNativeRuntime, nativePlatform } from '../native/mobileRuntime';
+
+const isNativeAndroid = () => isNativeRuntime() && nativePlatform() === 'android';
+
+async function authenticateNativeAndroid(reason: string): Promise<void> {
+  const { BiometricAuth, AndroidBiometryStrength } = await import('@aparajita/capacitor-biometric-auth');
+  await BiometricAuth.authenticate({
+    reason,
+    cancelTitle: 'Cancel',
+    allowDeviceCredential: false,
+    androidTitle: 'BorderPay security',
+    androidSubtitle: reason,
+    androidConfirmationRequired: false,
+    androidBiometryStrength: AndroidBiometryStrength.weak,
+  });
+}
 
 // ============================================================================
 // TYPES
@@ -302,6 +317,48 @@ export const PINManager = {
     }
   },
 
+  /**
+   * App-lock compatibility for users enrolled before PIN verification moved
+   * from this device to the backend. A valid device-local legacy PIN may
+   * unlock only the local app session; it cannot authorize a transaction or
+   * replace the server PIN. New/server-backed users continue through verify-pin.
+   */
+  async verifyAppUnlockPIN(userId: string, pin: string): Promise<boolean> {
+    const result = await this.verifyAppUnlockPINResult(userId, pin);
+    return result.success;
+  },
+
+  async verifyAppUnlockPINResult(userId: string, pin: string): Promise<{ success: boolean; code?: string; error?: string }> {
+    const legacy = loadState(userId);
+    if (legacy.pinHash && legacy.pinSalt) {
+      try {
+        const candidate = await sha256(pin, legacy.pinSalt);
+        if (candidate === legacy.pinHash) return { success: true };
+      } catch { /* fall through to server verification */ }
+    }
+    try {
+      const { backendAPI } = await import('../api/backendAPI');
+      const response: any = await backendAPI.auth.verifyPIN(pin);
+      return response?.success
+        ? { success: true }
+        : { success: false, code: response?.code, error: response?.error || 'PIN verification unavailable' };
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'PIN verification unavailable' };
+    }
+  },
+
+  async verifyTransactionPIN(_userId: string, pin: string): Promise<{ success: boolean; code?: string; error?: string }> {
+    try {
+      const { backendAPI } = await import('../api/backendAPI');
+      const response: any = await backendAPI.auth.verifyPIN(pin);
+      return response?.success
+        ? { success: true }
+        : { success: false, code: response?.code, error: response?.error || 'Could not verify PIN' };
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'Could not verify PIN' };
+    }
+  },
+
   async changePIN(_userId: string, currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> {
     if (!/^\d{4,6}$/.test(newPin)) return { success: false, error: 'PIN must be 4 to 6 digits' };
     try {
@@ -543,6 +600,14 @@ function _serializeAssertionResponse(cred: PublicKeyCredential): any {
 export const BiometricManager = {
   /** Platform-authenticator capability check. */
   async isSupported(): Promise<boolean> {
+    if (isNativeAndroid()) {
+      try {
+        const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth');
+        return Boolean((await BiometricAuth.checkBiometry()).isAvailable);
+      } catch {
+        return false;
+      }
+    }
     if (isNativeRuntime()) return false;
     if (!window.PublicKeyCredential) return false;
     try {
@@ -597,6 +662,13 @@ export const BiometricManager = {
       const supported = await this.isSupported();
       if (!supported) {
         return { success: false, error: 'Biometric authentication is not supported on this device' };
+      }
+
+      if (isNativeAndroid()) {
+        await authenticateNativeAndroid('Confirm your identity to enable biometric login');
+        localStorage.setItem('borderpay_biometric_enrolled', 'true');
+        localStorage.setItem('borderpay_biometric_user_id', userId);
+        return { success: true };
       }
 
       const { backendAPI } = await import('../api/backendAPI');
@@ -668,6 +740,10 @@ export const BiometricManager = {
    */
   async verify(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
+      if (isNativeAndroid()) {
+        await authenticateNativeAndroid('Confirm your identity to unlock BorderPay');
+        return { success: true };
+      }
       const { backendAPI } = await import('../api/backendAPI');
       const optsRes: any = await backendAPI.webauthn.authOptions();
       if (!optsRes?.success || !optsRes.data?.options) {
@@ -705,6 +781,12 @@ export const BiometricManager = {
    */
   async disable(_userId: string): Promise<{ success: boolean; error?: string }> {
     try {
+      if (isNativeAndroid()) {
+        localStorage.removeItem('borderpay_biometric_enrolled');
+        localStorage.removeItem('borderpay_biometric_user_id');
+        localStorage.removeItem('borderpay_biometric_credential_id');
+        return { success: true };
+      }
       const { backendAPI } = await import('../api/backendAPI');
       const r: any = await backendAPI.webauthn.disable();
       if (!r?.success) {
