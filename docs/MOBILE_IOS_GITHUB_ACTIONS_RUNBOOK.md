@@ -73,7 +73,7 @@ Do not commit the `.p8` file.
 5. Click `Run workflow`.
 6. Set:
    - `app_version`: `1.0.1`
-   - `build_number`: `35` (increase for every later upload)
+   - `build_number`: `36` (increase for every later upload)
    - `upload_to_testflight`: checked
 7. Run.
 

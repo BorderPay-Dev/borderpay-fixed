@@ -8,9 +8,9 @@ on:
         required: true
         default: "1.0.1"
       build_number:
-        description: "App Store build number. Must be 35 or higher."
+        description: "App Store build number. Must be 36 or higher."
         required: true
-        default: "35"
+        default: "36"
       upload_to_testflight:
         description: "Upload the signed IPA to TestFlight"
         required: true
@@ -88,8 +88,8 @@ jobs:
             echo "Build number must be a positive integer, got: $BUILD_NUMBER" >&2
             exit 1
           fi
-          if [ "$BUILD_NUMBER" -le 34 ]; then
-            echo "Build number must be 35 or higher, got: $BUILD_NUMBER" >&2
+          if [ "$BUILD_NUMBER" -le 35 ]; then
+            echo "Build number must be 36 or higher, got: $BUILD_NUMBER" >&2
             exit 1
           fi
           echo "number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
