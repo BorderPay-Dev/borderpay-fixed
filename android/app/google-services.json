@@ -1,0 +1,10 @@
+{
+  "project_info": {"project_number":"741995539698","project_id":"borderpay-e1b55","storage_bucket":"borderpay-e1b55.firebasestorage.app"},
+  "client": [{
+    "client_info": {"mobilesdk_app_id":"1:741995539698:android:42f7e96132f4c288f3b46b","android_client_info":{"package_name":"com.borderpayafrica.app"}},
+    "oauth_client": [],
+    "api_key": [{"current_key":"AIzaSyASYGYGAtrgYJKT8QCrAaTZhXpNb9lWTBA"}],
+    "services": {"appinvite_service":{"other_platform_oauth_client":[]}}
+  }],
+  "configuration_version":"1"
+}

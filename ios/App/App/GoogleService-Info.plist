@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>API_KEY</key><string>AIzaSyDqM7Ep-7eAh8Gbxpzy_aHK5C-2_Bm8M_4</string>
+<key>BUNDLE_ID</key><string>com.borderpayafrica.app</string>
+<key>GCM_SENDER_ID</key><string>741995539698</string>
+<key>GOOGLE_APP_ID</key><string>1:741995539698:ios:01c0246dc46dc1f1f3b46b</string>
+<key>IS_ADS_ENABLED</key><false/><key>IS_ANALYTICS_ENABLED</key><false/>
+<key>IS_APPINVITE_ENABLED</key><true/><key>IS_GCM_ENABLED</key><true/><key>IS_SIGNIN_ENABLED</key><true/>
+<key>PLIST_VERSION</key><string>1</string>
+<key>PROJECT_ID</key><string>borderpay-e1b55</string>
+<key>STORAGE_BUCKET</key><string>borderpay-e1b55.firebasestorage.app</string>
+</dict></plist>
