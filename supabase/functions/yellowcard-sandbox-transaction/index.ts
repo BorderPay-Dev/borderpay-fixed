@@ -9,6 +9,7 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
+import { isYellowCardSandboxCountryEnabled } from "../_shared/providers/yellowcard-sandbox-scope.ts";
 import {
   resolveYellowCardRouting,
 } from "../_shared/providers/yellowcard-routing.ts";
@@ -169,6 +170,9 @@ async function loadContext(userId: string, input: any) {
 
   if (!/^[A-Z]{2}$/.test(country) || !/^[A-Z]{3}$/.test(currency)) {
     return { ok: false as const, status: 400, code: "yellow_card_invalid_corridor" };
+  }
+  if (!isYellowCardSandboxCountryEnabled(country)) {
+    return { ok: false as const, status: 403, code: "yellow_card_sandbox_country_not_enabled" };
   }
   if (!["bank", "mobile_money"].includes(channel)) {
     return { ok: false as const, status: 400, code: "yellow_card_invalid_channel" };

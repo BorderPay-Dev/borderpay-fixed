@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { isAfricanRailsTesterEmail } from "../_shared/african-rails-access.ts";
 import { listYellowCardCommercialRails, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
+import { isYellowCardSandboxCountryEnabled } from "../_shared/providers/yellowcard-sandbox-scope.ts";
 import {
   resolveYellowCardRouting,
   yellowCardProviderChannelType,
@@ -113,7 +114,7 @@ Deno.serve(async (req) => {
     // Provider discovery is retained as diagnostics and is re-checked when a
     // tester selects a corridor; it must not silently shrink the 21-country,
     // 28-rail test matrix when Yellow Card omits sandbox network metadata.
-    const publicRows = commercialRows;
+    const publicRows = commercialRows.filter((row) => isYellowCardSandboxCountryEnabled(row.country_code));
     return json({ success: true, data: { local_rail_policy: {
       provider: "yellow_card",
       direction,
@@ -135,6 +136,9 @@ Deno.serve(async (req) => {
     if (!/^[A-Z]{2}$/.test(country) || !/^[A-Z]{3}$/.test(currency) ||
       !["receive", "payout"].includes(direction) || !["bank", "mobile_money"].includes(rail)) {
       return json({ success: false, code: "yellow_card_invalid_routing_request" }, 400);
+    }
+    if (!isYellowCardSandboxCountryEnabled(country)) {
+      return json({ success: false, code: "yellow_card_sandbox_country_not_enabled" }, 403);
     }
     const signed = listYellowCardCommercialRails(direction as "receive" | "payout", country).some((row) =>
       row.destination_currency === currency && row.channel === rail

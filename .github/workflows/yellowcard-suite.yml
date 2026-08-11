@@ -1,0 +1,45 @@
+name: Yellow Card Suite
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/functions/yellowcard-*/**"
+      - "supabase/functions/_shared/providers/yellowcard*.ts"
+      - "components/send/**"
+      - "components/receive/**"
+      - "utils/fees/yellowCard*.ts"
+      - "tests/yellowcard-*.test.ts"
+      - "tests/audit/yellowcard_*_audit.py"
+      - ".env.example"
+      - ".github/workflows/yellowcard-suite.yml"
+  workflow_dispatch:
+
+jobs:
+  yellowcard-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verify commercial policy and payload contracts
+        run: |
+          deno test tests/yellowcard-commercial-fees.test.ts
+          deno test tests/yellowcard-commercial-policy.test.ts
+          deno test tests/yellowcard-sandbox-account-scope.test.ts
+          deno test tests/yellowcard-routing.test.ts
+          deno test tests/yellowcard-send-payload.test.ts
+          deno test tests/yellowcard-receive-payload.test.ts
+          deno check supabase/functions/yellowcard-capabilities/index.ts
+          deno check supabase/functions/yellowcard-sandbox-transaction/index.ts
+
+      - name: Verify Yellow Card execution boundaries
+        run: |
+          python3 tests/audit/yellowcard_send_execution_audit.py
+          python3 tests/audit/yellowcard_commercial_scope_audit.py
+          python3 tests/audit/yellowcard_sandbox_outcome_regression_audit.py
