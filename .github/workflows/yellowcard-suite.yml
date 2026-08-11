@@ -36,8 +36,8 @@ jobs:
           deno test tests/yellowcard-routing.test.ts
           deno test tests/yellowcard-send-payload.test.ts
           deno test tests/yellowcard-receive-payload.test.ts
-          deno check supabase/functions/yellowcard-capabilities/index.ts
-          deno check supabase/functions/yellowcard-sandbox-transaction/index.ts
+          deno check --node-modules-dir=auto supabase/functions/yellowcard-capabilities/index.ts
+          deno check --node-modules-dir=auto supabase/functions/yellowcard-sandbox-transaction/index.ts
 
       - name: Verify Yellow Card execution boundaries
         run: |
