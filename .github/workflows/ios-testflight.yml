@@ -8,9 +8,9 @@ on:
         required: true
         default: "1.0.1"
       build_number:
-        description: "App Store build number. Must be 38 or higher."
+        description: "App Store build number. Must be 37 or higher."
         required: true
-        default: "38"
+        default: "37"
       upload_to_testflight:
         description: "Upload the signed IPA to TestFlight"
         required: true
@@ -72,14 +72,19 @@ jobs:
       - name: Type check
         run: npm run type-check
 
-      - name: Verify PIN unlock regression gate
-        run: python3 tests/audit/app_unlock_state_cleanup_audit.py
+      - name: Verify store navigation and Android launch source
+        run: |
+          python3 tests/audit/app_store_exchange_navigation_audit.py
+          python3 tests/audit/android_native_launch_and_listing_audit.py
 
       - name: Build web app
         run: npm run build
 
       - name: Sync Capacitor iOS project
         run: npx cap sync ios
+
+      - name: Verify packaged store UI has no stale Exchange or duplicate splash
+        run: python3 tests/audit/store_release_bundle_audit.py ios
 
       - name: Resolve App Store build number
         id: ios-build
@@ -91,8 +96,8 @@ jobs:
             echo "Build number must be a positive integer, got: $BUILD_NUMBER" >&2
             exit 1
           fi
-          if [ "$BUILD_NUMBER" -le 37 ]; then
-            echo "Build number must be 38 or higher, got: $BUILD_NUMBER" >&2
+          if [ "$BUILD_NUMBER" -le 36 ]; then
+            echo "Build number must be 37 or higher, got: $BUILD_NUMBER" >&2
             exit 1
           fi
           echo "number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"

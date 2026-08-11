@@ -54,20 +54,43 @@ jobs:
           java-version: 21
           cache: gradle
 
+      - name: Set up Deno for release safety tests
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Install dependencies
         run: npm ci
 
       - name: Type check
         run: npm run type-check
 
-      - name: Verify PIN unlock regression gate
-        run: python3 tests/audit/app_unlock_state_cleanup_audit.py
+      - name: Verify Play Store closed-beta safety gates
+        run: |
+          set -euo pipefail
+          deno test tests/african-rails-access.test.ts
+          python3 tests/audit/african_rails_closed_beta_gate_audit.py
+          python3 tests/audit/yellowcard_transaction_authorization_audit.py
+          python3 tests/audit/android_native_auth_audit.py
+          python3 tests/audit/android_native_launch_and_listing_audit.py
+          python3 tests/audit/app_store_exchange_navigation_audit.py
+          python3 tests/audit/yellowcard_timeout_contract_audit.py
+          python3 tests/audit/yellowcard_capability_cache_and_reason_audit.py
+          python3 tests/audit/yellowcard_honest_submission_state_audit.py
+
+      - name: Record Android source revision
+        run: |
+          set -euo pipefail
+          echo "Building Android from ${GITHUB_REF_NAME} at ${GITHUB_SHA}"
 
       - name: Build web app
         run: npm run build
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
+
+      - name: Verify packaged store UI has no stale Exchange or duplicate splash
+        run: python3 tests/audit/store_release_bundle_audit.py android
 
       - name: Build Android debug APK
         run: |
@@ -143,6 +166,12 @@ jobs:
           : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON GitHub secret}"
           echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/google-play-service-account.json"
 
+      - name: Install Google Play listing uploader
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
+        run: |
+          gem install --user-install fastlane --no-document
+          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
+
       - name: Upload to Google Play internal testing
         if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
         uses: r0adkll/upload-google-play@v1
@@ -151,4 +180,22 @@ jobs:
           packageName: ${{ env.PACKAGE_NAME }}
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: internal
-          status: draft
+          status: completed
+
+      - name: Publish Google Play name and icon
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p android/fastlane/metadata/android/en-US/images
+          cp public/icons/icon-512x512.png android/fastlane/metadata/android/en-US/images/icon.png
+          fastlane supply \
+            --json_key "$RUNNER_TEMP/google-play-service-account.json" \
+            --package_name "$PACKAGE_NAME" \
+            --metadata_path android/fastlane/metadata/android \
+            --track internal \
+            --version_code "$BUILD_NUMBER" \
+            --skip_upload_apk true \
+            --skip_upload_aab true \
+            --skip_upload_changelogs true \
+            --skip_upload_screenshots true
