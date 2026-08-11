@@ -1,3 +1,5 @@
+import { financialCacheKey } from '../financial/cacheScope';
+
 type ReviewDemoAccount = {
   id: string;
   email: string;
@@ -166,7 +168,7 @@ function transactionRows(account: ReviewDemoAccount) {
     ? [
       demoTx(account, 'APP-REVIEW-BIZ-001', 'deposit', 2450, 'USDC', 'Demo business funding', 'completed', 180),
       demoTx(account, 'APP-REVIEW-BIZ-002', 'transfer', 320, 'USDC', 'Demo vendor payout in review', 'pending', 60),
-      demoTx(account, 'APP-REVIEW-BIZ-003', 'exchange', 150, 'USDT', 'Demo treasury exchange', 'completed', 25),
+      demoTx(account, 'APP-REVIEW-BIZ-003', 'transfer', 150, 'USDT', 'Demo treasury transfer', 'completed', 25),
     ]
     : [
       demoTx(account, 'APP-REVIEW-IND-001', 'deposit', 245, 'USDC', 'Demo wallet funding', 'completed', 180),
@@ -295,9 +297,14 @@ export function isAppReviewDemoEmail(email: string | null | undefined): boolean 
 
 export function bootstrapAppReviewDemoCache(email: string | null | undefined, authUserId?: string | null): any | null {
   if (typeof window === 'undefined') return null;
-  const account = email ? REVIEW_ACCOUNTS[String(email).trim().toLowerCase()] : null;
-  if (!account) return null;
-  if (authUserId && authUserId !== account.id) return null;
+  const configuredAccount = email ? REVIEW_ACCOUNTS[String(email).trim().toLowerCase()] : null;
+  if (!configuredAccount) return null;
+  // The authenticated identity is authoritative. Review accounts may be
+  // recreated in Supabase, so a stale hard-coded UUID must never suppress the
+  // browser/PWA demo cache for the same authenticated review email.
+  const account: ReviewDemoAccount = authUserId
+    ? { ...configuredAccount, id: authUserId }
+    : configuredAccount;
 
   const profile = profileFor(account);
   const dashboardWallets = Object.entries(account.walletBalances).map(([currency, balance]) => ({
@@ -341,6 +348,27 @@ export function bootstrapAppReviewDemoCache(email: string | null | undefined, au
     at: Date.now(),
     snapshot,
   });
+  // BusinessDashboard uses the financial-v2 cache namespace. Seed the same
+  // authenticated review data there so first paint cannot show a false $0
+  // state while the live snapshot refresh is running.
+  writeJSON(financialCacheKey('borderpay_business_dash_wallets_v1', {
+    userId: account.id,
+    accountType: 'business',
+  }), dashboardWallets);
+  writeJSON(financialCacheKey('borderpay_business_dash_va_v1', {
+    userId: account.id,
+    accountType: 'business',
+  }), vas);
+  writeJSON(financialCacheKey('borderpay_business_dash_tx_v1', {
+    userId: account.id,
+    accountType: 'business',
+  }), transactions);
+  try {
+    localStorage.setItem(financialCacheKey('borderpay_business_dash_refresh_ts_v1', {
+      userId: account.id,
+      accountType: 'business',
+    }), String(Date.now()));
+  } catch { /* best effort */ }
 
   // Keep Supabase auth session as the auth source; this helper only prepares UI caches.
   return profile;

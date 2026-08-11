@@ -170,7 +170,6 @@ export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = fals
               'Transfers: Live routes and limits are shown before you submit',
               'Local Rails: Local-currency and mobile-wallet routes are future-state until enabled',
               'Verification: Identity and business checks are required for regulated services',
-              'Currency Exchange: Available only where enabled in the app',
             ].map((service, index) => (
               <div key={index} className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl p-3">
                 <Check className="w-4 h-4 text-[#C7FF00] flex-shrink-0 mt-0.5" />

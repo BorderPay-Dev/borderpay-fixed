@@ -82,8 +82,11 @@ export const EXTERNAL_ACCOUNTS_LIVE: boolean = true;
 /** True while RC1 business certification is incomplete. */
 export const RC1_CERTIFICATION_OPEN: boolean = RC1_CERTIFICATION_STATUS === 'OPEN';
 
-/** FX runtime execution/read path gate. */
-export const FX_RUNTIME_ENABLED: boolean = true;
+/**
+ * Customer-directed FX/exchange is not an offered App Store capability.
+ * Keep this fail-closed independently of certification state.
+ */
+export const FX_RUNTIME_ENABLED: boolean = false;
 
 /** Payroll runtime execution gate. */
 export const PAYROLL_RUNTIME_ENABLED: boolean = true;
@@ -92,7 +95,7 @@ export const PAYROLL_RUNTIME_ENABLED: boolean = true;
  * Navigation visibility gates for roadmap surfaces that are not currently
  * executable customer capabilities. Hidden means no menu/CTA entry points.
  */
-export const FX_NAV_ENABLED: boolean = true;
+export const FX_NAV_ENABLED: boolean = false;
 export const PAYROLL_NAV_ENABLED: boolean = true;
 export const RAMPS_NAV_ENABLED: boolean = true;
 /**
