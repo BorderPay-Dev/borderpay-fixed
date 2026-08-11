@@ -275,6 +275,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [selectedCollectionNetworkId, setSelectedCollectionNetworkId] = useState('');
   const [collectionNetworksLoading, setCollectionNetworksLoading] = useState(false);
   const collectionSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
+  const collectionAuthorizationRef = useRef(false);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
   const [collectionPin, setCollectionPin] = useState('');
@@ -638,14 +639,22 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const authorizeCollectionWithPin = async (value: string) => {
     setCollectionPin(value);
     if (value.length !== 6) return;
-    const verification = await PINManager.verifyTransactionPIN(userId, value);
-    if (!verification.success) {
-      toast.error(friendlyError(verification.error, 'Incorrect PIN'));
+    if (collectionAuthorizationRef.current) return;
+    collectionAuthorizationRef.current = true;
+    setCollectionLoading(true);
+    try {
+      const verification = await PINManager.verifyTransactionPIN(userId, value);
+      if (!verification.success) {
+        toast.error(friendlyError(verification.error, 'Incorrect PIN'));
+        setCollectionPin('');
+        return;
+      }
       setCollectionPin('');
-      return;
+      await createAfricanCollection();
+    } finally {
+      collectionAuthorizationRef.current = false;
+      setCollectionLoading(false);
     }
-    setCollectionPin('');
-    await createAfricanCollection();
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
@@ -1362,7 +1371,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
             {hasPinFactor && (
               <div className="flex justify-center mb-6">
-                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} type="password" autoComplete="off" inputMode="numeric" pattern="[0-9]*">
+                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} disabled={collectionLoading} type="password" autoComplete="off" inputMode="numeric" pattern="[0-9]*">
                   <InputOTPGroup>
                     <InputOTPSlot index={0} mask />
                     <InputOTPSlot index={1} mask />
@@ -1372,6 +1381,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     <InputOTPSlot index={5} mask />
                   </InputOTPGroup>
                 </InputOTP>
+              </div>
+            )}
+
+            {collectionLoading && (
+              <div className={`mb-6 flex items-center justify-center gap-2 text-sm ${tc.textMuted}`} role="status" aria-live="polite">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Authorizing and submitting securely…
               </div>
             )}
 
