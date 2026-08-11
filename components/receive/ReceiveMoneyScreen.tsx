@@ -47,7 +47,7 @@ interface ReceiveMoneyScreenProps {
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
 interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
-type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-security-gate' | 'africa-auth' | 'africa-success';
+type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-security-gate' | 'africa-auth' | 'africa-processing' | 'africa-success';
 interface AfricanCountryOption {
   countryCode: string;
   countryName: string;
@@ -616,6 +616,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         toast.success('Collection request created.');
       }
     } catch (error: any) {
+      setReceiveStep('africa-auth');
       toast.error(friendlyError(error?.message, 'Could not create collection request.'));
     } finally {
       setCollectionLoading(false);
@@ -636,6 +637,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         return;
       }
       setCollectionPin('');
+      setReceiveStep('africa-processing');
       await createAfricanCollection();
     } finally {
       collectionAuthorizationRef.current = false;
@@ -1391,6 +1393,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                       toast.error(friendlyError(result.error, 'Biometric verification failed'));
                       return;
                     }
+                    setReceiveStep('africa-processing');
                     await createAfricanCollection();
                   } finally {
                     collectionAuthorizationRef.current = false;
@@ -1403,6 +1406,16 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                 Use biometric verification
               </button>
             )}
+          </div>
+        )}
+
+        {receiveStep === 'africa-processing' && selectedAfricanCountry && selectedAfricanRail && (
+          <div className="px-5 py-16 text-center" role="status" aria-live="polite">
+            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[#C7FF00]/10">
+              <Loader2 className="h-8 w-8 animate-spin text-[#C7FF00]" />
+            </div>
+            <p className={`mb-2 text-base font-semibold ${tc.text}`}>Processing collection…</p>
+            <p className={`text-sm ${tc.textMuted}`}>Please do not close the app</p>
           </div>
         )}
 

@@ -10,6 +10,9 @@ Deno.test("Cameroon receive PIN authorization submits only once and shows progre
   assert(source.includes("if (collectionAuthorizationRef.current) return;"));
   assert(source.includes("collectionAuthorizationRef.current = true;"));
   assert(source.includes("collectionAuthorizationRef.current = false;"));
+  assert(source.includes("setReceiveStep('africa-processing');"));
+  assert(source.includes("receiveStep === 'africa-processing'"));
+  assert(source.includes('Processing collection…'));
   assert(/<InputOTP[^>]+disabled=\{collectionLoading\}/.test(source));
   assert(source.includes("Authorizing and submitting securely…"));
   assert(source.includes("if (collectionAuthorizationRef.current) return;"));
