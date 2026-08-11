@@ -501,6 +501,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   };
 
   const resetAfricanReceiveFlow = () => {
+    collectionSequenceRef.current = null;
     setSelectedAfricanCountryCode('');
     setSelectedAfricanRail(null);
     setReceiveStep('method');
@@ -599,30 +600,15 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
           sequenceId: crypto.randomUUID(),
         };
       }
-      const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
-        action: 'preflight',
-        ...baseRequest,
-      });
-      if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'The receive preflight failed.');
-      const selectedNetworkId = String(preflight?.data?.selected_network_id || '');
-      const networkRequired = selectedAfricanRail.channel === 'mobile_money';
-      if (!preflight?.data?.can_create || (networkRequired && !selectedNetworkId)) {
-        const blockers = Array.isArray(preflight?.data?.blockers) ? preflight.data.blockers : [];
-        if (blockers.includes('active_channel_unavailable')) throw new Error('This Yellow Card corridor is not currently active.');
-        if (blockers.includes('kyc_incomplete')) throw new Error('The sandbox recipient profile is incomplete.');
-        throw new Error('Select a payment network before creating this sandbox transaction.');
-      }
       const res: any = await backendAPI.payouts.yellowCardSandboxTransaction({
         action: 'create_receive',
         ...baseRequest,
-        network_id: selectedNetworkId || undefined,
         sequence_id: collectionSequenceRef.current.sequenceId,
         operator_confirmed: true,
       });
       if (!res?.success) throw new Error(res?.error || 'Could not create collection request.');
       const data = res.data?.transaction || res.data || {};
       setCollectionResult(data);
-      collectionSequenceRef.current = null;
       setReceiveStep('africa-success');
       if (res?.code === 'provider_confirmation_pending' || data?.provider_status === 'confirmation_pending') {
         toast.info('Collection submitted. Confirmation is pending.');
