@@ -83,7 +83,17 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
   // This does not unlock or navigate; only a successful factor can do that.
   const restoreLockedSession = async (): Promise<boolean> => {
     const existing = localStorage.getItem('borderpay_token');
-    if (existing) return true;
+    if (existing) {
+      try {
+        const encodedPayload = existing.split('.')[1];
+        const normalized = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+        const payload = JSON.parse(atob(padded));
+        // Leave enough time for the authenticated verify-pin request itself.
+        if (Number(payload?.exp || 0) * 1000 > Date.now() + 30_000) return true;
+      } catch { /* malformed/stale token: refresh below */ }
+      localStorage.removeItem('borderpay_token');
+    }
     const refreshToken = localStorage.getItem('borderpay_refresh_token');
     if (!refreshToken) return false;
     const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });

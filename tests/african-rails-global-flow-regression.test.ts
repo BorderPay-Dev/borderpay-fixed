@@ -24,3 +24,11 @@ Deno.test("app unlock preserves the mounted screen behind a blocking overlay", (
   assert(app.indexOf("<MainApp") < app.indexOf("{showAppLock && ("));
   assert(lock.includes("fixed inset-0 z-[1000]"));
 });
+
+Deno.test("app unlock refreshes expired cached sessions before PIN verification", () => {
+  assert(lock.includes("existing.split('.')[1]"));
+  assert(lock.includes("Date.now() + 30_000"));
+  assert(lock.includes("localStorage.removeItem('borderpay_token')"));
+  assert(lock.includes("supabase.auth.refreshSession({ refresh_token: refreshToken })"));
+  assert(lock.indexOf("Date.now() + 30_000") < lock.indexOf("PINManager.verifyAppUnlockPINResult"));
+});
