@@ -32,6 +32,7 @@ jobs:
           deno test tests/yellowcard-commercial-fees.test.ts
           deno test tests/yellowcard-commercial-policy.test.ts
           deno test tests/yellowcard-sandbox-account-scope.test.ts
+          deno test tests/yellowcard-cameroon-corridor.test.ts
           deno test tests/yellowcard-routing.test.ts
           deno test tests/yellowcard-send-payload.test.ts
           deno test tests/yellowcard-receive-payload.test.ts
