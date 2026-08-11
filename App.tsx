@@ -502,6 +502,12 @@ function AppContent() {
 
   const handleLoginSuccess = async (loginUser: any) => {
     try {
+      // Password/PIN/biometric success is authoritative. Clear the persistent
+      // lock marker as well as React state so native and web shells cannot
+      // immediately re-enter the lock screen after a valid unlock.
+      clearAppLocked();
+      setAppLocked(false);
+      setLockChecked(true);
       // Never block dashboard first paint on remote profile/session calls.
       // Resolve from local/auth hints immediately, then enrich in background.
       let fullName = loginUser.user_metadata?.full_name || loginUser.user_metadata?.name;
@@ -804,7 +810,11 @@ function AppContent() {
       return (
         <AppLockScreen
           userId={user.id}
-          onUnlock={() => setAppLocked(false)}
+          onUnlock={() => {
+            clearAppLocked();
+            setAppLocked(false);
+            setLockChecked(true);
+          }}
           onLogout={handleLogout}
           onForgotPIN={handleNavigateToForgotPin}
         />

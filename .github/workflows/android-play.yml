@@ -60,6 +60,9 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Verify PIN unlock regression gate
+        run: python3 tests/audit/app_unlock_state_cleanup_audit.py
+
       - name: Build web app
         run: npm run build
 
