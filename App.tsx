@@ -502,12 +502,13 @@ function AppContent() {
 
   const handleLoginSuccess = async (loginUser: any) => {
     try {
-      // Password/PIN/biometric success is authoritative. Clear the persistent
-      // lock marker as well as React state so native and web shells cannot
-      // immediately re-enter the lock screen after a valid unlock.
+      // Explicit credential/biometric authentication is authoritative. Clear
+      // both the persisted marker and the live React lock state; otherwise a
+      // PIN reset in the same SPA session can leave the old lock screen mounted.
       clearAppLocked();
       setAppLocked(false);
       setLockChecked(true);
+      backendAPI.financial.invalidateForUser(String(loginUser?.id || ''));
       // Never block dashboard first paint on remote profile/session calls.
       // Resolve from local/auth hints immediately, then enrich in background.
       let fullName = loginUser.user_metadata?.full_name || loginUser.user_metadata?.name;
@@ -699,10 +700,13 @@ function AppContent() {
   // P0: startup must always render branded splash while auth/route bootstrap is unresolved.
   // `skipSplashOnce` should only skip the extra animation hop, never force the app
   // into the generic loading fallback.
-  const showSplashScreen =
+  // Android's mandatory system launch frame is intentionally unbranded; React
+  // owns the single visible BorderPay animation on every platform.
+  const showSplashScreen = (
     appState === 'loading' ||
     effectiveAuthLoading ||
-    (!skipSplashOnce && showSplash);
+    (!skipSplashOnce && showSplash)
+  );
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
@@ -758,6 +762,7 @@ function AppContent() {
     return (
       <ForgotPin
         onNavigateToLogin={handleNavigateToLogin}
+        onBack={() => setAppState('dashboard')}
       />
     );
   }
@@ -766,6 +771,13 @@ function AppContent() {
     return (
       <ResetPinScreen
         onNavigateToLogin={handleNavigateToLogin}
+        onResetComplete={() => {
+          clearAppLocked();
+          setAppLocked(false);
+          setLockChecked(true);
+          try { window.history.replaceState({}, '', '/'); } catch { /* ignore */ }
+          setAppState('login');
+        }}
       />
     );
   }

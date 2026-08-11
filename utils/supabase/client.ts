@@ -105,6 +105,7 @@ const SAFE_FIELDS = [
   'bridge_kyc_status',               // Bridge KYC status badge on dashboards
   'bridge_kyb_status',               // Bridge KYB status (business) — deriveKycStatus
   'bridge_account_status',           // Bridge account status — deriveKycStatus (reject signal)
+  'bridge_account_paused_at',        // Provider transition time for the paused-account screen
   'admin_kyc_decision',              // KYC review screen reads this
   'is_admin',                        // admin panel routing
   'account_status',
@@ -326,7 +327,7 @@ export const authAPI = {
           full_name: data.user.user_metadata?.full_name || '',
           country:   data.user.user_metadata?.country   || 'UNKNOWN',
           phone:     data.user.phone || data.user.user_metadata?.phone || '',
-          kyc_status: data.user.user_metadata?.kyc_status || 'pending',
+          kyc_status: data.user.user_metadata?.kyc_status || 'not_started',
         };
         storeUserProfile(fallback);
         return { success: true, data: { user: fallback, access_token: data.session.access_token } };

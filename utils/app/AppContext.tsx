@@ -37,6 +37,7 @@ export interface UserProfile {
   bridge_kyc_status?: 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected' | null;
   bridge_kyb_status?: 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected' | null;
   bridge_account_status?: string | null;
+  bridge_account_paused_at?: string | null;
   // KYC review fields
   kyc_status?: 'not_started' | 'under_review' | 'approved' | 'rejected' | string;
   admin_kyc_decision?: string | null;

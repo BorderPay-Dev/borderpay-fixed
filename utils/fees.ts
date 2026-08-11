@@ -22,8 +22,9 @@ interface Limit { min: number; max: number }
 
 export const TRANSFER_LIMITS: Record<string, Limit> = {
   XAF:       { min: 500,    max: 500_000   },
-  KES_mobile:{ min: 80,     max: 250_000   },
-  KES_bank:  { min: 100,    max: 950_000   },
+  // Yellow Card payout limits (provider docs, updated 2026-07-31).
+  KES_mobile:{ min: 150,    max: 250_000   },
+  KES_bank:  { min: 500,    max: 950_000   },
   GHS_mobile:{ min: 10,     max: 15_000    },
   GHS_bank:  { min: 10,     max: 200_000   },
   XOF:       { min: 100,    max: 2_000_000 },

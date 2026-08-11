@@ -256,7 +256,6 @@ export function AppShell({
         prefetchScreen('support');
         prefetchScreen('help-center');
         prefetchScreen('profile');
-        prefetchScreen('exchange');
         if (isBusinessAccount) {
           prefetchRoute('team');
           prefetchScreen('bulk-payout');

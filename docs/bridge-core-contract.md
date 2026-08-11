@@ -14,10 +14,10 @@ introduces **no behavior change**. The companion audit
 ## 1. Eligibility rule (locked)
 
 **Bridge is the primary eligibility layer.** Bridge's country / user-type policy
-gates onboarding. **Flutterwave never expands onboarding eligibility** — it is a
+gates onboarding. **Local payout availability never expands onboarding eligibility** — it is a
 subscription-billing + African local-currency *payout* provider that only applies
 *after* Bridge eligibility. If Bridge prohibits/restricts a country or user type,
-BorderPay does **not** onboard there, even if Flutterwave supports payouts in that
+BorderPay does **not** onboard there, even if a local payout rail supports that
 country.
 
 ## 2. In-scope Bridge products (Bridge Core)
@@ -36,7 +36,7 @@ country.
 - **Issuing our own stablecoin.**
 - **USDB / yield / earn / interest / APY** product surfaces — never user-facing.
 - **Bridge external accounts** are **ACH/SEPA/IBAN** payout destinations (US/EUR) — they are **NOT** African local bank accounts and must never be labeled as such.
-- **Flutterwave** as an onboarding-eligibility expander.
+- Any local payout provider as an onboarding-eligibility expander.
 - **Transfers / money movement** without explicit CEO/CTO approval (no flag flip).
 - **PR #7** — untouched.
 
@@ -104,5 +104,5 @@ BridgeVirtualAccountsCard, BridgeWalletsCard, CardsLockedCard, AfricanRailsFutur
 ## 8. Hard guardrails (standing)
 
 No destructive DB cleanup · no flag flips · no transfer execution · no Bridge API calls
-without approval · no manual status patches · no Flutterwave country expansion ·
+without approval · no manual status patches · no payout-provider country expansion ·
 no own-stablecoin · no USDB/yield surfaces · cards stay locked until approved · PR #7 untouched.

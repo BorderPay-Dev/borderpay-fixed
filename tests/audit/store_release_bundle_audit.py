@@ -51,8 +51,10 @@ for forbidden in (
     "Foreign Exchange coming soon",
     "Current exchange rate unavailable",
     "Exchange Activity",
+    "Upload & Continue",
+    "Submit Application",
 ):
-    assert forbidden not in compiled, f"Compiled store bundle contains forbidden exchange UI: {forbidden}"
+    assert forbidden not in compiled, f"Compiled store bundle contains forbidden legacy UI: {forbidden}"
 
 platform = sys.argv[1] if len(sys.argv) > 1 else "all"
 assert platform in {"android", "ios", "all"}, "Usage: store_release_bundle_audit.py [android|ios]"

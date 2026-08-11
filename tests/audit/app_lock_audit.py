@@ -206,7 +206,7 @@ def main() -> int:
            and i_reload >= 0
            and i_on_success >= 0
            and i_clear_pending < i_clear_lock < i_reload < i_on_success
-           and handle_success.count("setAppState('dashboard')") >= 2)
+           and handle_success.count("setAppState(pendingTeamInvite ? 'team-invite' : 'dashboard')") >= 2)
     checks.append(("L14 unlock success reloads auth + routes dashboard", l14,
                    "biometric success must clear gates, reload auth before onLoginSuccess, and handleLoginSuccess must set dashboard in try/catch"))
 

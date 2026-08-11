@@ -11,7 +11,6 @@ const BRANDING_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bbridge deposit\b/gi, 'Wallet Deposit'],
   [/\bbridge transfer\b/gi, 'Transfer'],
   [/\bbridge account\b/gi, 'BorderPay account'],
-  [/\bflutterwave\b/gi, 'local payment rail'],
   [/\byellow\s*card\b/gi, 'local payment rail'],
   [/\byellowcard\b/gi, 'local payment rail'],
   [/\bvia bridge\b/gi, 'via BorderPay'],

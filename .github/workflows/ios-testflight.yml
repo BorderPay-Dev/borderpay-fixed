@@ -72,10 +72,8 @@ jobs:
       - name: Type check
         run: npm run type-check
 
-      - name: Verify store navigation and Android launch source
-        run: |
-          python3 tests/audit/app_store_exchange_navigation_audit.py
-          python3 tests/audit/android_native_launch_and_listing_audit.py
+      - name: Verify iOS and Android mobile release source
+        run: python3 tests/audit/mobile_store_source_audit.py
 
       - name: Build web app
         run: npm run build

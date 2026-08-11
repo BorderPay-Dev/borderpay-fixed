@@ -8,9 +8,10 @@ import { authAPI } from '../../utils/supabase/client';
 
 interface Props {
   onNavigateToLogin: () => void;
+  onBack?: () => void;
 }
 
-export function ForgotPin({ onNavigateToLogin }: Props) {
+export function ForgotPin({ onNavigateToLogin, onBack }: Props) {
   const defaultEmail = useMemo(() => {
     try { return String(authAPI.getStoredUser()?.email || ''); } catch { return ''; }
   }, []);
@@ -33,7 +34,8 @@ export function ForgotPin({ onNavigateToLogin }: Props) {
     }
     setIsLoading(true);
     try {
-      await backendAPI.auth.requestPinReset(email);
+      const result: any = await backendAPI.auth.requestPinReset(email);
+      if (!result?.success) throw new Error(result?.error || 'Unable to send PIN reset link');
       setSuccess(true);
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
@@ -66,10 +68,10 @@ export function ForgotPin({ onNavigateToLogin }: Props) {
               If an account exists for <strong className="text-white">{email}</strong>, a PIN reset link has been sent.
             </p>
             <Button
-              onClick={onNavigateToLogin}
+              onClick={onBack || onNavigateToLogin}
               className="w-full bg-[#CCFF00] text-black font-bold hover:bg-[#B8E600]"
             >
-              Back to Sign In
+              Back to Unlock
             </Button>
           </div>
         ) : (
@@ -103,11 +105,11 @@ export function ForgotPin({ onNavigateToLogin }: Props) {
             </Button>
             <button
               type="button"
-              onClick={onNavigateToLogin}
+              onClick={onBack || onNavigateToLogin}
               className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-white text-sm py-2"
             >
               <ArrowLeft className="h-4 w-4" />
-              Back to Sign In
+              Back to Unlock
             </button>
           </form>
         )}
@@ -115,4 +117,3 @@ export function ForgotPin({ onNavigateToLogin }: Props) {
     </div>
   );
 }
-

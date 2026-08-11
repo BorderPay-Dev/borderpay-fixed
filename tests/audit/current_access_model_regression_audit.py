@@ -3,7 +3,8 @@
 Current access model regression audit.
 
 BorderPay's live customer model is:
-- no upfront paid plan, activation fee, subscription, or upgrade funnel;
+- no upfront paid plan, activation fee, or upgrade funnel;
+- verified accounts have a monthly infrastructure-maintenance subscription;
 - individual and business users verify with KYC/KYB to unlock accounts;
 - verified users must not see the verify-your-identity/business dashboard prompt;
 - "first transaction" reminders are retired in favor of request-account reminders.
@@ -38,11 +39,6 @@ BANNED_CUSTOMER_PHRASES = [
     "paid plans",
     "plan required",
     "subscription required",
-    "subscription payment",
-    "subscription invoice",
-    "monthly price",
-    "per month",
-    "/ month",
     "upgrade to global wallet",
     "upgrade your account",
 ]

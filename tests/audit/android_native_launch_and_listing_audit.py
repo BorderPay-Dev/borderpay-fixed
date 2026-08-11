@@ -9,7 +9,8 @@ strings = (root / "android/app/src/main/res/values/strings.xml").read_text()
 
 assert "useState(() => !skipSplashOnce)" in app
 assert "const showSplashScreen = (" in app
-assert ".native-android #initial-splash" in html
+assert ".native-app #initial-splash" in html
+assert "nativePlatform === 'android' || nativePlatform === 'ios'" in html
 styles = (root / "android/app/src/main/res/values/styles.xml").read_text()
 assert "windowSplashScreenAnimatedIcon\">@drawable/splash_transparent" in styles
 assert (root / "android/app/src/main/res/drawable/splash_transparent.xml").exists()

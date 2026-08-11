@@ -66,17 +66,7 @@ jobs:
         run: npm run type-check
 
       - name: Verify Play Store closed-beta safety gates
-        run: |
-          set -euo pipefail
-          deno test tests/african-rails-access.test.ts
-          python3 tests/audit/african_rails_closed_beta_gate_audit.py
-          python3 tests/audit/yellowcard_transaction_authorization_audit.py
-          python3 tests/audit/android_native_auth_audit.py
-          python3 tests/audit/android_native_launch_and_listing_audit.py
-          python3 tests/audit/app_store_exchange_navigation_audit.py
-          python3 tests/audit/yellowcard_timeout_contract_audit.py
-          python3 tests/audit/yellowcard_capability_cache_and_reason_audit.py
-          python3 tests/audit/yellowcard_honest_submission_state_audit.py
+        run: python3 tests/audit/mobile_store_source_audit.py
 
       - name: Record Android source revision
         run: |

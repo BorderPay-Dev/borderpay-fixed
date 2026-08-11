@@ -143,6 +143,10 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
   }, [fallbackCurrencies]);
 
   const haveCurrencies = useMemo(() => new Set(rows.map(r => r.currency)), [rows]);
+  const hasInactiveAccounts = useMemo(
+    () => rows.some((row) => String(row.status || '').toLowerCase() === 'deactivated'),
+    [rows],
+  );
   const missingCurrencies = availableCurrencies.filter(c => !haveCurrencies.has(c));
 
   const handleCreate = async (currency: Currency) => {
@@ -231,6 +235,20 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
         </div>
       )}
 
+      {hasInactiveAccounts && (
+        <div className="mb-3 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3">
+          <p className={`text-xs ${tc.text}`}>
+            An inactive receiving account cannot accept new payments. Contact support when you are ready to request reactivation.
+          </p>
+          <a
+            href="mailto:support@borderpayafrica.com?subject=Virtual%20account%20reactivation%20request"
+            className="mt-2 inline-flex text-xs font-semibold text-amber-300 underline"
+          >
+            Contact support
+          </a>
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-2 mb-3">
           <Skeleton className="h-16 w-full rounded-2xl" />
@@ -243,7 +261,17 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
               {rows.map(r => (
                 <li key={r.id}>
                   <button
-                    onClick={() => setSelected(r)}
+                    onClick={() => {
+                      if (String(r.status || '').toLowerCase() === 'deactivated') {
+                        showToast.info({
+                          title: `${r.currency} account is inactive`,
+                          message: 'Contact support when you are ready to request reactivation.',
+                          duration: 6000,
+                        });
+                        return;
+                      }
+                      setSelected(r);
+                    }}
                     className={`w-full flex items-center gap-3 p-3 rounded-2xl ${tc.bgAlt} border ${tc.border} ${tc.hoverBg} transition`}
                   >
                     <AssetBadge symbol={r.currency} size={40} />
@@ -252,7 +280,7 @@ export function BridgeVirtualAccountsCard({ userId, kycApproved, isBusiness = fa
                       <div className={`text-xs ${tc.textMuted} truncate`}>{railLabel(r.currency)}</div>
                     </div>
                     <span className={`text-[11px] font-medium ${r.status === 'active' ? 'text-[#C7FF00]' : tc.textMuted}`}>
-                      {r.status === 'active' ? 'View details' : r.status}
+                      {r.status === 'active' ? 'View details' : r.status === 'deactivated' ? 'Inactive' : r.status}
                     </span>
                     <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0`} />
                   </button>

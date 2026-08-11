@@ -3,12 +3,14 @@ import { AlertCircle, ArrowLeft, CheckCircle2, Eye, EyeOff, Lock, Shield } from 
 import { backendAPI } from '../../utils/api/backendAPI';
 import { toast } from 'sonner';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { clearAppLocked } from '../../utils/supabase/client';
 
 interface ResetPinScreenProps {
   onNavigateToLogin: () => void;
+  onResetComplete?: () => void;
 }
 
-export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
+export function ResetPinScreen({ onNavigateToLogin, onResetComplete }: ResetPinScreenProps) {
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [showNewPin, setShowNewPin] = useState(false);
@@ -24,7 +26,7 @@ export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
     return h.get('token') || '';
   }, []);
 
-  const isPinValid = /^\d{4,6}$/.test(newPin);
+  const isPinValid = /^\d{6}$/.test(newPin);
   const pinsMatch = newPin.length > 0 && newPin === confirmPin;
 
   useEffect(() => {
@@ -35,7 +37,7 @@ export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
   const handleSubmit = async () => {
     if (!token) return;
     if (!isPinValid) {
-      toast.error('PIN must be 4 to 6 digits');
+      toast.error('PIN must be exactly 6 digits');
       return;
     }
     if (!pinsMatch) {
@@ -49,9 +51,27 @@ export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
         toast.error(friendlyError(r?.error, 'Unable to reset PIN'));
         return;
       }
+      // PIN reset is server-authoritative. Remove the obsolete device-local
+      // PIN hash left by pre-migration clients so it cannot reject the newly
+      // reset PIN before the request reaches verify-pin.
+      const resetUserId = String(r?.data?.user_id || '');
+      if (resetUserId) {
+        try { localStorage.removeItem(`borderpay_security_${resetUserId}`); } catch { /* non-blocking */ }
+      }
+      try {
+        const cached = localStorage.getItem('borderpay_user');
+        if (cached) {
+          const profile = JSON.parse(cached);
+          profile.pin_set = true;
+          localStorage.setItem('borderpay_user', JSON.stringify(profile));
+        }
+      } catch { /* non-blocking */ }
+      clearAppLocked();
       setSuccess(true);
       toast.success('PIN reset successful');
-      setTimeout(() => onNavigateToLogin(), 2000);
+      // Clearing localStorage alone does not clear App.tsx's in-memory lock.
+      // Let the root router clear that state before returning to login.
+      setTimeout(() => (onResetComplete || onNavigateToLogin)(), 1200);
     } catch (e) {
       toast.error(friendlyError(e, 'Unable to reset PIN'));
     } finally {
@@ -112,7 +132,7 @@ export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
             <Shield className="w-10 h-10 text-[#C7FF00]" />
           </div>
           <h1 className="text-2xl font-bold mb-3">Set New PIN</h1>
-          <p className="text-white/60 text-sm">Choose a new 4-6 digit transaction PIN</p>
+          <p className="text-white/60 text-sm">Choose a new 6-digit transaction PIN</p>
         </div>
 
         <div className="space-y-5">
@@ -168,4 +188,3 @@ export function ResetPinScreen({ onNavigateToLogin }: ResetPinScreenProps) {
     </div>
   );
 }
-

@@ -2,17 +2,12 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
 /**
  * BorderPay Africa - Complete Signup Flow
  *
- * Two account-type paths share step 1 (basic info) and step 2
- * (confirm-email), then diverge:
+ * Both account types share two registration steps:
  *
  *   • Individual account:
  *     1. Basic Info (name, email, phone, country, password)
  *     2. Confirm Email (verification link)
- *     3. Date of Birth + ID document type selection
- *     4. Address details (street, city, state, postal)
- *     5. Proof of Address upload (utility bill, bank statement, etc.)
- *     6. Review & Submit
- *     7. Pending → Dashboard
+ *     → Dashboard → hosted verification.
  *
  *   • Business account:
  *     1. Basic Info + account-type=business + company name (+ optional reg #)
@@ -52,7 +47,7 @@ import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 // TYPES
 // ============================================================================
 
-type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'address' | 'proof-of-address' | 'review' | 'pending';
+type SignUpStep = 'personal' | 'confirm-email';
 
 interface SignUpData {
   // Step 1: Personal
@@ -175,9 +170,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     return () => { cancelled = true; };
   }, []);
 
-  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'proof-of-address', 'review', 'pending'];
+  const steps: SignUpStep[] = ['personal', 'confirm-email'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 6; // Don't count 'pending'
+  const totalSteps = 2;
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)
@@ -286,98 +281,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   };
 
   // ============================================================================
-  // STEP 3: Identity → Address (KYC done from dashboard)
-  // ============================================================================
-
-
-  // ============================================================================
-  // STEP 5: Upload Proof of Address
-  // ============================================================================
-
-  const handlePoAUpload = async () => {
-    if (!formData.poaFile || !formData.poaDocumentType) {
-      toast.error('Please select a document type and file');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // Step 1: Get signed upload URL
-      const uploadUrlData = await backendAPI.proofOfAddress.getUploadUrl(
-        formData.poaFile.type,
-        formData.poaFile.name
-      );
-      if (!uploadUrlData.success) throw new Error(uploadUrlData.error || 'Failed to get upload URL');
-      if (!uploadUrlData.data?.upload_url || !uploadUrlData.data?.path) {
-        throw new Error('Failed to prepare file upload');
-      }
-      const uploadData = uploadUrlData.data;
-
-      // Step 2: Upload the file
-      const uploadRes = await fetch(uploadData.upload_url, {
-        method: 'PUT',
-        headers: { 'Content-Type': formData.poaFile.type },
-        body: formData.poaFile,
-      });
-
-      if (!uploadRes.ok) throw new Error('File upload failed');
-
-      // Step 3: Submit for review
-      const submitData = await backendAPI.proofOfAddress.submit(
-        uploadData.path,
-        formData.poaDocumentType
-      );
-      if (!submitData.success) throw new Error(submitData.error || 'Submission failed');
-
-      updateForm({ poaUploaded: true });
-      toast.success('Proof of address submitted!');
-      setCurrentStep('review');
-    } catch (error: any) {
-      toast.error(friendlyError(error, 'Upload failed'));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================================
-  // STEP 6: Submit to backend
-  // ============================================================================
-
-  const handleEnrollCustomer = async () => {
-    // The Bridge customer id is created by auth-signup. This handler only
-    // transitions the individual flow into the pending-review state; hosted
-    // KYC/KYB remains a later verification step.
-    setIsLoading(true);
-    try {
-      toast.success('Registration complete! Your account is under review.');
-      setEnrollmentComplete(true);
-      setCurrentStep('pending');
-    } catch (_error: any) {
-      toast.error('Submission error. You can proceed — our team will complete your setup.');
-      setCurrentStep('pending');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================================
-  // PROCEED TO DASHBOARD (from pending)
-  // ============================================================================
-
-  const handleProceedToDashboard = async () => {
-    const storedUser = authAPI.getStoredUser();
-    if (storedUser) {
-      onSignUpSuccess(storedUser);
-    } else {
-      // Fallback
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        onSignUpSuccess(data.user);
-      }
-    }
-  };
-
-  // ============================================================================
   // PROGRESS BAR
   // ============================================================================
 
@@ -408,8 +311,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       <div className="glass-noise-overlay" />
       
       {/* Header */}
-      {currentStep !== 'pending' && (
-        <div className="flex-shrink-0 pt-safe relative z-[2]">
+      <div className="flex-shrink-0 pt-safe relative z-[2]">
           {/* Back button + step indicator */}
           <div className="flex items-center justify-between px-4 py-3">
             {currentStep !== 'personal' ? (
@@ -437,8 +339,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
           </div>
 
           <ProgressBar />
-        </div>
-      )}
+      </div>
 
       {/* Step Content */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none relative z-[2]" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -623,45 +524,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               />
             )}
 
-            {currentStep === 'identity' && (
-              <StepIdentityInfo
-                formData={formData}
-                updateForm={updateForm}
-                onNext={() => setCurrentStep('address')}
-              />
-            )}
-
-            {currentStep === 'address' && (
-              <StepAddress
-                formData={formData}
-                updateForm={updateForm}
-                onNext={() => setCurrentStep('proof-of-address')}
-              />
-            )}
-
-            {currentStep === 'proof-of-address' && (
-              <StepProofOfAddress
-                formData={formData}
-                updateForm={updateForm}
-                onUpload={handlePoAUpload}
-                isLoading={isLoading}
-              />
-            )}
-
-            {currentStep === 'review' && (
-              <StepReview
-                formData={formData}
-                onSubmit={handleEnrollCustomer}
-                isLoading={isLoading}
-              />
-            )}
-
-            {currentStep === 'pending' && (
-              <StepPending
-                onProceed={handleProceedToDashboard}
-                enrollmentComplete={enrollmentComplete}
-              />
-            )}
           </motion.div>
         </AnimatePresence>
       </div>
