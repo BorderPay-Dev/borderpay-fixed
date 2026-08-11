@@ -114,6 +114,14 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}));
+  if (body?.mode === "verify_credentials") {
+    try {
+      await firebaseAccessToken(account);
+      return json({ success: true, firebase: "authenticated" });
+    } catch {
+      return json({ success: false, code: "firebase_oauth_failed" }, 502);
+    }
+  }
   const limit = Math.max(1, Math.min(Number(body?.limit || 50), 100));
   const { data: items, error: claimError } = await supabase.rpc("claim_push_deliveries", { p_limit: limit });
   if (claimError) return json({ success: false, error: claimError.message }, 500);

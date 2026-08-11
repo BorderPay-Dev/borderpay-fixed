@@ -9,6 +9,7 @@ WORKER = (ROOT / "supabase/functions/push-delivery-worker/index.ts").read_text()
 MAIN = (ROOT / "components/app/MainApp.tsx").read_text()
 APP = (ROOT / "App.tsx").read_text()
 ENTITLEMENTS = (ROOT / "ios/App/App/App.entitlements").read_text()
+SUPABASE_CONFIG = (ROOT / "supabase/config.toml").read_text()
 
 
 def main() -> None:
@@ -26,6 +27,8 @@ def main() -> None:
         "idempotent notification queue": "unique(notification_id)" in MIGRATION,
         "locked queue claim": "for update skip locked" in MIGRATION,
         "FCM HTTP v1": "fcm.googleapis.com/v1/projects" in WORKER,
+        "authenticated Firebase credential health check": "verify_credentials" in WORKER,
+        "cron worker bypasses platform JWT gateway": "[functions.push-delivery-worker]\nverify_jwt = false" in SUPABASE_CONFIG,
         "server credential secret": "FIREBASE_SERVICE_ACCOUNT_JSON" in WORKER,
         "invalid-token revocation": "UNREGISTERED" in WORKER,
     }

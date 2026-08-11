@@ -3,6 +3,14 @@
 
 project_id = "orwrcpwsffjlvzuraxjc"
 
+# PIN recovery starts before a valid app session and is protected by an
+# enumeration-safe request plus a random, hashed, single-use reset token.
+[functions.auth-request-pin-reset]
+verify_jwt = false
+
+[functions.auth-confirm-pin-reset]
+verify_jwt = false
+
 # ── Edge function-specific overrides ────────────────────────────────────────
 
 # kyc-submit — LEGACY, REMOVED. Repo source is a 410 "Gone" stub and the function
@@ -34,6 +42,11 @@ verify_jwt = false
 
 # Queue worker — public; invoked by pg_cron + DB webhook (no JWT).
 [functions.process-pending-events]
+verify_jwt = false
+
+# Internal active-global-account campaign sender — public route, gated in-code
+# by the internal bearer/service-role token so scheduled dry-runs can call it.
+[functions.notify-active-global-accounts]
 verify_jwt = false
 
 # WebAuthn credential delete — authenticated; deletes only the caller's rows.
@@ -103,6 +116,11 @@ verify_jwt = true
 [functions.bridge-sync-accounts]
 verify_jwt = true
 
+# Daily VA inactivity worker. pg_cron calls it with the service-role bearer;
+# the function performs a timing-safe service-role check in code.
+[functions.deactivate-inactive-virtual-accounts]
+verify_jwt = false
+
 # Auto-provision base stablecoin wallets (USDC/USDT) for activated users.
 [functions.bridge-provision-stablecoins]
 verify_jwt = true
@@ -118,40 +136,35 @@ verify_jwt = true
 [functions.external-wallet]
 verify_jwt = true
 
-# Flutterwave capabilities/dirs — authenticated helper for rails metadata.
-[functions.flutterwave-capabilities]
+# Yellow Card read-only commercial policy and sandbox provider discovery.
+[functions.yellowcard-capabilities]
 verify_jwt = true
 
-# Flutterwave account resolve — authenticated payout preflight.
-[functions.flutterwave-account-resolve]
+# Yellow Card controlled sandbox Send/Receive execution.
+[functions.yellowcard-sandbox-transaction]
 verify_jwt = true
 
-# Flutterwave transfer rates — authenticated quote preflight.
-[functions.flutterwave-transfer-rates]
+# Admin/tester-only provider diagnostics.
+[functions.yellowcard-sandbox-diagnostics]
 verify_jwt = true
 
-# Flutterwave transfer create/retry — authenticated transfer execution.
-[functions.flutterwave-transfer-create]
+# Admin-only, read-only channel discovery; never activates corridors.
+[functions.yellowcard-corridor-sync]
 verify_jwt = true
 
-# Flutterwave transfer status — authenticated status sync.
-[functions.flutterwave-transfer-status]
+# Internal custodial subscription billing worker. Authenticates the dedicated
+# worker token (or service-role bearer) in code.
+[functions.subscription-billing-worker]
+verify_jwt = false
+
+[functions.push-delivery-worker]
+verify_jwt = false
+
+[functions.subscription-billing-admin]
 verify_jwt = true
 
-[functions.flutterwave-transfers-list]
-verify_jwt = true
-
-[functions.flutterwave-collection-create]
-verify_jwt = true
-
-[functions.flutterwave-collection-status]
-verify_jwt = true
-
-[functions.flutterwave-collections-list]
-verify_jwt = true
-
-# Flutterwave webhook receiver — provider-signed; no JWT.
-[functions.flutterwave-webhook]
+# Permanently retired legacy maintenance collector. Always returns 410.
+[functions.maintenance-collect]
 verify_jwt = false
 
 # Public API gateway — external clients authenticate in-code with BorderPay API
