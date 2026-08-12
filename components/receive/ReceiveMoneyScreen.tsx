@@ -37,6 +37,7 @@ import {
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
 import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
+import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -672,9 +673,15 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       return;
     }
     let active = true;
-    setCollectionProviderMinimum(null);
-    setCollectionProviderMaximum(null);
-    setCollectionProviderLimitsReady(false);
+    const fallback = yellowCardProviderBounds(
+      selectedAfricanCountryCode,
+      selectedAfricanRail.currency,
+      selectedAfricanRail.channel,
+      'receive',
+    );
+    setCollectionProviderMinimum(fallback?.minimum ?? null);
+    setCollectionProviderMaximum(fallback?.maximum ?? null);
+    setCollectionProviderLimitsReady(Boolean(fallback));
     setCollectionNetworksLoading(true);
     void loadYellowCardCapability('routing', {
       country: selectedAfricanCountryCode,

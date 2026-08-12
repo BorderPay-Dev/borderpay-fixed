@@ -49,6 +49,7 @@ import {
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
 import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
+import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1183,6 +1184,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         seededLimitsFromCache = true;
       }
     } catch { /* noop */ }
+    if (!seededLimitsFromCache && selectedAfricanCountryCode && (method === 'bank' || method === 'mobile_money')) {
+      const fallback = yellowCardProviderBounds(selectedAfricanCountryCode, selectedCurrency, method, 'payout');
+      if (fallback) {
+        setAfricanProviderChannels([{
+          id: `manual:${selectedAfricanCountryCode}:${selectedCurrency}:${method}:payout`,
+          minimum: fallback.minimum,
+          maximum: fallback.maximum,
+        }]);
+        seededLimitsFromCache = true;
+      }
+    }
     if (!seededFromCache) setInstitutions([]);
     // Throttle duplicate rail fetches on quick step toggles.
     try {
