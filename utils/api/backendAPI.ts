@@ -858,6 +858,50 @@ export const financialReadModelAPI = (() => {
     }
   }
 
+  function preserveKnownFinancialSurfaces(userId: string, next: any): any {
+    if (!next?.success || !next?.data) return next;
+
+    const previous =
+      (lastAnySnapshotUserId === userId ? lastAnySnapshot : null) ||
+      loadPersistedSnapshot(anySnapshotKey(userId))?.snapshot ||
+      null;
+    if (!previous?.success || !previous?.data) return next;
+
+    const collection = (snapshot: any, key: string): any[] =>
+      Array.isArray(snapshot?.data?.[key]) ? snapshot.data[key] : [];
+    const surfaceKeys = ['wallets', 'stablecoin_wallets', 'virtual_accounts'];
+    const previousSurfaceCount = surfaceKeys.reduce(
+      (count, key) => count + collection(previous, key).length,
+      0,
+    );
+    const nextSurfaceCount = surfaceKeys.reduce(
+      (count, key) => count + collection(next, key).length,
+      0,
+    );
+
+    // A user cannot lose every provisioned wallet and receive account because
+    // an isolated payout was submitted. Treat an all-empty replacement as a
+    // transient/partial read and keep the last server-confirmed surfaces. Real
+    // closures are represented by account status changes, not missing rows.
+    if (previousSurfaceCount === 0 || nextSurfaceCount !== 0) return next;
+
+    const previousTransactions = collection(previous, 'transactions');
+    const nextTransactions = collection(next, 'transactions');
+    return {
+      ...next,
+      data: {
+        ...next.data,
+        wallets: collection(previous, 'wallets'),
+        stablecoin_wallets: collection(previous, 'stablecoin_wallets'),
+        virtual_accounts: collection(previous, 'virtual_accounts'),
+        transactions: nextTransactions.length > 0 ? nextTransactions : previousTransactions,
+        total_balance: previous.data.total_balance,
+        has_funding_surface: previous.data.has_funding_surface,
+        financial_surfaces_partial: true,
+      },
+    };
+  }
+
   function invalidateForUser(userIdRaw: string) {
     const userId = String(userIdRaw || '').trim();
     if (!userId) return;
@@ -895,7 +939,8 @@ export const financialReadModelAPI = (() => {
   function refreshSnapshotInBackground(userId: string, snapshotKey: string, limit: number) {
     if (inFlight && inFlightKey === snapshotKey) return;
     inFlightKey = snapshotKey;
-    inFlight = fetchSnapshot(userId, limit).then((next) => {
+    inFlight = fetchSnapshot(userId, limit).then((rawNext) => {
+      const next = preserveKnownFinancialSurfaces(userId, rawNext);
       if (next?.success) rememberSnapshot(snapshotKey, userId, next);
       return next;
     }).finally(() => {
@@ -1095,7 +1140,8 @@ export const financialReadModelAPI = (() => {
       if (inFlight && inFlightKey === key) return inFlight;
 
       inFlightKey = key;
-      inFlight = fetchSnapshot(user.id, limit).then((next) => {
+      inFlight = fetchSnapshot(user.id, limit).then((rawNext) => {
+        const next = preserveKnownFinancialSurfaces(user.id, rawNext);
         if (next?.success) rememberSnapshot(key, user.id, next);
         return next;
       }).finally(() => {

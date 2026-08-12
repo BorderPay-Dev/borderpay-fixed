@@ -6,6 +6,7 @@ backend = (ROOT / "utils/api/backendAPI.ts").read_text()
 dashboard = (ROOT / "components/app/Dashboard.tsx").read_text()
 transactions = (ROOT / "components/transactions/TransactionsScreen.tsx").read_text()
 notifications = (ROOT / "components/notifications/NotificationsScreen.tsx").read_text()
+send = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 
 failures = []
 
@@ -16,6 +17,15 @@ if "financialReadModelAPI.getSnapshot(100)" not in wallet_route:
     failures.append("Wallet route data must read the canonical financial snapshot before direct wallet fallback.")
 if "snapshot_source: 'financial_snapshot'" not in wallet_route:
     failures.append("Wallet route data must mark snapshot-sourced payloads for auditability.")
+
+if "function invalidateForUser" not in backend:
+    failures.append("Financial read model must expose user-scoped cache invalidation after money movement.")
+if "key.startsWith(snapshotPrefix) || key.endsWith(financialSuffix)" not in backend:
+    failures.append("Financial cache invalidation must clear both shared snapshots and derived financial caches.")
+if "backendAPI.financial.invalidateForUser(userId);" not in send:
+    failures.append("Successful payouts must invalidate the shared financial snapshot before returning to wallet/activity screens.")
+if "preserveKnownFinancialSurfaces" not in backend or "financial_surfaces_partial: true" not in backend:
+    failures.append("A transient all-empty projection can still overwrite known financial surfaces.")
 
 if "const TX_CACHE_KEY     = 'borderpay_tx_history_v1';" not in dashboard:
     failures.append("Dashboard must use the same transaction cache key as Transactions/Notifications.")

@@ -8,6 +8,8 @@ const app = await Deno.readTextFile(new URL("../App.tsx", import.meta.url));
 const lock = await Deno.readTextFile(new URL("../components/security/AppLockScreen.tsx", import.meta.url));
 const sandboxTransaction = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-sandbox-transaction/index.ts", import.meta.url));
 const capabilities = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-capabilities/index.ts", import.meta.url));
+const backend = await Deno.readTextFile(new URL("../utils/api/backendAPI.ts", import.meta.url));
+const mainApp = await Deno.readTextFile(new URL("../components/app/MainApp.tsx", import.meta.url));
 
 Deno.test("African send performs one create call and retains its sequence across retries", () => {
   assert(!send.includes("action: 'preflight_send',"), "send must not repeat provider discovery");
@@ -44,6 +46,9 @@ Deno.test("sandbox collection creation never waits on Bridge identity enrichment
 
 Deno.test("sandbox sends preserve dashboard data and receive enforces provider limits", () => {
   assert(send.includes("if (!isAfricanPayout) backendAPI.financial.invalidateForUser(userId);"));
+  assert(mainApp.includes("onComplete={navigateBack}"));
+  assert(backend.includes("preserveKnownFinancialSurfaces"));
+  assert(backend.includes("financial_surfaces_partial: true"));
   assert(send.includes("action: 'status'"));
   assert(send.includes("['failed', 'rejected', 'cancelled', 'canceled', 'expired']"));
   assert(receive.includes("collectionProviderMinimum !== null && amount < collectionProviderMinimum"));
