@@ -5,6 +5,7 @@ function assert(condition: unknown, message = "assertion failed"): asserts condi
 const send = await Deno.readTextFile(new URL("../components/send/SendMoneyFlow.tsx", import.meta.url));
 const app = await Deno.readTextFile(new URL("../App.tsx", import.meta.url));
 const lock = await Deno.readTextFile(new URL("../components/security/AppLockScreen.tsx", import.meta.url));
+const sandboxTransaction = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-sandbox-transaction/index.ts", import.meta.url));
 
 Deno.test("African send performs one create call and retains its sequence across retries", () => {
   assert(!send.includes("action: 'preflight_send',"), "send must not repeat provider discovery");
@@ -31,4 +32,10 @@ Deno.test("app unlock refreshes expired cached sessions before PIN verification"
   assert(lock.includes("localStorage.removeItem('borderpay_token')"));
   assert(lock.includes("supabase.auth.refreshSession({ refresh_token: refreshToken })"));
   assert(lock.indexOf("Date.now() + 30_000") < lock.indexOf("PINManager.verifyAppUnlockPINResult"));
+});
+
+Deno.test("sandbox collection creation never waits on Bridge identity enrichment", () => {
+  assert(sandboxTransaction.includes("if (!useSandboxIdentitySample && profile.bridge_customer_id"));
+  assert(sandboxTransaction.indexOf("const useSandboxIdentitySample") < sandboxTransaction.indexOf("bridgeProvider.getCustomerProfile"));
+  assert(sandboxTransaction.includes('idNumber: str(profile.id_number || bridgeIdentity?.id_number || (useSandboxIdentitySample ? "0123456789" : ""))'));
 });

@@ -217,8 +217,12 @@ async function loadContext(userId: string, input: any) {
 
   const policy = { enabled: true, code: "ok" as const, row: commercialRail };
 
+  const useSandboxIdentitySample = input?.allow_sandbox_identity_sample === true;
   let bridgeIdentity: any = null;
-  if (profile.bridge_customer_id && (!profile.id_number || !profile.id_type || !profile.date_of_birth || !profile.address)) {
+  // The controlled sandbox tester uses Yellow Card's documented sample values
+  // for missing KYC fields. Do not block a sandbox transaction on an unrelated
+  // Bridge customer-profile request (which may remain pending indefinitely).
+  if (!useSandboxIdentitySample && profile.bridge_customer_id && (!profile.id_number || !profile.id_type || !profile.date_of_birth || !profile.address)) {
     try {
       bridgeIdentity = await bridgeProvider.getCustomerProfile(profile.bridge_customer_id);
     } catch {
@@ -226,7 +230,6 @@ async function loadContext(userId: string, input: any) {
     }
   }
 
-  const useSandboxIdentitySample = input?.allow_sandbox_identity_sample === true;
   const kyc: YellowCardRetailKyc = {
     name: str(profile.full_name || (useSandboxIdentitySample ? "Sample Name" : "")),
     country: normalizeYellowCardCountryCode(profile.country || bridgeIdentity?.country) || (useSandboxIdentitySample ? "US" : ""),
