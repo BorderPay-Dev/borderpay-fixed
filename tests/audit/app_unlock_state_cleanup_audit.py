@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -9,15 +10,17 @@ CLIENT = (ROOT / "utils/supabase/client.ts").read_text()
 
 def main() -> None:
     failures: list[str] = []
-    unlock_block = """onUnlock={() => {
-            clearAppLocked();
-            setAppLocked(false);
-            setLockChecked(true);
-          }}"""
+    unlock_block = re.search(
+        r"onUnlock=\{\(\) => \{\s*clearAppLocked\(\);\s*setAppLocked\(false\);\s*setLockChecked\(true\);\s*\}\}",
+        APP,
+    )
 
-    if unlock_block not in APP:
+    if not unlock_block:
         failures.append("successful PIN/biometric unlock does not clear persistent and React lock state")
-    if "const handleLoginSuccess" not in APP or "clearAppLocked();\n      setAppLocked(false);\n      setLockChecked(true);" not in APP:
+    if "const handleLoginSuccess" not in APP or not re.search(
+        r"clearAppLocked\(\);\s*setAppLocked\(false\);\s*setLockChecked\(true\);",
+        APP,
+    ):
         failures.append("successful credential login does not clear stale lock state")
     if "restoreLockedSession" not in LOCK or "supabase.auth.refreshSession({ refresh_token: refreshToken })" not in LOCK:
         failures.append("locked native session cannot be restored before PIN verification")

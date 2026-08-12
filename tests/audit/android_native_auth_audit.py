@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 root = Path(__file__).resolve().parents[2]
 security = (root / "utils/security/SecurityManager.ts").read_text()
@@ -15,6 +16,6 @@ assert "restoreLockedSession" in lock
 assert "supabase.auth.refreshSession({ refresh_token: refreshToken })" in lock
 assert "await restoreLockedSession()" in lock
 assert "isNativeRuntime()" in login
-assert "clearAppLocked();\n            setAppLocked(false);" in app
+assert re.search(r"clearAppLocked\(\);\s*setAppLocked\(false\);", app)
 
 print("Android native PIN and biometric gates passed.")

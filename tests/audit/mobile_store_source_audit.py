@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AUDITS = (
     "android_native_auth_audit.py",
     "android_native_launch_and_listing_audit.py",
+    "android_media_permissions_audit.py",
     "ios_native_biometric_release_audit.py",
     "app_lock_audit.py",
     "app_lock_legacy_pin_regression_audit.py",

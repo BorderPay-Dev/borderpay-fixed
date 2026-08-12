@@ -40,7 +40,6 @@ assert "localAmount," not in send_payload
 for fragment in (
     "loadYellowCardCapability('quote'",
     "loadYellowCardCapability('routing'",
-    "action: 'preflight_send'",
     "action: 'create_send'",
     "yellowCardSandboxOutcome",
     "convertYellowCardLocalFeeToFunding(africanPolicyFee.amount, destinationAmount, sourceAmount)",
@@ -49,6 +48,10 @@ for fragment in (
     "result.data?.transaction?.sequence_id",
 ):
     assert fragment in ui, f"missing Yellow Card send UI contract: {fragment}"
+
+# Creation performs server-side preflight and execution atomically. Requiring a
+# separate UI preflight call here would restore the duplicate/timeout race.
+assert ui.count("action: 'create_send'") == 1
 
 assert "backendAPI.payouts.createTransfer" not in ui
 assert "backendAPI.payouts.resolveAccount" not in ui
@@ -62,7 +65,7 @@ for fragment in (
     "loadYellowCardCapability('routing'",
     "selectedCollectionNetworkId",
     "network_id: selectedCollectionNetworkId || undefined",
-    "const networkRequired = selectedAfricanRail.channel === 'mobile_money'",
+    "selectedAfricanRail?.channel === 'mobile_money' && !selectedCollectionNetworkId",
     "calculateYellowCardCustomerFee(selectedAfricanPolicyRow",
 ):
     assert fragment in receive_ui, f"missing Yellow Card receive UI contract: {fragment}"
