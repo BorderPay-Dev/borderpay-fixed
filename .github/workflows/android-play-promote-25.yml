@@ -1,0 +1,50 @@
+name: Promote Android 25 to Production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-play-production-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote 1.0.3 (25)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PACKAGE_NAME: com.borderpayafrica.app
+      VERSION_CODE: "25"
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Verify Google Play service account
+        run: |
+          set -euo pipefail
+          : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON GitHub secret}"
+          echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/google-play-service-account.json"
+
+      - name: Install Google Play publisher
+        run: |
+          set -euo pipefail
+          gem install --user-install fastlane --no-document
+          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
+
+      - name: Promote internal version 25 to production
+        run: |
+          set -euo pipefail
+          fastlane supply \
+            --json_key "$RUNNER_TEMP/google-play-service-account.json" \
+            --package_name "$PACKAGE_NAME" \
+            --track internal \
+            --track_promote_to production \
+            --version_code "$VERSION_CODE" \
+            --release_status completed \
+            --skip_upload_apk true \
+            --skip_upload_aab true \
+            --skip_upload_metadata true \
+            --skip_upload_changelogs true \
+            --skip_upload_images true \
+            --skip_upload_screenshots true
