@@ -48,6 +48,8 @@ Deno.test("sandbox sends preserve dashboard data and receive enforces provider l
   assert(send.includes("['failed', 'rejected', 'cancelled', 'canceled', 'expired']"));
   assert(receive.includes("collectionProviderMinimum !== null && amount < collectionProviderMinimum"));
   assert(receive.includes("Minimum amount is"));
+  assert(receive.includes("collectionNetworksLoading || !collectionProviderLimitsReady"));
+  assert(receive.includes("setCollectionProviderLimitsReady(channelRows.length > 0)"));
 });
 
 Deno.test("send and receive render live Yellow Card minimum and maximum limits", () => {

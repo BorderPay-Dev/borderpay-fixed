@@ -274,6 +274,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [collectionNetworks, setCollectionNetworks] = useState<Array<{ id: string; name: string }>>([]);
   const [collectionProviderMinimum, setCollectionProviderMinimum] = useState<number | null>(null);
   const [collectionProviderMaximum, setCollectionProviderMaximum] = useState<number | null>(null);
+  const [collectionProviderLimitsReady, setCollectionProviderLimitsReady] = useState(false);
   const [selectedCollectionNetworkId, setSelectedCollectionNetworkId] = useState('');
   const [collectionNetworksLoading, setCollectionNetworksLoading] = useState(false);
   const collectionSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
@@ -512,6 +513,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     setCollectionSourceAccount('');
     setCollectionNetworks([]);
     setSelectedCollectionNetworkId('');
+    setCollectionProviderLimitsReady(false);
     setCollectionResult(null);
   };
 
@@ -561,6 +563,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     const amount = Number(collectionAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Enter a valid amount.');
+      return;
+    }
+    if (collectionNetworksLoading || !collectionProviderLimitsReady) {
+      toast.error('The allowed amount range is not available yet. Please try again.');
       return;
     }
     if (collectionProviderMinimum !== null && amount < collectionProviderMinimum) {
@@ -662,11 +668,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       setSelectedCollectionNetworkId('');
       setCollectionProviderMinimum(null);
       setCollectionProviderMaximum(null);
+      setCollectionProviderLimitsReady(false);
       return;
     }
     let active = true;
     setCollectionProviderMinimum(null);
     setCollectionProviderMaximum(null);
+    setCollectionProviderLimitsReady(false);
     setCollectionNetworksLoading(true);
     void loadYellowCardCapability('routing', {
       country: selectedAfricanCountryCode,
@@ -683,6 +691,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         const maximums = channelRows.map((row: any) => Number(row?.maximum)).filter((value: number) => Number.isFinite(value) && value > 0);
         setCollectionProviderMinimum(minimums.length ? Math.min(...minimums) : null);
         setCollectionProviderMaximum(maximums.length ? Math.max(...maximums) : null);
+        setCollectionProviderLimitsReady(channelRows.length > 0);
         const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.networks) ? raw.networks : Array.isArray(raw?.data) ? raw.data : [];
         const expected = selectedAfricanRail.channel === 'mobile_money'
           ? new Set(['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'])
@@ -787,6 +796,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
   const canCreateAfricanCollection = useMemo(() => {
     if (!africanRailsTester) return false;
+    if (collectionNetworksLoading || !collectionProviderLimitsReady) return false;
     if (collectionAmountNumber <= 0) return false;
     if (collectionProviderMinimum !== null && collectionAmountNumber < collectionProviderMinimum) return false;
     if (collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum) return false;
@@ -802,6 +812,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     collectionAmountNumber,
     collectionProviderMinimum,
     collectionProviderMaximum,
+    collectionProviderLimitsReady,
+    collectionNetworksLoading,
     collectionFee,
     collectionReason,
     africanRailsTester,
@@ -1107,6 +1119,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     setSelectedCollectionNetworkId('');
                     setCollectionProviderMinimum(null);
                     setCollectionProviderMaximum(null);
+                    setCollectionProviderLimitsReady(false);
                     setCollectionResult(null);
                     setReceiveStep('africa-details');
                   }}
