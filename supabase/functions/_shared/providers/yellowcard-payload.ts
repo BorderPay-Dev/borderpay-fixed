@@ -135,7 +135,6 @@ export function buildYellowCardSandboxSendPayload(
     currency: required(input.currency, "currency").toUpperCase(),
     directSettlement: true,
     settlementInfo,
-    ...(input.redirectUrl ? { redirectUrl: required(input.redirectUrl, "redirect_url") } : {}),
   };
 }
 
@@ -197,6 +196,7 @@ export function buildYellowCardSandboxReceivePayload(
     currency: required(input.currency, "currency").toUpperCase(),
     directSettlement: true,
     settlementInfo,
+    ...(input.redirectUrl ? { redirectUrl: required(input.redirectUrl, "redirect_url") } : {}),
   };
 }
 
