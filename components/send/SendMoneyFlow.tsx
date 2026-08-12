@@ -1318,6 +1318,31 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   // Process transaction
   // ---------------------------------------------------------------------------
+  const reconcileYellowCardStatus = (sequenceId: string) => {
+    if (!sequenceId) return;
+    const terminalSuccess = new Set(['completed', 'complete', 'successful', 'success', 'settled']);
+    const terminalFailure = new Set(['failed', 'rejected', 'cancelled', 'canceled', 'expired']);
+    [5_000, 15_000, 30_000].forEach((delay) => {
+      window.setTimeout(async () => {
+        const status: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+          action: 'status',
+          sequence_id: sequenceId,
+        });
+        if (!status?.success) return;
+        const next = String(status.data?.transaction?.provider_status || status.data?.transaction?.status || '').toLowerCase();
+        if (terminalSuccess.has(next)) {
+          setTransactionPending(false);
+          return;
+        }
+        if (terminalFailure.has(next)) {
+          setTransactionPending(false);
+          setErrorMessage('Yellow Card could not complete this sandbox transaction. Keep the transaction reference for the provider report.');
+          setStep('error');
+        }
+      }, delay);
+    });
+  };
+
   const processTransaction = async (verifiedPin: string) => {
     setTransactionPending(false);
     // Never retain a transaction PIN while a request is in flight or after a
@@ -1440,7 +1465,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         // The provider webhook owns the balance mutation. Drop every derived
         // financial cache now so Dashboard, Wallet, Activity and Notifications
         // cannot keep rendering the pre-payout snapshot after navigation.
-        backendAPI.financial.invalidateForUser(userId);
+        // Yellow Card sandbox uses isolated simulator funds and never mutates
+        // live Bridge wallets. Preserve Dashboard's last verified snapshot.
+        if (!isAfricanPayout) backendAPI.financial.invalidateForUser(userId);
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
         setTransactionId(
@@ -1457,9 +1484,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         );
         setNewBalance(result.data?.new_balance ?? null);
         const providerState = String(result.data?.transaction?.provider_status || result.data?.transaction?.status || '').toLowerCase();
-        const pendingConfirmation = (result as any)?.code === 'provider_confirmation_pending' || providerState === 'confirmation_pending';
+        const pendingConfirmation = (result as any)?.code === 'provider_confirmation_pending' ||
+          ['confirmation_pending', 'created', 'process', 'processing', 'pending', 'submitted'].includes(providerState);
         setTransactionPending(pendingConfirmation);
         setStep('success');
+        if (isAfricanPayout) {
+          reconcileYellowCardStatus(String(result.data?.transaction?.sequence_id || ''));
+        }
         if (pendingConfirmation) toast.info('Transfer submitted. Confirmation is pending.');
         else toast.success(t('send.txSuccessful'));
       } else {

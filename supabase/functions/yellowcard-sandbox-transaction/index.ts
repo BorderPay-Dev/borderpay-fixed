@@ -36,6 +36,7 @@ const json = (body: unknown, status = 200) =>
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const APP_URL = String(Deno.env.get("APP_URL") || "https://app.borderpayafrica.com").replace(/\/+$/, "");
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -554,6 +555,10 @@ Deno.serve(async (req) => {
           ...context.settlementInfo,
           walletAddress: sandboxOutcome === "success" ? SANDBOX_SUCCESS_TRON_ADDRESS : SANDBOX_FAILURE_TRON_ADDRESS,
         },
+      // Yellow Card requires this for redirect-based deposit channels such as
+      // South Africa bank Receive. It is provider routing metadata; BorderPay
+      // continues to render the transaction result from the API response.
+      redirectUrl: `${APP_URL}/?screen=receive`,
     });
   } catch (error) {
     return json({ success: false, code: error instanceof Error ? error.message : "yellow_card_payload_invalid" }, 400);

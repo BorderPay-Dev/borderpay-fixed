@@ -272,6 +272,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [collectionReason, setCollectionReason] = useState('');
   const [collectionSourceAccount, setCollectionSourceAccount] = useState('');
   const [collectionNetworks, setCollectionNetworks] = useState<Array<{ id: string; name: string }>>([]);
+  const [collectionProviderMinimum, setCollectionProviderMinimum] = useState<number | null>(null);
+  const [collectionProviderMaximum, setCollectionProviderMaximum] = useState<number | null>(null);
   const [selectedCollectionNetworkId, setSelectedCollectionNetworkId] = useState('');
   const [collectionNetworksLoading, setCollectionNetworksLoading] = useState(false);
   const collectionSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
@@ -561,6 +563,14 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       toast.error('Enter a valid amount.');
       return;
     }
+    if (collectionProviderMinimum !== null && amount < collectionProviderMinimum) {
+      toast.error(`Minimum amount is ${formatMoney(collectionProviderMinimum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}.`);
+      return;
+    }
+    if (collectionProviderMaximum !== null && amount > collectionProviderMaximum) {
+      toast.error(`Maximum amount is ${formatMoney(collectionProviderMaximum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}.`);
+      return;
+    }
     if (selectedAfricanProvider !== 'yellow_card') {
       toast.error('This receive corridor is not available yet.');
       return;
@@ -650,6 +660,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     if (!selectedAfricanRail || !selectedAfricanCountryCode || selectedAfricanProvider !== 'yellow_card') {
       setCollectionNetworks([]);
       setSelectedCollectionNetworkId('');
+      setCollectionProviderMinimum(null);
+      setCollectionProviderMaximum(null);
       return;
     }
     let active = true;
@@ -663,6 +675,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       .then((res: any) => {
         if (!active || !res?.success) return;
         const raw = res?.data?.routing?.networks;
+        const rawChannels = res?.data?.routing?.channels;
+        const channelRows = Array.isArray(rawChannels) ? rawChannels : [];
+        const minimums = channelRows.map((row: any) => Number(row?.minimum)).filter((value: number) => Number.isFinite(value) && value > 0);
+        const maximums = channelRows.map((row: any) => Number(row?.maximum)).filter((value: number) => Number.isFinite(value) && value > 0);
+        setCollectionProviderMinimum(minimums.length ? Math.min(...minimums) : null);
+        setCollectionProviderMaximum(maximums.length ? Math.max(...maximums) : null);
         const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.networks) ? raw.networks : Array.isArray(raw?.data) ? raw.data : [];
         const expected = selectedAfricanRail.channel === 'mobile_money'
           ? new Set(['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'])
@@ -768,6 +786,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const canCreateAfricanCollection = useMemo(() => {
     if (!africanRailsTester) return false;
     if (collectionAmountNumber <= 0) return false;
+    if (collectionProviderMinimum !== null && collectionAmountNumber < collectionProviderMinimum) return false;
+    if (collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum) return false;
     if (!collectionFee) return false;
     if (!collectionReason.trim()) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
@@ -778,6 +798,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     return true;
   }, [
     collectionAmountNumber,
+    collectionProviderMinimum,
+    collectionProviderMaximum,
     collectionFee,
     collectionReason,
     africanRailsTester,
@@ -1146,11 +1168,23 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   <input
                     type="number"
                     inputMode="decimal"
+                    min={collectionProviderMinimum ?? undefined}
+                    max={collectionProviderMaximum ?? undefined}
                     value={collectionAmount}
                     onChange={(e) => setCollectionAmount(e.target.value)}
                     placeholder={`0.00 ${selectedAfricanRail.currency}`}
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
                   />
+                  {collectionProviderMinimum !== null && collectionAmountNumber > 0 && collectionAmountNumber < collectionProviderMinimum && (
+                    <p className="mt-1.5 text-xs text-red-400">
+                      Minimum amount is {formatMoney(collectionProviderMinimum, selectedAfricanRail.currency)} {selectedAfricanRail.currency}.
+                    </p>
+                  )}
+                  {collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum && (
+                    <p className="mt-1.5 text-xs text-red-400">
+                      Maximum amount is {formatMoney(collectionProviderMaximum, selectedAfricanRail.currency)} {selectedAfricanRail.currency}.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Transaction reason</label>

@@ -115,3 +115,24 @@ Deno.test("Yellow Card receive supports provider channelType auto-routing", () =
   assertEqual(payload.channelId, undefined);
   assertEqual((payload.source as any).networkId, undefined);
 });
+
+Deno.test("Yellow Card receive includes a redirect URL for redirect-based channels", () => {
+  const payload = buildYellowCardSandboxReceivePayload({
+    sequenceId: "11111111-1111-4111-8111-111111111111",
+    channelId: "channel-za-bank",
+    localAmount: 5000,
+    country: "ZA",
+    currency: "ZAR",
+    reason: "bills",
+    customerUID: "customer-1",
+    recipient: {
+      name: "Sample Name", country: "KE", phone: "+254700000000",
+      address: "Sample Address", dob: "01/01/1990", email: "sample@example.com",
+      idNumber: "0123456789", idType: "license",
+    },
+    source: { accountType: "bank", accountNumber: "1111111111" },
+    settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe" },
+    redirectUrl: "https://app.borderpayafrica.com/?screen=receive",
+  });
+  assertEqual(payload.redirectUrl, "https://app.borderpayafrica.com/?screen=receive");
+});

@@ -3,6 +3,7 @@ function assert(condition: unknown, message = "assertion failed"): asserts condi
 }
 
 const send = await Deno.readTextFile(new URL("../components/send/SendMoneyFlow.tsx", import.meta.url));
+const receive = await Deno.readTextFile(new URL("../components/receive/ReceiveMoneyScreen.tsx", import.meta.url));
 const app = await Deno.readTextFile(new URL("../App.tsx", import.meta.url));
 const lock = await Deno.readTextFile(new URL("../components/security/AppLockScreen.tsx", import.meta.url));
 const sandboxTransaction = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-sandbox-transaction/index.ts", import.meta.url));
@@ -38,4 +39,12 @@ Deno.test("sandbox collection creation never waits on Bridge identity enrichment
   assert(sandboxTransaction.includes("if (!useSandboxIdentitySample && profile.bridge_customer_id"));
   assert(sandboxTransaction.indexOf("const useSandboxIdentitySample") < sandboxTransaction.indexOf("bridgeProvider.getCustomerProfile"));
   assert(sandboxTransaction.includes('idNumber: str(profile.id_number || bridgeIdentity?.id_number || (useSandboxIdentitySample ? "0123456789" : ""))'));
+});
+
+Deno.test("sandbox sends preserve dashboard data and receive enforces provider limits", () => {
+  assert(send.includes("if (!isAfricanPayout) backendAPI.financial.invalidateForUser(userId);"));
+  assert(send.includes("action: 'status'"));
+  assert(send.includes("['failed', 'rejected', 'cancelled', 'canceled', 'expired']"));
+  assert(receive.includes("collectionProviderMinimum !== null && amount < collectionProviderMinimum"));
+  assert(receive.includes("Minimum amount is"));
 });

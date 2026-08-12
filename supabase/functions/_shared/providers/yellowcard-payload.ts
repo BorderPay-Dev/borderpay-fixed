@@ -34,6 +34,7 @@ export interface YellowCardReceivePayloadInput {
     networkId?: string;
   };
   settlementInfo: YellowCardSettlement;
+  redirectUrl?: string;
 }
 
 export interface YellowCardSendPayloadInput {
@@ -134,6 +135,7 @@ export function buildYellowCardSandboxSendPayload(
     currency: required(input.currency, "currency").toUpperCase(),
     directSettlement: true,
     settlementInfo,
+    ...(input.redirectUrl ? { redirectUrl: required(input.redirectUrl, "redirect_url") } : {}),
   };
 }
 
