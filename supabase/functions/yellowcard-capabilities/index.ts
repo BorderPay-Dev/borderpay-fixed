@@ -184,6 +184,7 @@ Deno.serve(async (req) => {
         code: String(row?.code || ""),
         accountNumberType: String(row?.accountNumberType || ""),
         status: String(row?.status || row?.apiStatus || "active"),
+        channelIds: Array.isArray(row?.channelIds) ? row.channelIds.map((id: unknown) => String(id || "")).filter(Boolean) : [],
       })),
     } } });
   }

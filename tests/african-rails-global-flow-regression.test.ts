@@ -7,6 +7,7 @@ const receive = await Deno.readTextFile(new URL("../components/receive/ReceiveMo
 const app = await Deno.readTextFile(new URL("../App.tsx", import.meta.url));
 const lock = await Deno.readTextFile(new URL("../components/security/AppLockScreen.tsx", import.meta.url));
 const sandboxTransaction = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-sandbox-transaction/index.ts", import.meta.url));
+const capabilities = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-capabilities/index.ts", import.meta.url));
 
 Deno.test("African send performs one create call and retains its sequence across retries", () => {
   assert(!send.includes("action: 'preflight_send',"), "send must not repeat provider discovery");
@@ -47,4 +48,16 @@ Deno.test("sandbox sends preserve dashboard data and receive enforces provider l
   assert(send.includes("['failed', 'rejected', 'cancelled', 'canceled', 'expired']"));
   assert(receive.includes("collectionProviderMinimum !== null && amount < collectionProviderMinimum"));
   assert(receive.includes("Minimum amount is"));
+});
+
+Deno.test("send and receive render live Yellow Card minimum and maximum limits", () => {
+  assert(capabilities.includes("minimum: row?.min ?? null"));
+  assert(capabilities.includes("maximum: row?.max ?? null"));
+  assert(capabilities.includes("channelIds:"));
+  assert(send.includes("Minimum recipient amount is"));
+  assert(send.includes("Maximum recipient amount is"));
+  assert(send.includes("Allowed recipient amount:"));
+  assert(send.includes("africanQuote?.destinationAmount"));
+  assert(receive.includes("Allowed amount:"));
+  assert(receive.includes("collectionProviderMaximum !== null && amount > collectionProviderMaximum"));
 });

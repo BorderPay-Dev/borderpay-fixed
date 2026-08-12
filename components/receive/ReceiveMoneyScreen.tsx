@@ -665,6 +665,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       return;
     }
     let active = true;
+    setCollectionProviderMinimum(null);
+    setCollectionProviderMaximum(null);
     setCollectionNetworksLoading(true);
     void loadYellowCardCapability('routing', {
       country: selectedAfricanCountryCode,
@@ -1103,6 +1105,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     setCollectionSourceAccount('');
                     setCollectionNetworks([]);
                     setSelectedCollectionNetworkId('');
+                    setCollectionProviderMinimum(null);
+                    setCollectionProviderMaximum(null);
                     setCollectionResult(null);
                     setReceiveStep('africa-details');
                   }}
@@ -1183,6 +1187,20 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   {collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum && (
                     <p className="mt-1.5 text-xs text-red-400">
                       Maximum amount is {formatMoney(collectionProviderMaximum, selectedAfricanRail.currency)} {selectedAfricanRail.currency}.
+                    </p>
+                  )}
+                  {(collectionProviderMinimum !== null || collectionProviderMaximum !== null) && (
+                    <p className={`mt-1.5 text-xs ${
+                      (collectionProviderMinimum !== null && collectionAmountNumber > 0 && collectionAmountNumber < collectionProviderMinimum) ||
+                      (collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum)
+                        ? 'text-red-400'
+                        : tc.textMuted
+                    }`}>
+                      Allowed amount: {collectionProviderMinimum !== null
+                        ? `${formatMoney(collectionProviderMinimum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}`
+                        : 'No minimum'}{' – '}{collectionProviderMaximum !== null
+                        ? `${formatMoney(collectionProviderMaximum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}`
+                        : 'No provider maximum'}
                     </p>
                   )}
                 </div>

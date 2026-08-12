@@ -109,6 +109,13 @@ interface Institution {
   code: string;
   name: string;
   type?: string;
+  channelIds?: string[];
+}
+
+interface YellowCardChannelLimit {
+  id: string;
+  minimum: number | null;
+  maximum: number | null;
 }
 
 interface Wallet {
@@ -613,6 +620,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Bank / MoMo details
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [africanProviderChannels, setAfricanProviderChannels] = useState<YellowCardChannelLimit[]>([]);
   const [selectedBank, setSelectedBank] = useState<Institution | null>(null);
   const [bankSearch, setBankSearch] = useState('');
   const [showBankList, setShowBankList] = useState(false);
@@ -961,6 +969,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (africanQuote?.destinationAmount && africanQuote.destinationAmount > 0) return africanQuote.destinationAmount / sourceAmount;
     return null;
   }, [africanQuote, isAfricanPayout, sourceAmount]);
+  const africanProviderBounds = useMemo(() => {
+    if (!isAfricanPayout || africanProviderChannels.length === 0) return { minimum: null, maximum: null };
+    const linkedIds = new Set(selectedBank?.channelIds || []);
+    const linked = linkedIds.size > 0
+      ? africanProviderChannels.filter((channel) => linkedIds.has(channel.id))
+      : africanProviderChannels;
+    const candidates = linked.length > 0 ? linked : africanProviderChannels;
+    const minimums = candidates.map((row) => row.minimum).filter((value): value is number => value !== null && value > 0);
+    const maximums = candidates.map((row) => row.maximum).filter((value): value is number => value !== null && value > 0);
+    return {
+      minimum: minimums.length ? Math.min(...minimums) : null,
+      maximum: maximums.length ? Math.max(...maximums) : null,
+    };
+  }, [africanProviderChannels, isAfricanPayout, selectedBank]);
   const africanInsufficientFunding = isAfricanPayout
     && !!activeFundingWallet
     && sourceAmount > 0
@@ -1013,6 +1035,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     () => `borderpay_send_institutions_refreshed_at_v3:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
+  const institutionsLimitsCacheKey = `${institutionsCacheKey}:channel-limits`;
   const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
   const [hasBiometricFactor, setHasBiometricFactor] = useState(() => BiometricManager.isEnrolled(userId));
   const hasAnyAuthFactor = hasPinFactor || hasBiometricFactor;
@@ -1152,15 +1175,24 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
       }
     } catch { /* noop */ }
+    let seededLimitsFromCache = false;
+    try {
+      const cachedLimits = JSON.parse(localStorage.getItem(institutionsLimitsCacheKey) || '[]');
+      if (Array.isArray(cachedLimits) && cachedLimits.length > 0) {
+        setAfricanProviderChannels(cachedLimits);
+        seededLimitsFromCache = true;
+      }
+    } catch { /* noop */ }
     if (!seededFromCache) setInstitutions([]);
     // Throttle duplicate rail fetches on quick step toggles.
     try {
       const last = Number(localStorage.getItem(institutionsRefreshTsKey) || '0');
-      if (seededFromCache && Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
+      if (seededFromCache && seededLimitsFromCache && Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
     } catch { /* noop */ }
 
     if (!selectedAfricanCountryCode || (method !== 'bank' && method !== 'mobile_money')) {
       setInstitutions([]);
+      setAfricanProviderChannels([]);
       setSelectedBank(null);
       setLoadingInstitutions(false);
       return;
@@ -1180,6 +1212,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         throw new Error(res?.error || 'Unable to load available payout rails.');
       }
       const providerNetworks = res?.data?.routing?.networks;
+      const providerChannels = Array.isArray(res?.data?.routing?.channels)
+        ? res.data.routing.channels.map((row: any) => ({
+          id: String(row?.id || ''),
+          minimum: Number.isFinite(Number(row?.minimum)) && Number(row.minimum) > 0 ? Number(row.minimum) : null,
+          maximum: Number.isFinite(Number(row?.maximum)) && Number(row.maximum) > 0 ? Number(row.maximum) : null,
+        })).filter((row: YellowCardChannelLimit) => row.id)
+        : [];
       const rawList = Array.isArray(providerNetworks)
         ? providerNetworks
         : (Array.isArray(providerNetworks?.networks) ? providerNetworks.networks
@@ -1197,6 +1236,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ).trim(),
           name: String(row?.name || row?.bank_name || row?.network || row?.provider || row?.code || `Rail ${idx + 1}`).trim(),
           type: method,
+          channelIds: Array.isArray(row?.channelIds) ? row.channelIds.map((id: unknown) => String(id || '')).filter(Boolean) : [],
         }))
         .filter((row) => row.code && row.name);
       if (list.length === 0) {
@@ -1204,11 +1244,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         throw new Error('No active network is available for the selected route.');
       }
       setInstitutions(list);
+      setAfricanProviderChannels(providerChannels);
       setSelectedBank((prev) => {
         if (!prev) return null;
         return list.some((row) => row.code === prev.code) ? prev : null;
       });
       try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
+      try { localStorage.setItem(institutionsLimitsCacheKey, JSON.stringify(providerChannels)); } catch { /* noop */ }
       try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
     } catch {
       // A transient provider refresh must not erase a previously validated
@@ -1236,11 +1278,22 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       setLimitError(null);
       return;
     }
+    if (isAfricanPayout) {
+      if (africanProviderBounds.minimum !== null && amountToValidate < africanProviderBounds.minimum) {
+        setLimitError(`Minimum recipient amount is ${formatMoney(africanProviderBounds.minimum, selectedCurrency)} ${selectedCurrency}.`);
+        return;
+      }
+      if (africanProviderBounds.maximum !== null && amountToValidate > africanProviderBounds.maximum) {
+        setLimitError(`Maximum recipient amount is ${formatMoney(africanProviderBounds.maximum, selectedCurrency)} ${selectedCurrency}.`);
+        return;
+      }
+      setLimitError(null);
+      return;
+    }
     const channel = method === 'mobile_money' ? 'mobile_money' : 'bank';
     const symbol = getCurrencySymbol(selectedCurrency);
-    const err = validateTransferAmount(amountToValidate, selectedCurrency, channel, symbol);
-    setLimitError(err);
-  }, [amount, selectedCurrency, method, isAfricanPayout, africanQuote?.destinationAmount]);
+    setLimitError(validateTransferAmount(amountToValidate, selectedCurrency, channel, symbol));
+  }, [amount, selectedCurrency, method, isAfricanPayout, africanQuote?.destinationAmount, africanProviderBounds]);
 
   const stablecoinMinimumError = useMemo(() => {
     if (method !== 'stablecoin') return null;
@@ -1861,6 +1914,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       onClick={() => {
                         setSelectedAfricanCountryCode(country.countryCode);
                         setSelectedAfricanRail(null);
+                        setAfricanProviderChannels([]);
                         setSelectedBank(null);
                         setAccountNumber('');
                         setRecipientName('');
@@ -1934,6 +1988,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   type="button"
                   onClick={() => {
                     setSelectedAfricanRail(option);
+                    setAfricanProviderChannels([]);
                     setMethod(option.channel);
                     setSelectedCurrency(option.currency);
                     setSelectedBank(null);
@@ -2560,6 +2615,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   {africanQuote?.destinationAmount && (
                     <p className="px-1 text-xs text-[#C7FF00]">
                       Recipient gets about {formatMoney(africanQuote.destinationAmount, selectedCurrency)} {selectedCurrency}
+                    </p>
+                  )}
+                  {(africanProviderBounds.minimum !== null || africanProviderBounds.maximum !== null) && (
+                    <p className={`px-1 text-xs ${limitError ? 'text-red-400' : tc.textMuted}`}>
+                      Allowed recipient amount: {africanProviderBounds.minimum !== null
+                        ? `${formatMoney(africanProviderBounds.minimum, selectedCurrency)} ${selectedCurrency}`
+                        : 'No minimum'}{' – '}{africanProviderBounds.maximum !== null
+                        ? `${formatMoney(africanProviderBounds.maximum, selectedCurrency)} ${selectedCurrency}`
+                        : 'No provider maximum'}
                     </p>
                   )}
                   {africanComputedRate && (

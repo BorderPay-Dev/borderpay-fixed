@@ -12,7 +12,7 @@ const memory = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<any>>();
 // Bump when response eligibility rules change so a stale empty sandbox route
 // cannot survive a corrected deployment in localStorage.
-const CACHE_PREFIX = 'borderpay_yellowcard_capability_v3:';
+const CACHE_PREFIX = 'borderpay_yellowcard_capability_v4:';
 
 function stablePayload(payload: Record<string, unknown>) {
   return Object.keys(payload)
