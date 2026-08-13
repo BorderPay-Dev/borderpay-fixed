@@ -24,6 +24,10 @@ import { PINManager } from './utils/security/SecurityManager';
 import { AppLockScreen } from './components/security/AppLockScreen';
 import { isNativeRuntime } from './utils/native/mobileRuntime';
 import { unregisterNativePush } from './utils/notifications/nativePush';
+import { captureReferralAttributionFromLocation } from './utils/affiliate/referralAttribution';
+
+// Capture shared affiliate links before the auth router can replace the route.
+captureReferralAttributionFromLocation();
 
 type AppState =
   | 'splash'
@@ -103,6 +107,10 @@ function trustCurrentDevice() {
 
 function AppContent() {
   const [appState, setAppState] = useState<AppState>('loading');
+  const [requestedPublicSignup, setRequestedPublicSignup] = useState(() => {
+    try { return String(window.location.pathname || '').replace(/\/+$/, '') === '/signup'; }
+    catch { return false; }
+  });
   const [skipSplashOnce] = useState(() => {
     try {
       const path = String(window.location.pathname || '').replace(/\/+$/, '');
@@ -322,6 +330,14 @@ function AppContent() {
       return;
     }
 
+    // Shared affiliate links land on signup, while authenticated users stay
+    // in their existing account instead of being sent through registration.
+    if (requestedPublicSignup) {
+      setRequestedPublicSignup(false);
+      setAppState(isAuthenticated && user ? 'dashboard' : 'signup');
+      return;
+    }
+
     // P0 hotfix: do not override an in-flight out-of-band auth screen.
     //
     // The general invariant is "if the user has actively navigated to one
@@ -482,7 +498,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingTeamInvite, pendingResetPassword, pendingResetPin, appState]);
+  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingTeamInvite, pendingResetPassword, pendingResetPin, requestedPublicSignup, appState]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);

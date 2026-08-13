@@ -39,6 +39,7 @@ import {
 } from '../../src/lib/countries';
 import { isBridgeBlocked, isBridgeControlled } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { clearStoredReferralCode, readStoredReferralCode } from '../../utils/affiliate/referralAttribution';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
@@ -225,13 +226,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         phone_number: phone ? `${selectedCountry?.dialCode}${phone}` : undefined,
         country_code: selectedCountry?.code,
         account_type: accountType,
-        referral_code: (() => {
-          try {
-            return localStorage.getItem('borderpay_referral_code') || undefined;
-          } catch {
-            return undefined;
-          }
-        })(),
+        referral_code: readStoredReferralCode(),
         // Business-only meta (server-side trigger will store these on
         // user_profiles + business_profiles when present)
         ...(accountType === 'business' ? {
@@ -243,6 +238,10 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       if (!result.success) {
         throw new Error(result.error || 'Signup failed');
       }
+
+      // Attribution has been accepted by auth-signup. Clear it only after a
+      // successful account creation so failed/retried signups retain the code.
+      clearStoredReferralCode();
 
       // Store signup data temporarily for after email confirmation. We
       // include account_type + business fields so MainApp can finalize the
