@@ -32,6 +32,7 @@ def main() -> int:
     business_dashboard = read("components/business/BusinessDashboard.tsx")
     treasury_card = read("components/business/TreasuryCard.tsx")
     send_flow = read("components/send/SendMoneyFlow.tsx")
+    send_capability_timeout = read("components/send/sendCapabilityTimeout.ts")
     receive = read("components/receive/ReceiveMoneyScreen.tsx")
     tx_screen = read("components/transactions/TransactionsScreen.tsx")
     notif = read("components/notifications/NotificationsScreen.tsx")
@@ -102,12 +103,34 @@ def main() -> int:
         )
 
     # No perpetual-loading guardrails on major business screens.
+    institutions_load_start = send_flow.find("const loadInstitutions = async () =>")
+    institutions_load_end = send_flow.find("// Validate transfer limits", institutions_load_start)
+    institutions_load = send_flow[
+        institutions_load_start : institutions_load_end if institutions_load_end >= 0 else len(send_flow)
+    ] if institutions_load_start >= 0 else ""
+    timeout_call = institutions_load.find("await withSendCapabilityTimeout(")
+    discovery_calls = [
+        institutions_load.find("backendAPI.payouts.", 0),
+        institutions_load.find("loadYellowCardCapability(", 0),
+    ]
+    discovery_call = min((position for position in discovery_calls if position >= 0), default=-1)
+    capability_finally = institutions_load.find("finally", timeout_call)
+    capability_loading_clear = institutions_load.find("setLoadingInstitutions(false)", capability_finally)
     send_timeout_guard = (
-        ("SNAPSHOT_READY_TIMEOUT_MS" in send_flow and "timedOut" in send_flow)
-        or ("institutionsLoadInFlightRef" in send_flow and "finally" in send_flow)
+        discovery_call >= 0
+        and timeout_call > discovery_call
+        and capability_finally > timeout_call
+        and capability_loading_clear > capability_finally
+        and "SendCapabilityTimeoutError" in send_flow
+        and "setInstitutionsLoadError" in send_flow
+        and "Retry payout rails" in send_flow
+        and "SEND_CAPABILITY_DISCOVERY_TIMEOUT_MS = 15_000" in send_capability_timeout
+        and "Promise.race([operation, timeout])" in send_capability_timeout
+        and "setTimeout(" in send_capability_timeout
+        and "clearTimeout(" in send_capability_timeout
     )
     must(
-        "Send snapshot timeout guard present",
+        "Send capability timeout guard present",
         send_timeout_guard,
         "Send flow must hard-stop loading waits",
         failures,
@@ -145,6 +168,19 @@ def main() -> int:
         "Worker skips provisioning for operator accounts",
         "operator_bridge_accounts" in worker and "Skip auto-provisioning entirely" in worker,
         "process-pending-events missing operator provisioning skip",
+        failures,
+    )
+    capture_pos = worker.find("const { data: operatorRow, error: operatorLookupError }")
+    error_guard_pos = worker.find("if (operatorLookupError)", capture_pos)
+    error_throw_pos = worker.find("operator_bridge_accounts lookup failed", error_guard_pos)
+    operator_guard_pos = worker.find("if (operatorRow?.bridge_customer_id)", error_throw_pos)
+    must(
+        "Worker operator lookup fails closed",
+        capture_pos >= 0
+        and error_guard_pos > capture_pos
+        and error_throw_pos > error_guard_pos
+        and operator_guard_pos > error_throw_pos,
+        "operator registry lookup errors must throw before the operator row check",
         failures,
     )
 

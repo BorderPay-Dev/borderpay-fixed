@@ -26,6 +26,34 @@ def check(name: str, cond: bool, detail: str, failures: list[str]) -> None:
         failures.append(name)
 
 
+RC1_WORKFLOW_GUARD = "python3 scripts/ci/compute_rc1_status.py --require-pass"
+
+
+def workflow_guard_precedes_boundaries(
+    rel: str,
+    boundaries: tuple[str, ...],
+) -> tuple[bool, str]:
+    workflow = read(rel)
+    if not workflow:
+        return False, "workflow is missing or empty"
+
+    guard_count = workflow.count(RC1_WORKFLOW_GUARD)
+    checkout_at = workflow.find("uses: actions/checkout@")
+    guard_at = workflow.find(RC1_WORKFLOW_GUARD)
+    missing_boundaries = [boundary for boundary in boundaries if boundary not in workflow]
+    boundary_positions = [workflow.find(boundary) for boundary in boundaries if boundary in workflow]
+
+    if guard_count != 1:
+        return False, f"expected exactly one executable RC1 guard, found {guard_count}"
+    if checkout_at < 0 or checkout_at > guard_at:
+        return False, "RC1 guard must run after checkout"
+    if missing_boundaries:
+        return False, f"expected release boundaries missing: {missing_boundaries}"
+    if any(guard_at >= boundary_at for boundary_at in boundary_positions):
+        return False, "RC1 guard appears after a signing or store-mutation boundary"
+    return True, "guard is present and ordered before all release boundaries"
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -35,6 +63,7 @@ def main() -> int:
     exchange = read("components/exchange/ExchangeScreen.tsx")
     exchange_widget = read("components/dashboard/fx/ExchangeRateWidget.tsx")
     referral = read("components/referral/ReferralScreen.tsx")
+    rc1_command = read("scripts/ci/compute_rc1_status.py")
 
     check(
         "R1 RC1 status central flag exists",
@@ -50,30 +79,32 @@ def main() -> int:
         failures,
     )
 
+    fx_rc1_gated = "export const FX_RUNTIME_ENABLED: boolean = RC1_CERTIFICATION_STATUS === 'PASS'" in flags
+    fx_hard_disabled = "export const FX_RUNTIME_ENABLED: boolean = false" in flags
     check(
-        "R3 FX runtime gate derived from RC1",
-        "export const FX_RUNTIME_ENABLED" in flags and "RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
-        "FX runtime gate missing or not tied to RC1 status",
+        "R3 FX runtime gate fails closed",
+        fx_rc1_gated or fx_hard_disabled,
+        "FX runtime gate must be hard-disabled or derived from RC1 PASS",
         failures,
     )
 
     check(
         "R4 Payroll runtime gate derived from RC1",
-        "export const PAYROLL_RUNTIME_ENABLED" in flags and "RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
+        "export const PAYROLL_RUNTIME_ENABLED: boolean = RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
         "Payroll runtime gate missing or not tied to RC1 status",
         failures,
     )
 
     check(
         "R5 Affiliate lifecycle gate derived from RC1",
-        "export const AFFILIATE_FINANCIAL_LIFECYCLE_ENABLED" in flags and "RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
+        "export const AFFILIATE_FINANCIAL_LIFECYCLE_ENABLED: boolean = RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
         "Affiliate lifecycle gate missing or not tied to RC1 status",
         failures,
     )
 
     check(
         "R6 Mobile release gate derived from RC1",
-        "export const MOBILE_RELEASE_ENABLED" in flags and "RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
+        "export const MOBILE_RELEASE_ENABLED: boolean = RC1_CERTIFICATION_STATUS === 'PASS'" in flags,
         "Mobile release gate missing or not tied to RC1 status",
         failures,
     )
@@ -112,24 +143,36 @@ def main() -> int:
         failures,
     )
 
-    # Workflow-level mobile release guard: if workflow files contain explicit
-    # mobile-store release tokens, ensure the mobile gate is not OPEN.
-    wf_dir = ROOT / ".github" / "workflows"
-    mobile_tokens = ("testflight", "play store", "google play", "app store", "fastlane", "pilot")
-    mobile_hits: list[str] = []
-    if wf_dir.is_dir():
-        for wf in wf_dir.glob("*.yml"):
-            txt = wf.read_text(encoding="utf-8").lower()
-            if any(tok in txt for tok in mobile_tokens):
-                mobile_hits.append(str(wf.relative_to(ROOT)))
-
-    rc1_open = "RC1_CERTIFICATION_STATUS: RC1CertificationStatus = 'OPEN'" in generated
     check(
-        "R11 Mobile store workflows blocked while RC1 OPEN",
-        (not rc1_open) or (len(mobile_hits) == 0),
-        f"Mobile release workflow tokens present while RC1 OPEN: {mobile_hits}",
+        "R11 RC1 command has fail-closed require-pass mode",
+        '"--require-pass"' in rc1_command
+        and 'if status != "PASS"' in rc1_command
+        and 'if current_status != "PASS"' in rc1_command
+        and "return 1" in rc1_command,
+        "compute_rc1_status.py must reject computed OPEN and missing/invalid/non-PASS generated status",
         failures,
     )
+
+    workflow_contracts = {
+        ".github/workflows/android-play.yml": (
+            "- name: Install Android upload keystore",
+            "- name: Build signed Android App Bundle",
+            "- name: Upload to Google Play internal testing",
+        ),
+        ".github/workflows/ios-testflight.yml": (
+            "- name: Install App Store Connect API key",
+            "- name: Export signed IPA",
+            "- name: Upload to TestFlight",
+        ),
+    }
+    for index, (workflow, boundaries) in enumerate(workflow_contracts.items(), start=12):
+        guarded, detail = workflow_guard_precedes_boundaries(workflow, boundaries)
+        check(
+            f"R{index} {Path(workflow).name} guard precedes signing/store mutation",
+            guarded,
+            detail,
+            failures,
+        )
 
     if failures:
         print(f"\nrc1_runtime_killswitch_audit: FAIL ({len(failures)} checks)")

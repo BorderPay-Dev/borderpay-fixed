@@ -87,6 +87,58 @@ export type CustomerCreateInput = {
   borderpay_user_id: string;
 };
 
+export type OnboardingAuthorizationInput = {
+  external_user_id: string;
+  onboarding_channel: "api" | "white_label";
+  requested_account_types?: Array<"individual" | "business">;
+  expires_in_seconds: number;
+};
+
+export function validateOnboardingAuthorization(
+  body: any,
+): ValidationResult<OnboardingAuthorizationInput> {
+  const externalUserId = stringField(body?.external_user_id);
+  if (!externalUserId || externalUserId.length > 200) {
+    return invalid("external_user_id is required and must be at most 200 characters", {
+      field: "external_user_id",
+    });
+  }
+  const channel = stringField(body?.onboarding_channel).toLowerCase();
+  if (channel !== "api" && channel !== "white_label") {
+    return invalid("onboarding_channel must be api|white_label", {
+      field: "onboarding_channel",
+    });
+  }
+  let requested: Array<"individual" | "business"> | undefined;
+  if (body?.requested_account_types != null) {
+    if (!Array.isArray(body.requested_account_types)) {
+      return invalid("requested_account_types must be an array", { field: "requested_account_types" });
+    }
+    requested = Array.from(new Set(body.requested_account_types.map((value: unknown) => stringField(value).toLowerCase())))
+      .filter((value): value is "individual" | "business" => value === "individual" || value === "business");
+    if (requested.length !== body.requested_account_types.length || requested.length === 0) {
+      return invalid("requested_account_types may contain only individual|business", {
+        field: "requested_account_types",
+      });
+    }
+  }
+  const requestedTtl = Number(body?.expires_in_seconds ?? 600);
+  if (!Number.isFinite(requestedTtl) || requestedTtl < 60 || requestedTtl > 900) {
+    return invalid("expires_in_seconds must be between 60 and 900", {
+      field: "expires_in_seconds",
+    });
+  }
+  return {
+    ok: true,
+    value: {
+      external_user_id: externalUserId,
+      onboarding_channel: channel,
+      requested_account_types: requested,
+      expires_in_seconds: Math.floor(requestedTtl),
+    },
+  };
+}
+
 export function validateCustomerCreate(
   body: any,
 ): ValidationResult<CustomerCreateInput> {

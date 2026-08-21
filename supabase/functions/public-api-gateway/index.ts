@@ -18,16 +18,24 @@ import {
 } from "../_shared/providers/bridge.ts";
 import {
   validateCustomerCreate,
+  validateOnboardingAuthorization,
   validateIdempotencyHeader,
   validateTransferOrPayout,
   validateVirtualAccountCreate,
   validateWalletCreate,
   validateWebhookCreate,
 } from "../_shared/api-gateway-validators.ts";
+import {
+  allowedAccountTypes,
+  resolveTenantOnboardingPolicy,
+  sha256Hex as onboardingTokenHash,
+  signOnboardingToken,
+} from "../_shared/onboarding-policy.ts";
 
 const ROUTE_SCOPE_MAP: Record<string, string | null> = {
   "GET /v1/health": null,
   "POST /v1/customers": "customers:write",
+  "POST /v1/onboarding-authorizations": "onboarding:write",
   "POST /v1/wallets": "wallets:write",
   "POST /v1/virtual-accounts": "virtual_accounts:write",
   "POST /v1/transfers": "transfers:write",
@@ -42,6 +50,7 @@ type GatewayHandlerResult = {
 
 const IDEMPOTENT_ROUTES = new Set([
   "POST /v1/customers",
+  "POST /v1/onboarding-authorizations",
   "POST /v1/wallets",
   "POST /v1/virtual-accounts",
   "POST /v1/transfers",
@@ -203,8 +212,84 @@ async function handleRoute(
   body: any,
   ctx: {
     tenantId: string;
+    apiKeyId: string;
+    tenantMetadata: Record<string, unknown>;
   },
 ): Promise<GatewayHandlerResult> {
+  if (routeKey === "POST /v1/onboarding-authorizations") {
+    const parsed = validateOnboardingAuthorization(body);
+    if (!parsed.ok) return { status: 400, body: { success: false, error: parsed.error } };
+
+    const policy = resolveTenantOnboardingPolicy(ctx.tenantMetadata);
+    const tenantAllowed = allowedAccountTypes(policy, parsed.value.onboarding_channel);
+    const allowed = parsed.value.requested_account_types
+      ? parsed.value.requested_account_types.filter((type) => tenantAllowed.includes(type))
+      : tenantAllowed;
+    if (allowed.length === 0 || (parsed.value.requested_account_types && allowed.length !== parsed.value.requested_account_types.length)) {
+      return {
+        status: 403,
+        body: {
+          success: false,
+          error: { code: "forbidden", message: "Requested account type is not enabled for this tenant" },
+        },
+      };
+    }
+
+    const secret = Deno.env.get("ONBOARDING_TOKEN_SIGNING_SECRET") ?? "";
+    if (secret.length < 32) {
+      return { status: 500, body: { success: false, error: { code: "internal_error", message: "Partner onboarding authorization is not configured" } } };
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const authorizationId = crypto.randomUUID();
+    const expiresAt = now + parsed.value.expires_in_seconds;
+    const token = await signOnboardingToken({
+      iss: "borderpay",
+      aud: "partner_onboarding",
+      jti: authorizationId,
+      tenant_id: ctx.tenantId,
+      api_key_id: ctx.apiKeyId,
+      external_user_id: parsed.value.external_user_id,
+      allowed_account_types: allowed,
+      onboarding_channel: parsed.value.onboarding_channel,
+      iat: now,
+      exp: expiresAt,
+    }, secret);
+    const tokenHash = await onboardingTokenHash(token);
+    const { error: insertError } = await supa.from("api_onboarding_authorizations").insert({
+      id: authorizationId,
+      tenant_id: ctx.tenantId,
+      api_key_id: ctx.apiKeyId,
+      token_hash: tokenHash,
+      external_user_id: parsed.value.external_user_id,
+      allowed_account_types: allowed,
+      onboarding_channel: parsed.value.onboarding_channel,
+      expires_at: new Date(expiresAt * 1000).toISOString(),
+    });
+    if (insertError) throw new Error(`Failed to persist onboarding authorization: ${insertError.message}`);
+    await supa.from("api_onboarding_audit").insert({
+      tenant_id: ctx.tenantId,
+      api_key_id: ctx.apiKeyId,
+      authorization_id: authorizationId,
+      external_user_id: parsed.value.external_user_id,
+      event_type: "authorization_issued",
+      onboarding_channel: parsed.value.onboarding_channel,
+      metadata: { allowed_account_types: allowed, expires_in_seconds: parsed.value.expires_in_seconds },
+    });
+    const appUrl = (Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com").replace(/\/$/, "");
+    return {
+      status: 201,
+      body: {
+        success: true,
+        data: {
+          onboarding_token: token,
+          expires_at: new Date(expiresAt * 1000).toISOString(),
+          allowed_account_types: allowed,
+          signup_url: `${appUrl}/signup?onboarding_token=${encodeURIComponent(token)}`,
+        },
+      },
+    };
+  }
+
   if (routeKey === "POST /v1/customers") {
     const parsed = validateCustomerCreate(body);
     if (!parsed.ok) {
@@ -789,6 +874,8 @@ Deno.serve(async (req) => {
         bodyWithFallbackIdempotency,
         {
           tenantId,
+          apiKeyId,
+          tenantMetadata: ctx.tenantMetadata,
         },
       );
     } catch (e) {

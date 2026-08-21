@@ -6,4 +6,4 @@
 export type RC1CertificationStatus = 'OPEN' | 'PASS';
 export const RC1_CERTIFICATION_STATUS: RC1CertificationStatus = 'OPEN';
 export const RC1_STATUS_SOURCE = 'computed';
-export const RC1_STATUS_COMPUTED_AT = '2026-06-25T00:02:51Z';
+export const RC1_STATUS_COMPUTED_AT = '2026-08-21T15:57:19Z';

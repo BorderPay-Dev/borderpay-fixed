@@ -50,6 +50,10 @@ import {
 } from '../../utils/africanRailsPolicyCache';
 import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
 import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
+import {
+  SendCapabilityTimeoutError,
+  withSendCapabilityTimeout,
+} from './sendCapabilityTimeout';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1023,6 +1027,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [snapshotReady, setSnapshotReady] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
+  const [institutionsLoadError, setInstitutionsLoadError] = useState('');
+  const institutionsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
   const [transactionPending, setTransactionPending] = useState(false);
@@ -1163,6 +1169,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step, method, selectedCurrency, selectedAfricanCountryCode, selectedAfricanRail]);
 
   const loadInstitutions = async () => {
+    if (institutionsLoadInFlightRef.current) {
+      await institutionsLoadInFlightRef.current;
+      return;
+    }
+    const run = (async () => {
     // Fast route re-entry: render cached institutions instantly when available.
     let seededFromCache = false;
     try {
@@ -1206,20 +1217,23 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       setInstitutions([]);
       setAfricanProviderChannels([]);
       setSelectedBank(null);
+      setInstitutionsLoadError('');
       setLoadingInstitutions(false);
       return;
     }
 
+    setInstitutionsLoadError('');
     setLoadingInstitutions(true);
     try {
-      const res: any = selectedAfricanProvider === 'yellow_card'
-        ? await loadYellowCardCapability('routing', {
+      const discovery: Promise<any> = selectedAfricanProvider === 'yellow_card'
+        ? loadYellowCardCapability('routing', {
           country: selectedAfricanCountryCode,
           currency: selectedCurrency,
           channel: method,
           direction: 'payout',
         })
-        : null;
+        : Promise.resolve({ success: false, error: 'Selected payout provider is unavailable.' });
+      const res: any = await withSendCapabilityTimeout(discovery);
       if (!res?.success) {
         throw new Error(res?.error || 'Unable to load available payout rails.');
       }
@@ -1264,15 +1278,29 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
       try { localStorage.setItem(institutionsLimitsCacheKey, JSON.stringify(providerChannels)); } catch { /* noop */ }
       try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
-    } catch {
-      // A transient provider refresh must not erase a previously validated
-      // corridor list or expose provider-network loading errors to the user.
+    } catch (error: unknown) {
       if (!seededFromCache) {
         setInstitutions([]);
         setSelectedBank(null);
       }
+      const message = error instanceof SendCapabilityTimeoutError
+        ? (seededFromCache
+          ? 'Live payout rails took too long to refresh. Cached options remain available; retry when ready.'
+          : 'Payout rails took too long to load. Check your connection and try again.')
+        : friendlyError((error as Error)?.message, 'Unable to load available payout rails.');
+      setInstitutionsLoadError(message);
+      toast.error(message);
     } finally {
       setLoadingInstitutions(false);
+    }
+    })();
+    institutionsLoadInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (institutionsLoadInFlightRef.current === run) {
+        institutionsLoadInFlightRef.current = null;
+      }
     }
   };
 
@@ -2263,6 +2291,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       </span>
                       <ChevronDown size={18} className={`${tc.textMuted} transition-transform ${showBankList ? 'rotate-180' : ''}`} />
                     </button>
+                  )}
+
+                  {institutionsLoadError && (
+                    <div className="mt-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2">
+                      <p className="text-xs text-amber-300">{institutionsLoadError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadInstitutions()}
+                        disabled={loadingInstitutions}
+                        className="mt-2 text-xs font-semibold text-[#C7FF00] disabled:opacity-50"
+                      >
+                        Retry payout rails
+                      </button>
+                    </div>
                   )}
 
                   {(!selectedAfricanRail || requiresInstitutionSelection) && showBankList && !loadingInstitutions && (

@@ -40,6 +40,11 @@ import {
 import { isBridgeBlocked, isBridgeControlled } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { clearStoredReferralCode, readStoredReferralCode } from '../../utils/affiliate/referralAttribution';
+import {
+  extractAndScrubOnboardingToken,
+  normalizePartnerBranding,
+  type PartnerBranding,
+} from '../../utils/onboarding/partnerOnboarding';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
@@ -59,7 +64,8 @@ interface SignUpData {
   confirmPassword: string;
   selectedCountry: CountryConfig | null;
   agreedToTerms: boolean;
-  // ─── ADDITIVE: account type (default 'individual' so existing flow is unchanged) ───
+  // Account type remains in the shared architecture; visibility is supplied
+  // by the server-authorized direct or partner onboarding channel.
   accountType: 'individual' | 'business';
   // Business-only (collected when accountType === 'business')
   companyName: string;
@@ -123,6 +129,19 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   const [formError, setFormError] = useState('');
   const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>([]);
   const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(true);
+  const [onboardingToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const captured = extractAndScrubOnboardingToken(window.location.href);
+    if (captured.token) window.history.replaceState(window.history.state, '', captured.sanitizedPath);
+    return captured.token;
+  });
+  const [partnerBranding, setPartnerBranding] = useState<PartnerBranding | null>(null);
+  const [allowedAccountTypes, setAllowedAccountTypes] = useState<Array<'individual' | 'business'>>(
+    onboardingToken ? [] : ['business'],
+  );
+  // Direct BorderPay is deterministically Business-only and renders without
+  // waiting. Only signed partner links wait for tenant policy.
+  const [onboardingConfigLoading, setOnboardingConfigLoading] = useState(Boolean(onboardingToken));
 
   const [formData, setFormData] = useState<SignUpData>({
     fullName: '',
@@ -132,7 +151,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     confirmPassword: '',
     selectedCountry: null, // No default - user must explicitly select their country
     agreedToTerms: false,
-    accountType: 'individual', // default = unchanged behaviour
+    accountType: 'business',
     companyName: '',
     registrationNumber: '',
     dateOfBirth: '',
@@ -171,6 +190,32 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setOnboardingConfigLoading(true);
+      const result: any = await backendAPI.auth.getOnboardingConfig(onboardingToken || undefined);
+      if (cancelled) return;
+      if (!result?.success) {
+        // Direct BorderPay remains Business-only if configuration cannot load.
+        // A partner token never falls back to the direct channel.
+        setAllowedAccountTypes(onboardingToken ? [] : ['business']);
+        setPartnerBranding(null);
+        if (onboardingToken) setFormError(result?.error || 'This partner onboarding link is unavailable.');
+        setOnboardingConfigLoading(false);
+        return;
+      }
+      const allowed = ((result?.data?.allowed_account_types ?? []) as unknown[])
+        .filter((type): type is 'individual' | 'business' => type === 'individual' || type === 'business');
+      setAllowedAccountTypes(allowed);
+      setPartnerBranding(onboardingToken ? normalizePartnerBranding(result?.data?.tenant) : null);
+      if (allowed.length > 0 && !allowed.includes(formData.accountType)) {
+        updateForm({ accountType: allowed.includes('business') ? 'business' : allowed[0] });
+      }
+      setOnboardingConfigLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [onboardingToken]); // eslint-disable-line react-hooks/exhaustive-deps
   const steps: SignUpStep[] = ['personal', 'confirm-email'];
   const currentStepIndex = steps.indexOf(currentStep);
   const totalSteps = 2;
@@ -189,6 +234,10 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
 
     if (!fullName || !email || !password || !confirmPassword) {
       const msg = 'Please fill in all fields.';
+      setFormError(msg); toast.error(msg); return;
+    }
+    if (onboardingConfigLoading || !allowedAccountTypes.includes(accountType)) {
+      const msg = 'This account type is not available for this signup channel.';
       setFormError(msg); toast.error(msg); return;
     }
     if (!selectedCountry) {
@@ -226,6 +275,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         phone_number: phone ? `${selectedCountry?.dialCode}${phone}` : undefined,
         country_code: selectedCountry?.code,
         account_type: accountType,
+        ...(onboardingToken ? { onboarding_token: onboardingToken } : {}),
         referral_code: readStoredReferralCode(),
         // Business-only meta (server-side trigger will store these on
         // user_profiles + business_profiles when present)
@@ -364,6 +414,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                 onShowPrivacy={() => setShowPrivacy(true)}
                 formError={formError}
                 onClearError={() => setFormError('')}
+                allowedAccountTypes={allowedAccountTypes}
+                onboardingConfigLoading={onboardingConfigLoading}
+                partnerBranding={partnerBranding}
               />
             )}
 
@@ -678,7 +731,7 @@ function detectCountryFromTimezone(): string | null {
 // STEP 1: PERSONAL INFO
 // ============================================================================
 
-function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCountries, countriesLoading, onNavigateToLogin, onShowTerms, onShowPrivacy, formError, onClearError }: {
+function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCountries, countriesLoading, onNavigateToLogin, onShowTerms, onShowPrivacy, formError, onClearError, allowedAccountTypes, onboardingConfigLoading, partnerBranding }: {
   formData: SignUpData;
   updateForm: (u: Partial<SignUpData>) => void;
   onNext: () => void;
@@ -690,6 +743,9 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
   onShowPrivacy: () => void;
   formError?: string;
   onClearError?: () => void;
+  allowedAccountTypes: Array<'individual' | 'business'>;
+  onboardingConfigLoading: boolean;
+  partnerBranding: PartnerBranding | null;
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -737,11 +793,16 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
     <div className="px-6 pb-8">
       {/* Header */}
       <div className="text-center mb-6 pt-2">
-        <div className="w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mx-auto mb-4">
-          <BorderPayLogo size={28} color="#000000" />
+        <div
+          className="w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mx-auto mb-4 overflow-hidden"
+          style={partnerBranding?.primaryColor ? { backgroundColor: partnerBranding.primaryColor } : undefined}
+        >
+          {partnerBranding?.logoUrl
+            ? <img src={partnerBranding.logoUrl} alt={`${partnerBranding.name} logo`} className="w-full h-full object-contain p-2" referrerPolicy="no-referrer" />
+            : <BorderPayLogo size={28} color="#000000" />}
         </div>
         <h1 className="text-2xl font-bold mb-1">Create Account</h1>
-        <p className="text-sm text-gray-400">Join BorderPay Africa</p>
+        <p className="text-sm text-gray-400">{partnerBranding ? `Join ${partnerBranding.name}` : 'Join BorderPay Africa'}</p>
       </div>
 
       {/* Inline Error Banner */}
@@ -758,11 +819,17 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
       )}
 
       <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="space-y-3.5">
-        {/* Account type toggle — additive. Default 'individual' so the
-            existing flow renders identically for users who don't change it. */}
+        {/* Server-authorized account choices. Direct BorderPay receives only
+            Business; authorized partner tokens can receive either or both. */}
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-gray-300">I'm signing up as</label>
-          <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2">
+          <div role="radiogroup" aria-label="Account type" className={`grid gap-2 ${allowedAccountTypes.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {onboardingConfigLoading && (
+              <div className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading account options…
+              </div>
+            )}
+            {allowedAccountTypes.includes('individual') && (
             <button
               type="button"
               role="radio"
@@ -776,6 +843,8 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
             >
               <User className="w-4 h-4" /> Individual
             </button>
+            )}
+            {allowedAccountTypes.includes('business') && (
             <button
               type="button"
               role="radio"
@@ -789,12 +858,13 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
             >
               <Building className="w-4 h-4" /> Business
             </button>
+            )}
           </div>
-          <p className="text-[11px] text-gray-500">
+          {!onboardingConfigLoading && allowedAccountTypes.length > 0 && <p className="text-[11px] text-gray-500">
             {formData.accountType === 'individual'
               ? 'Personal wallet, cards, transfers — KYC required.'
               : 'For registered companies. Business verification is handled securely by BorderPay.'}
-          </p>
+          </p>}
         </div>
 
         <FormInput
@@ -1079,7 +1149,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         {/* Submit */}
         <motion.button
           type="submit"
-          disabled={isLoading || countriesLoading || signupCountries.length === 0 || !formData.selectedCountry}
+          disabled={isLoading || onboardingConfigLoading || allowedAccountTypes.length === 0 || countriesLoading || signupCountries.length === 0 || !formData.selectedCountry}
           whileTap={{ scale: 0.98 }}
           className="w-full bg-[#C7FF00] text-black py-3.5 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#D4FF33] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
         >
