@@ -153,6 +153,61 @@ async function emailKycDecisionBestEffort(
   }
 }
 
+/** Notify the customer once when Bridge transitions the account to paused. */
+async function emailAccountPausedBestEffort(
+  userId: string,
+  accountType: AccountType,
+  bridgeCustomerId: string,
+  pausedAt: string,
+): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(userId);
+    if (!rcpt) return;
+
+    const isBusiness = accountType === "business";
+    let companyName: string | null = null;
+    if (isBusiness) {
+      const { data: biz } = await supabase
+        .from("business_profiles")
+        .select("company_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      companyName = biz?.company_name ?? null;
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: isBusiness ? "business.account_suspended" : "individual.account_suspended",
+        to: rcpt.email,
+        user_id: userId,
+        idempotency_key: `wh:account-paused:${bridgeCustomerId}:${pausedAt}`,
+        props: isBusiness
+          ? {
+              full_name: rcpt.full_name,
+              company_name: companyName,
+              reason_public: "Your business account is temporarily restricted while we complete a review.",
+            }
+          : {
+              full_name: rcpt.full_name,
+              reason_public: "Your account is temporarily restricted while we complete a review.",
+            },
+      }),
+    });
+    if (!res.ok) {
+      const message = await res.text().catch(() => "");
+      console.log(`webhook-email account-paused send failed: HTTP ${res.status} ${message.slice(0, 200)}`);
+    }
+  } catch (error) {
+    console.log(`webhook-email account-paused best-effort error: ${(error as Error).message}`);
+  }
+}
+
 function currentMonthEndDate(): string {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
@@ -983,6 +1038,15 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
 
   const accountStatus = String(d?.status ?? d?.account_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
   if (accountStatus) {
+    const { data: previousProfile, error: previousProfileError } = await supabase
+      .from("user_profiles")
+      .select("id,account_type,bridge_account_status")
+      .eq("bridge_customer_id", String(customer))
+      .maybeSingle();
+    if (previousProfileError) throw new Error(`bridge customer previous status lookup failed: ${previousProfileError.message}`);
+    if (!previousProfile) throw new Error(`bridge customer profile not found: ${String(customer)}`);
+    const previousAccountStatus = String(previousProfile?.bridge_account_status || "").trim().toLowerCase();
+
     // #53 item 4 — terminal-status propagation into canonical kyc_status.
     // Bridge customer terminal states (confirmed from our webhook data):
     //   active   = KYC passed  -> canonical kyc_status 'verified'
@@ -1002,6 +1066,17 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
       bridge_verification_status: accountStatus || null,
       updated_at:            new Date().toISOString(),
     };
+    // Provider restrictions immediately become a canonical local freeze. Never
+    // auto-unfreeze here: another compliance source may still require the hold.
+    const restrictedAccountStatuses = new Set([
+      "frozen", "paused", "risk_paused", "restricted", "blocked", "suspended",
+      "offboarded", "closed", "terminated", "deactivated", "rejected",
+    ]);
+    if (restrictedAccountStatuses.has(accountStatus.replace(/[\s-]+/g, "_"))) {
+      update.account_status = "frozen";
+    }
+    const pausedAt = String(ev.payload?.event_created_at ?? d?.updated_at ?? new Date().toISOString());
+    update.bridge_account_paused_at = accountStatus === "paused" ? pausedAt : null;
     if (canonicalKyc) update.kyc_status = canonicalKyc;
 
     // Persist the customer's contact details Bridge sends on the customer event
@@ -1030,9 +1105,24 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     const country = addr?.country ?? d?.country;
     if (country) update.country = String(country);
 
-    await supabase.from("user_profiles")
+    const { error: profileUpdateError } = await supabase.from("user_profiles")
       .update(update)
       .eq("bridge_customer_id", String(customer));
+    if (profileUpdateError) throw new Error(`bridge customer status update failed: ${profileUpdateError.message}`);
+
+    if (accountStatus === "paused" && previousAccountStatus !== "paused") {
+      try {
+        const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+        await emailAccountPausedBestEffort(
+          owner.resolved,
+          owner.account_type,
+          String(customer),
+          pausedAt,
+        );
+      } catch {
+        // Best-effort notification must never fail webhook reconciliation.
+      }
+    }
 
     try {
       const owner = await resolveOwnerFromBridgeCustomer(String(customer));

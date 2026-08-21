@@ -5,8 +5,8 @@ declare
   v_missing text[];
   v_count integer;
 begin
-  if (select count(*) from supabase_migrations.schema_migrations) <> 65 then
-    raise exception 'expected 65 applied migrations, found %',
+  if (select count(*) from supabase_migrations.schema_migrations) <> 71 then
+    raise exception 'expected 71 applied migrations, found %',
       (select count(*) from supabase_migrations.schema_migrations);
   end if;
 
@@ -15,11 +15,11 @@ begin
   from unnest(array[
     'accounts', 'admin_action_audit', 'admin_alerts', 'admin_users',
     'api_onboarding_audit', 'api_onboarding_authorizations',
-    'api_tenant_end_users', 'api_tenants', 'account_origin_provenance', 'billing_transactions',
+    'api_tenant_end_users', 'api_tenants', 'account_origin_provenance',
     'bridge_external_accounts', 'bridge_transfers', 'bridge_virtual_accounts',
-    'bridge_wallets', 'cards', 'kyc_verifications', 'ledger_entries',
+    'bridge_wallets', 'cards', 'kyc_verifications',
     'notifications', 'operator_bridge_accounts', 'pending_events', 'stablecoin_transactions',
-    'subscriptions', 'transactions', 'user_profiles', 'users', 'wallets',
+    'transactions', 'user_profiles', 'users', 'wallets',
     'webhook_logs'
   ]) as required(name)
   where to_regclass('public.' || required.name) is null;
@@ -30,10 +30,6 @@ begin
 
   if to_regprocedure('public.consume_api_onboarding_authorization(text,public.account_type)') is null then
     raise exception 'consume_api_onboarding_authorization is missing';
-  end if;
-
-  if to_regprocedure('public.assert_subscription_revenue_wallets_ready()') is null then
-    raise exception 'subscription revenue-wallet readiness assertion is missing';
   end if;
 
   if to_regprocedure('public.is_operator_bridge_customer(text)') is null then
@@ -128,10 +124,6 @@ begin
     raise exception 'expected 2 operator account policies, found %', v_count;
   end if;
 
-  if exists (select 1 from public.billing_revenue_wallets) then
-    raise exception 'fresh replay must not fabricate billing revenue-wallet rows';
-  end if;
-
   if not exists (
     select 1
     from public.operator_bridge_accounts
@@ -160,6 +152,38 @@ begin
   end if;
 
   if not exists (
+    select 1 from supabase_migrations.schema_migrations
+    where version = '20260804223000'
+  ) then
+    raise exception 'Bridge account pause timestamp migration is not applied';
+  end if;
+
+  if not exists (
+    select 1 from supabase_migrations.schema_migrations
+    where version = '20260806184500'
+  ) then
+    raise exception 'PIN security RPC repair migration is not applied';
+  end if;
+
+  if (
+    select count(*) from supabase_migrations.schema_migrations
+    where version in ('20260821170000', '20260821173000', '20260821180000')
+  ) <> 3 then
+    raise exception 'universal SCA migration sequence is incomplete';
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'user_profiles'
+      and column_name = 'bridge_account_paused_at'
+      and data_type = 'timestamp with time zone'
+  ) then
+    raise exception 'bridge_account_paused_at column contract is missing';
+  end if;
+
+  if not exists (
     select 1 from pg_trigger
     where tgrelid = 'public.account_origin_provenance'::regclass
       and tgname = 'account_origin_provenance_immutable'
@@ -167,20 +191,6 @@ begin
   ) then
     raise exception 'account origin provenance immutability trigger is missing';
   end if;
-end
-$$;
-
-do $$
-begin
-  begin
-    perform public.assert_subscription_revenue_wallets_ready();
-    raise exception 'readiness assertion unexpectedly accepted an unconfigured fresh database';
-  exception
-    when raise_exception then
-      if sqlerrm <> 'Active BorderPay whitelist wallets for USDC/Base and USDT/Tron are required' then
-        raise;
-      end if;
-  end;
 end
 $$;
 

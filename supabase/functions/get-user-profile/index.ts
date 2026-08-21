@@ -101,6 +101,7 @@ Deno.serve(async (req) => {
           bridge_customer_id:  profile?.bridge_customer_id || null,
           bridge_kyc_status:   profile?.bridge_kyc_status || null,
           bridge_account_status: profile?.bridge_account_status || null,
+          bridge_account_paused_at: profile?.bridge_account_paused_at || null,
           bridge_kyb_status:   bridgeKybStatus,
           address:             profile?.address || null,
           city:                profile?.city || null,
@@ -123,7 +124,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : "Unable to load profile" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

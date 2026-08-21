@@ -8,6 +8,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import type { StablecoinSymbol, StablecoinChain } from "../_shared/providers/types.ts";
 import {
@@ -44,6 +45,8 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  const accessBlock = await getFinancialAccessBlock(supa, user.id);
+  if (accessBlock) return json({ success: false, ...accessBlock }, 423);
 
   let body: { symbol?: string; chain?: string };
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }

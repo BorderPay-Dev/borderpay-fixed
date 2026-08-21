@@ -7,6 +7,7 @@ import {
 } from "../_shared/african-rails-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { consumeScaAuthorization } from "../_shared/sca.ts";
+import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
@@ -303,6 +304,8 @@ Deno.serve(async (req) => {
 
   const access = await authenticateAfricanRailsTester(supa, req);
   if (!access.allowed) return json({ success: false, code: access.code, error: access.message }, access.status);
+  const accessBlock = await getFinancialAccessBlock(supa, access.user.id);
+  if (accessBlock) return json({ success: false, ...accessBlock }, 423);
 
   let body: any;
   try {

@@ -85,6 +85,25 @@ from countries c
 cross join channels ch
 on conflict do nothing;
 
+-- A CTE is scoped to one statement. Repeat the seed relations for the USD
+-- insert instead of referring to the preceding statement's CTE names.
+with countries(code, local_ccy) as (
+  values
+    ('NG','NGN'),
+    ('KE','KES'),
+    ('GH','GHS'),
+    ('UG','UGX'),
+    ('TZ','TZS'),
+    ('RW','RWF'),
+    ('ZM','ZMW'),
+    ('ZA','ZAR')
+),
+channels(ch) as (
+  values ('bank'), ('mobile_money')
+),
+currencies(ccy) as (
+  values ('USD')
+)
 insert into public.provider_corridor_policy
   (provider, direction, country_code, destination_currency, channel, enabled, requires_bridge_kyc, priority, notes)
 select

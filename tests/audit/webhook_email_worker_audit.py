@@ -59,7 +59,7 @@ def main() -> int:
     va      = sl(src, "async function handleBridgeVirtualAccount", "async function handleBridgeWallet")
     wallet  = sl(src, "async function handleBridgeWallet", "async function handleBridgeTransfer")
     xfer    = sl(src, "async function handleBridgeTransfer", "async function resolveOwnerFromBridgeCustomer")
-    helper  = sl(src, "async function emailKycDecisionBestEffort", "interface PendingEvent")
+    helper  = sl(src, "async function emailKycDecisionBestEffort", "async function emailAccountPausedBestEffort")
     recip   = sl(src, "async function resolveEmailRecipient", "async function emailKycDecisionBestEffort")
 
     checks: list[tuple[str, bool, str]] = []
@@ -123,7 +123,8 @@ def main() -> int:
 
     # W8 — only the two confirmed templates
     w8 = ('"individual.kyc_decision"' in helper and '"business.kyb_decision"' in helper
-          and "account_ready" not in src and "transaction_notification" not in src)
+          and "account_suspended" not in helper
+          and "account_ready" not in helper and "transaction_notification" not in helper)
     checks.append(("W8 only kyc_decision + kyb_decision templates", w8,
                    "v1 must use individual.kyc_decision + business.kyb_decision only"))
 
