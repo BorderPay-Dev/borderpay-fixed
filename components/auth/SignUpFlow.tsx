@@ -2,17 +2,12 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
 /**
  * BorderPay Africa - Complete Signup Flow
  *
- * Two account-type paths share step 1 (basic info) and step 2
- * (confirm-email), then diverge:
+ * Both account types share two registration steps:
  *
  *   • Individual account:
  *     1. Basic Info (name, email, phone, country, password)
  *     2. Confirm Email (verification link)
- *     3. Date of Birth + ID document type selection
- *     4. Address details (street, city, state, postal)
- *     5. Proof of Address upload (utility bill, bank statement, etc.)
- *     6. Review & Submit
- *     7. Pending → Dashboard
+ *     → Dashboard → hosted verification.
  *
  *   • Business account:
  *     1. Basic Info + account-type=business + company name (+ optional reg #)
@@ -37,7 +32,6 @@ import { supabase, authAPI, BASE_URL, ANON_KEY } from '../../utils/supabase/clie
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import {
-  getSignupEligibleCountries,
   getSignupCountriesFromBridge,
   getCountryByCode,
   POPULAR_COUNTRY_CODES,
@@ -45,6 +39,11 @@ import {
 } from '../../src/lib/countries';
 import { isBridgeBlocked, isBridgeControlled } from '../../utils/compliance/partnerCountryPolicy';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import {
+  extractAndScrubOnboardingToken,
+  normalizePartnerBranding,
+  type PartnerBranding,
+} from '../../utils/onboarding/partnerOnboarding';
 
 import { TermsOfServiceScreen } from '../legal/TermsOfServiceScreen';
 import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
@@ -53,7 +52,7 @@ import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 // TYPES
 // ============================================================================
 
-type SignUpStep = 'personal' | 'confirm-email' | 'identity' | 'address' | 'proof-of-address' | 'review' | 'pending';
+type SignUpStep = 'personal' | 'confirm-email';
 
 interface SignUpData {
   // Step 1: Personal
@@ -64,7 +63,8 @@ interface SignUpData {
   confirmPassword: string;
   selectedCountry: CountryConfig | null;
   agreedToTerms: boolean;
-  // ─── ADDITIVE: account type (default 'individual' so existing flow is unchanged) ───
+  // Account type remains in the shared architecture; visibility is supplied
+  // by the server-authorized direct or partner onboarding channel.
   accountType: 'individual' | 'business';
   // Business-only (collected when accountType === 'business')
   companyName: string;
@@ -128,6 +128,17 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   const [formError, setFormError] = useState('');
   const [bridgeSignupCountries, setBridgeSignupCountries] = useState<CountryConfig[]>([]);
   const [bridgeCountriesLoading, setBridgeCountriesLoading] = useState(true);
+  const [onboardingToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const captured = extractAndScrubOnboardingToken(window.location.href);
+    if (captured.token) window.history.replaceState(window.history.state, '', captured.sanitizedPath);
+    return captured.token;
+  });
+  const [partnerBranding, setPartnerBranding] = useState<PartnerBranding | null>(null);
+  const [allowedAccountTypes, setAllowedAccountTypes] = useState<Array<'individual' | 'business'>>(
+    onboardingToken ? [] : ['business'],
+  );
+  const [onboardingConfigLoading, setOnboardingConfigLoading] = useState(true);
 
   const [formData, setFormData] = useState<SignUpData>({
     fullName: '',
@@ -137,7 +148,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     confirmPassword: '',
     selectedCountry: null, // No default - user must explicitly select their country
     agreedToTerms: false,
-    accountType: 'individual', // default = unchanged behaviour
+    accountType: 'business',
     companyName: '',
     registrationNumber: '',
     dateOfBirth: '',
@@ -168,19 +179,44 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         setBridgeCountriesLoading(false);
         return;
       }
-      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; name?: string | null }>;
+      const providerCountries = ((result as any)?.data?.countries ?? (result as any)?.data?.data?.countries ?? []) as Array<{ code?: string | null; code3?: string | null; name?: string | null }>;
       const bridgeCountries = getSignupCountriesFromBridge(providerCountries);
-      const eligible = getSignupEligibleCountries();
-      const eligibleCodes = new Set(eligible.map((c) => c.code));
-      setBridgeSignupCountries(bridgeCountries.filter((c) => eligibleCodes.has(c.code)));
+      setBridgeSignupCountries(bridgeCountries);
       setBridgeCountriesLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);
 
-  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'proof-of-address', 'review', 'pending'];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setOnboardingConfigLoading(true);
+      const result: any = await backendAPI.auth.getOnboardingConfig(onboardingToken || undefined);
+      if (cancelled) return;
+      if (!result?.success) {
+        // Direct BorderPay remains Business-only if configuration cannot load.
+        // A partner token never falls back to the direct channel.
+        setAllowedAccountTypes(onboardingToken ? [] : ['business']);
+        setPartnerBranding(null);
+        if (onboardingToken) setFormError(result?.error || 'This partner onboarding link is unavailable.');
+        setOnboardingConfigLoading(false);
+        return;
+      }
+      const allowed = ((result?.data?.allowed_account_types ?? []) as unknown[])
+        .filter((type): type is 'individual' | 'business' => type === 'individual' || type === 'business');
+      setAllowedAccountTypes(allowed);
+      setPartnerBranding(onboardingToken ? normalizePartnerBranding(result?.data?.tenant) : null);
+      if (allowed.length > 0 && !allowed.includes(formData.accountType)) {
+        updateForm({ accountType: allowed.includes('business') ? 'business' : allowed[0] });
+      }
+      setOnboardingConfigLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [onboardingToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const steps: SignUpStep[] = ['personal', 'confirm-email'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 6; // Don't count 'pending'
+  const totalSteps = 2;
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)
@@ -196,6 +232,10 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
 
     if (!fullName || !email || !password || !confirmPassword) {
       const msg = 'Please fill in all fields.';
+      setFormError(msg); toast.error(msg); return;
+    }
+    if (onboardingConfigLoading || !allowedAccountTypes.includes(accountType)) {
+      const msg = 'This account type is not available for this signup channel.';
       setFormError(msg); toast.error(msg); return;
     }
     if (!selectedCountry) {
@@ -233,6 +273,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
         phone_number: phone ? `${selectedCountry?.dialCode}${phone}` : undefined,
         country_code: selectedCountry?.code,
         account_type: accountType,
+        ...(onboardingToken ? { onboarding_token: onboardingToken } : {}),
         referral_code: (() => {
           try {
             return localStorage.getItem('borderpay_referral_code') || undefined;
@@ -289,98 +330,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   };
 
   // ============================================================================
-  // STEP 3: Identity → Address (KYC done from dashboard)
-  // ============================================================================
-
-
-  // ============================================================================
-  // STEP 5: Upload Proof of Address
-  // ============================================================================
-
-  const handlePoAUpload = async () => {
-    if (!formData.poaFile || !formData.poaDocumentType) {
-      toast.error('Please select a document type and file');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // Step 1: Get signed upload URL
-      const uploadUrlData = await backendAPI.proofOfAddress.getUploadUrl(
-        formData.poaFile.type,
-        formData.poaFile.name
-      );
-      if (!uploadUrlData.success) throw new Error(uploadUrlData.error || 'Failed to get upload URL');
-      if (!uploadUrlData.data?.upload_url || !uploadUrlData.data?.path) {
-        throw new Error('Failed to prepare file upload');
-      }
-      const uploadData = uploadUrlData.data;
-
-      // Step 2: Upload the file
-      const uploadRes = await fetch(uploadData.upload_url, {
-        method: 'PUT',
-        headers: { 'Content-Type': formData.poaFile.type },
-        body: formData.poaFile,
-      });
-
-      if (!uploadRes.ok) throw new Error('File upload failed');
-
-      // Step 3: Submit for review
-      const submitData = await backendAPI.proofOfAddress.submit(
-        uploadData.path,
-        formData.poaDocumentType
-      );
-      if (!submitData.success) throw new Error(submitData.error || 'Submission failed');
-
-      updateForm({ poaUploaded: true });
-      toast.success('Proof of address submitted!');
-      setCurrentStep('review');
-    } catch (error: any) {
-      toast.error(friendlyError(error, 'Upload failed'));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================================
-  // STEP 6: Submit to backend
-  // ============================================================================
-
-  const handleEnrollCustomer = async () => {
-    // The Bridge customer id is created by auth-signup. This handler only
-    // transitions the individual flow into the pending-review state; hosted
-    // KYC/KYB remains a later verification step.
-    setIsLoading(true);
-    try {
-      toast.success('Registration complete! Your account is under review.');
-      setEnrollmentComplete(true);
-      setCurrentStep('pending');
-    } catch (_error: any) {
-      toast.error('Submission error. You can proceed — our team will complete your setup.');
-      setCurrentStep('pending');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================================
-  // PROCEED TO DASHBOARD (from pending)
-  // ============================================================================
-
-  const handleProceedToDashboard = async () => {
-    const storedUser = authAPI.getStoredUser();
-    if (storedUser) {
-      onSignUpSuccess(storedUser);
-    } else {
-      // Fallback
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        onSignUpSuccess(data.user);
-      }
-    }
-  };
-
-  // ============================================================================
   // PROGRESS BAR
   // ============================================================================
 
@@ -411,8 +360,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       <div className="glass-noise-overlay" />
       
       {/* Header */}
-      {currentStep !== 'pending' && (
-        <div className="flex-shrink-0 pt-safe relative z-[2]">
+      <div className="flex-shrink-0 pt-safe relative z-[2]">
           {/* Back button + step indicator */}
           <div className="flex items-center justify-between px-4 py-3">
             {currentStep !== 'personal' ? (
@@ -440,8 +388,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
           </div>
 
           <ProgressBar />
-        </div>
-      )}
+      </div>
 
       {/* Step Content */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none relative z-[2]" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -467,6 +414,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                 onShowPrivacy={() => setShowPrivacy(true)}
                 formError={formError}
                 onClearError={() => setFormError('')}
+                allowedAccountTypes={allowedAccountTypes}
+                onboardingConfigLoading={onboardingConfigLoading}
+                partnerBranding={partnerBranding}
               />
             )}
 
@@ -491,7 +441,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         email: data.user.email,
                         full_name: formData.fullName,
                         ...(formData.accountType === 'business' ? { company_name: formData.companyName } : {}),
-                        kyc_status: 'pending',
+                        kyc_status: 'not_started',
+                        bridge_kyc_status: 'not_started',
                         account_type: formData.accountType,
                       }));
                       if (data.session?.access_token) {
@@ -581,9 +532,14 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         return;
                       }
 
-                      // ─── Individual signup (unchanged) ──────────────────
-                      toast.success('Email verified! Continue with verification.');
-                      setCurrentStep('identity');
+                      // Individual KYC is completed through the same hosted
+                      // verification flow used by the web/PWA dashboard. Do
+                      // not re-enter the retired in-app identity/address/
+                      // proof-of-address enrollment screens after email
+                      // verification (including inside native app shells).
+                      toast.success('Email verified! Continue with verification from your dashboard.');
+                      onSignUpSuccess(data.user);
+                      return;
                     }
                   } catch (err: any) {
                     toast.error(friendlyError(err, 'Sign in failed. Please try logging in.'));
@@ -620,45 +576,6 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               />
             )}
 
-            {currentStep === 'identity' && (
-              <StepIdentityInfo
-                formData={formData}
-                updateForm={updateForm}
-                onNext={() => setCurrentStep('address')}
-              />
-            )}
-
-            {currentStep === 'address' && (
-              <StepAddress
-                formData={formData}
-                updateForm={updateForm}
-                onNext={() => setCurrentStep('proof-of-address')}
-              />
-            )}
-
-            {currentStep === 'proof-of-address' && (
-              <StepProofOfAddress
-                formData={formData}
-                updateForm={updateForm}
-                onUpload={handlePoAUpload}
-                isLoading={isLoading}
-              />
-            )}
-
-            {currentStep === 'review' && (
-              <StepReview
-                formData={formData}
-                onSubmit={handleEnrollCustomer}
-                isLoading={isLoading}
-              />
-            )}
-
-            {currentStep === 'pending' && (
-              <StepPending
-                onProceed={handleProceedToDashboard}
-                enrollmentComplete={enrollmentComplete}
-              />
-            )}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -814,7 +731,7 @@ function detectCountryFromTimezone(): string | null {
 // STEP 1: PERSONAL INFO
 // ============================================================================
 
-function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCountries, countriesLoading, onNavigateToLogin, onShowTerms, onShowPrivacy, formError, onClearError }: {
+function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCountries, countriesLoading, onNavigateToLogin, onShowTerms, onShowPrivacy, formError, onClearError, allowedAccountTypes, onboardingConfigLoading, partnerBranding }: {
   formData: SignUpData;
   updateForm: (u: Partial<SignUpData>) => void;
   onNext: () => void;
@@ -826,6 +743,9 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
   onShowPrivacy: () => void;
   formError?: string;
   onClearError?: () => void;
+  allowedAccountTypes: Array<'individual' | 'business'>;
+  onboardingConfigLoading: boolean;
+  partnerBranding: PartnerBranding | null;
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -873,11 +793,16 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
     <div className="px-6 pb-8">
       {/* Header */}
       <div className="text-center mb-6 pt-2">
-        <div className="w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mx-auto mb-4">
-          <BorderPayLogo size={28} color="#000000" />
+        <div
+          className="w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mx-auto mb-4 overflow-hidden"
+          style={partnerBranding?.primaryColor ? { backgroundColor: partnerBranding.primaryColor } : undefined}
+        >
+          {partnerBranding?.logoUrl
+            ? <img src={partnerBranding.logoUrl} alt={`${partnerBranding.name} logo`} className="w-full h-full object-contain p-2" referrerPolicy="no-referrer" />
+            : <BorderPayLogo size={28} color="#000000" />}
         </div>
         <h1 className="text-2xl font-bold mb-1">Create Account</h1>
-        <p className="text-sm text-gray-400">Join BorderPay Africa</p>
+        <p className="text-sm text-gray-400">{partnerBranding ? `Join ${partnerBranding.name}` : 'Join BorderPay Africa'}</p>
       </div>
 
       {/* Inline Error Banner */}
@@ -894,11 +819,17 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
       )}
 
       <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="space-y-3.5">
-        {/* Account type toggle — additive. Default 'individual' so the
-            existing flow renders identically for users who don't change it. */}
+        {/* Server-authorized account choices. Direct BorderPay receives only
+            Business; authorized partner tokens can receive either or both. */}
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-gray-300">I'm signing up as</label>
-          <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2">
+          <div role="radiogroup" aria-label="Account type" className={`grid gap-2 ${allowedAccountTypes.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {onboardingConfigLoading && (
+              <div className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading account options…
+              </div>
+            )}
+            {allowedAccountTypes.includes('individual') && (
             <button
               type="button"
               role="radio"
@@ -912,6 +843,8 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
             >
               <User className="w-4 h-4" /> Individual
             </button>
+            )}
+            {allowedAccountTypes.includes('business') && (
             <button
               type="button"
               role="radio"
@@ -925,12 +858,13 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
             >
               <Building className="w-4 h-4" /> Business
             </button>
+            )}
           </div>
-          <p className="text-[11px] text-gray-500">
+          {!onboardingConfigLoading && allowedAccountTypes.length > 0 && <p className="text-[11px] text-gray-500">
             {formData.accountType === 'individual'
               ? 'Personal wallet, cards, transfers — KYC required.'
               : 'For registered companies. Business verification is handled securely by BorderPay.'}
-          </p>
+          </p>}
         </div>
 
         <FormInput
@@ -1215,7 +1149,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         {/* Submit */}
         <motion.button
           type="submit"
-          disabled={isLoading || countriesLoading || signupCountries.length === 0 || !formData.selectedCountry}
+          disabled={isLoading || onboardingConfigLoading || allowedAccountTypes.length === 0 || countriesLoading || signupCountries.length === 0 || !formData.selectedCountry}
           whileTap={{ scale: 0.98 }}
           className="w-full bg-[#C7FF00] text-black py-3.5 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#D4FF33] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
         >

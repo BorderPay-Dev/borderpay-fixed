@@ -291,11 +291,39 @@ Deno.serve(async (req: Request) => {
     elapsedMs: elapsed(),
   });
 
-  // Legacy compatibility: some pre-Bridge users can authenticate without a
-  // normalized user_profiles row. Bootstrap the minimum row so they can start
-  // Bridge KYC instead of failing hard.
+  // Legacy compatibility is restricted to identities created before the
+  // migration cutoff or identities with server-issued tenant provenance.
+  // A newly self-created Auth identity cannot use KYC to fabricate an
+  // Individual profile.
   if (!profile) {
-    const fallbackAccountType = String(user.user_metadata?.account_type || "individual").toLowerCase() === "business"
+    const [{ data: cutoffRow }, { data: tenantMapping }] = await Promise.all([
+      supa.from("app_config").select("value").eq("key", "individual_signup_legacy_cutoff").maybeSingle(),
+      supa.from("api_tenant_end_users")
+        .select("tenant_id, account_type, onboarding_channel")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+    const cutoffMs = Date.parse(String(cutoffRow?.value || ""));
+    const createdMs = Date.parse(String(user.created_at || ""));
+    const isLegacyIdentity = Number.isFinite(cutoffMs) && Number.isFinite(createdMs) && createdMs < cutoffMs;
+    if (!isLegacyIdentity && !tenantMapping) {
+      await writeTrace(correlationId, "profile_bootstrap_failed", {
+        executionTimestamp,
+        userId: user.id,
+        email: user.email ?? null,
+        errorBody: "onboarding_provenance_required",
+        elapsedMs: elapsed(),
+      });
+      return json({
+        success: false,
+        code: "onboarding_provenance_required",
+        error: "This account was not created through an authorized onboarding channel.",
+      }, 403);
+    }
+    const metadataType = String(user.user_metadata?.account_type || "").toLowerCase();
+    const fallbackAccountType = tenantMapping?.account_type === "business" || tenantMapping?.account_type === "individual"
+      ? tenantMapping.account_type
+      : metadataType === "business"
       ? "business"
       : "individual";
     const fallbackEmail = user.email || null;

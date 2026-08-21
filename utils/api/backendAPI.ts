@@ -266,19 +266,23 @@ export const authSecurityAPI = {
     });
   },
 
+  async getOnboardingConfig(onboardingToken?: string) {
+    return apiCallPublic('onboarding-config', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(onboardingToken ? { onboarding_token: onboardingToken } : {}),
+      }),
+    });
+  },
+
   async signup(data: {
     email:        string;
     password:     string;
     full_name:    string;
     phone_number?: string;
     country_code: string;
-    /**
-     * Optional. Default 'individual' on the server. When 'business', the
-     * client also collects `company_name` (+ optional `registration_number`)
-     * and inserts a public.business_profiles row post-confirmation. The
-     * value is recorded in auth.users.raw_user_meta_data for audit.
-     */
-    account_type?:        'individual' | 'business';
+    /** Required. The server never defaults a missing value to Individual. */
+    account_type:         'individual' | 'business';
     company_name?:        string;
     registration_number?: string;
     business_owners?:     Array<{
@@ -288,6 +292,7 @@ export const authSecurityAPI = {
     }>;
     captcha_token?:       string;
     referral_code?:       string;
+    onboarding_token?:    string;
   }, anonKey: string) {
     return apiCallPublic('auth-signup', {
       method: 'POST',

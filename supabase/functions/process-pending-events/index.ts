@@ -2746,12 +2746,15 @@ async function ensureStablecoinWalletsProvisioned(input: {
   bridgeCustomerId: string;
   accountType: "individual" | "business";
 }): Promise<void> {
-  const { data: operatorRow } = await supabase
+  const { data: operatorRow, error: operatorLookupError } = await supabase
     .from("operator_bridge_accounts")
     .select("bridge_customer_id")
     .eq("bridge_customer_id", input.bridgeCustomerId)
     .eq("active", true)
     .maybeSingle();
+  if (operatorLookupError) {
+    throw new Error(`operator_bridge_accounts lookup failed: ${operatorLookupError.message}`);
+  }
   if (operatorRow?.bridge_customer_id) {
     // Imported Bridge operator/admin accounts are not BorderPay customer
     // lifecycle subjects. Skip auto-provisioning entirely.

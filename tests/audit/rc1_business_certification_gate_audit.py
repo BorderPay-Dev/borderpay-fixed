@@ -10,6 +10,7 @@ This gate is intentionally evidence-driven and fail-closed:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import hashlib
 import os
@@ -22,6 +23,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = ROOT / "artifacts" / "business-certification"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+from validate_business_certification_bundle import validate_bundle  # noqa: E402
+from verify_manual_intervention_audit import (  # noqa: E402
+    AUTHORITY_STATUS as MANUAL_AUDIT_AUTHORITY_STATUS,
+    SOURCE as MANUAL_AUDIT_SOURCE,
+    validate_manual_intervention_audit,
+)
 
 SURFACES: list[dict[str, object]] = [
     {"name": "Dashboard", "slug": "dashboard", "bridge_required": False},
@@ -50,6 +58,18 @@ PERF_THRESHOLDS = {
 }
 MANIFEST_FILE = "certification_manifest.json"
 MAX_MANIFEST_AGE_DAYS = 7
+
+# These routes render a genuinely equivalent customer surface for both account
+# types. Treasury exists only inside BusinessDashboard; Team renders a static
+# business-only notice for Individuals; Business Profile performs business-only
+# enrichment. Comparing those three to an Individual route would manufacture a
+# baseline that the application does not actually provide.
+INDIVIDUAL_COMPARABLE_SURFACES = {
+    "dashboard", "wallets", "receive", "send", "transactions",
+    "notifications", "settings", "external-accounts",
+}
+BUSINESS_ONLY_PERFORMANCE_SURFACES = {"treasury", "team", "business-profile"}
+NO_INDIVIDUAL_COMPARATOR_REASON = "NO_EQUIVALENT_INDIVIDUAL_SURFACE"
 
 ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -136,7 +156,10 @@ def verify_manifest_against_production(manifest: dict) -> tuple[bool, str]:
     Requires Supabase CLI linked context and network access in CI/runtime.
     Fail-closed when unavailable.
     """
-    required = ("business_account_id", "business_email", "bridge_customer_id", "kyb_status")
+    required = (
+        "business_account_id", "business_email", "bridge_customer_id", "kyb_status",
+        "account_origin_kind", "onboarding_channel",
+    )
     missing = [k for k in required if not manifest.get(k)]
     if missing:
         return False, f"manifest missing fields for production verification: {missing}"
@@ -159,8 +182,12 @@ def verify_manifest_against_production(manifest: dict) -> tuple[bool, str]:
         "lower(coalesce(up.email,'')) as business_email, "
         "coalesce(bp.bridge_customer_id,'') as bridge_customer_id, "
         "lower(coalesce(bp.bridge_kyb_status,'')) as kyb_status "
+        ",coalesce(aop.origin_kind,'') as account_origin_kind "
+        ",coalesce(aop.onboarding_channel,'') as onboarding_channel "
+        ",coalesce(aop.source_path,'') as origin_source_path "
         "from public.business_profiles bp "
         "left join public.user_profiles up on up.id = bp.user_id "
+        "left join public.account_origin_provenance aop on aop.user_id = bp.user_id "
         f"where bp.user_id = '{business_id}' "
         "limit 1;"
     )
@@ -183,6 +210,12 @@ def verify_manifest_against_production(manifest: dict) -> tuple[bool, str]:
         return False, "production mismatch: bridge_customer_id"
     if str(row.get("kyb_status", "")).strip().lower() not in approved_statuses:
         return False, "production mismatch: kyb_status not approved"
+    if str(row.get("account_origin_kind", "")).strip() != "direct":
+        return False, "production mismatch: account origin is not direct"
+    if str(row.get("onboarding_channel", "")).strip() != "direct":
+        return False, "production mismatch: onboarding channel is not direct"
+    if str(row.get("origin_source_path", "")).strip() != "supabase/functions/auth-signup":
+        return False, "production mismatch: origin source path is not auth-signup"
     return True, "production account tuple verified"
 
 
@@ -393,25 +426,38 @@ def validate_performance_gate(failures: list[str]) -> None:
         business_ttd, individual_ttd = metric_pair(entry, "time_to_data_ms")
         business_loading, individual_loading = metric_pair(entry, "loading_state_ms")
 
+        comparable = slug in INDIVIDUAL_COMPARABLE_SURFACES
+        if slug in BUSINESS_ONLY_PERFORMANCE_SURFACES:
+            comparison = entry.get("individual_comparison")
+            if not isinstance(comparison, dict) or comparison.get("applicable") is not False or comparison.get("reason_code") != NO_INDIVIDUAL_COMPARATOR_REASON:
+                fail(
+                    f"performance gate: {name} must declare the audited non-applicable Individual comparator",
+                    failures,
+                )
+
         for metric_name, business_v, individual_v, limit in [
             ("initial_render_ms", business_initial, individual_initial, PERF_THRESHOLDS["initial_render_ms"]),
             ("time_to_data_ms", business_ttd, individual_ttd, PERF_THRESHOLDS["time_to_data_ms"]),
             ("loading_state_ms", business_loading, individual_loading, PERF_THRESHOLDS["loading_state_ms"]),
         ]:
-            if business_v is None or individual_v is None:
-                fail(f"performance gate: {name} missing numeric {metric_name}.business/individual", failures)
+            if business_v is None:
+                fail(f"performance gate: {name} missing numeric {metric_name}.business", failures)
                 continue
             if business_v > float(limit):
                 fail(
                     f"performance gate: {name} {metric_name}.business={business_v:.0f} exceeds {int(limit)}ms",
                     failures,
                 )
-            slowdown = ((business_v - individual_v) / max(individual_v, 1.0)) * 100.0
-            if slowdown > float(PERF_THRESHOLDS["slowdown_percent_max"]):
-                fail(
-                    f"performance gate: {name} {metric_name} slowdown={slowdown:.2f}% exceeds {PERF_THRESHOLDS['slowdown_percent_max']}%",
-                    failures,
-                )
+            if comparable:
+                if individual_v is None:
+                    fail(f"performance gate: {name} missing numeric {metric_name}.individual", failures)
+                    continue
+                slowdown = ((business_v - individual_v) / max(individual_v, 1.0)) * 100.0
+                if slowdown > float(PERF_THRESHOLDS["slowdown_percent_max"]):
+                    fail(
+                        f"performance gate: {name} {metric_name} slowdown={slowdown:.2f}% exceeds {PERF_THRESHOLDS['slowdown_percent_max']}%",
+                        failures,
+                    )
         ok(f"performance gate: metrics parsed for {name}")
 
 
@@ -430,8 +476,6 @@ def validate_onboarding_gate(failures: list[str]) -> None:
         "business_verification_status",
         "bridge_customer_id",
         "is_operator_account",
-        "is_imported_account",
-        "manual_db_intervention",
     ]
     missing_fields = [f for f in required_fields if f not in data]
     if missing_fields:
@@ -453,21 +497,76 @@ def validate_onboarding_gate(failures: list[str]) -> None:
     if not bridge_customer_id:
         fail("onboarding gate: bridge_customer_id must be present", failures)
 
-    for field in ("is_operator_account", "is_imported_account", "manual_db_intervention"):
+    for field in ("is_operator_account",):
         if not isinstance(data.get(field), bool):
             fail(f"onboarding gate: {field} must be boolean", failures)
 
     if data.get("is_operator_account") is True:
         fail("onboarding gate: operator accounts are invalid for certification", failures)
-    if data.get("is_imported_account") is True:
-        fail("onboarding gate: imported accounts are invalid for certification", failures)
-    if data.get("manual_db_intervention") is True:
-        fail("onboarding gate: manual DB intervention invalidates certification", failures)
-
     ok("onboarding gate: certification account provenance validated")
 
 
-def validate_certification_manifest(failures: list[str], statuses: dict[str, str]) -> None:
+def validate_authoritative_provenance(failures: list[str]) -> None:
+    data, err = read_json(ARTIFACT_ROOT / "provenance.json")
+    if err:
+        fail(f"provenance gate: {err}", failures)
+        return
+    origin = data.get("account_origin")
+    if not isinstance(origin, dict):
+        fail("provenance gate: account_origin object is required", failures)
+        return
+    expected = {
+        "source_table": "public.account_origin_provenance",
+        "account_type": "business",
+        "origin_kind": "direct",
+        "onboarding_channel": "direct",
+        "source_path": "supabase/functions/auth-signup",
+    }
+    for key, value in expected.items():
+        if origin.get(key) != value:
+            fail(f"provenance gate: account_origin.{key} must equal {value}", failures)
+    if not maybe_account_id(origin.get("user_id")):
+        fail("provenance gate: account_origin.user_id is required", failures)
+    if not isinstance(origin.get("account_created_at"), str) or parse_iso_utc(origin.get("account_created_at")) is None:
+        fail("provenance gate: account_origin.account_created_at must be ISO UTC", failures)
+    if any(origin.get(key) is not None for key in ("tenant_id", "api_key_id", "authorization_id", "external_user_id")):
+        fail("provenance gate: direct origin cannot contain partner context", failures)
+
+    onboarding, onboarding_err = read_json(ARTIFACT_ROOT / "onboarding.json")
+    manifest, manifest_err = read_json(ARTIFACT_ROOT / MANIFEST_FILE)
+    if not onboarding_err and str(onboarding.get("account_email", "")).strip().lower() != str(data.get("account_email", "")).strip().lower():
+        fail("provenance gate: account email mismatch", failures)
+    if not manifest_err and str(origin.get("user_id", "")).strip() != str(manifest.get("business_account_id", "")).strip():
+        fail("provenance gate: origin user_id must match manifest business_account_id", failures)
+
+    manual = data.get("manual_intervention_review")
+    if not isinstance(manual, dict):
+        fail("provenance gate: manual_intervention_review object is required", failures)
+        return
+    if manual.get("authority_status") != MANUAL_AUDIT_AUTHORITY_STATUS:
+        fail(f"provenance gate: manual authority_status must be {MANUAL_AUDIT_AUTHORITY_STATUS}", failures)
+    if manual.get("source") != MANUAL_AUDIT_SOURCE:
+        fail(f"provenance gate: manual source must be {MANUAL_AUDIT_SOURCE}", failures)
+    capture_context, context_err = read_json(ARTIFACT_ROOT / "capture_context.json")
+    expected_account_id = str(origin.get("user_id", "")).strip()
+    expected_capture_id = None if context_err else str(capture_context.get("capture_id", "")).strip()
+    manual_failures = validate_manual_intervention_audit(
+        ARTIFACT_ROOT,
+        expected_account_id=expected_account_id or None,
+        expected_capture_id=expected_capture_id or None,
+    )
+    for message in manual_failures:
+        fail(f"provenance gate: {message}", failures)
+    if not manual_failures:
+        ok("provenance gate: external pgaudit export proves no privileged critical mutation in capture window")
+
+
+def validate_certification_manifest(
+    failures: list[str],
+    statuses: dict[str, str],
+    *,
+    verify_production: bool,
+) -> None:
     manifest_path = ARTIFACT_ROOT / MANIFEST_FILE
     data, err = read_json(manifest_path)
     if err:
@@ -486,6 +585,8 @@ def validate_certification_manifest(failures: list[str], statuses: dict[str, str
         "business_email",
         "bridge_customer_id",
         "kyb_status",
+        "account_origin_kind",
+        "onboarding_channel",
         "surfaces_passed",
         "classification",
         "generated_at",
@@ -555,25 +656,35 @@ def validate_certification_manifest(failures: list[str], statuses: dict[str, str
         if on_status not in {"approved", "kyb_approved", "business_verification_approved"}:
             local_fail("manifest gate: onboarding business_verification_status must be approved")
 
-    # Production tuple verification (fail-closed).
-    prod_ok, prod_msg = verify_manifest_against_production(data)
-    if not prod_ok:
-        local_fail(f"manifest gate: production verification failed ({prod_msg})")
+    # Production tuple verification is a separate, explicitly authorized gate.
+    # The local/static certification audit must never initiate linked production access.
+    if verify_production:
+        prod_ok, prod_msg = verify_manifest_against_production(data)
+        if not prod_ok:
+            local_fail(f"manifest gate: production verification failed ({prod_msg})")
+        else:
+            ok(f"manifest gate: {prod_msg}")
     else:
-        ok(f"manifest gate: {prod_msg}")
+        print(
+            "[INFO] manifest gate: production account-tuple verification was not run; "
+            "it requires separate explicit authorization"
+        )
 
     if local_failures == 0:
         ok("manifest gate: certification manifest and evidence hash validated")
 
 
-def main() -> int:
+def run_certification(*, verify_production: bool = False) -> int:
     failures: list[str] = []
     statuses: dict[str, str] = {}
 
     if not ARTIFACT_ROOT.is_dir():
-        print(f"[SKIP] missing artifact root: {ARTIFACT_ROOT.relative_to(ROOT)}")
-        print("\nrc1_business_certification_gate_audit: SKIP (no local artifacts)")
-        return 0
+        fail(f"missing artifact root: {ARTIFACT_ROOT.relative_to(ROOT)}", failures)
+        print("\nrc1_business_certification_gate_audit: FAIL (missing local evidence)")
+        return 1
+
+    for strict_failure in validate_bundle(ARTIFACT_ROOT):
+        fail(f"strict evidence contract: {strict_failure}", failures)
 
     validate_surface_artifacts(failures)
     # Re-read statuses from classification files for manifest consistency.
@@ -586,7 +697,12 @@ def main() -> int:
             statuses[slug] = status
     validate_performance_gate(failures)
     validate_onboarding_gate(failures)
-    validate_certification_manifest(failures, statuses)
+    validate_authoritative_provenance(failures)
+    validate_certification_manifest(
+        failures,
+        statuses,
+        verify_production=verify_production,
+    )
 
     if failures:
         print(f"\nrc1_business_certification_gate_audit: FAIL ({len(failures)} checks)")
@@ -596,7 +712,25 @@ def main() -> int:
     print(" - Required evidence artifacts exist for all business surfaces")
     print(" - LIVE classifications are strictly evidence-backed")
     print(" - Performance thresholds and onboarding provenance are satisfied")
+    if verify_production:
+        print(" - Production account tuple was explicitly verified")
+    else:
+        print(" - Production account-tuple verification remains separately required")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--verify-production",
+        action="store_true",
+        help=(
+            "explicitly verify the manifest account tuple against linked production; "
+            "requires separate authorization and production credentials"
+        ),
+    )
+    args = parser.parse_args()
+    return run_certification(verify_production=args.verify_production)
 
 
 if __name__ == "__main__":

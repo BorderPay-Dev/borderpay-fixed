@@ -16,6 +16,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { isBridgeBlocked } from "../_shared/providers/bridge-country-policy.ts";
+import {
+  allowedAccountTypes,
+  isSignupFlagEnabled,
+  parseSignupAccountType,
+  resolveTenantOnboardingPolicy,
+  sha256Hex,
+  verifyOnboardingToken,
+  type OnboardingTokenClaims,
+} from "../_shared/onboarding-policy.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // Service-role: used ONLY for the admin client (createUser + table upserts).
@@ -24,6 +33,7 @@ const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SEND_EMAIL_TOKEN      = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 const APP_URL               = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
 const SIGNUP_CAPTCHA_SECRET = Deno.env.get("SIGNUP_CAPTCHA_SECRET") ?? "";
+const ONBOARDING_TOKEN_SIGNING_SECRET = Deno.env.get("ONBOARDING_TOKEN_SIGNING_SECRET") ?? "";
 const SIGNUP_CAPTCHA_VERIFY_URL =
   Deno.env.get("SIGNUP_CAPTCHA_VERIFY_URL") ?? "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
@@ -47,6 +57,7 @@ interface SignupBody {
   registration_number?: string;
   captcha_token?:       string;
   referral_code?:       string;
+  onboarding_token?:    string;
 }
 
 async function verifySignupCaptcha(
@@ -84,20 +95,115 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = (await req.json()) as SignupBody;
+    // Tenant ownership and partner identity are derived exclusively from the
+    // verified single-use onboarding token. Reject browser-supplied context
+    // instead of silently ignoring it, so conflicting/cross-tenant attempts
+    // are observable and cannot be mistaken for authorized onboarding.
+    if (
+      Object.prototype.hasOwnProperty.call(body, "tenant_id") ||
+      Object.prototype.hasOwnProperty.call(body, "external_user_id") ||
+      Object.prototype.hasOwnProperty.call(body, "onboarding_channel")
+    ) {
+      return json({
+        success: false,
+        code: "untrusted_onboarding_context",
+        error: "Tenant onboarding context must come from a signed authorization token.",
+      }, 403);
+    }
     const { email, password, full_name, phone_number, country_code,
             account_type, company_name, registration_number, captcha_token } = body;
     const referralCode = String(body.referral_code || "").trim().toUpperCase();
     const normalizedPhone = String(phone_number || "").trim();
+    const onboardingToken = String(body.onboarding_token || "").trim();
 
     if (!email || !password || !full_name) {
       return json({ success: false, error: "Email, password, and full name are required" }, 400);
     }
 
-    const normalizedAccountType: "individual" | "business" =
-      account_type === "business" ? "business" : "individual";
+    const parsedAccountType = parseSignupAccountType(account_type);
+    if (!parsedAccountType) {
+      return json({
+        success: false,
+        code: "account_type_required",
+        error: "Select an allowed account type before continuing.",
+      }, 400);
+    }
+    const normalizedAccountType: "individual" | "business" = parsedAccountType;
     if (normalizedAccountType === "business" && !company_name) {
       return json({ success: false, error: "company_name is required for business accounts" }, 400);
     }
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    let partnerClaims: OnboardingTokenClaims | null = null;
+    let partnerAuthorization: {
+      authorization_id: string;
+      tenant_id: string;
+      api_key_id: string;
+      external_user_id: string;
+      onboarding_channel: "api" | "white_label";
+    } | null = null;
+
+    if (onboardingToken) {
+      try {
+        partnerClaims = await verifyOnboardingToken(
+          onboardingToken,
+          ONBOARDING_TOKEN_SIGNING_SECRET,
+        );
+      } catch (error) {
+        return json({
+          success: false,
+          code: "invalid_onboarding_authorization",
+          error: "This signup link is invalid or expired.",
+        }, 403);
+      }
+      if (!partnerClaims.allowed_account_types.includes(normalizedAccountType)) {
+        return json({
+          success: false,
+          code: "account_type_not_authorized",
+          error: "The selected account type is not available for this signup link.",
+        }, 403);
+      }
+
+      const { data: tenant, error: tenantError } = await supabaseAdmin
+        .from("api_tenants")
+        .select("id, is_active, metadata")
+        .eq("id", partnerClaims.tenant_id)
+        .maybeSingle();
+      if (tenantError || !tenant?.is_active) {
+        return json({ success: false, code: "tenant_not_authorized", error: "This signup link is no longer active." }, 403);
+      }
+      const currentPolicy = resolveTenantOnboardingPolicy(tenant.metadata);
+      if (!allowedAccountTypes(currentPolicy, partnerClaims.onboarding_channel).includes(normalizedAccountType)) {
+        return json({
+          success: false,
+          code: "account_type_not_authorized",
+          error: "The selected account type is no longer available for this signup link.",
+        }, 403);
+      }
+    } else {
+      const policyKey = normalizedAccountType === "individual"
+        ? "direct_individual_signup_enabled"
+        : "direct_business_signup_enabled";
+      const { data: directPolicy } = await supabaseAdmin
+        .from("app_config")
+        .select("value")
+        .eq("key", policyKey)
+        .maybeSingle();
+      if (!isSignupFlagEnabled(directPolicy?.value)) {
+        return json({
+          success: false,
+          code: normalizedAccountType === "individual"
+            ? "individual_signup_unavailable"
+            : "business_signup_unavailable",
+          error: normalizedAccountType === "individual"
+            ? "New Individual signup is not available in this BorderPay app. Create a Business account instead."
+            : "New business signup is temporarily unavailable.",
+        }, 403);
+      }
+    }
+
     const normalizedCountryCode = String(country_code || "NG").trim().toUpperCase();
     if (isBridgeBlocked(normalizedCountryCode)) {
       return json({
@@ -107,9 +213,6 @@ Deno.serve(async (req: Request) => {
       }, 403);
     }
 
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
     const xff = req.headers.get("x-forwarded-for") || "";
     const requestIp = xff.split(",")[0]?.trim() || null;
     const ua = req.headers.get("user-agent") || "";
@@ -146,6 +249,36 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
     }
 
+    // Reserve the partner authorization atomically only after abuse and CAPTCHA
+    // checks pass, but before any Auth identity is created.
+    if (partnerClaims) {
+      const tokenHash = await sha256Hex(onboardingToken);
+      const { data: consumed, error: consumeError } = await supabaseAdmin.rpc(
+        "consume_api_onboarding_authorization",
+        { p_token_hash: tokenHash, p_account_type: normalizedAccountType },
+      );
+      const row = Array.isArray(consumed) ? consumed[0] : consumed;
+      if (consumeError || !row ||
+        String(row.authorization_id) !== partnerClaims.jti ||
+        String(row.tenant_id) !== partnerClaims.tenant_id ||
+        String(row.api_key_id) !== partnerClaims.api_key_id ||
+        String(row.external_user_id) !== partnerClaims.external_user_id ||
+        String(row.onboarding_channel) !== partnerClaims.onboarding_channel) {
+        return json({
+          success: false,
+          code: "onboarding_authorization_unavailable",
+          error: "This signup link is invalid, expired, or has already been used.",
+        }, 403);
+      }
+      partnerAuthorization = {
+        authorization_id: String(row.authorization_id),
+        tenant_id: String(row.tenant_id),
+        api_key_id: String(row.api_key_id),
+        external_user_id: String(row.external_user_id),
+        onboarding_channel: String(row.onboarding_channel) as "api" | "white_label",
+      };
+    }
+
     // ── Create the auth user UNCONFIRMED ─────────────────────────────────
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
@@ -156,6 +289,13 @@ Deno.serve(async (req: Request) => {
         ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         country:      country_code,
         account_type: normalizedAccountType,
+        ...(partnerAuthorization
+          ? {
+              onboarding_tenant_id: partnerAuthorization.tenant_id,
+              onboarding_channel: partnerAuthorization.onboarding_channel,
+              external_user_id: partnerAuthorization.external_user_id,
+            }
+          : { onboarding_channel: "direct" }),
         ...(referralCode ? { referral_code: referralCode } : {}),
         ...(normalizedAccountType === "business"
           ? { company_name, registration_number: registration_number || null }
@@ -164,6 +304,18 @@ Deno.serve(async (req: Request) => {
     });
 
     if (authError) {
+      if (partnerAuthorization) {
+        await supabaseAdmin.from("api_onboarding_audit").insert({
+          tenant_id: partnerAuthorization.tenant_id,
+          api_key_id: partnerAuthorization.api_key_id,
+          authorization_id: partnerAuthorization.authorization_id,
+          external_user_id: partnerAuthorization.external_user_id,
+          event_type: "signup_failed",
+          account_type: normalizedAccountType,
+          onboarding_channel: partnerAuthorization.onboarding_channel,
+          metadata: { stage: "auth_create", reason: authError.message },
+        });
+      }
       const msg = authError.message.includes("already registered")
         ? "An account with this email already exists"
         : authError.message;
@@ -173,6 +325,19 @@ Deno.serve(async (req: Request) => {
     const userId = authData.user!.id;
 
     const rollbackAuthUser = async (reason: string) => {
+      if (partnerAuthorization) {
+        await supabaseAdmin.from("api_onboarding_audit").insert({
+          tenant_id: partnerAuthorization.tenant_id,
+          api_key_id: partnerAuthorization.api_key_id,
+          authorization_id: partnerAuthorization.authorization_id,
+          user_id: userId,
+          external_user_id: partnerAuthorization.external_user_id,
+          event_type: "signup_failed",
+          account_type: normalizedAccountType,
+          onboarding_channel: partnerAuthorization.onboarding_channel,
+          metadata: { stage: "persistence", reason },
+        });
+      }
       try { await supabaseAdmin.auth.admin.deleteUser(userId); } catch { /* best effort */ }
       return json({ success: false, error: reason }, 500);
     };
@@ -222,6 +387,24 @@ Deno.serve(async (req: Request) => {
         );
       }
     }
+    if (partnerAuthorization) {
+      const { error: mappingError } = await supabaseAdmin.from("api_tenant_end_users").insert({
+        tenant_id: partnerAuthorization.tenant_id,
+        user_id: userId,
+        external_user_id: partnerAuthorization.external_user_id,
+        account_type: normalizedAccountType,
+        onboarding_channel: partnerAuthorization.onboarding_channel,
+      });
+      if (mappingError) return rollbackAuthUser(`tenant user mapping failed: ${mappingError.message}`);
+
+      const { error: markError } = await supabaseAdmin
+        .from("api_onboarding_authorizations")
+        .update({ used_by_user_id: userId })
+        .eq("id", partnerAuthorization.authorization_id)
+        .is("used_by_user_id", null);
+      if (markError) return rollbackAuthUser(`authorization completion failed: ${markError.message}`);
+
+    }
     if (normalizedAccountType === "business") {
       const { error: bizErr } = await supabaseAdmin.from("business_profiles").upsert(
         {
@@ -237,7 +420,6 @@ Deno.serve(async (req: Request) => {
       );
       if (bizErr) return rollbackAuthUser(`business_profiles create failed: ${bizErr.message}`);
     }
-
     if (referralCode) {
       try {
         const { data: referralResult, error: referralErr } = await supabaseAdmin.rpc(
@@ -268,17 +450,21 @@ Deno.serve(async (req: Request) => {
     const bridgeCustomerId: string | null = null;
 
     // ── Seed the free-tier subscription + owner team-membership ────────
-    // Failure here is non-fatal for signup itself — the user gets a verified
-    // account but lands with no subscription row. We log and continue; a
-    // background reaper / admin tool can backfill.
-    try {
-      await supabaseAdmin.rpc("ensure_starter_subscription", {
+    // This is part of account creation, not a best-effort side effect. The
+    // Supabase client reports RPC failures in its returned `error` field (it
+    // does not throw), so ignoring the result can leave a successful signup
+    // without the required subscription/owner records.
+    const { error: starterSubscriptionError } = await supabaseAdmin.rpc(
+      "ensure_starter_subscription",
+      {
         p_user_id:      userId,
         p_account_type: normalizedAccountType,
-      });
-    } catch (e) {
-      // Best-effort log; do not roll back the user for a subscription seed failure.
-      console.warn(`ensure_starter_subscription failed for ${userId}: ${(e as Error).message}`);
+      },
+    );
+    if (starterSubscriptionError) {
+      return rollbackAuthUser(
+        `starter subscription failed: ${starterSubscriptionError.message}`,
+      );
     }
 
     // ── Issue a verification token ────────────────────────────────────────
@@ -292,6 +478,37 @@ Deno.serve(async (req: Request) => {
     });
     if (tokenErr || !tokenData) {
       return rollbackAuthUser(`token issue failed: ${tokenErr?.message || "no token"}`);
+    }
+    // Immutable server-owned provenance is the final fail-closed persistence
+    // step. Values come only from the policy decision and consumed partner
+    // authorization; browser tenant/channel/external-user fields were rejected
+    // before identity creation. No rollback-prone step follows this insert.
+    const { error: originError } = await supabaseAdmin.from("account_origin_provenance").insert({
+      user_id:            userId,
+      account_type:       normalizedAccountType,
+      origin_kind:        partnerAuthorization ? "partner" : "direct",
+      onboarding_channel: partnerAuthorization?.onboarding_channel || "direct",
+      source_path:        "supabase/functions/auth-signup",
+      account_created_at: authData.user!.created_at,
+      tenant_id:          partnerAuthorization?.tenant_id || null,
+      api_key_id:         partnerAuthorization?.api_key_id || null,
+      authorization_id:   partnerAuthorization?.authorization_id || null,
+      external_user_id:   partnerAuthorization?.external_user_id || null,
+      source_reference:   partnerAuthorization?.authorization_id || null,
+    });
+    if (originError) return rollbackAuthUser(`account origin provenance insert failed: ${originError.message}`);
+
+    if (partnerAuthorization) {
+      await supabaseAdmin.from("api_onboarding_audit").insert({
+        tenant_id: partnerAuthorization.tenant_id,
+        api_key_id: partnerAuthorization.api_key_id,
+        authorization_id: partnerAuthorization.authorization_id,
+        user_id: userId,
+        external_user_id: partnerAuthorization.external_user_id,
+        event_type: "signup_completed",
+        account_type: normalizedAccountType,
+        onboarding_channel: partnerAuthorization.onboarding_channel,
+      });
     }
     const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData)}&purpose=${tokenPurpose}`;
 

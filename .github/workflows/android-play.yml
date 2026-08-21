@@ -41,6 +41,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Require RC1 production approval
+        run: python3 scripts/ci/compute_rc1_status.py --require-pass
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

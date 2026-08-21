@@ -3,7 +3,17 @@
 
 project_id = "orwrcpwsffjlvzuraxjc"
 
+[auth]
+# All customer creation goes through policy-enforcing Edge Functions. This does
+# not disable sign-in for existing users or service-role admin.createUser.
+enable_signup = false
+
 # ── Edge function-specific overrides ────────────────────────────────────────
+
+# Policy-enforcing public signup endpoint. It creates Auth identities only via
+# service-role after direct/partner onboarding authorization is accepted.
+[functions.auth-signup]
+verify_jwt = false
 
 # kyc-submit — LEGACY, REMOVED. Repo source is a 410 "Gone" stub and the function
 # is NOT deployed. The live KYC flow is the Bridge hosted-link
@@ -163,4 +173,9 @@ verify_jwt = false
 # API gateway admin control plane — server/operator route; authenticated in-code
 # with the dedicated API_GATEWAY_ADMIN_TOKEN bearer, not a user JWT.
 [functions.api-gateway-admin]
+verify_jwt = false
+
+# Public read of the effective direct/partner signup choices. Partner choices
+# require a valid signed authorization; no tenant id or browser origin is trusted.
+[functions.onboarding-config]
 verify_jwt = false

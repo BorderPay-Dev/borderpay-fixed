@@ -43,6 +43,10 @@ import {
   type AfricanPolicyRow,
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
+import {
+  SendCapabilityTimeoutError,
+  withSendCapabilityTimeout,
+} from './sendCapabilityTimeout';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1051,6 +1055,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [snapshotReady, setSnapshotReady] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
+  const [institutionsLoadError, setInstitutionsLoadError] = useState('');
   const institutionsLoadInFlightRef = useRef<Promise<void> | null>(null);
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
@@ -1212,15 +1217,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (!selectedAfricanCountryCode || (method !== 'bank' && method !== 'mobile_money')) {
       setInstitutions([]);
       setSelectedBank(null);
+      setInstitutionsLoadError('');
       setLoadingInstitutions(false);
       return;
     }
 
+    setInstitutionsLoadError('');
     setLoadingInstitutions(true);
     try {
-      const res: any = method === 'bank'
-        ? await backendAPI.payouts.listBanks(selectedAfricanCountryCode)
-        : await backendAPI.payouts.listMobileNetworks(selectedAfricanCountryCode);
+      const discovery: Promise<any> = method === 'bank'
+        ? backendAPI.payouts.listBanks(selectedAfricanCountryCode)
+        : backendAPI.payouts.listMobileNetworks(selectedAfricanCountryCode);
+      const res: any = await withSendCapabilityTimeout(discovery);
       if (!res?.success) {
         throw new Error(res?.error || 'Unable to load available payout rails.');
       }
@@ -1245,10 +1253,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       });
       try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
       try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
-    } catch (error: any) {
-      setInstitutions([]);
-      setSelectedBank(null);
-      toast.error(friendlyError(error?.message, 'Unable to load available payout rails.'));
+    } catch (error: unknown) {
+      if (!seededFromCache) {
+        setInstitutions([]);
+        setSelectedBank(null);
+      }
+      const message = error instanceof SendCapabilityTimeoutError
+        ? (seededFromCache
+          ? 'Live payout rails took too long to refresh. Cached options remain available; retry when ready.'
+          : 'Payout rails took too long to load. Check your connection and try again.')
+        : friendlyError((error as Error)?.message, 'Unable to load available payout rails.');
+      setInstitutionsLoadError(message);
+      toast.error(message);
     } finally {
       setLoadingInstitutions(false);
     }
@@ -2233,6 +2249,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         <ChevronDown size={18} className={`${tc.textMuted} transition-transform ${showBankList ? 'rotate-180' : ''}`} />
                       )}
                     </button>
+                  )}
+
+                  {institutionsLoadError && (
+                    <div className="mt-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2">
+                      <p className="text-xs text-amber-300">{institutionsLoadError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadInstitutions()}
+                        disabled={loadingInstitutions}
+                        className="mt-2 text-xs font-semibold text-[#C7FF00] disabled:opacity-50"
+                      >
+                        Retry payout rails
+                      </button>
+                    </div>
                   )}
 
                   {(!selectedAfricanRail || requiresInstitutionSelection) && showBankList && (

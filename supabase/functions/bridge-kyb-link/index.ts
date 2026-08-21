@@ -1,4 +1,4 @@
-// bridge-kyb-link v5 — embedded /v0/kyc_links flow for business accounts.
+// bridge-kyb-link v6 — embedded /v0/kyc_links flow for business accounts.
 //
 // Mirrors bridge-kyc-link v6: always send email + business_legal_name;
 // attach customer_id when present; handle Bridge's 400 existing_kyc_link
@@ -7,6 +7,8 @@
 //   • business_legal_name (instead of full_name)
 //   • reads business_profiles for company_name + bridge_kyb_status
 //   • writes bridge_kyb_status (not bridge_kyc_status)
+//   • returns Bridge tos_link_url before the hosted KYB link, matching the
+//     working Individual KYC response contract used by the shared webview.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -44,6 +46,13 @@ interface BridgeFetchResult {
   request_id?: string;
 }
 
+interface ExtractedLinks {
+  kyc_link_url: string | null;
+  kyc_link_id: string | null;
+  customer_id?: string;
+  tos_link_url: string | null;
+}
+
 async function bridgePost(path: string, body: unknown, idemKey: string): Promise<BridgeFetchResult> {
   if (!BRIDGE_API_KEY) {
     return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
@@ -72,18 +81,26 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
   };
 }
 
-function extractLink(parsed: any): { link_url: string; link_id: string; customer_id?: string } | null {
+function extractLinks(parsed: any): ExtractedLinks | null {
   if (!parsed) return null;
   const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
   for (const c of candidates) {
-    const link_url: string | null =
+    const kycLinkUrl: string | null =
       c?.kyc_link?.url ||
       (typeof c?.kyc_link === "string" ? c.kyc_link : null) ||
       c?.url ||
       c?.link;
-    const link_id: string | null  = c?.kyc_link?.id || c?.id;
+    const linkId: string | null = c?.kyc_link?.id || c?.id;
     const customer_id: string | undefined = c?.customer_id || c?.kyc_link?.customer_id;
-    if (link_url && link_id) return { link_url, link_id, customer_id };
+    const tosLinkUrl: string | null = c?.tos_link?.url || c?.tos_link || c?.data?.tos_link?.url || null;
+    if (kycLinkUrl || tosLinkUrl) {
+      return {
+        kyc_link_url: kycLinkUrl || null,
+        kyc_link_id: linkId || null,
+        customer_id,
+        tos_link_url: tosLinkUrl || null,
+      };
+    }
   }
   return null;
 }
@@ -172,11 +189,11 @@ Deno.serve(async (req: Request) => {
     `borderpay:kyb:business:${idemSource}`,
   );
 
-  let link = extractLink(r.data);
+  let links = extractLinks(r.data);
 
   // Legacy safety: stale/invalid stored bridge_customer_id can block KYB.
   // Retry once without customer_id so Bridge hosted flow can create/recover.
-  if (!r.ok && !link && existingCustomerId) {
+  if (!r.ok && !links && existingCustomerId) {
     const fallbackBody = { ...reqBody };
     delete fallbackBody.customer_id;
     r = await bridgePost(
@@ -184,10 +201,10 @@ Deno.serve(async (req: Request) => {
       fallbackBody,
       `borderpay:kyb:business:fallback:${user.id}`,
     );
-    link = extractLink(r.data);
+    links = extractLinks(r.data);
   }
 
-  if (!r.ok && !link) {
+  if (!r.ok && !links) {
     const detail = (r.raw_text || "").slice(0, 800);
     console.error(`bridge-kyb-link: Bridge rejected rid=${r.request_id || ""} status=${r.status} body=${detail}`);
     return json({
@@ -198,7 +215,7 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  if (!link) {
+  if (!links) {
     console.error(`bridge-kyb-link: missing link/url body=${(r.raw_text || "").slice(0, 800)}`);
     return json({
       success: false,
@@ -207,20 +224,24 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  const customerId = link.customer_id || existingCustomerId || null;
-  const { error: updateErr } = await supa.from("business_profiles").update({
-    bridge_kyb_link_id:  link.link_id,
-    bridge_kyb_link_url: link.link_url,
-    ...(customerId ? { bridge_customer_id: customerId } : {}),
-    updated_at:          new Date().toISOString(),
-  }).eq("user_id", user.id);
-  if (updateErr) {
-    console.error(`bridge-kyb-link: business_profiles update failed for user=${user.id}: ${updateErr.message}`);
-    return json({
-      success: false,
-      error:   `business_profiles update failed: ${updateErr.message}`,
-      bridge_request_id: r.request_id,
-    }, 500);
+  const customerId = links.customer_id || existingCustomerId || null;
+  // A ToS-only response intentionally has no KYB link yet. Do not overwrite
+  // persisted hosted-link columns with null while the customer accepts ToS.
+  if (links.kyc_link_url && links.kyc_link_id) {
+    const { error: updateErr } = await supa.from("business_profiles").update({
+      bridge_kyb_link_id:  links.kyc_link_id,
+      bridge_kyb_link_url: links.kyc_link_url,
+      ...(customerId ? { bridge_customer_id: customerId } : {}),
+      updated_at:          new Date().toISOString(),
+    }).eq("user_id", user.id);
+    if (updateErr) {
+      console.error(`bridge-kyb-link: business_profiles update failed for user=${user.id}: ${updateErr.message}`);
+      return json({
+        success: false,
+        error:   `business_profiles update failed: ${updateErr.message}`,
+        bridge_request_id: r.request_id,
+      }, 500);
+    }
   }
 
   if (customerId) {
@@ -241,6 +262,12 @@ Deno.serve(async (req: Request) => {
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
   return json({
     success: true,
-    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined },
+    data: {
+      link_id: links.kyc_link_id,
+      link_url: links.kyc_link_url,
+      tos_link_url: links.tos_link_url,
+      expires_at,
+      reused: !r.ok ? true : undefined,
+    },
   });
 });

@@ -83,10 +83,10 @@ export const EXTERNAL_ACCOUNTS_LIVE: boolean = true;
 export const RC1_CERTIFICATION_OPEN: boolean = RC1_CERTIFICATION_STATUS === 'OPEN';
 
 /** FX runtime execution/read path gate. */
-export const FX_RUNTIME_ENABLED: boolean = true;
+export const FX_RUNTIME_ENABLED: boolean = RC1_CERTIFICATION_STATUS === 'PASS';
 
 /** Payroll runtime execution gate. */
-export const PAYROLL_RUNTIME_ENABLED: boolean = true;
+export const PAYROLL_RUNTIME_ENABLED: boolean = RC1_CERTIFICATION_STATUS === 'PASS';
 
 /**
  * Navigation visibility gates for roadmap surfaces that are not currently
