@@ -313,10 +313,21 @@ export const authSecurityAPI = {
     });
   },
 
-  async changePIN(oldPin: string, newPin: string) {
+  async changePIN(oldPin: string, newPin: string, scaAuthorizationId?: string) {
     return apiCall('change-pin', {
       method: 'POST',
-      body: JSON.stringify({ old_pin: oldPin, new_pin: newPin }),
+      body: JSON.stringify({ old_pin: oldPin, new_pin: newPin, sca_authorization_id: scaAuthorizationId }),
+    });
+  },
+
+  async changePassword(currentPassword: string, newPassword: string, scaAuthorizationId: string) {
+    return apiCall('change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+        sca_authorization_id: scaAuthorizationId,
+      }),
     });
   },
 
@@ -341,10 +352,30 @@ export const authSecurityAPI = {
     });
   },
 
-  async disable2FA(userId: string, password: string) {
+  async authorizeSCA(input: {
+    operation: 'wallet_access' | 'payment' | 'beneficiary_change' | 'security_change';
+    resource: string;
+    request: Record<string, any>;
+    pin: string;
+    totp: string;
+  }) {
+    return apiCall<{ authorization_id: string; expires_at: string }>('sca-authorize', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  async grantWalletAccess(scaAuthorizationId: string) {
+    return apiCall<{ expires_at: string }>('sca-wallet-access', {
+      method: 'POST',
+      body: JSON.stringify({ sca_authorization_id: scaAuthorizationId }),
+    });
+  },
+
+  async disable2FA(userId: string, password: string, scaAuthorizationId?: string) {
     return apiCall('disable-2fa', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId, password }),
+      body: JSON.stringify({ user_id: userId, password, sca_authorization_id: scaAuthorizationId }),
     });
   },
 
@@ -1872,6 +1903,7 @@ export const stablecoinAPI = {
      * never silently fall back to a server-generated key.
      */
     idempotency_key: string;
+    sca_authorization_id: string;
   }) {
     const symbol = (data.coin || 'usdc').toUpperCase();
     const chain  = (data.chain || 'base').toUpperCase();
@@ -1881,6 +1913,7 @@ export const stablecoinAPI = {
         method: 'POST',
         body: JSON.stringify({
           idempotency_key: data.idempotency_key,
+          sca_authorization_id: data.sca_authorization_id,
           source:      {
             payment_rail: 'bridge_wallet',
             currency:     symbol,
@@ -2381,6 +2414,7 @@ export const bridgeAPI = {
       destination: { payment_rail: string; currency: string; chain?: string; address?: string; bridge_wallet_id?: string; external_account_id?: string; deposit_id?: string; bank_account?: { account_number?: string; routing_number?: string; iban?: string; bic?: string } };
       developer_fee?: { percentage?: number; flat_amount?: string };
       idempotency_key?: string;
+      sca_authorization_id: string;
     }) =>
       apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed' }>(
         'bridge-transfer',
@@ -2444,16 +2478,16 @@ export const bridgeAPI = {
           bank_name?: string;
           account: { sort_code: string; account_number: string };
         }
-    ) =>
+    , scaAuthorizationId: string) =>
       apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'gb'; currency: 'USD' | 'EUR' | 'GBP'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
-        { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
+        { method: 'POST', body: JSON.stringify({ action: 'create', account, sca_authorization_id: scaAuthorizationId }) },
       ),
 
-    remove: async (externalAccountId: string) =>
+    remove: async (externalAccountId: string, scaAuthorizationId: string) =>
       apiCall<{ deleted: boolean; external_account_id: string }>(
         'bridge-external-account',
-        { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId }) },
+        { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId, sca_authorization_id: scaAuthorizationId }) },
       ),
 
     /** Read payout destinations from Bridge (source of truth). */
@@ -2558,7 +2592,7 @@ export const webauthnAPI = {
       'webauthn-register-options',
       { method: 'POST', body: JSON.stringify({}) },
     ),
-  registerVerify: async (input: { response: any; nickname?: string }) =>
+  registerVerify: async (input: { response: any; nickname?: string; sca_authorization_id: string }) =>
     apiCall<{}>('webauthn-register-verify', {
       method: 'POST',
       body:   JSON.stringify(input),
@@ -2577,7 +2611,7 @@ export const webauthnAPI = {
    *  credential_id to remove all (full biometric disable). Required so a
    *  disabled credential is actually gone server-side — otherwise re-enroll
    *  on the same device fails with InvalidStateError (excludeCredentials). */
-  disable: async (input?: { credential_id?: string }) =>
+  disable: async (input: { credential_id?: string; sca_authorization_id: string }) =>
     apiCall<{ deleted_count: number }>('webauthn-delete', {
       method: 'POST',
       body:   JSON.stringify(input || {}),
@@ -2676,10 +2710,10 @@ export interface ExternalWallet {
 export const externalWalletsAPI = {
   list: async () =>
     apiCall<{ wallets: ExternalWallet[] }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'list' }) }),
-  add: async (w: { label: string; chain: string; asset: string; address: string }) =>
-    apiCall<{ wallet: ExternalWallet }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'add', ...w }) }),
-  remove: async (id: string) =>
-    apiCall<{ removed: boolean }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'remove', id }) }),
+  add: async (w: { label: string; chain: string; asset: string; address: string }, scaAuthorizationId: string) =>
+    apiCall<{ wallet: ExternalWallet }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'add', ...w, sca_authorization_id: scaAuthorizationId }) }),
+  remove: async (id: string, scaAuthorizationId: string) =>
+    apiCall<{ removed: boolean }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'remove', id, sca_authorization_id: scaAuthorizationId }) }),
 };
 
 export interface SupportTicket {

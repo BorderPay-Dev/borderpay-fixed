@@ -63,6 +63,18 @@ verify_jwt = false
 [functions.webauthn-delete]
 verify_jwt = true
 
+# Universal SCA issuer and wallet-access grant — authenticated customer routes.
+# The platform validates the JWT and each function re-resolves the caller.
+[functions.sca-authorize]
+verify_jwt = true
+
+[functions.sca-wallet-access]
+verify_jwt = true
+
+# Password changes require an authenticated session plus consumed SCA.
+[functions.change-password]
+verify_jwt = true
+
 # Unified transactional email sender — public route; gated IN-CODE by the
 # SEND_EMAIL_INTERNAL_TOKEN bearer (NOT the service-role key, not a user JWT).
 # Writes public.email_log before every Resend call. Must be deployed BEFORE

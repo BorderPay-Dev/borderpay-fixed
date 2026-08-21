@@ -16,6 +16,7 @@ import { useVerification } from '../../utils/verification/useVerification';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 
 interface Props {
@@ -75,6 +76,8 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const [adding, setAdding]   = useState(false);
   const [saving, setSaving]   = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [scaRequest, setScaRequest] = useState<Record<string, any> | null>(null);
+  const [scaAction, setScaAction] = useState<'add' | 'remove' | null>(null);
 
   // add-form state
   const [label, setLabel]     = useState('');
@@ -130,9 +133,14 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       return;
     }
     if (!validAddress(chain, address)) { toast.error(`That address isn't valid for ${chainName(chain)}.`); return; }
+    setScaAction('add');
+    setScaRequest({ action: 'add', label: label.trim(), chain, asset, address: address.trim() });
+  };
+
+  const saveAuthorized = async (authorizationId: string) => {
     setSaving(true);
     try {
-      const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() });
+      const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() }, authorizationId);
       if (r?.success && r.data?.wallet) {
         const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)]);
         setWallets(next);
@@ -143,20 +151,25 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         toast.error(friendlyError(r?.error, 'Could not save that wallet.'));
       }
     } catch (e) { toast.error(friendlyError(e, 'Could not save that wallet.')); }
-    finally { setSaving(false); }
+    finally { setSaving(false); setScaRequest(null); setScaAction(null); }
   };
 
   const remove = async (id: string) => {
+    setScaAction('remove');
+    setScaRequest({ action: 'remove', id });
+  };
+
+  const removeAuthorized = async (id: string, authorizationId: string) => {
     setRemoving(id);
     try {
-      const r: any = await backendAPI.externalWallets.remove(id);
+      const r: any = await backendAPI.externalWallets.remove(id, authorizationId);
       if (r?.success) {
         const next = wallets.filter(w => w.id !== id);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       } else { toast.error(friendlyError(r?.error, 'Could not remove that wallet.')); }
     } catch (e) { toast.error(friendlyError(e, 'Could not remove that wallet.')); }
-    finally { setRemoving(null); }
+    finally { setRemoving(null); setScaRequest(null); setScaAction(null); }
   };
 
   const withdraw = (w: ExternalWallet) => {
@@ -335,6 +348,19 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
           </div>
         </>
       )}
+      <SCAChallengeDialog
+        open={Boolean(scaRequest && scaAction)}
+        title="Confirm beneficiary change"
+        description="Adding or removing a withdrawal destination requires your PIN and authenticator code."
+        operation="beneficiary_change"
+        resource="external_wallet"
+        request={scaRequest || {}}
+        onCancel={() => { setScaRequest(null); setScaAction(null); }}
+        onAuthorized={async (authorizationId) => {
+          if (scaAction === 'add') await saveAuthorized(authorizationId);
+          else if (scaAction === 'remove' && scaRequest?.id) await removeAuthorized(String(scaRequest.id), authorizationId);
+        }}
+      />
     </div>
   );
 }

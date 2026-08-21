@@ -27,6 +27,7 @@ import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
 
 type AccountType = 'us' | 'iban' | 'gb';
 const DEFAULT_ACCOUNT_TYPES: Array<AccountType> = ['us', 'iban', 'gb'];
@@ -60,6 +61,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   const defaultType: AccountType = supportedAccountTypes[0] || 'us';
   const [accountType, setAccountType] = useState<AccountType>(defaultType);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingAccount, setPendingAccount] = useState<any | null>(null);
 
   // Shared
   const [ownerName, setOwnerName] = useState('');
@@ -172,9 +174,8 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
 
   const submit = async () => {
     if (!ownerName.trim()) { toast.error('Account holder name is required.'); return; }
-    setSubmitting(true);
     try {
-      let res;
+      let account: any;
       if (accountType === 'us') {
         if (!accountNumber.trim() || !routingNumber.trim()) {
           toast.error('Account number and routing number are required.'); setSubmitting(false); return;
@@ -182,7 +183,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (!street.trim() || !city.trim() || !postal.trim() || !country.trim()) {
           toast.error('A full billing address is required for US accounts.'); setSubmitting(false); return;
         }
-        res = await backendAPI.bridge.externalAccount.create({
+        account = {
           account_type: 'us',
           account_owner_name: ownerName.trim(),
           account_number: accountNumber.trim(),
@@ -196,7 +197,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
             postal_code: postal.trim(),
             country: country.trim().toUpperCase(),
           },
-        });
+        };
       } else if (accountType === 'iban') {
         if (!iban.trim() || !bic.trim() || !ibanCountry.trim()) {
           toast.error('IBAN, BIC/SWIFT, and IBAN country are required.'); setSubmitting(false); return;
@@ -207,7 +208,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (ownerType === 'business' && !businessName.trim()) {
           toast.error('Business name is required.'); setSubmitting(false); return;
         }
-        res = await backendAPI.bridge.externalAccount.create({
+        account = {
           account_type: 'iban',
           account_owner_name: ownerName.trim(),
           account_owner_type: ownerType,
@@ -218,7 +219,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
           ...(ownerType === 'individual'
             ? { first_name: firstName.trim(), last_name: lastName.trim() }
             : { business_name: businessName.trim() }),
-        });
+        };
       } else if (accountType === 'gb') {
         if (!sortCode.trim() || !gbAccountNumber.trim()) {
           toast.error('Sort code and account number are required.'); setSubmitting(false); return;
@@ -229,7 +230,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (ownerType === 'business' && !businessName.trim()) {
           toast.error('Business name is required.'); setSubmitting(false); return;
         }
-        res = await backendAPI.bridge.externalAccount.create({
+        account = {
           account_type: 'gb',
           account_owner_name: ownerName.trim(),
           account_owner_type: ownerType,
@@ -241,24 +242,36 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
           ...(ownerType === 'individual'
             ? { first_name: firstName.trim(), last_name: lastName.trim() }
             : { business_name: businessName.trim() }),
-        });
+        };
       } else {
         toast.error('Unsupported payout account type.');
         setSubmitting(false);
         return;
       }
 
-      if (res?.success) {
-        toast.success('Payout account added.');
-        onAdded?.();
-        onBack();
-      } else {
-        toast.error((res as any)?.error || 'Could not add the payout account.');
-      }
+      setPendingAccount(account);
     } catch (e: any) {
       toast.error(friendlyError(e, 'Could not add the payout account.'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const createAuthorized = async (authorizationId: string) => {
+    if (!pendingAccount) return;
+    setSubmitting(true);
+    try {
+      const res: any = await backendAPI.bridge.externalAccount.create(pendingAccount, authorizationId);
+      if (res?.success) {
+        toast.success('Payout account added.');
+        onAdded?.();
+        onBack();
+      } else toast.error(res?.error || 'Could not add the payout account.');
+    } catch (e: any) {
+      toast.error(friendlyError(e, 'Could not add the payout account.'));
+    } finally {
+      setSubmitting(false);
+      setPendingAccount(null);
     }
   };
 
@@ -482,6 +495,16 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         </button>
         <button onClick={onBack} className={`w-full py-2.5 text-xs ${tc.textMuted}`}>Cancel</button>
       </main>
+      <SCAChallengeDialog
+        open={Boolean(pendingAccount)}
+        title="Confirm payout account"
+        description="Adding a beneficiary requires your PIN and authenticator code."
+        operation="beneficiary_change"
+        resource="bridge_external_account"
+        request={{ action: 'create', account: pendingAccount }}
+        onCancel={() => setPendingAccount(null)}
+        onAuthorized={createAuthorized}
+      />
     </div>
   );
 }

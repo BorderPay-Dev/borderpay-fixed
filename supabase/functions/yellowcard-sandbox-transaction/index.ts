@@ -6,6 +6,7 @@ import {
   recordAfricanRailsOperatorAlert,
 } from "../_shared/african-rails-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
@@ -563,6 +564,16 @@ Deno.serve(async (req) => {
   } catch (error) {
     return json({ success: false, code: error instanceof Error ? error.message : "yellow_card_payload_invalid" }, 400);
   }
+
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body?.sca_authorization_id,
+    userId: access.user.id,
+    operation: "payment",
+    resource: "yellowcard_transaction",
+    request: body,
+  });
+  if (!sca.ok) return json(sca.body, sca.status);
 
   const { data: inserted, error: insertError } = await supa
     .from("yellowcard_transactions")

@@ -27,6 +27,7 @@ import { NotificationsScreen } from '../notifications/NotificationsScreen';
 import { TeamScreen } from '../team/TeamScreen';
 import { ExternalAccountsScreen } from '../payouts/ExternalAccountsScreen';
 import { TwoFactorSetup } from '../security/TwoFactorSetup';
+import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
 import { BiometricSetup } from '../security/BiometricSetup';
 import { ChangePIN } from '../settings/ChangePIN';
 import { ChangePassword } from '../settings/ChangePassword';
@@ -444,6 +445,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       : ['dashboard', initialScreenFromCallback],
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const [walletAccessGranted, setWalletAccessGranted] = useState(false);
+  const walletAccessTimerRef = useRef<number | null>(null);
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -459,6 +462,15 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+
+  const walletProtectedScreens = useMemo(() => new Set<AppScreen>([
+    'dashboard', 'home', 'wallet-detail', 'transactions', 'receive-money',
+    'send-money', 'external-wallets', 'external-accounts',
+  ]), []);
+  const needsWalletAccess = walletProtectedScreens.has(currentScreen) && !walletAccessGranted;
+  useEffect(() => () => {
+    if (walletAccessTimerRef.current !== null) window.clearTimeout(walletAccessTimerRef.current);
+  }, []);
   const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean }>(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
@@ -1210,6 +1222,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <Suspense fallback={<ScreenSkeleton />}>
             {TOP_LEVEL_SCREENS.has(currentScreen) ? (
               <AppShell
+                key={`sca-wallet-${refreshKey}`}
                 route={screenToShellRoute(currentScreen)}
                 onRoute={(r) => navigateTo(SHELL_TO_SCREEN[r])}
                 userName={shellUserName}
@@ -1240,6 +1253,29 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           </Suspense>
         </ErrorBoundary>
       </div>
+
+      <SCAChallengeDialog
+        open={needsWalletAccess}
+        title="Unlock financial information"
+        description="Viewing balances and financial activity requires your transaction PIN and authenticator code. Access lasts five minutes."
+        operation="wallet_access"
+        resource="wallet_balances"
+        request={{ scope: 'balances' }}
+        onCancel={() => onLock?.()}
+        onSetupPin={() => navigateTo('pin-setup')}
+        onSetupTotp={() => navigateTo('two-factor-setup')}
+        onAuthorized={async (authorizationId) => {
+          const grant: any = await backendAPI.auth.grantWalletAccess(authorizationId);
+          if (!grant?.success) {
+            toast.error(grant?.error || 'Wallet access could not be unlocked.');
+            return;
+          }
+          setWalletAccessGranted(true);
+          setRefreshKey((value) => value + 1);
+          if (walletAccessTimerRef.current !== null) window.clearTimeout(walletAccessTimerRef.current);
+          walletAccessTimerRef.current = window.setTimeout(() => setWalletAccessGranted(false), 5 * 60_000);
+        }}
+      />
 
       {/* New Device / IP Security Alert */}
       <AnimatePresence>

@@ -26,6 +26,7 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
   const [showCurrentPIN, setShowCurrentPIN] = useState(false);
   const [showNewPIN, setShowNewPIN] = useState(false);
   const [showConfirmPIN, setShowConfirmPIN] = useState(false);
+  const [totp, setTotp] = useState('');
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [setupMode, setSetupMode] = useState(false);
   
@@ -78,8 +79,27 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
 
     try {
       setLoading(true);
-
-      const result = await PINManager.changePIN(userId, formData.currentPIN, formData.newPIN);
+      if (!/^\d{6}$/.test(totp)) {
+        toast.error('Enter your 6-digit authenticator code.');
+        return;
+      }
+      const authorization: any = await backendAPI.auth.authorizeSCA({
+        operation: 'security_change',
+        resource: 'change_pin',
+        request: { action: 'change_pin' },
+        pin: formData.currentPIN,
+        totp,
+      });
+      if (!authorization?.success || !authorization?.data?.authorization_id) {
+        toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
+        return;
+      }
+      const result = await PINManager.changePIN(
+        userId,
+        formData.currentPIN,
+        formData.newPIN,
+        authorization.data.authorization_id,
+      );
 
       if (result.success) {
         toast.success('PIN changed successfully');
@@ -268,6 +288,22 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
               </div>
             )}
           </div>
+        </div>
+
+        <div className={`${tc.bgAlt} rounded-3xl border ${tc.border} p-6 space-y-2`}>
+          <label htmlFor="change-pin-totp" className={`${tc.textSecondary} bp-text-small`}>
+            Authenticator code
+          </label>
+          <input
+            id="change-pin-totp"
+            value={totp}
+            onChange={(event) => setTotp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            className={`w-full px-4 py-3 ${tc.inputBg} rounded-xl bp-text-body tracking-[0.3em] focus:border-[#C7FF00] focus:outline-none`}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="6-digit code"
+            required
+          />
         </div>
 
         {/* Security Notice */}

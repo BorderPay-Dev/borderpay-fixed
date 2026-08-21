@@ -75,6 +75,7 @@ import {
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -622,6 +623,16 @@ Deno.serve(async (req) => {
       }, 503, profile.account_type);
     }
   }
+
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body?.sca_authorization_id,
+    userId: user.id,
+    operation: "payment",
+    resource: "bridge_transfer",
+    request: body,
+  });
+  if (!sca.ok) return await failAfterAuth(sca.body, sca.status, profile.account_type);
 
   try {
     fxLog("bridge_request_sent", {

@@ -31,6 +31,7 @@ import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -90,7 +91,7 @@ Deno.serve(async (req) => {
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
-  let body: { action?: string; account?: CreateInput; external_account_id?: string };
+  let body: { action?: string; account?: CreateInput; external_account_id?: string; sca_authorization_id?: string };
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
   const action = String(body.action || "create");
 
@@ -122,6 +123,15 @@ Deno.serve(async (req) => {
       .eq("bridge_external_account_id", extId)
       .maybeSingle();
     if (!owned) return json({ success: false, error: "not found", code: "not_found" }, 404);
+    const sca = await consumeScaAuthorization({
+      supabase: supa,
+      authorizationId: body.sca_authorization_id,
+      userId: user.id,
+      operation: "beneficiary_change",
+      resource: "bridge_external_account",
+      request: body,
+    });
+    if (!sca.ok) return json(sca.body, sca.status);
     const r = await bridgeFetch({
       method: "POST",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}/deactivate`,
@@ -273,6 +283,16 @@ Deno.serve(async (req) => {
   } else {
     return json({ success: false, error: "unsupported external account type" }, 400);
   }
+
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body.sca_authorization_id,
+    userId: user.id,
+    operation: "beneficiary_change",
+    resource: "bridge_external_account",
+    request: body,
+  });
+  if (!sca.ok) return json(sca.body, sca.status);
 
   const r = await bridgeFetch({
     method:         "POST",

@@ -18,6 +18,7 @@ import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
 
 interface ExternalAccountRow {
   id: string;
@@ -116,6 +117,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const loadInFlightRef = useRef<Promise<void> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
 
   useEffect(() => {
     navPerfTrackCache('external-accounts', cached.length > 0);
@@ -200,9 +202,13 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
 
   const remove = async (extId: string) => {
+    setPendingRemoval(extId);
+  };
+
+  const removeAuthorized = async (extId: string, authorizationId: string) => {
     setRemoving(extId);
     try {
-      const r: any = await backendAPI.bridge.externalAccount.remove(extId);
+      const r: any = await backendAPI.bridge.externalAccount.remove(extId, authorizationId);
       if (r?.success) {
         toast.success('Payout account removed.');
         setRows(prev => {
@@ -217,6 +223,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       toast.error(friendlyError(e, 'Could not remove the payout account.'));
     } finally {
       setRemoving(null);
+      setPendingRemoval(null);
     }
   };
 
@@ -340,6 +347,18 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
           </div>
         )}
       </main>
+      <SCAChallengeDialog
+        open={Boolean(pendingRemoval)}
+        title="Remove payout account"
+        description="Removing a beneficiary requires your PIN and authenticator code."
+        operation="beneficiary_change"
+        resource="bridge_external_account"
+        request={{ action: 'delete', external_account_id: pendingRemoval }}
+        onCancel={() => setPendingRemoval(null)}
+        onAuthorized={async (authorizationId) => {
+          if (pendingRemoval) await removeAuthorized(pendingRemoval, authorizationId);
+        }}
+      />
     </div>
   );
 }

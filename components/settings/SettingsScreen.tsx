@@ -311,13 +311,28 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const handleDisable2FA = async () => {
     const password = prompt(t('settings.enterPasswordFor2fa'));
     if (!password) return;
+    const pin = prompt('Enter your transaction PIN');
+    if (!pin) return;
+    const totp = prompt('Enter your current 6-digit authenticator code');
+    if (!totp) return;
 
     setSuspending(true);
     try {
       // Server-side disable: TOTPManager.disable now rounds-trips to
       // disable-2fa with the user's password. Local cache is updated only
       // on success so we don't lie about state if the server refuses.
-      const r = await TOTPManager.disable(userId, password);
+      const authorization: any = await backendAPI.auth.authorizeSCA({
+        operation: 'security_change',
+        resource: 'disable_2fa',
+        request: { action: 'disable_2fa' },
+        pin,
+        totp,
+      });
+      if (!authorization?.success || !authorization?.data?.authorization_id) {
+        toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
+        return;
+      }
+      const r = await TOTPManager.disable(userId, password, authorization.data.authorization_id);
       if (r.success) {
         toast.success(t('settings.2faDisabled'));
         setHas2FA(false);

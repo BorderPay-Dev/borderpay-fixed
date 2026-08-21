@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
 import {
   Palette,
   Eye,
@@ -29,6 +30,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
   const tc = useThemeClasses();
   const { prefs, updatePrefs } = usePreferences();
   const [biometricLoading, setBiometricLoading] = useState(false);
+  const [biometricScaAction, setBiometricScaAction] = useState<'enable_biometric' | 'disable_biometric' | null>(null);
 
   const handleToggle = (key: keyof typeof prefs, value: boolean) => {
     updatePrefs({ [key]: value });
@@ -38,6 +40,10 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
   };
 
   const handleBiometricToggle = async () => {
+    setBiometricScaAction(prefs.biometric_enabled ? 'disable_biometric' : 'enable_biometric');
+  };
+
+  const performBiometricToggle = async (authorizationId: string) => {
     setBiometricLoading(true);
     try {
       const userId = localStorage.getItem('borderpay_biometric_user_id') || '';
@@ -49,7 +55,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
       if (prefs.biometric_enabled) {
         // Disable — delete the server credential first; only reflect "disabled"
         // if it actually succeeded, otherwise the orphan row blocks re-enroll.
-        const r = await BiometricManager.disable(userId);
+        const r = await BiometricManager.disable(userId, authorizationId);
         if (r.success) {
           updatePrefs({ biometric_enabled: false });
           hapticFeedback();
@@ -66,7 +72,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
         }
         const user = localStorage.getItem('borderpay_user');
         const userName = user ? JSON.parse(user).full_name || 'User' : 'User';
-        const result = await BiometricManager.enroll(userId, userName);
+        const result = await BiometricManager.enroll(userId, userName, authorizationId);
         if (result.success) {
           updatePrefs({ biometric_enabled: true });
           hapticFeedback();
@@ -240,6 +246,19 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
           {t('prefs.resetDefaults')}
         </button>
       </div>
+      <SCAChallengeDialog
+        open={Boolean(biometricScaAction)}
+        title={biometricScaAction === 'disable_biometric' ? 'Disable biometric lock' : 'Enable biometric lock'}
+        description="Changing a login credential requires your PIN and authenticator code."
+        operation="security_change"
+        resource="biometric_change"
+        request={{ action: biometricScaAction }}
+        onCancel={() => setBiometricScaAction(null)}
+        onAuthorized={async (authorizationId) => {
+          setBiometricScaAction(null);
+          await performBiometricToggle(authorizationId);
+        }}
+      />
     </div>
   );
 }

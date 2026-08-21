@@ -10,7 +10,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from 'sonner';
-import { supabase } from '../../utils/supabase/client';
+import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -25,6 +25,8 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [pin, setPin] = useState('');
+  const [totp, setTotp] = useState('');
   
   const [formData, setFormData] = useState({
     currentPassword: '',
@@ -73,12 +75,24 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
     try {
       setLoading(true);
 
-      const { error } = await supabase.auth.updateUser({
-        password: formData.newPassword
+      const authorization: any = await backendAPI.auth.authorizeSCA({
+        operation: 'security_change',
+        resource: 'change_password',
+        request: { action: 'change_password' },
+        pin,
+        totp,
       });
-
-      if (error) {
-        toast.error(friendlyError(error));
+      if (!authorization?.success || !authorization?.data?.authorization_id) {
+        toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
+        return;
+      }
+      const result: any = await backendAPI.auth.changePassword(
+        formData.currentPassword,
+        formData.newPassword,
+        authorization.data.authorization_id,
+      );
+      if (!result?.success) {
+        toast.error(friendlyError(result?.error));
         return;
       }
 
@@ -229,6 +243,12 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
               <p className="text-red-400 bp-text-small">{t('changePassword.noMatch')}</p>
             )}
           </div>
+        </div>
+
+        <div className={`${tc.bgAlt} rounded-3xl border ${tc.border} p-6 space-y-4`}>
+          <h2 className={`${tc.text} bp-text-body font-semibold`}>Strong authentication</h2>
+          <Input type="password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="off" placeholder="Transaction PIN" required className={tc.inputBg} />
+          <Input value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="6-digit authenticator code" required className={tc.inputBg} />
         </div>
 
         {/* Security Notice */}

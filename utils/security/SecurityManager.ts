@@ -357,11 +357,11 @@ export const PINManager = {
     }
   },
 
-  async changePIN(_userId: string, currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> {
+  async changePIN(_userId: string, currentPin: string, newPin: string, scaAuthorizationId: string): Promise<{ success: boolean; error?: string }> {
     if (!/^\d{4,6}$/.test(newPin)) return { success: false, error: 'PIN must be 4 to 6 digits' };
     try {
       const { backendAPI } = await import('../api/backendAPI');
-      const r: any = await backendAPI.auth.changePIN(currentPin, newPin);
+      const r: any = await backendAPI.auth.changePIN(currentPin, newPin, scaAuthorizationId);
       if (!r?.success) return { success: false, error: r?.error || 'Could not change PIN' };
       return { success: true };
     } catch (err: any) {
@@ -473,11 +473,11 @@ export const TOTPManager = {
   },
 
   /** Disable 2FA — clears server-side secret + flag. Requires password. */
-  async disable(_userId: string, password?: string): Promise<{ success: boolean; error?: string }> {
+  async disable(_userId: string, password: string, scaAuthorizationId?: string): Promise<{ success: boolean; error?: string }> {
     try {
       const { backendAPI } = await import('../api/backendAPI');
       // disable2FA wraps the disable-2fa edge function with password confirmation.
-      const r: any = await backendAPI.auth.disable2FA(_userId, password || '');
+      const r: any = await backendAPI.auth.disable2FA(_userId, password || '', scaAuthorizationId);
       if (r?.success) {
         try {
           const stored = localStorage.getItem('borderpay_user');
@@ -655,7 +655,7 @@ export const BiometricManager = {
    * runs navigator.credentials.create, ships the attestation to
    * webauthn-register-verify which persists to webauthn_credentials.
    */
-  async enroll(userId: string, _userName: string): Promise<{ success: boolean; error?: string }> {
+  async enroll(userId: string, _userName: string, scaAuthorizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
       const supported = await this.isSupported();
       if (!supported) {
@@ -698,16 +698,7 @@ export const BiometricManager = {
         // excludeCredentials), and retry create() a single time. Never loops —
         // a second failure is surfaced as a clear error.
         if (err?.name === 'InvalidStateError') {
-          const delRes: any = await backendAPI.webauthn.disable();
-          if (!delRes?.success) {
-            return { success: false, error: 'Biometric is already set up on this device. Disable it first, then try again.' };
-          }
-          try {
-            credential = await runCreate(); // single retry with fresh options
-          } catch (retryErr: any) {
-            if (retryErr?.name === 'NotAllowedError') return { success: false, error: 'Enrollment cancelled or timed out' };
-            return { success: false, error: 'Could not set up biometric after clearing the old credential. Please try again.' };
-          }
+          return { success: false, error: 'Biometric is already set up on this device. Disable it with strong authentication first, then try again.' };
         } else {
           return { success: false, error: err?.message || 'Enrollment failed' };
         }
@@ -716,6 +707,7 @@ export const BiometricManager = {
 
       const verifyRes: any = await backendAPI.webauthn.registerVerify({
         response: _serializeAttestationResponse(credential),
+        sca_authorization_id: scaAuthorizationId,
       });
       if (!verifyRes?.success) {
         return { success: false, error: verifyRes?.error || 'Server could not verify the new credential' };
@@ -777,7 +769,7 @@ export const BiometricManager = {
    * device fails with InvalidStateError (register-options excludeCredentials).
    * Returns success/error so the UI can avoid pretending it disabled.
    */
-  async disable(_userId: string): Promise<{ success: boolean; error?: string }> {
+  async disable(_userId: string, scaAuthorizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
       if (isNativeRuntime()) {
         localStorage.removeItem('borderpay_biometric_enrolled');
@@ -786,7 +778,7 @@ export const BiometricManager = {
         return { success: true };
       }
       const { backendAPI } = await import('../api/backendAPI');
-      const r: any = await backendAPI.webauthn.disable();
+      const r: any = await backendAPI.webauthn.disable({ sca_authorization_id: scaAuthorizationId });
       if (!r?.success) {
         return { success: false, error: r?.error || 'Could not disable biometric on the server' };
       }

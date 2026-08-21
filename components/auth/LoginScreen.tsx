@@ -77,21 +77,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
     setBiometricAvailable(BiometricManager.isLoginAvailable());
   }, []);
 
-  // Auto-enroll biometrics after successful password login
-  const tryBiometricEnrollment = async (userId: string, userName: string) => {
-    try {
-      if (BiometricManager.isEnrolled(userId)) return; // Already enrolled
-      const supported = await BiometricManager.isSupported();
-      if (!supported) return;
-      const available = await window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.();
-      if (!available) return;
-      // Silently enroll — if user cancels the prompt, we just skip
-      await BiometricManager.enroll(userId, userName);
-    } catch {
-      // Non-critical — don't block login
-    }
-  };
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -165,7 +150,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         localStorage.setItem('borderpay_biometric_user_id', data.user.id);
 
         // Auto-enroll biometrics (non-blocking, fires in background)
-        tryBiometricEnrollment(data.user.id, userProfile.full_name || data.user.email || 'User');
 
         const has2FA      = TOTPManager.isEnabled(userProfile.id);
         const profileHas2FA = userProfile.two_factor_enabled || userProfile.mfa_enabled;

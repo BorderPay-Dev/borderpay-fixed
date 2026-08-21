@@ -37,6 +37,8 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
   const [checkingStatus, setCheckingStatus] = useState(!locallyEnabled);
   const [alreadyEnabled, setAlreadyEnabled] = useState(locallyEnabled);
   const [disablePassword, setDisablePassword] = useState('');
+  const [disablePin, setDisablePin] = useState('');
+  const [disableToken, setDisableToken] = useState('');
   const [disabling, setDisabling] = useState(false);
 
   useEffect(() => {
@@ -131,7 +133,18 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
     }
     setDisabling(true);
     try {
-      const r = await TOTPManager.disable(userId, disablePassword.trim());
+      const authorization: any = await backendAPI.auth.authorizeSCA({
+        operation: 'security_change',
+        resource: 'disable_2fa',
+        request: { action: 'disable_2fa' },
+        pin: disablePin,
+        totp: disableToken,
+      });
+      if (!authorization?.success || !authorization?.data?.authorization_id) {
+        toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
+        return;
+      }
+      const r = await TOTPManager.disable(userId, disablePassword.trim(), authorization.data.authorization_id);
       if (!r.success) {
         toast.error(friendlyError(r.error, 'Could not disable 2FA'));
         return;
@@ -192,6 +205,22 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
                 autoComplete="current-password"
                 placeholder="Enter your password"
                 className="w-full px-4 py-3 rounded-xl bg-black/25 border border-white/10 text-white outline-none focus:border-[#C7FF00]/60"
+              />
+              <input
+                type="password"
+                value={disablePin}
+                onChange={(event) => setDisablePin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Transaction PIN"
+                inputMode="numeric"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white"
+              />
+              <input
+                value={disableToken}
+                onChange={(event) => setDisableToken(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Current authenticator code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white"
               />
               <button
                 onClick={handleDisable2FA}

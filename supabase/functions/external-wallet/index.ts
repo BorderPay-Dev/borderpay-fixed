@@ -16,6 +16,7 @@ import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail, StablecoinSymbol } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -336,6 +337,15 @@ Deno.serve(async (req) => {
   if (action === "remove") {
     const id = String(body.id || "");
     if (!id) return json({ success: false, error: "id required" }, 400);
+    const sca = await consumeScaAuthorization({
+      supabase: supa,
+      authorizationId: body.sca_authorization_id,
+      userId: user.id,
+      operation: "beneficiary_change",
+      resource: "external_wallet",
+      request: body,
+    });
+    if (!sca.ok) return json(sca.body, sca.status);
     await supa.from("external_wallets")
       .update({ status: "removed" })
       .eq("user_id", user.id)
@@ -378,6 +388,15 @@ Deno.serve(async (req) => {
         error: `Add or refresh your ${asset} ${chain === "base" ? "Base" : "Tron"} wallet before saving this withdrawal wallet.`,
       }, 409);
     }
+    const sca = await consumeScaAuthorization({
+      supabase: supa,
+      authorizationId: body.sca_authorization_id,
+      userId: user.id,
+      operation: "beneficiary_change",
+      resource: "external_wallet",
+      request: body,
+    });
+    if (!sca.ok) return json(sca.body, sca.status);
 
     const { data: existingWallet } = await supa
       .from("external_wallets")
