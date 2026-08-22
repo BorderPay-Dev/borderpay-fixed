@@ -102,7 +102,7 @@ async function handleDelivery(request, response) {
 
 const server = http.createServer(async (request, response) => {
   try {
-    if (request.method === "GET" && request.url === "/healthz") {
+    if (request.method === "GET" && request.url === "/readyz") {
       const [metadata] = await bucket.getMetadata();
       requireLockedRetention(metadata, config.minimumDays);
       return send(response, 200, { status: "ready", key_id: config.keyId });
