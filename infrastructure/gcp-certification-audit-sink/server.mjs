@@ -118,4 +118,4 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(Number(process.env.PORT || "8080"));
+server.listen(Number(process.env.PORT || "8080"), "0.0.0.0");
