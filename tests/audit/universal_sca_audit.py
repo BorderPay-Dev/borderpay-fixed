@@ -23,6 +23,22 @@ require('const totpResult = pinResult.ok' in authorize, 'TOTP must only be consu
 
 shared = text('supabase/functions/_shared/sca.ts')
 require('UNIVERSAL_SCA_ENFORCEMENT_ENABLED' in shared, 'backend enforcement must have a server-controlled mobile rollout gate')
+require('resolveScaResidencyRequirement(params.supabase, params.userId)' in shared, 'backend consumption must resolve authoritative residency')
+require('if (!residency.required) return { ok: true }' in shared, 'known non-EEA accounts must bypass the extra SCA layer')
+require('residency_unknown' in shared and 'required: true' in shared, 'missing or invalid residency must fail closed')
+require('"IS"' in shared and '"LI"' in shared and '"NO"' in shared, 'EEA scope must include Iceland, Liechtenstein, and Norway')
+require('"GB"' not in shared.split('const EEA_COUNTRY_CODES', 1)[1].split(']);', 1)[0], 'UK must not be classified as EEA')
+require('"CH"' not in shared.split('const EEA_COUNTRY_CODES', 1)[1].split(']);', 1)[0], 'Switzerland must not be classified as EEA')
+
+authorize = text('supabase/functions/sca-authorize/index.ts')
+require('body.action === "requirement"' in authorize, 'client SCA requirement must come from an authenticated server lookup')
+require('resolveScaResidencyRequirement(supabase, user.id)' in authorize, 'issuer must use authoritative residency')
+
+hook = text('utils/security/useScaRequirement.ts')
+require("result?.data?.sca_required === false ? 'not_required' : 'required'" in hook, 'client residency failures must default to SCA required')
+
+dialog = text('components/security/SCAChallengeDialog.tsx')
+require('useScaRequirement(props.open)' in dialog and "requirement !== 'not_required'" in dialog, 'shared SCA dialog must bypass only an authoritative non-EEA result')
 
 totp = text('supabase/functions/verify-2fa/index.ts')
 require("'consume_totp_counter'" in totp and "code: 'totp_replayed'" in totp, 'TOTP verifier must reject replayed counters')
@@ -41,9 +57,19 @@ for path, mutation in protected.items():
 send = text('components/send/SendMoneyFlow.tsx')
 require("operation: 'payment'" in send and 'sca_authorization_id' in send, 'Send must obtain and submit bound SCA')
 require("processTransaction('__biometric__')" not in send, 'local biometric must not authorize money movement')
+require("const scaRequired = scaRequirement !== 'not_required'" in send, 'Send must default unknown residency to SCA required')
+require('PINManager.verifyTransactionPIN(userId, pin)' in send, 'non-EEA Send must retain transaction PIN verification')
+
+for path in (
+    'components/settings/ChangePIN.tsx',
+    'components/settings/ChangePassword.tsx',
+    'components/settings/SettingsScreen.tsx',
+    'components/security/TwoFactorSetup.tsx',
+):
+    require('useScaRequirement()' in text(path), f'{path} must scope extra SCA to EEA residency')
 
 for path in ('supabase/functions/webauthn-register-verify/index.ts', 'supabase/functions/webauthn-delete/index.ts'):
     require('consumeScaAuthorization({' in text(path), f'{path} must protect login credential changes with SCA')
 require('tryBiometricEnrollment' not in text('components/auth/LoginScreen.tsx'), 'password login must not silently enroll a new biometric credential')
 
-print('Universal SCA audit: PASS')
+print('EEA-scoped SCA audit: PASS')

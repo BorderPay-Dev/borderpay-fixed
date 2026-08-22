@@ -19,6 +19,7 @@ import {
 import { toast } from 'sonner';
 import { backendAPI, type ExternalWallet } from '../../utils/api/backendAPI';
 import { PINManager } from '../../utils/security/SecurityManager';
+import { useScaRequirement } from '../../utils/security/useScaRequirement';
 import { TransactionSecurityGate } from '../security/TransactionSecurityGate';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import {
@@ -1050,7 +1051,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const institutionsLimitsCacheKey = `${institutionsCacheKey}:channel-limits`;
   const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
   const [hasTotpFactor, setHasTotpFactor] = useState(false);
-  const hasAnyAuthFactor = hasPinFactor && hasTotpFactor;
+  const scaRequirement = useScaRequirement();
+  const scaRequired = scaRequirement !== 'not_required';
+  const hasAnyAuthFactor = hasPinFactor && (!scaRequired || hasTotpFactor);
   useEffect(() => {
     let active = true;
     void backendAPI.auth.getSecurityStatus(userId).then((security: any) => {
@@ -1619,12 +1622,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const authorizeAndProcess = async () => {
     if (transactionAuthorizationRef.current) return;
-    if (!hasPinFactor || !hasTotpFactor) {
-      toast.error('Set up both a transaction PIN and authenticator app before sending.');
+    if (!hasPinFactor || (scaRequired && !hasTotpFactor)) {
+      toast.error(scaRequired
+        ? 'Set up both a transaction PIN and authenticator app before sending.'
+        : 'Set up a transaction PIN before sending.');
       return;
     }
-    if (!/^\d{4,6}$/.test(pin) || !/^\d{6}$/.test(totp)) {
-      toast.error('Enter your transaction PIN and 6-digit authenticator code.');
+    if (!/^\d{4,6}$/.test(pin) || (scaRequired && !/^\d{6}$/.test(totp))) {
+      toast.error(scaRequired
+        ? 'Enter your transaction PIN and 6-digit authenticator code.'
+        : 'Enter your transaction PIN.');
       return;
     }
 
@@ -1701,6 +1708,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
     transactionAuthorizationRef.current = true;
     try {
+      if (!scaRequired) {
+        const verification = await PINManager.verifyTransactionPIN(userId, pin);
+        if (!verification.success) {
+          toast.error(friendlyError(verification.error, t('send.incorrectPin') || 'Incorrect PIN'));
+          setPin('');
+          return;
+        }
+        setPin('');
+        await processTransaction('');
+        return;
+      }
       const authorization: any = await backendAPI.auth.authorizeSCA({
         operation: 'payment',
         resource: method === 'bank' || method === 'mobile_money' ? 'yellowcard_transaction' : 'bridge_transfer',
@@ -1825,6 +1843,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         <FloatingBackButton onBack={goBack} />
       )}
 
+      <div className="mx-auto w-full max-w-2xl">
       {/* Header — title only; back is the floating chip above. */}
       <div className={`sticky top-0 z-30 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
         <div className="flex items-center justify-center px-5 py-4 pt-safe-header">
@@ -3224,29 +3243,33 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <div className="px-5 space-y-3">
-              <label className={`block text-xs font-medium ${tc.textSecondary}`} htmlFor="send-totp">
-                Authenticator code
-              </label>
-              <input
-                id="send-totp"
-                value={totp}
-                onChange={(event) => setTotp(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="6-digit code"
-                className={`w-full rounded-2xl border ${tc.cardBorder} ${tc.inputBg} px-4 py-3 text-center tracking-[0.35em] ${tc.text}`}
-              />
+              {scaRequired && (
+                <>
+                  <label className={`block text-xs font-medium ${tc.textSecondary}`} htmlFor="send-totp">
+                    Authenticator code
+                  </label>
+                  <input
+                    id="send-totp"
+                    value={totp}
+                    onChange={(event) => setTotp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="6-digit code"
+                    className={`w-full rounded-2xl border ${tc.cardBorder} ${tc.inputBg} px-4 py-3 text-center tracking-[0.35em] ${tc.text}`}
+                  />
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => void authorizeAndProcess()}
-                disabled={transactionAuthorizationRef.current || !/^\d{4,6}$/.test(pin) || !/^\d{6}$/.test(totp)}
+                disabled={transactionAuthorizationRef.current || !/^\d{4,6}$/.test(pin) || (scaRequired && !/^\d{6}$/.test(totp))}
                 className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Verify and send
               </button>
-              <p className={`text-center text-xs ${tc.textMuted}`}>
-                Biometric unlock may open the app, but money movement requires two server-verified factors.
-              </p>
+              {scaRequired && <p className={`text-center text-xs ${tc.textMuted}`}>
+                Biometric unlock may open the app, but EEA money movement requires two server-verified factors.
+              </p>}
             </div>
           </motion.div>
         )}
@@ -3400,6 +3423,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         )}
       </AnimatePresence>
       </MotionConfig>
+      </div>
     </div>
   );
 }

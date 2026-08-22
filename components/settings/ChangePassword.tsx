@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { useScaRequirement } from '../../utils/security/useScaRequirement';
 
 interface ChangePasswordProps {
   onBack: () => void;
@@ -27,6 +28,7 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [pin, setPin] = useState('');
   const [totp, setTotp] = useState('');
+  const scaRequired = useScaRequirement() !== 'not_required';
   
   const [formData, setFormData] = useState({
     currentPassword: '',
@@ -75,21 +77,21 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
     try {
       setLoading(true);
 
-      const authorization: any = await backendAPI.auth.authorizeSCA({
-        operation: 'security_change',
-        resource: 'change_password',
-        request: { action: 'change_password' },
-        pin,
-        totp,
-      });
-      if (!authorization?.success || !authorization?.data?.authorization_id) {
-        toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
-        return;
+      let authorizationId = '';
+      if (scaRequired) {
+        const authorization: any = await backendAPI.auth.authorizeSCA({
+          operation: 'security_change', resource: 'change_password', request: { action: 'change_password' }, pin, totp,
+        });
+        if (!authorization?.success || !authorization?.data?.authorization_id) {
+          toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
+          return;
+        }
+        authorizationId = authorization.data.authorization_id;
       }
       const result: any = await backendAPI.auth.changePassword(
         formData.currentPassword,
         formData.newPassword,
-        authorization.data.authorization_id,
+        authorizationId,
       );
       if (!result?.success) {
         toast.error(friendlyError(result?.error));
@@ -129,7 +131,7 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
 
       <form onSubmit={handleSubmit} className="px-4 py-6 space-y-6">
         {/* Current Password */}
-        <div className={`${tc.bgAlt} rounded-3xl border ${tc.border} p-6 space-y-4`}>
+        {scaRequired && <div className={`${tc.bgAlt} rounded-3xl border ${tc.border} p-6 space-y-4`}>
           <h2 className={`${tc.text} bp-text-body font-semibold`}>{t('changePassword.currentPassword')}</h2>
           
           <div className="space-y-2">
@@ -156,7 +158,7 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
               </button>
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* New Password */}
         <div className={`${tc.bgAlt} rounded-3xl border ${tc.border} p-6 space-y-4`}>

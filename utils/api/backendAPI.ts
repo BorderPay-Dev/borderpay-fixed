@@ -359,9 +359,16 @@ export const authSecurityAPI = {
     pin: string;
     totp: string;
   }) {
-    return apiCall<{ authorization_id: string; expires_at: string }>('sca-authorize', {
+    return apiCall<{ sca_required: boolean; authorization_id: string | null; expires_at?: string }>('sca-authorize', {
       method: 'POST',
       body: JSON.stringify(input),
+    });
+  },
+
+  async getSCARequirement() {
+    return apiCall<{ sca_required: boolean; residency_status: 'eea_resident' | 'non_eea_resident' | 'residency_unknown' }>('sca-authorize', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'requirement' }),
     });
   },
 

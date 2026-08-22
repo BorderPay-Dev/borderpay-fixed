@@ -497,7 +497,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
-      <div className="mx-auto w-full max-w-screen-xl">
+      <div className="mx-auto w-full max-w-2xl">
       {/* ── 1. Business identity row ─────────────────────────────────── */}
       <section className="flex items-center justify-between px-5 sm:px-6 pt-5 gap-3 md:pt-2">
         <div className="flex items-center gap-3 min-w-0">

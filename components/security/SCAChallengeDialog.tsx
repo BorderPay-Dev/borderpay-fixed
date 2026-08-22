@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ShieldCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { useScaRequirement } from '../../utils/security/useScaRequirement';
 
 type Props = {
   open: boolean;
@@ -21,7 +22,31 @@ export function SCAChallengeDialog(props: Props) {
   const [pin, setPin] = useState('');
   const [totp, setTotp] = useState('');
   const [loading, setLoading] = useState(false);
+  const requirement = useScaRequirement(props.open);
+  const bypassStarted = useRef(false);
+
+  useEffect(() => {
+    if (!props.open) {
+      bypassStarted.current = false;
+      return;
+    }
+    if (requirement !== 'not_required' || bypassStarted.current) return;
+    bypassStarted.current = true;
+    setLoading(true);
+    void Promise.resolve(props.onAuthorized('')).finally(() => setLoading(false));
+  }, [props.open, props.onAuthorized, requirement]);
+
   if (!props.open) return null;
+
+  if (requirement !== 'required') {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-5" role="status">
+        <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#101416] p-5 text-center text-sm text-gray-300 shadow-2xl">
+          Checking account security requirements…
+        </div>
+      </div>
+    );
+  }
 
   const submit = async () => {
     if (!/^\d{4,6}$/.test(pin) || !/^\d{6}$/.test(totp)) {

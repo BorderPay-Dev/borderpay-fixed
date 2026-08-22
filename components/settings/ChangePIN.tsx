@@ -13,6 +13,7 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINSetup } from '../security/PINSetup';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { useScaRequirement } from '../../utils/security/useScaRequirement';
 
 interface ChangePINProps {
   userId: string;
@@ -29,6 +30,7 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
   const [totp, setTotp] = useState('');
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [setupMode, setSetupMode] = useState(false);
+  const scaRequired = useScaRequirement() !== 'not_required';
   
   const [formData, setFormData] = useState({
     currentPIN: '',
@@ -79,26 +81,27 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
 
     try {
       setLoading(true);
-      if (!/^\d{6}$/.test(totp)) {
+      if (scaRequired && !/^\d{6}$/.test(totp)) {
         toast.error('Enter your 6-digit authenticator code.');
         return;
       }
-      const authorization: any = await backendAPI.auth.authorizeSCA({
-        operation: 'security_change',
-        resource: 'change_pin',
-        request: { action: 'change_pin' },
-        pin: formData.currentPIN,
-        totp,
-      });
-      if (!authorization?.success || !authorization?.data?.authorization_id) {
-        toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
-        return;
+      let authorizationId = '';
+      if (scaRequired) {
+        const authorization: any = await backendAPI.auth.authorizeSCA({
+          operation: 'security_change', resource: 'change_pin', request: { action: 'change_pin' },
+          pin: formData.currentPIN, totp,
+        });
+        if (!authorization?.success || !authorization?.data?.authorization_id) {
+          toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
+          return;
+        }
+        authorizationId = authorization.data.authorization_id;
       }
       const result = await PINManager.changePIN(
         userId,
         formData.currentPIN,
         formData.newPIN,
-        authorization.data.authorization_id,
+        authorizationId,
       );
 
       if (result.success) {
@@ -290,7 +293,7 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
           </div>
         </div>
 
-        <div className={`${tc.bgAlt} rounded-3xl border ${tc.border} p-6 space-y-2`}>
+        {scaRequired && <div className={`${tc.bgAlt} rounded-3xl border ${tc.border} p-6 space-y-2`}>
           <label htmlFor="change-pin-totp" className={`${tc.textSecondary} bp-text-small`}>
             Authenticator code
           </label>
@@ -304,7 +307,7 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
             placeholder="6-digit code"
             required
           />
-        </div>
+        </div>}
 
         {/* Security Notice */}
         <div className="bg-[#C7FF00]/10 border border-[#C7FF00]/30 rounded-2xl p-4">

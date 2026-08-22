@@ -678,6 +678,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
+      <div className="mx-auto w-full max-w-2xl">
       {/* ── HERO ── Revolut-style: identity row + big balance + inline actions
           The hero is a single dark card with a subtle gradient and a lime
           micro-pill carrying the account status. Action buttons are circular
@@ -707,8 +708,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               {tt('dashboard.totalBalance', 'Total balance')}
             </p>
             <div className="flex items-end gap-2">
-              {!walletsLoaded && accountChipCount === 0 ? (
+              {loading && !walletsLoaded && accountChipCount === 0 ? (
                 <Skeleton className="h-12 w-40 rounded-xl" />
+              ) : dataLoadError && accountChipCount === 0 ? (
+                <span className="text-white font-semibold tracking-tight leading-none text-[40px] sm:text-[52px]">—</span>
               ) : <h1 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[40px] sm:text-[52px]">
                 {balanceHidden ? (
                   <span>••••••</span>
@@ -733,7 +736,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               </button>
             </div>
             <p className="text-[11px] text-white/40 mt-1.5">
-              {!walletsLoaded && accountChipCount === 0
+              {loading && !walletsLoaded && accountChipCount === 0
                 ? tt('dashboard.loadingAccounts', 'Loading your accounts…')
                 : accountChipCount > 0
                 ? `${tt('dashboard.across', 'Across')} ${accountChipCount} ${accountChipCount === 1 ? 'account' : 'accounts'}`
@@ -883,7 +886,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
         <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-            {!walletsLoaded && accountChipCount === 0 ? (
+            {loading && !walletsLoaded && accountChipCount === 0 ? (
               <div className="flex gap-2.5" aria-label="Loading accounts">
                 <Skeleton className="w-[164px] h-[156px] rounded-2xl" />
                 <Skeleton className="w-[164px] h-[156px] rounded-2xl" />
@@ -1156,6 +1159,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           account_details: selectedVa.account_details,
         } : null}
       />
+      </div>
     </div>
   );
 }

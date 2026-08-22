@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { useScaRequirement } from '../../utils/security/useScaRequirement';
 import { 
   ArrowLeft, 
   User, 
@@ -57,6 +58,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const SHOW_ADMIN_EMAIL_OPS = false;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [suspending, setSuspending] = useState(false);
+  const scaRequired = useScaRequirement() !== 'not_required';
   const [requestingDeletion, setRequestingDeletion] = useState(false);
   const [has2FA, setHas2FA] = useState(false);
   const [hasPIN, setHasPIN] = useState(false);
@@ -311,28 +313,29 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
   const handleDisable2FA = async () => {
     const password = prompt(t('settings.enterPasswordFor2fa'));
     if (!password) return;
-    const pin = prompt('Enter your transaction PIN');
-    if (!pin) return;
-    const totp = prompt('Enter your current 6-digit authenticator code');
-    if (!totp) return;
+    const pin = scaRequired ? prompt('Enter your transaction PIN') : '';
+    if (scaRequired && !pin) return;
+    const totp = scaRequired ? prompt('Enter your current 6-digit authenticator code') : '';
+    if (scaRequired && !totp) return;
 
     setSuspending(true);
     try {
       // Server-side disable: TOTPManager.disable now rounds-trips to
       // disable-2fa with the user's password. Local cache is updated only
       // on success so we don't lie about state if the server refuses.
-      const authorization: any = await backendAPI.auth.authorizeSCA({
-        operation: 'security_change',
-        resource: 'disable_2fa',
-        request: { action: 'disable_2fa' },
-        pin,
-        totp,
-      });
-      if (!authorization?.success || !authorization?.data?.authorization_id) {
-        toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
-        return;
+      let authorizationId = '';
+      if (scaRequired) {
+        const authorization: any = await backendAPI.auth.authorizeSCA({
+          operation: 'security_change', resource: 'disable_2fa', request: { action: 'disable_2fa' },
+          pin: pin || '', totp: totp || '',
+        });
+        if (!authorization?.success || !authorization?.data?.authorization_id) {
+          toast.error(friendlyError(authorization?.error, 'Strong authentication failed'));
+          return;
+        }
+        authorizationId = authorization.data.authorization_id;
       }
-      const r = await TOTPManager.disable(userId, password, authorization.data.authorization_id);
+      const r = await TOTPManager.disable(userId, password, authorizationId);
       if (r.success) {
         toast.success(t('settings.2faDisabled'));
         setHas2FA(false);
