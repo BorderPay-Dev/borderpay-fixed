@@ -165,16 +165,23 @@ def validate_preflight(
     if not isinstance(manual_audit, dict):
         failures.append("manual_intervention_audit configuration is required")
     else:
-        if manual_audit.get("authority_status") != "EXTERNAL_PROVIDER_AUDIT_EXPORT":
-            failures.append("manual intervention authority must be EXTERNAL_PROVIDER_AUDIT_EXPORT")
-        if manual_audit.get("source") != "supabase_postgres_pgaudit_export":
-            failures.append("manual intervention source must be supabase_postgres_pgaudit_export")
+        source = manual_audit.get("source")
+        authority = manual_audit.get("authority_status")
+        supported = {
+            "supabase_postgres_pgaudit_export": "EXTERNAL_PROVIDER_AUDIT_EXPORT",
+            "borderpay_external_worm_audit_export_v1": "EXTERNAL_IMMUTABLE_AUDIT_EXPORT",
+        }
+        if source not in supported:
+            failures.append("manual intervention source is unsupported")
+        elif authority != supported[source]:
+            failures.append(f"manual intervention authority must be {supported[source]}")
         if not isinstance(manual_audit.get("project_ref"), str) or not re.fullmatch(r"[a-z]{20}", manual_audit["project_ref"]):
             failures.append("manual intervention project_ref must be a 20-character Supabase project ref")
         config = manual_audit.get("pgaudit_configuration")
-        if not isinstance(config, dict):
+        sink = manual_audit.get("external_sink")
+        if source == "supabase_postgres_pgaudit_export" and not isinstance(config, dict):
             failures.append("manual intervention pgaudit_configuration is required")
-        else:
+        elif source == "supabase_postgres_pgaudit_export":
             classes = {item.strip().lower() for item in str(config.get("pgaudit.log", "")).split(",")}
             if not {"write", "ddl", "role"}.issubset(classes):
                 failures.append("pgaudit.log must include write, ddl, and role")
@@ -186,6 +193,36 @@ def validate_preflight(
                 failures.append("shared_preload_libraries must contain pgaudit")
             if parse_utc(config.get("captured_at")) is None:
                 failures.append("pgaudit configuration captured_at must be ISO UTC")
+        elif source == "borderpay_external_worm_audit_export_v1":
+            if not isinstance(sink, dict):
+                failures.append("manual intervention external_sink configuration is required")
+            else:
+                endpoint = str(sink.get("endpoint", ""))
+                if not endpoint.startswith("https://"):
+                    failures.append("external audit sink endpoint must use HTTPS")
+                for key in ("provider", "key_id"):
+                    if not meaningful(sink.get(key)):
+                        failures.append(f"external audit sink {key} must be non-placeholder")
+                for key in ("deployment_id", "test_receipt_id", "control_schema_sha256"):
+                    if not meaningful(sink.get(key)):
+                        failures.append(f"external audit sink {key} must be non-placeholder")
+                if not isinstance(sink.get("public_key_sha256"), str) or not SHA256_RE.fullmatch(sink["public_key_sha256"]):
+                    failures.append("external audit sink public_key_sha256 must be a SHA-256 digest")
+                if not isinstance(sink.get("control_schema_sha256"), str) or not SHA256_RE.fullmatch(sink["control_schema_sha256"]):
+                    failures.append("external audit sink control_schema_sha256 must be a SHA-256 digest")
+                if sink.get("object_lock_mode") != "COMPLIANCE":
+                    failures.append("external audit sink must enforce COMPLIANCE object lock")
+                retention = sink.get("minimum_retention_days")
+                if not isinstance(retention, int) or isinstance(retention, bool) or retention < 30:
+                    failures.append("external audit sink retention must be at least 30 days")
+                if parse_utc(sink.get("activated_at")) is None:
+                    failures.append("external audit sink activated_at must be ISO UTC")
+                if parse_utc(sink.get("healthcheck_at")) is None:
+                    failures.append("external audit sink healthcheck_at must be ISO UTC")
+                if sink.get("receipt_signature_verified") is not True:
+                    failures.append("external audit sink test receipt must be signature verified")
+                if sink.get("pending_delivery_count") != 0 or sink.get("failed_delivery_count") != 0:
+                    failures.append("external audit delivery queue must be empty before capture")
 
     required_approvals = APPROVAL_SURFACES if surface == "all" else ({surface} & APPROVAL_SURFACES)
     approvals = data.get("operation_authorizations")

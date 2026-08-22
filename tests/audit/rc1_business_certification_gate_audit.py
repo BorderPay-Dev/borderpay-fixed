@@ -30,6 +30,10 @@ from verify_manual_intervention_audit import (  # noqa: E402
     SOURCE as MANUAL_AUDIT_SOURCE,
     validate_manual_intervention_audit,
 )
+from verify_external_audit_ledger import (  # noqa: E402
+    AUTHORITY_STATUS as EXTERNAL_LEDGER_AUTHORITY_STATUS,
+    SOURCE as EXTERNAL_LEDGER_SOURCE,
+)
 
 SURFACES: list[dict[str, object]] = [
     {"name": "Dashboard", "slug": "dashboard", "bridge_required": False},
@@ -543,10 +547,15 @@ def validate_authoritative_provenance(failures: list[str]) -> None:
     if not isinstance(manual, dict):
         fail("provenance gate: manual_intervention_review object is required", failures)
         return
-    if manual.get("authority_status") != MANUAL_AUDIT_AUTHORITY_STATUS:
-        fail(f"provenance gate: manual authority_status must be {MANUAL_AUDIT_AUTHORITY_STATUS}", failures)
-    if manual.get("source") != MANUAL_AUDIT_SOURCE:
-        fail(f"provenance gate: manual source must be {MANUAL_AUDIT_SOURCE}", failures)
+    supported_manual_sources = {
+        MANUAL_AUDIT_SOURCE: MANUAL_AUDIT_AUTHORITY_STATUS,
+        EXTERNAL_LEDGER_SOURCE: EXTERNAL_LEDGER_AUTHORITY_STATUS,
+    }
+    manual_source = manual.get("source")
+    if manual_source not in supported_manual_sources:
+        fail("provenance gate: manual audit source is unsupported", failures)
+    elif manual.get("authority_status") != supported_manual_sources[manual_source]:
+        fail(f"provenance gate: manual authority_status must be {supported_manual_sources[manual_source]}", failures)
     capture_context, context_err = read_json(ARTIFACT_ROOT / "capture_context.json")
     expected_account_id = str(origin.get("user_id", "")).strip()
     expected_capture_id = None if context_err else str(capture_context.get("capture_id", "")).strip()
@@ -558,7 +567,7 @@ def validate_authoritative_provenance(failures: list[str]) -> None:
     for message in manual_failures:
         fail(f"provenance gate: {message}", failures)
     if not manual_failures:
-        ok("provenance gate: external pgaudit export proves no privileged critical mutation in capture window")
+        ok("provenance gate: independently retained audit export proves no observed privileged critical mutation in capture window")
 
 
 def validate_certification_manifest(

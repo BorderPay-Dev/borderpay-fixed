@@ -10,6 +10,13 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verify_external_audit_ledger import (
+    SOURCE as EXTERNAL_SOURCE,
+    AUTHORITY_STATUS as EXTERNAL_AUTHORITY_STATUS,
+    validate_external_audit_ledger,
+)
+
 
 METADATA_FILE = "manual_intervention_audit.json"
 DEFAULT_EXPORT_FILE = "manual-intervention-pgaudit-export.json"
@@ -120,6 +127,13 @@ def validate_manual_intervention_audit(
     metadata = _read_object(root / METADATA_FILE, failures)
     if metadata is None:
         return failures
+
+    if metadata.get("source") == EXTERNAL_SOURCE:
+        return validate_external_audit_ledger(
+            root,
+            expected_account_id=expected_account_id,
+            expected_capture_id=expected_capture_id,
+        )
 
     if metadata.get("authority_status") != AUTHORITY_STATUS:
         failures.append(f"manual audit authority_status must be {AUTHORITY_STATUS}")

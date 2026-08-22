@@ -17,7 +17,7 @@ class OfflineReadinessAuditTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Immutable account origin distinguishes", result.stdout)
-        self.assertIn("manual_db_intervention uses verified external pgaudit export", result.stdout)
+        self.assertIn("manual_db_intervention accepts only verified pgaudit or signed external immutable exports", result.stdout)
         self.assertIn("session activity POST applies globally", result.stdout)
 
 
