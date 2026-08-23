@@ -33,6 +33,7 @@ import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 import { consumeScaAuthorization } from "../_shared/sca.ts";
+import { normalizeBridgeExternalAccounts } from "../_shared/providers/bridge-external-account-list.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -179,13 +180,10 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
     if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
-    const providerPayload = (r.data as any)?.data ?? r.data;
-    const externalAccounts = Array.isArray(providerPayload)
-      ? providerPayload
-      : Array.isArray((providerPayload as any)?.external_accounts)
-        ? (providerPayload as any).external_accounts
-        : [];
-    return json({ success: true, data: { external_accounts: externalAccounts } });
+    return json({
+      success: true,
+      data: { external_accounts: normalizeBridgeExternalAccounts(r.data) },
+    });
   }
 
   // ── capabilities ──────────────────────────────────────────────────────

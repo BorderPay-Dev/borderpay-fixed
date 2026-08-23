@@ -1036,6 +1036,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <ExternalAccountsScreen
             onBack={navigateBack}
             onAdd={() => navigateTo('add-external-account')}
+            onWithdraw={() => navigateTo('send-money')}
           />
         );
 

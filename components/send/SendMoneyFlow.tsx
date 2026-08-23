@@ -537,12 +537,23 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       return [];
     }
   }, [externalWalletsCacheKey]);
+  const selectedPayoutIntentKey = useMemo(
+    () => financialCacheKey('borderpay_selected_payout_account_v1', { userId }),
+    [userId],
+  );
+  const selectedPayoutIntentId = useMemo(() => {
+    try { return sessionStorage.getItem(selectedPayoutIntentKey) || ''; } catch { return ''; }
+  }, [selectedPayoutIntentKey]);
+  const hasSavedPayoutIntent = Boolean(
+    selectedPayoutIntentId
+    && cachedExternalAccounts.some((row: ExternalAccountOption) => row.bridge_external_account_id === selectedPayoutIntentId),
+  );
   useEffect(() => {
     navPerfTrackCache('send-money', cachedSendWallets.length > 0 || cachedSendCaps.length > 0 || cachedExternalAccounts.length > 0 || cachedExternalWallets.length > 0);
   }, [cachedSendWallets.length, cachedSendCaps.length, cachedExternalAccounts.length, cachedExternalWallets.length]);
 
   // Step & method
-  const [step, setStep] = useState<Step>('method');
+  const [step, setStep] = useState<Step>(hasSavedPayoutIntent ? 'details' : 'method');
   const screenTopRef = useRef<HTMLDivElement>(null);
 
   // MainApp owns the scroll container. Reset before paint when this internal
@@ -551,7 +562,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   useLayoutEffect(() => {
     screenTopRef.current?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
   }, [step]);
-  const [method, setMethod] = useState<TransferMethod>('stablecoin');
+  const [method, setMethod] = useState<TransferMethod>(hasSavedPayoutIntent ? 'us_ach_wire' : 'stablecoin');
   const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
     africanRailsTester ? readCachedAfricanPolicyRows('payout') : []
   );
@@ -640,9 +651,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>(cachedExternalAccounts);
   const externalAccountsRef = useRef<ExternalAccountOption[]>(cachedExternalAccounts);
   const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>(
-    String(cachedExternalAccounts?.[0]?.bridge_external_account_id || ''),
+    (() => {
+      if (selectedPayoutIntentId && cachedExternalAccounts.some((row: ExternalAccountOption) => row.bridge_external_account_id === selectedPayoutIntentId)) {
+        return selectedPayoutIntentId;
+      }
+      return String(cachedExternalAccounts?.[0]?.bridge_external_account_id || '');
+    })(),
   );
   const [usMemo, setUsMemo] = useState('');
+  useEffect(() => {
+    if (!hasSavedPayoutIntent) return;
+    try { sessionStorage.removeItem(selectedPayoutIntentKey); } catch { /* one-shot navigation hint */ }
+  }, [hasSavedPayoutIntent, selectedPayoutIntentKey]);
 
   // External stablecoin withdrawal — network + token + destination address.
   const [crypto, setCrypto] = useState<CryptoWithdrawalValues>({ network: 'base', token: 'USDC', address: '' });
@@ -1121,9 +1141,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb'));
         setExternalAccounts(ext);
         try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
-        if (!selectedExternalAccountId && ext.length > 0) {
-          setSelectedExternalAccountId(ext[0].bridge_external_account_id);
-          if (ext[0]?.currency) setSelectedCurrency(ext[0].currency);
+        if (ext.length > 0) {
+          let requested = '';
+          try {
+            requested = sessionStorage.getItem(
+              financialCacheKey('borderpay_selected_payout_account_v1', { userId }),
+            ) || '';
+          } catch { /* use current or first beneficiary */ }
+          const preferred = ext.find((row: ExternalAccountOption) => row.bridge_external_account_id === requested)
+            || ext.find((row: ExternalAccountOption) => row.bridge_external_account_id === selectedExternalAccountId)
+            || ext[0];
+          setSelectedExternalAccountId(preferred.bridge_external_account_id);
+          if (preferred.currency) setSelectedCurrency(preferred.currency);
         }
         try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }

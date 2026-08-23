@@ -1,8 +1,9 @@
 /**
  * ExternalAccountsScreen — list & manage fiat payout (offramp) destinations.
  *
- * Reads via canonical snapshot (backendAPI.financial.getSnapshot) so payout
- * destinations stay in the same read model as balances/transactions.
+ * Reads directly from Bridge through the authenticated edge function. Bridge
+ * is the source of truth for payout beneficiaries; the financial snapshot can
+ * lag a newly-created account and must not make an existing account disappear.
  * Remove proxies the `bridge-external-account` edge function.
  *
  * Reached only when EXTERNAL_ACCOUNTS_LIVE is true (gated in MainApp).
@@ -10,7 +11,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import { Plus, Banknote, Loader2, Trash2, Shield } from 'lucide-react';
+import { Plus, Banknote, Loader2, Trash2, Shield, ArrowUpRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { FloatingBackButton } from '../common/FloatingBackButton';
@@ -85,6 +86,7 @@ function normalizeExternalAccounts(payload: any): ExternalAccountRow[] {
 interface ExternalAccountsScreenProps {
   onBack: () => void;
   onAdd: () => void;
+  onWithdraw: () => void;
 }
 
 // Native-app pattern: cache the last-loaded list so the screen mounts INSTANTLY
@@ -103,7 +105,7 @@ function isRequestTimeout(value: unknown): boolean {
   return /request_timeout|timed out|timeout|aborted/i.test(raw);
 }
 
-export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
+export function ExternalAccountsScreen({ onBack, onAdd, onWithdraw }: ExternalAccountsScreenProps) {
   const tc = useThemeClasses();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
@@ -144,9 +146,9 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
-      const r: any = await backendAPI.financial.getSnapshot(50);
+      const r: any = await backendAPI.bridge.externalAccount.list();
       if (r?.success) {
-        const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
+        const next = normalizeExternalAccounts(r?.data);
         setRows(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
@@ -318,7 +320,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         ) : (
           <div className="space-y-3">
             {rows.map(row => (
-              <div key={row.id} className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 flex items-center justify-between`}>
+              <div key={row.id} className={`rounded-2xl border ${tc.cardBorder} ${tc.card} p-4`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-xl bg-[#C7FF00]/10 flex items-center justify-center flex-shrink-0">
                     <Banknote className="w-5 h-5 text-[#C7FF00]" />
@@ -332,16 +334,33 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => remove(row.bridge_external_account_id)}
-                  disabled={removing === row.bridge_external_account_id}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center ${tc.hoverBg} disabled:opacity-50`}
-                  aria-label="Remove"
-                >
-                  {removing === row.bridge_external_account_id
-                    ? <Loader2 className="w-4 h-4 animate-spin text-red-400" />
-                    : <Trash2 className="w-4 h-4 text-red-400" />}
-                </button>
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        sessionStorage.setItem(
+                          financialCacheKey('borderpay_selected_payout_account_v1', { userId }),
+                          row.bridge_external_account_id,
+                        );
+                      } catch { /* selection is also recovered from the account list */ }
+                      onWithdraw();
+                    }}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#C7FF00] px-4 py-2.5 text-sm font-bold text-black"
+                  >
+                    <ArrowUpRight className="h-4 w-4" /> Withdraw
+                  </button>
+                  <button
+                    onClick={() => remove(row.bridge_external_account_id)}
+                    disabled={removing === row.bridge_external_account_id}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center ${tc.hoverBg} disabled:opacity-50`}
+                    aria-label="Remove"
+                  >
+                    {removing === row.bridge_external_account_id
+                      ? <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                      : <Trash2 className="w-4 h-4 text-red-400" />}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
