@@ -29,6 +29,7 @@ import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManage
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
 import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
+import { FiatCurrencyFlag } from '../ui/FiatCurrencyFlag';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
@@ -804,20 +805,10 @@ function BizChip({
 
 function BizCurrencyIcon({ currency }: { currency: string }) {
   const code = String(currency || '').toUpperCase();
-  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
   const [imgFailed, setImgFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[code];
 
-  if (flag[code]) {
-    return (
-      <div
-        className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[30px] leading-none"
-        aria-hidden
-      >
-        {flag[code]}
-      </div>
-    );
-  }
+  if (['USD', 'EUR', 'GBP'].includes(code)) return <FiatCurrencyFlag currency={code} />;
 
   if (iconUrl && !imgFailed) {
     return (

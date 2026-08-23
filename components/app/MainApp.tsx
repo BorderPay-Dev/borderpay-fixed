@@ -1265,6 +1265,16 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         onSetupPin={() => navigateTo('pin-setup')}
         onSetupTotp={() => navigateTo('two-factor-setup')}
         onAuthorized={async (authorizationId) => {
+          // Non-EEA users are explicitly outside this wallet-access SCA flow.
+          // The dialog signals that server-authorized bypass with an empty id;
+          // do not send that empty value to the EEA authorization consumer.
+          if (!authorizationId) {
+            setWalletAccessGranted(true);
+            setRefreshKey((value) => value + 1);
+            if (walletAccessTimerRef.current !== null) window.clearTimeout(walletAccessTimerRef.current);
+            walletAccessTimerRef.current = window.setTimeout(() => setWalletAccessGranted(false), 5 * 60_000);
+            return;
+          }
           const grant: any = await backendAPI.auth.grantWalletAccess(authorizationId);
           if (!grant?.success) {
             toast.error(grant?.error || 'Wallet access could not be unlocked.');

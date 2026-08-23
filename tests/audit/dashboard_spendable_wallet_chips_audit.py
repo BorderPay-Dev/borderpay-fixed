@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD = ROOT / "components/app/Dashboard.tsx"
 BUSINESS_DASHBOARD = ROOT / "components/business/BusinessDashboard.tsx"
+FIAT_CURRENCY_FLAG = ROOT / "components/ui/FiatCurrencyFlag.tsx"
 
 
 def fail(message: str) -> None:
@@ -80,8 +81,7 @@ def assert_individual_dashboard(src: str) -> None:
         fail("individual empty account CTA: must navigate to add-wallet, not wallet-detail")
 
     icon = block_between(src, "function DashboardCurrencyIcon", "// Major currency pairs", "DashboardCurrencyIcon")
-    require(icon, "w-12 h-12", "DashboardCurrencyIcon")
-    require(icon, "text-[30px]", "DashboardCurrencyIcon")
+    require(icon, "<FiatCurrencyFlag currency={code}", "DashboardCurrencyIcon")
     require(icon, "w-10 h-10 object-contain", "DashboardCurrencyIcon")
     if "w-8 h-8 rounded-full" in icon:
         fail("DashboardCurrencyIcon: large account chip regressed to w-8 h-8")
@@ -121,8 +121,7 @@ def assert_business_dashboard(src: str) -> None:
         fail("business empty account CTA: must navigate to add-wallet, not wallet-detail")
 
     icon = block_between(src, "function BizCurrencyIcon", "export default BusinessDashboard", "BizCurrencyIcon")
-    require(icon, "w-12 h-12", "BizCurrencyIcon")
-    require(icon, "text-[30px]", "BizCurrencyIcon")
+    require(icon, "<FiatCurrencyFlag currency={code}", "BizCurrencyIcon")
     require(icon, "w-10 h-10 object-contain", "BizCurrencyIcon")
     if "w-8 h-8 rounded-full" in icon:
         fail("BizCurrencyIcon: large account chip regressed to w-8 h-8")
@@ -146,14 +145,27 @@ def assert_semantic_contract() -> None:
         fail("semantic contract: active virtual accounts may render as no-balance account chips")
 
 
+def assert_fiat_flag_contract(src: str) -> None:
+    require(src, "className = 'h-12 w-12'", "FiatCurrencyFlag")
+    require(src, "<UnitedStatesFlag />", "FiatCurrencyFlag")
+    require(src, "<UnitedKingdomFlag />", "FiatCurrencyFlag")
+    require(src, "<EuropeanUnionFlag />", "FiatCurrencyFlag")
+    require(src, '<svg viewBox="0 0 48 48"', "FiatCurrencyFlag")
+    if any(flag in src for flag in ["🇺🇸", "🇬🇧", "🇪🇺"]):
+        fail("FiatCurrencyFlag: emoji flags regress to text region codes on unsupported platforms")
+
+
 def main() -> int:
     if not DASHBOARD.is_file():
         fail(f"missing file: {DASHBOARD.relative_to(ROOT)}")
     if not BUSINESS_DASHBOARD.is_file():
         fail(f"missing file: {BUSINESS_DASHBOARD.relative_to(ROOT)}")
+    if not FIAT_CURRENCY_FLAG.is_file():
+        fail(f"missing file: {FIAT_CURRENCY_FLAG.relative_to(ROOT)}")
 
     assert_individual_dashboard(DASHBOARD.read_text())
     assert_business_dashboard(BUSINESS_DASHBOARD.read_text())
+    assert_fiat_flag_contract(FIAT_CURRENCY_FLAG.read_text())
     assert_semantic_contract()
 
     print("PASS: dashboard spendable wallet chips audit")

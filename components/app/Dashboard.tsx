@@ -43,6 +43,7 @@ import { AffiliateBanner } from '../referral/AffiliateBanner';
 import { prefetchScreen } from './MainApp';
 import { BridgeKycStatusCard } from '../dashboard/bridge/BridgeKycStatusCard';
 import { CardsLockedCard } from '../dashboard/bridge/CardsLockedCard';
+import { FiatCurrencyFlag } from '../ui/FiatCurrencyFlag';
 import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
 import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';
@@ -1166,20 +1167,10 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
 function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
   const code = String(currency || '').toUpperCase();
-  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
   const [imgFailed, setImgFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[code];
 
-  if (flag[code]) {
-    return (
-      <div
-        className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden bg-white/10 text-[30px] leading-none"
-        aria-hidden
-      >
-        {flag[code]}
-      </div>
-    );
-  }
+  if (['USD', 'EUR', 'GBP'].includes(code)) return <FiatCurrencyFlag currency={code} />;
 
   if (iconUrl && !imgFailed) {
     return (
