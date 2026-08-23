@@ -11,6 +11,7 @@ def read(path: str) -> str:
 
 def main() -> int:
     migration = read("supabase/migrations/20260822090000_certification_external_audit_ledger.sql")
+    schedule = read("supabase/migrations/20260823090000_certification_audit_delivery_schedule.sql")
     worker = read("supabase/functions/certification-audit-delivery/index.ts")
     verifier = read("scripts/ci/verify_external_audit_ledger.py")
     preflight = read("scripts/ci/rc1_business_certification_preflight.py")
@@ -23,6 +24,11 @@ def main() -> int:
         ("browser and service roles cannot insert audit events", "revoke all on public.certification_audit_events from public, anon, authenticated, service_role" in migration),
         ("sensitive authentication secrets are not exported", "encrypted_password" not in migration and "confirmation_token" not in migration),
         ("delivery claims use skip locked", "for update skip locked" in migration),
+        ("delivery runs every minute", "'certification-audit-delivery'" in schedule and "'* * * * *'" in schedule),
+        ("scheduler credentials come from Vault", "vault.decrypted_secrets" in schedule and "certification_audit_worker_token" in schedule),
+        ("scheduler fails closed without configuration", "worker URL is missing or invalid" in schedule and "worker token is missing or invalid" in schedule),
+        ("scheduler accepts only the audit worker HTTPS endpoint", "supabase[.]co/functions/v1/certification-audit-delivery" in schedule),
+        ("scheduler is not callable by API roles", "from public, anon, authenticated, service_role" in schedule),
         ("sink transport is HTTPS and authenticated", "must use HTTPS" in worker and "CERTIFICATION_AUDIT_SINK_TOKEN" in worker),
         ("sink request is integrity protected", "CERTIFICATION_AUDIT_OUTBOUND_HMAC_SECRET" in worker and "x-borderpay-audit-signature" in worker),
         ("sink receipt is independently verified", "CERTIFICATION_AUDIT_SINK_PUBLIC_KEY_BASE64" in worker and "verifySinkReceipt" in worker),

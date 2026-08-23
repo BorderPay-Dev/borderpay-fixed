@@ -27,6 +27,9 @@ capture window.
   sequence and SHA-256 chain.
 - `certification-audit-delivery` sends claimed events to an HTTPS sink and
   accepts a receipt only after Ed25519 verification.
+- `20260823090000_certification_audit_delivery_schedule.sql` invokes the
+  delivery worker every minute using endpoint and token values held in
+  Supabase Vault. Missing or invalid Vault configuration fails closed.
 - `verify_external_audit_ledger.py` validates the exported chain, trusted public
   key fingerprint, signed receipts, correlation markers, retention and any
   observed privileged mutations.
@@ -71,18 +74,29 @@ certification window. Any pending or failed delivery, missing sequence, invalid
 signature, mismatched event hash, missing START/END marker, insufficient
 retention, or untrusted public-key fingerprint blocks certification.
 
+The database Vault must contain exactly one active value for each name:
+
+- `certification_audit_worker_url`
+- `certification_audit_worker_token`
+
+The URL must be the deployed HTTPS `certification-audit-delivery` endpoint.
+The token must match `CERTIFICATION_AUDIT_WORKER_TOKEN` configured on that Edge
+Function. Neither value belongs in source control or migration SQL.
+
 ## Activation order
 
 1. Provision the independently administered WORM sink and Ed25519 signer.
 2. Record and review the sink public-key SHA-256 fingerprint out of band.
 3. Deploy the migration.
 4. Configure and deploy `certification-audit-delivery`.
-5. Confirm a real event receives a valid COMPLIANCE-mode receipt.
-6. Record the worker deployment ID, control-schema hash, test receipt ID,
+5. Configure the worker URL and token in Supabase Vault and deploy the
+   once-per-minute schedule migration.
+6. Confirm a real event receives a valid COMPLIANCE-mode receipt.
+7. Record the worker deployment ID, control-schema hash, test receipt ID,
    independently verified public-key fingerprint, and health-check timestamp.
-7. Confirm both pending and failed delivery counts are zero.
-8. Create a new direct BorderPay Business certification account.
-9. Start the marked capture window only after the delivery queue is empty.
+8. Confirm both pending and failed delivery counts are zero.
+9. Create a new direct BorderPay Business certification account.
+10. Start the marked capture window only after the delivery queue is empty.
 
 No production migration, function deployment, sink provisioning or evidence
 capture is performed by adding this implementation to the repository.
