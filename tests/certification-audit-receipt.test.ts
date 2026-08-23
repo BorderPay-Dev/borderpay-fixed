@@ -66,3 +66,26 @@ Deno.test("external audit receipt rejects insufficient immutable retention", asy
     key_id: unsigned.key_id,
   }, publicKey, 30, new Date("2026-08-22T10:00:00Z")), "too short");
 });
+
+Deno.test("external audit receipt accepts an exact retention window after delivery latency", async () => {
+  const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
+  const unsigned: Omit<SinkReceipt, "signature"> = {
+    receipt_id: "receipt-live-003",
+    event_id: "33333333-3333-4333-8333-333333333333",
+    sequence_no: 19,
+    event_hash: "c".repeat(64),
+    stored_at: "2026-08-22T10:00:00Z",
+    retention_until: "2026-09-21T10:00:00Z",
+    object_lock_mode: "COMPLIANCE",
+    key_id: "audit-sink-2026-01",
+  };
+  const signature = await crypto.subtle.sign("Ed25519", keys.privateKey, new TextEncoder().encode(receiptPayload(unsigned)));
+  const receipt: SinkReceipt = { ...unsigned, signature: base64(signature) };
+  const publicKey = base64(await crypto.subtle.exportKey("raw", keys.publicKey));
+  await verifySinkReceipt(receipt, {
+    event_id: unsigned.event_id,
+    sequence_no: unsigned.sequence_no,
+    event_hash: unsigned.event_hash,
+    key_id: unsigned.key_id,
+  }, publicKey, 30, new Date("2026-08-22T10:00:05Z"));
+});

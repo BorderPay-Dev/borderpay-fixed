@@ -44,8 +44,8 @@ export async function verifySinkReceipt(
   const storedAt = new Date(receipt.stored_at);
   const retentionUntil = new Date(receipt.retention_until);
   if (!Number.isFinite(storedAt.getTime()) || !Number.isFinite(retentionUntil.getTime())) throw new Error("sink receipt timestamp is invalid");
-  const minimumRetention = new Date(now.getTime() + minimumRetentionDays * 86_400_000);
-  if (retentionUntil < minimumRetention) throw new Error("sink receipt retention window is too short");
+  const minimumRetention = new Date(storedAt.getTime() + minimumRetentionDays * 86_400_000);
+  if (retentionUntil <= now || retentionUntil < minimumRetention) throw new Error("sink receipt retention window is too short");
 
   const { signature: _signature, ...unsigned } = receipt;
   const key = await crypto.subtle.importKey("raw", decodeBase64(publicKeyBase64), { name: "Ed25519" }, false, ["verify"]);
