@@ -206,6 +206,12 @@ verify_jwt = false
 [functions.api-gateway-admin]
 verify_jwt = false
 
+# Operator-only Bridge developer fee payout configuration. The function
+# validates the user JWT and admin_users membership in code, and uses the
+# isolated BRIDGE_FEE_API_KEY secret rather than the customer-traffic key.
+[functions.admin-bridge-fee-account]
+verify_jwt = true
+
 # Public read of the effective direct/partner signup choices. Partner choices
 # require a valid signed authorization; no tenant id or browser origin is trusted.
 [functions.onboarding-config]
