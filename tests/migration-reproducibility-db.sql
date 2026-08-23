@@ -5,8 +5,8 @@ declare
   v_missing text[];
   v_count integer;
 begin
-  if (select count(*) from supabase_migrations.schema_migrations) <> 71 then
-    raise exception 'expected 71 applied migrations, found %',
+  if (select count(*) from supabase_migrations.schema_migrations) <> 73 then
+    raise exception 'expected 73 applied migrations, found %',
       (select count(*) from supabase_migrations.schema_migrations);
   end if;
 
@@ -17,7 +17,8 @@ begin
     'api_onboarding_audit', 'api_onboarding_authorizations',
     'api_tenant_end_users', 'api_tenants', 'account_origin_provenance',
     'bridge_external_accounts', 'bridge_transfers', 'bridge_virtual_accounts',
-    'bridge_wallets', 'cards', 'kyc_verifications',
+    'bridge_wallets', 'cards', 'certification_audit_chain_state',
+    'certification_audit_deliveries', 'certification_audit_events', 'kyc_verifications',
     'notifications', 'operator_bridge_accounts', 'pending_events', 'stablecoin_transactions',
     'transactions', 'user_profiles', 'users', 'wallets',
     'webhook_logs'
@@ -170,6 +171,13 @@ begin
     where version in ('20260821170000', '20260821173000', '20260821180000')
   ) <> 3 then
     raise exception 'universal SCA migration sequence is incomplete';
+  end if;
+
+  if (
+    select count(*) from supabase_migrations.schema_migrations
+    where version in ('20260822090000', '20260823090000')
+  ) <> 2 then
+    raise exception 'external certification audit migration sequence is incomplete';
   end if;
 
   if not exists (
