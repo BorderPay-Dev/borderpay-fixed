@@ -57,13 +57,19 @@ def main() -> int:
             failures.append(name)
 
     manual_verifier = read("scripts/ci/verify_manual_intervention_audit.py")
+    external_verifier = read("scripts/ci/verify_external_audit_ledger.py")
+    external_migration = read("supabase/migrations/20260822090000_certification_external_audit_ledger.sql")
+    external_worker = read("supabase/functions/certification-audit-delivery/index.ts")
     manual_ready = (
         "supabase_postgres_pgaudit_export" in manual_verifier
         and "manual audit export SHA-256 mismatch" in manual_verifier
-        and "PRIVILEGED_ACTORS" in manual_verifier
-        and "CRITICAL_RELATIONS" in manual_verifier
+        and "borderpay_external_worm_audit_export_v1" in external_verifier
+        and "external audit sequence gap" in external_verifier
+        and "external audit receipt signature invalid" in external_verifier
+        and "certification_audit_events" in external_migration
+        and "verifySinkReceipt" in external_worker
     )
-    print(f"[{'OK' if manual_ready else 'FAIL'}] manual_db_intervention uses verified external pgaudit export")
+    print(f"[{'OK' if manual_ready else 'FAIL'}] manual_db_intervention accepts only verified pgaudit or signed external immutable exports")
     if not manual_ready:
         failures.append("manual intervention verifier")
     print("[INFO] Surface capture is not strictly read-only: session activity POST applies globally")

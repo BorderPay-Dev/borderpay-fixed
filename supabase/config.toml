@@ -54,6 +54,12 @@ verify_jwt = false
 [functions.process-pending-events]
 verify_jwt = false
 
+# Internal immutable-audit delivery worker. It authenticates a dedicated worker
+# token in code and refuses delivery without a configured HTTPS sink and pinned
+# receipt-verification key.
+[functions.certification-audit-delivery]
+verify_jwt = false
+
 # Internal active-global-account campaign sender — public route, gated in-code
 # by the internal bearer/service-role token so scheduled dry-runs can call it.
 [functions.notify-active-global-accounts]

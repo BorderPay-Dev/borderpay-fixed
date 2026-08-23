@@ -16,6 +16,7 @@ def main() -> int:
     certification = read("tests/audit/rc1_business_certification_gate_audit.py")
     preflight = read("scripts/ci/rc1_business_certification_preflight.py")
     manual_verifier = read("scripts/ci/verify_manual_intervention_audit.py")
+    external_verifier = read("scripts/ci/verify_external_audit_ledger.py")
     origin_insert = signup.find('.from("account_origin_provenance").insert')
     token_issue = signup.find('supabaseAdmin.rpc("issue_email_token"')
     identity_create = signup.find("supabaseAdmin.auth.admin.createUser")
@@ -35,7 +36,7 @@ def main() -> int:
         ("existing Individual identities remain untouched", "Existing identities are not backfilled" in migration and "alter table public.user_profiles" not in migration),
         ("certification consumes origin table", '"source_table": "public.account_origin_provenance"' in certification and "account_origin_provenance aop" in certification),
         ("manual Boolean cannot certify", "manual intervention cannot be represented by a Boolean default" in read("scripts/ci/validate_business_certification_bundle.py")),
-        ("external manual audit is verified", "validate_manual_intervention_audit" in certification and "supabase_postgres_pgaudit_export" in manual_verifier and "export SHA-256 mismatch" in manual_verifier),
+        ("external manual audit is verified", "validate_manual_intervention_audit" in certification and "supabase_postgres_pgaudit_export" in manual_verifier and "borderpay_external_worm_audit_export_v1" in external_verifier and "receipt signature invalid" in external_verifier),
     ]
     failures = []
     for name, passed in checks:

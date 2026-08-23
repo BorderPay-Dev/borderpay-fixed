@@ -245,7 +245,7 @@ class BusinessCertificationGateTests(unittest.TestCase):
     def test_complete_surface_bundle_accepts_verified_manual_audit_authority(self) -> None:
         self.build_valid_bundle()
         result, output = self.run_local_gate()
-        self.assertIn("external pgaudit export proves no privileged critical mutation", output)
+        self.assertIn("independently retained audit export proves no observed privileged critical mutation", output)
 
     def test_privileged_critical_mutation_fails(self) -> None:
         self.build_valid_bundle()
