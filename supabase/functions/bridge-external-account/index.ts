@@ -98,6 +98,15 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
   const action = String(body.action || "create");
 
+  // This authenticated read describes deployment capabilities, not a specific
+  // customer's eligibility. Keep mutations behind the identity/KYC/SCA gates.
+  if (action === "capabilities") {
+    return json({
+      success: true,
+      data: { supported_account_types: ["us", "iban", "gb"] },
+    });
+  }
+
   // Shared customer/KYC/country guard.
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) return json({ success: false, ...identity.failure }, 409);
@@ -158,18 +167,6 @@ Deno.serve(async (req) => {
   }
 
   // ── capabilities ──────────────────────────────────────────────────────
-  // Keep this explicit. The frontend must not infer payout products from UI
-  // placeholders; it should ask the edge function which Bridge-backed external
-  // account types this deployment currently supports.
-  if (action === "capabilities") {
-    return json({
-      success: true,
-      data: {
-        supported_account_types: ["us", "iban", "gb"],
-      },
-    });
-  }
-
   // ── create ──────────────────────────────────────────────────────────
   // Paid gate: adding a payout destination is a money feature — requires an
   // activated (paid) plan. (list/delete stay open so users can always view /
