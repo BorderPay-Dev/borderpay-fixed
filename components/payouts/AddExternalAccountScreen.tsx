@@ -75,7 +75,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
   const [city, setCity]       = useState('');
   const [stateRegion, setStateRegion] = useState('');
   const [postal, setPostal]   = useState('');
-  const [country, setCountry] = useState('US');
+  const [country, setCountry] = useState('USA');
 
   // IBAN
   const [ownerType, setOwnerType] = useState<'individual' | 'business'>('individual');
@@ -180,7 +180,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (!accountNumber.trim() || !routingNumber.trim()) {
           toast.error('Account number and routing number are required.'); setSubmitting(false); return;
         }
-        if (!street.trim() || !city.trim() || !postal.trim() || !country.trim()) {
+        if (!street.trim() || !city.trim() || !stateRegion.trim() || !postal.trim() || !country.trim()) {
           toast.error('A full billing address is required for US accounts.'); setSubmitting(false); return;
         }
         account = {
@@ -193,7 +193,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
           address: {
             street_line_1: street.trim(),
             city: city.trim(),
-            ...(stateRegion.trim() ? { state: stateRegion.trim() } : {}),
+            state: stateRegion.trim().toUpperCase(),
             postal_code: postal.trim(),
             country: country.trim().toUpperCase(),
           },
@@ -386,11 +386,11 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
               <input className={`${field} mb-2`} value={street} onChange={e => setStreet(e.target.value)} placeholder="Street address" />
               <div className="grid grid-cols-2 gap-2">
                 <input className={field} value={city} onChange={e => setCity(e.target.value)} placeholder="City" />
-                <input className={field} value={stateRegion} onChange={e => setStateRegion(e.target.value)} placeholder="State (optional)" />
+                <input className={field} value={stateRegion} onChange={e => setStateRegion(e.target.value)} placeholder="State code (required)" maxLength={3} />
               </div>
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <input className={field} value={postal} onChange={e => setPostal(e.target.value)} placeholder="Postal code" />
-                <input className={field} value={country} onChange={e => setCountry(e.target.value)} placeholder="Country (ISO-2)" maxLength={2} />
+                <input className={field} value={country} onChange={e => setCountry(e.target.value)} placeholder="Country (ISO-3)" maxLength={3} />
               </div>
             </div>
           </>
@@ -436,8 +436,8 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
                 <input className={field} value={bic} onChange={e => setBic(e.target.value)} />
               </div>
               <div>
-                <label className={label}>IBAN country (ISO-2)</label>
-                <input className={field} value={ibanCountry} onChange={e => setIbanCountry(e.target.value)} maxLength={2} placeholder="DE" />
+                <label className={label}>IBAN country</label>
+                <input className={field} value={ibanCountry} onChange={e => setIbanCountry(e.target.value)} maxLength={3} placeholder="DE or DEU" />
               </div>
             </div>
           </>

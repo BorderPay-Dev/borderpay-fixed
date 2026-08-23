@@ -81,6 +81,22 @@ type CreateInput = UsAccountInput | IbanAccountInput | GbAccountInput;
 
 const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 
+const COUNTRY_ALPHA3: Readonly<Record<string, string>> = Object.freeze({
+  AD: "AND", AT: "AUT", BE: "BEL", BG: "BGR", CH: "CHE", CY: "CYP",
+  CZ: "CZE", DE: "DEU", DK: "DNK", EE: "EST", ES: "ESP", FI: "FIN",
+  FR: "FRA", GB: "GBR", GR: "GRC", HR: "HRV", HU: "HUN", IE: "IRL",
+  IS: "ISL", IT: "ITA", LI: "LIE", LT: "LTU", LU: "LUX", LV: "LVA",
+  MC: "MCO", MT: "MLT", NL: "NLD", NO: "NOR", PL: "POL", PT: "PRT",
+  RO: "ROU", SE: "SWE", SI: "SVN", SK: "SVK", SM: "SMR", US: "USA",
+  VA: "VAT",
+});
+
+function bridgeCountryAlpha3(value: string): string | null {
+  const code = String(value || "").trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(code)) return code;
+  return COUNTRY_ALPHA3[code] ?? null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -197,8 +213,9 @@ Deno.serve(async (req) => {
     if (!a.account_number || !a.routing_number) {
       return json({ success: false, error: "account_number and routing_number required for US accounts" }, 400);
     }
-    if (!a.address?.street_line_1 || !a.address?.city || !a.address?.postal_code || !a.address?.country) {
-      return json({ success: false, error: "full address required for US accounts" }, 400);
+    const addressCountry = bridgeCountryAlpha3(a.address?.country);
+    if (!a.address?.street_line_1 || !a.address?.city || !a.address?.state || !a.address?.postal_code || !addressCountry) {
+      return json({ success: false, error: "full address with ISO-3 country required for US accounts" }, 400);
     }
     currency = "USD";
     railLabel = "ach";
@@ -216,14 +233,15 @@ Deno.serve(async (req) => {
       address: {
         street_line_1: a.address.street_line_1,
         city:          a.address.city,
-        ...(a.address.state ? { state: a.address.state } : {}),
+        state:          a.address.state,
         postal_code:   a.address.postal_code,
-        country:       a.address.country,
+        country:       addressCountry,
       },
     };
   } else if (acct.account_type === "iban") {
     const a = acct as IbanAccountInput;
-    if (!a.iban_number || !a.bic_swift || !a.iban_country) {
+    const ibanCountry = bridgeCountryAlpha3(a.iban_country);
+    if (!a.iban_number || !a.bic_swift || !ibanCountry) {
       return json({ success: false, error: "iban_number, bic_swift, and iban_country required for IBAN accounts" }, 400);
     }
     if (a.account_owner_type !== "individual" && a.account_owner_type !== "business") {
@@ -247,7 +265,7 @@ Deno.serve(async (req) => {
       ...(a.account_owner_type === "individual"
         ? { first_name: a.first_name, last_name: a.last_name }
         : { business_name: a.business_name }),
-      iban: { account_number: a.iban_number, bic: a.bic_swift, country: a.iban_country },
+      iban: { account_number: a.iban_number, bic: a.bic_swift, country: ibanCountry },
     };
   } else if (acct.account_type === "gb") {
     const a = acct as GbAccountInput;
