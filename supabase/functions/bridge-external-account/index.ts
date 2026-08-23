@@ -179,7 +179,13 @@ Deno.serve(async (req) => {
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
     if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
-    return json({ success: true, data: (r.data as any)?.data ?? r.data });
+    const providerPayload = (r.data as any)?.data ?? r.data;
+    const externalAccounts = Array.isArray(providerPayload)
+      ? providerPayload
+      : Array.isArray((providerPayload as any)?.external_accounts)
+        ? (providerPayload as any).external_accounts
+        : [];
+    return json({ success: true, data: { external_accounts: externalAccounts } });
   }
 
   // ── capabilities ──────────────────────────────────────────────────────

@@ -48,5 +48,7 @@ require("!stateRegion.trim()" in FORM and 'placeholder="State code (required)"' 
         "US form must require the provider-required state code")
 require('placeholder="DE or DEU"' in FORM and "maxLength={3}" in FORM,
         "IBAN form must accept alpha-2 input for normalization or alpha-3 directly")
+require("external_accounts: externalAccounts" in SOURCE,
+        "Bridge list results must match the frontend external_accounts contract")
 
 print("external account capability gate audit: PASS")
