@@ -1,5 +1,9 @@
 export type ScaOperation = "wallet_access" | "payment" | "beneficiary_change" | "security_change";
 
+// Emergency rollback. Customer SCA must not be re-enabled until Bridge's EEA
+// scope is implemented and approved end to end.
+export const CUSTOMER_SCA_ENFORCEMENT_ENABLED = false;
+
 type ScaDatabaseClient = {
   from: (table: string) => any;
   rpc: (name: string, params: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { code?: string } | null }>;
@@ -136,6 +140,8 @@ export async function consumeScaAuthorization(params: {
   resource: string;
   request: unknown;
 }): Promise<{ ok: true } | { ok: false; status: number; body: Record<string, unknown> }> {
+  if (!CUSTOMER_SCA_ENFORCEMENT_ENABLED) return { ok: true };
+
   // Rollout gate: older signed mobile releases cannot submit an SCA
   // authorization. Keep enforcement off until compatible App Store and Play
   // builds are published; the new web client still performs the full flow.

@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { assertScaOperation, resolveScaResidencyRequirement, scaPayloadHash } from "../_shared/sca.ts";
+import { assertScaOperation, CUSTOMER_SCA_ENFORCEMENT_ENABLED, resolveScaResidencyRequirement, scaPayloadHash } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -53,6 +53,17 @@ Deno.serve(async (req) => {
 
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
+
+  if (!CUSTOMER_SCA_ENFORCEMENT_ENABLED) {
+    return json({
+      success: true,
+      data: {
+        sca_required: false,
+        authorization_id: null,
+        residency_status: "sca_disabled",
+      },
+    });
+  }
 
   const residency = await resolveScaResidencyRequirement(supabase, user.id);
   if (body.action === "requirement") {

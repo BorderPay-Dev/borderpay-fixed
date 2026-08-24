@@ -38,6 +38,8 @@ export function SCAChallengeDialog(props: Props) {
 
   if (!props.open) return null;
 
+  if (requirement === 'not_required') return null;
+
   if (requirement !== 'required') {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-5" role="status">
