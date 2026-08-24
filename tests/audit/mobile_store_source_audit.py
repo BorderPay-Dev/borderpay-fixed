@@ -24,6 +24,7 @@ AUDITS = (
     "app_store_exchange_navigation_audit.py",
     "signup_hosted_verification_handoff_audit.py",
     "signup_phone_optional_app_review_audit.py",
+    "direct_business_signup_store_audit.py",
     "password_recovery_routing_audit.py",
     "kyc_path_canonical_audit.py",
     "kyc_tos_warning_audit.py",
