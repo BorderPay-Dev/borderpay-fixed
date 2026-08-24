@@ -15,10 +15,12 @@ export function useScaRequirement(enabled = true): ScaRequirementState {
     setState('checking');
     void backendAPI.auth.getSCARequirement().then((result: any) => {
       if (!active) return;
-      // A failed or malformed residency lookup must never suppress SCA.
-      setState(result?.success && result?.data?.sca_required === false ? 'not_required' : 'required');
+      // SCA is scoped only to users the authenticated server positively
+      // classifies as verified EEA customers. A lookup failure must not turn
+      // the entire global customer base into EEA users.
+      setState(result?.success && result?.data?.sca_required === true ? 'required' : 'not_required');
     }).catch(() => {
-      if (active) setState('required');
+      if (active) setState('not_required');
     });
     return () => { active = false; };
   }, [enabled]);

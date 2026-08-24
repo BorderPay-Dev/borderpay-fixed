@@ -145,6 +145,10 @@ interface DashboardProps {
   onLogout: () => void;
   onNavigate?: (screen: string) => void;
   currentScreen?: string;
+  financialAccessRequired?: boolean;
+  financialAccessChecking?: boolean;
+  financialAccessGranted?: boolean;
+  onRequestFinancialAccess?: () => void;
 }
 
 const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
@@ -236,7 +240,7 @@ function formatDashboardWalletBalance(row: { currency: string; balance: number }
   return symbol ? `${symbol}${formatted}` : `${formatted} ${code}`;
 }
 
-export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen }: DashboardProps) {
+export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen, financialAccessRequired = false, financialAccessChecking = false, financialAccessGranted = false, onRequestFinancialAccess }: DashboardProps) {
   // Synchronous read — no flicker between "unconfirmed/starter" and the real
   // status. If we have a cached profile, derive everything at first render.
   const cachedProfile = useMemo(() => readCachedProfile(), []);
@@ -269,6 +273,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const [verificationResolved, setVerificationResolved] = useState<boolean>(isCachedVerified);
   const { prefs, updatePrefs } = usePreferences();
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
+  const balanceRequiresUnlock = (financialAccessRequired || financialAccessChecking) && !financialAccessGranted;
+  const effectiveBalanceHidden = balanceRequiresUnlock || balanceHidden;
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
   const [profilePicLoaded, setProfilePicLoaded] = useState(false);
   const [userFullName, setUserFullName]   = useState<string>(cachedIdentity.fullName);
@@ -714,7 +720,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               ) : dataLoadError && accountChipCount === 0 ? (
                 <span className="text-white font-semibold tracking-tight leading-none text-[40px] sm:text-[52px]">—</span>
               ) : <h1 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[40px] sm:text-[52px]">
-                {balanceHidden ? (
+                {effectiveBalanceHidden ? (
                   <span>••••••</span>
                 ) : (
                   <>
@@ -727,11 +733,19 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                 )}
               </h1>}
               <button
-                onClick={() => { const n = !balanceHidden; setBalanceHidden(n); updatePrefs({ hide_balance: n }); }}
-                aria-label={balanceHidden ? 'Show balance' : 'Hide balance'}
+                onClick={() => {
+                  if (balanceRequiresUnlock) {
+                    if (!financialAccessChecking) onRequestFinancialAccess?.();
+                    return;
+                  }
+                  const n = !balanceHidden;
+                  setBalanceHidden(n);
+                  updatePrefs({ hide_balance: n });
+                }}
+                aria-label={effectiveBalanceHidden ? 'Show balance' : 'Hide balance'}
                 className="ml-1 mb-1.5 p-1.5 rounded-full hover:bg-white/[0.06] transition-colors"
               >
-                {balanceHidden
+                {effectiveBalanceHidden
                   ? <Eye className="w-4 h-4 text-white/50" />
                   : <EyeOff className="w-4 h-4 text-white/50" />}
               </button>

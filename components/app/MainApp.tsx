@@ -28,6 +28,7 @@ import { TeamScreen } from '../team/TeamScreen';
 import { ExternalAccountsScreen } from '../payouts/ExternalAccountsScreen';
 import { TwoFactorSetup } from '../security/TwoFactorSetup';
 import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
+import { useScaRequirement } from '../../utils/security/useScaRequirement';
 import { BiometricSetup } from '../security/BiometricSetup';
 import { ChangePIN } from '../settings/ChangePIN';
 import { ChangePassword } from '../settings/ChangePassword';
@@ -446,7 +447,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   );
   const [refreshKey, setRefreshKey] = useState(0);
   const [walletAccessGranted, setWalletAccessGranted] = useState(false);
+  const [walletAccessRequested, setWalletAccessRequested] = useState(false);
   const walletAccessTimerRef = useRef<number | null>(null);
+  const scaRequirement = useScaRequirement();
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -464,10 +467,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   const walletProtectedScreens = useMemo(() => new Set<AppScreen>([
-    'dashboard', 'home', 'wallet-detail', 'transactions', 'receive-money',
-    'send-money', 'external-wallets', 'external-accounts',
+    'wallet-detail', 'transactions',
   ]), []);
-  const needsWalletAccess = walletProtectedScreens.has(currentScreen) && !walletAccessGranted;
+  const protectedRouteNeedsAccess = walletProtectedScreens.has(currentScreen)
+    && scaRequirement !== 'not_required'
+    && !walletAccessGranted;
+  const needsWalletAccess = protectedRouteNeedsAccess || (walletAccessRequested && scaRequirement === 'required' && !walletAccessGranted);
   useEffect(() => () => {
     if (walletAccessTimerRef.current !== null) window.clearTimeout(walletAccessTimerRef.current);
   }, []);
@@ -1192,6 +1197,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
               userId={userId}
               onLogout={onLogout}
               onNavigate={navigateTo as (s: string) => void}
+              financialAccessRequired={scaRequirement === 'required'}
+              financialAccessChecking={scaRequirement === 'checking'}
+              financialAccessGranted={walletAccessGranted}
+              onRequestFinancialAccess={() => setWalletAccessRequested(true)}
             />
           );
         }
@@ -1201,6 +1210,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onLogout={onLogout}
             onNavigate={navigateTo}
             currentScreen={currentScreen}
+            financialAccessRequired={scaRequirement === 'required'}
+            financialAccessChecking={scaRequirement === 'checking'}
+            financialAccessGranted={walletAccessGranted}
+            onRequestFinancialAccess={() => setWalletAccessRequested(true)}
           />
         );
     }
@@ -1262,7 +1275,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         operation="wallet_access"
         resource="wallet_balances"
         request={{ scope: 'balances' }}
-        onCancel={() => onLock?.()}
+        onCancel={() => {
+          setWalletAccessRequested(false);
+          if (protectedRouteNeedsAccess) navigateTo('dashboard');
+        }}
         onSetupPin={() => navigateTo('pin-setup')}
         onSetupTotp={() => navigateTo('two-factor-setup')}
         onAuthorized={async (authorizationId) => {
@@ -1270,6 +1286,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           // The dialog signals that server-authorized bypass with an empty id;
           // do not send that empty value to the EEA authorization consumer.
           if (!authorizationId) {
+            setWalletAccessRequested(false);
             setWalletAccessGranted(true);
             setRefreshKey((value) => value + 1);
             if (walletAccessTimerRef.current !== null) window.clearTimeout(walletAccessTimerRef.current);
@@ -1282,6 +1299,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             return;
           }
           setWalletAccessGranted(true);
+          setWalletAccessRequested(false);
           setRefreshKey((value) => value + 1);
           if (walletAccessTimerRef.current !== null) window.clearTimeout(walletAccessTimerRef.current);
           walletAccessTimerRef.current = window.setTimeout(() => setWalletAccessGranted(false), 5 * 60_000);

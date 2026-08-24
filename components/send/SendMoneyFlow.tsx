@@ -650,6 +650,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // External bank payout state (Bridge external accounts)
   const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>(cachedExternalAccounts);
   const externalAccountsRef = useRef<ExternalAccountOption[]>(cachedExternalAccounts);
+  const [externalAccountsLoading, setExternalAccountsLoading] = useState(cachedExternalAccounts.length === 0);
+  const [externalAccountsError, setExternalAccountsError] = useState('');
+  const [sendRouteReload, setSendRouteReload] = useState(0);
+  useEffect(() => {
+    externalAccountsRef.current = externalAccounts;
+  }, [externalAccounts]);
   const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>(
     (() => {
       if (selectedPayoutIntentId && cachedExternalAccounts.some((row: ExternalAccountOption) => row.bridge_external_account_id === selectedPayoutIntentId)) {
@@ -1094,12 +1100,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   useEffect(() => {
     let cancelled = false;
     const hydrateOnce = async (force = false) => {
+      if (externalAccountsRef.current.length === 0) setExternalAccountsLoading(true);
       try {
         const hasCached = walletsRef.current.length > 0 || externalAccountsRef.current.length > 0;
         const last = Number(localStorage.getItem(sendRefreshTsKey) || '0');
         if (!force && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
         const res: any = await backendAPI.financial.getSendRouteData();
-        if (cancelled || !res?.success || !res?.data) return;
+        if (cancelled) return;
+        if (!res?.success || !res?.data) {
+          if (externalAccountsRef.current.length === 0) {
+            setExternalAccountsError(friendlyError(res?.error, 'Could not load payout accounts.'));
+          }
+          return;
+        }
         const list = ((res.data as any).wallets || []).map((w: any) => ({
           id: w.id,
           currency: w.currency,
@@ -1110,6 +1123,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const types = Array.isArray(res?.data?.external_account_capabilities)
           ? res.data.external_account_capabilities
           : [];
+        const externalAccountsComplete = res?.data?.external_accounts_partial !== true;
         const ext = Array.isArray(res?.data?.external_accounts)
           ? res.data.external_accounts.map((row: any, idx: number) => {
               const rawType = String(row?.account_type || '').toLowerCase();
@@ -1139,9 +1153,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           : [];
         setWallets(list);
         setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb'));
-        setExternalAccounts(ext);
-        try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
-        if (ext.length > 0) {
+        if (externalAccountsComplete) {
+          setExternalAccountsError('');
+          setExternalAccounts(ext);
+          try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
+        } else if (externalAccountsRef.current.length === 0) {
+          setExternalAccountsError(friendlyError(res?.data?.external_accounts_error, 'Could not load payout accounts.'));
+        }
+        if (externalAccountsComplete && ext.length > 0) {
           let requested = '';
           try {
             requested = sessionStorage.getItem(
@@ -1157,8 +1176,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
         try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
         try { localStorage.setItem(sendRefreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } catch {
-        // best effort: keep cached values
+      } catch (error: any) {
+        if (externalAccountsRef.current.length === 0) {
+          setExternalAccountsError(friendlyError(error?.message, 'Could not load payout accounts.'));
+        }
+      } finally {
+        if (!cancelled) setExternalAccountsLoading(false);
       }
     };
     hydrateOnce();
@@ -1175,7 +1198,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey]);
+  }, [sendWalletsCacheKey, sendCapsCacheKey, externalAccountsCacheKey, sendRefreshTsKey, sendRouteReload]);
 
   // Select wallet when currency changes
   useEffect(() => {
@@ -1398,7 +1421,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   };
 
   const canProceedDetails = () => {
-    if (method === 'us_ach_wire') return !!selectedExternalAccount;
+    if (method === 'us_ach_wire') return !!selectedExternalAccount && !externalAccountsLoading && !externalAccountsError;
     if (method === 'stablecoin') return !!cryptoSavedRouteId && !!cryptoSavedWalletId && cryptoRouteDetailsReady && isValidCryptoAddress(crypto.network, crypto.address);
     if (method === 'bank' || method === 'mobile_money') {
       const formattedRecipientAccount = method === 'mobile_money'
@@ -2604,7 +2627,23 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <div className="space-y-4">
                 <div>
                   <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Destination external account</label>
-                  {externalAccounts.length === 0 ? (
+                  {externalAccountsLoading && externalAccounts.length === 0 ? (
+                    <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 text-center`}>
+                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-[#C7FF00]" />
+                      <p className={`mt-2 text-sm ${tc.textSecondary}`}>Loading payout accounts…</p>
+                    </div>
+                  ) : externalAccountsError && externalAccounts.length === 0 ? (
+                    <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
+                      <p className="text-sm text-red-300">{externalAccountsError}</p>
+                      <button
+                        type="button"
+                        onClick={() => setSendRouteReload((value) => value + 1)}
+                        className="mt-3 text-sm font-semibold text-[#C7FF00]"
+                      >
+                        Retry payout accounts
+                      </button>
+                    </div>
+                  ) : externalAccounts.length === 0 ? (
                     <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
                       <p className={`text-sm ${tc.textSecondary} mb-3`}>No external accounts available.</p>
                       <button
@@ -2617,6 +2656,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </div>
                   ) : (
                     <div className="space-y-2">
+                      {externalAccountsError && (
+                        <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-200">
+                          Saved accounts are shown from cache. Refresh failed; retry before submitting.
+                          <button
+                            type="button"
+                            onClick={() => setSendRouteReload((value) => value + 1)}
+                            className="ml-2 font-bold text-[#C7FF00]"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
                       {externalAccounts.map((acc) => (
                         <button
                           key={acc.bridge_external_account_id}

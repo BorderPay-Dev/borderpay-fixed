@@ -8,11 +8,14 @@ dashboard = (ROOT / "components/app/Dashboard.tsx").read_text()
 flag = (ROOT / "components/ui/FiatCurrencyFlag.tsx").read_text()
 
 checks = {
-    "server requirement remains fail closed": "result?.success && result?.data?.sca_required === false" in (ROOT / "utils/security/useScaRequirement.ts").read_text(),
+    "verified EEA requirement is the UI authority": "result?.success && result?.data?.sca_required === true" in (ROOT / "utils/security/useScaRequirement.ts").read_text(),
     "non-EEA bypass remains server classified": "requirement !== 'not_required'" in dialog,
     "empty bypass does not call EEA grant endpoint": "if (!authorizationId)" in main and main.index("if (!authorizationId)") < main.index("grantWalletAccess(authorizationId)"),
     "bypass releases dashboard": "setWalletAccessGranted(true)" in main,
     "EEA authorization still consumed": "grantWalletAccess(authorizationId)" in main,
+    "dashboard is not globally SCA blocked": "const walletProtectedScreens" in main and "'wallet-detail', 'transactions'" in main.split("const walletProtectedScreens", 1)[1].split("]);", 1)[0] and "'dashboard'" not in main.split("const walletProtectedScreens", 1)[1].split("]);", 1)[0],
+    "balance reveal requests SCA only when required": "balanceRequiresUnlock" in dashboard and "onRequestFinancialAccess" in dashboard,
+    "business balance reveal requests SCA only when required": "balanceRequiresUnlock" in business and "onRequestFinancialAccess" in business,
     "business dashboard uses deterministic flags": "<FiatCurrencyFlag currency={code}" in business,
     "individual dashboard uses deterministic flags": "<FiatCurrencyFlag currency={code}" in dashboard,
     "flag component has no emoji regional indicators": "🇺🇸" not in flag and "🇬🇧" not in flag and "🇪🇺" not in flag,

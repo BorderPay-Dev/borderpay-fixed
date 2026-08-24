@@ -25,7 +25,8 @@ shared = text('supabase/functions/_shared/sca.ts')
 require('UNIVERSAL_SCA_ENFORCEMENT_ENABLED' in shared, 'backend enforcement must have a server-controlled mobile rollout gate')
 require('resolveScaResidencyRequirement(params.supabase, params.userId)' in shared, 'backend consumption must resolve authoritative residency')
 require('if (!residency.required) return { ok: true }' in shared, 'known non-EEA accounts must bypass the extra SCA layer')
-require('residency_unknown' in shared and 'required: true' in shared, 'missing or invalid residency must fail closed')
+require('verification_not_approved' in shared, 'unverified users must remain outside the EEA SCA flow')
+require('return { required: false, country: null, reason: "residency_unknown" }' in shared, 'unknown residency must not impose EEA SCA globally')
 require('"IS"' in shared and '"LI"' in shared and '"NO"' in shared, 'EEA scope must include Iceland, Liechtenstein, and Norway')
 require('"GB"' not in shared.split('const EEA_COUNTRY_CODES', 1)[1].split(']);', 1)[0], 'UK must not be classified as EEA')
 require('"CH"' not in shared.split('const EEA_COUNTRY_CODES', 1)[1].split(']);', 1)[0], 'Switzerland must not be classified as EEA')
@@ -35,7 +36,7 @@ require('body.action === "requirement"' in authorize, 'client SCA requirement mu
 require('resolveScaResidencyRequirement(supabase, user.id)' in authorize, 'issuer must use authoritative residency')
 
 hook = text('utils/security/useScaRequirement.ts')
-require("result?.data?.sca_required === false ? 'not_required' : 'required'" in hook, 'client residency failures must default to SCA required')
+require("result?.data?.sca_required === true ? 'required' : 'not_required'" in hook, 'client must require SCA only after positive verified-EEA classification')
 
 dialog = text('components/security/SCAChallengeDialog.tsx')
 require('useScaRequirement(props.open)' in dialog and "requirement !== 'not_required'" in dialog, 'shared SCA dialog must bypass only an authoritative non-EEA result')
@@ -57,7 +58,7 @@ for path, mutation in protected.items():
 send = text('components/send/SendMoneyFlow.tsx')
 require("operation: 'payment'" in send and 'sca_authorization_id' in send, 'Send must obtain and submit bound SCA')
 require("processTransaction('__biometric__')" not in send, 'local biometric must not authorize money movement')
-require("const scaRequired = scaRequirement !== 'not_required'" in send, 'Send must default unknown residency to SCA required')
+require("const scaRequired = scaRequirement !== 'not_required'" in send, 'Send must require the second factor while verified-EEA classification is pending or confirmed')
 require('PINManager.verifyTransactionPIN(userId, pin)' in send, 'non-EEA Send must retain transaction PIN verification')
 
 for path in (

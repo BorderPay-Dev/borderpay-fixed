@@ -20,16 +20,34 @@ const KNOWN_COUNTRY_CODES: ReadonlySet<string> = new Set(
 export type ScaResidencyRequirement = {
   required: boolean;
   country: string | null;
-  reason: "eea_resident" | "non_eea_resident" | "residency_unknown";
+  reason: "verified_eea_resident" | "non_eea_resident" | "residency_unknown" | "verification_not_approved";
 };
 
+const COUNTRY_ALIASES: Readonly<Record<string, string>> = {
+  AUT: "AT", BEL: "BE", BGR: "BG", HRV: "HR", CYP: "CY", CZE: "CZ", DNK: "DK",
+  EST: "EE", FIN: "FI", FRA: "FR", DEU: "DE", GRC: "GR", HUN: "HU", ISL: "IS",
+  IRL: "IE", ITA: "IT", LVA: "LV", LIE: "LI", LTU: "LT", LUX: "LU", MLT: "MT",
+  NLD: "NL", NOR: "NO", POL: "PL", PRT: "PT", ROU: "RO", SVK: "SK", SVN: "SI",
+  ESP: "ES", SWE: "SE",
+  AUSTRIA: "AT", BELGIUM: "BE", BULGARIA: "BG", CROATIA: "HR", CYPRUS: "CY",
+  CZECHIA: "CZ", "CZECH REPUBLIC": "CZ", DENMARK: "DK", ESTONIA: "EE", FINLAND: "FI",
+  FRANCE: "FR", GERMANY: "DE", GREECE: "GR", HUNGARY: "HU", ICELAND: "IS",
+  IRELAND: "IE", ITALY: "IT", LATVIA: "LV", LIECHTENSTEIN: "LI", LITHUANIA: "LT",
+  LUXEMBOURG: "LU", MALTA: "MT", NETHERLANDS: "NL", NORWAY: "NO", POLAND: "PL",
+  PORTUGAL: "PT", ROMANIA: "RO", SLOVAKIA: "SK", SLOVENIA: "SI", SPAIN: "ES", SWEDEN: "SE",
+};
+
+function normalizeCountryCode(country: unknown): string | null {
+  const raw = String(country || "").trim().toUpperCase();
+  if (KNOWN_COUNTRY_CODES.has(raw)) return raw;
+  return COUNTRY_ALIASES[raw] ?? null;
+}
+
 export function classifyScaResidency(country: unknown): ScaResidencyRequirement {
-  const normalized = String(country || "").trim().toUpperCase();
-  if (!KNOWN_COUNTRY_CODES.has(normalized)) {
-    return { required: true, country: null, reason: "residency_unknown" };
-  }
+  const normalized = normalizeCountryCode(country);
+  if (!normalized) return { required: false, country: null, reason: "residency_unknown" };
   return EEA_COUNTRY_CODES.has(normalized)
-    ? { required: true, country: normalized, reason: "eea_resident" }
+    ? { required: true, country: normalized, reason: "verified_eea_resident" }
     : { required: false, country: normalized, reason: "non_eea_resident" };
 }
 
@@ -39,29 +57,35 @@ export async function resolveScaResidencyRequirement(
 ): Promise<ScaResidencyRequirement> {
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("id,account_type,country")
+    .select("id,account_type,country,kyc_status,bridge_kyc_status")
     .eq("id", userId)
     .maybeSingle();
 
   if (profileError || !profile?.id) {
     console.error("sca_residency_profile_lookup_failed", { user_id: userId, code: profileError?.code });
-    return { required: true, country: null, reason: "residency_unknown" };
+    return { required: false, country: null, reason: "residency_unknown" };
   }
 
   let country: unknown = profile.country;
+  let verified = ["approved", "verified"].includes(String(profile.kyc_status || "").toLowerCase())
+    || String(profile.bridge_kyc_status || "").toLowerCase() === "approved";
   if (profile.account_type === "business") {
     const { data: business, error: businessError } = await supabase
       .from("business_profiles")
-      .select("country")
+      .select("country,bridge_kyb_status")
       .eq("user_id", userId)
       .maybeSingle();
     if (businessError) {
       console.error("sca_residency_business_lookup_failed", { user_id: userId, code: businessError.code });
-      return { required: true, country: null, reason: "residency_unknown" };
+      return { required: false, country: null, reason: "residency_unknown" };
     }
     country = business?.country ?? country;
+    verified = String(business?.bridge_kyb_status || "").toLowerCase() === "approved";
   }
 
+  if (!verified) {
+    return { required: false, country: normalizeCountryCode(country), reason: "verification_not_approved" };
+  }
   return classifyScaResidency(country);
 }
 

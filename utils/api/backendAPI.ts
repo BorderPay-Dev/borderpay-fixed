@@ -366,7 +366,7 @@ export const authSecurityAPI = {
   },
 
   async getSCARequirement() {
-    return apiCall<{ sca_required: boolean; residency_status: 'eea_resident' | 'non_eea_resident' | 'residency_unknown' }>('sca-authorize', {
+    return apiCall<{ sca_required: boolean; residency_status: 'verified_eea_resident' | 'non_eea_resident' | 'residency_unknown' | 'verification_not_approved' }>('sca-authorize', {
       method: 'POST',
       body: JSON.stringify({ action: 'requirement' }),
     });
@@ -825,6 +825,7 @@ export const financialReadModelAPI = (() => {
   let lastAnySnapshotAt = 0;
   let lastAnySnapshotUserId = '';
   const EXTERNAL_FETCH_TIMEOUT_MS = 900;
+  const EXTERNAL_ACCOUNT_LIST_TIMEOUT_MS = 10_000;
 
   async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -1311,8 +1312,8 @@ export const financialReadModelAPI = (() => {
         ),
         withTimeout(
           bridgeAPI.externalAccount.list() as Promise<any>,
-          EXTERNAL_FETCH_TIMEOUT_MS,
-          { success: false, error: 'timeout' } as any,
+          EXTERNAL_ACCOUNT_LIST_TIMEOUT_MS,
+          { success: false, code: 'request_timeout', error: 'Payout-account lookup timed out. Please retry.' } as any,
         ),
       ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
@@ -1327,7 +1328,9 @@ export const financialReadModelAPI = (() => {
           wallets: Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
           external_account_capabilities: caps,
           external_accounts: externalAccounts,
-          external_accounts_partial: !capsRes?.success,
+          external_account_capabilities_partial: !capsRes?.success,
+          external_accounts_partial: !externalListRes?.success,
+          external_accounts_error: externalListRes?.success ? null : (externalListRes?.error || 'Could not load payout accounts.'),
         },
       };
     },

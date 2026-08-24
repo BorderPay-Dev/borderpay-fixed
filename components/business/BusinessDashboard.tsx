@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, BriefcaseBusiness, FileText,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, BriefcaseBusiness, FileText, Eye, EyeOff,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -96,6 +96,10 @@ interface BusinessDashboardProps {
   userId:    string;
   onLogout:  () => void;
   onNavigate: (screen: string) => void;
+  financialAccessRequired?: boolean;
+  financialAccessChecking?: boolean;
+  financialAccessGranted?: boolean;
+  onRequestFinancialAccess?: () => void;
 }
 
 interface WalletRow {
@@ -151,7 +155,7 @@ function prefetchScreen(screen: string): void {
   try { (window as any).__borderpay_prefetch?.(screen); } catch { /* noop */ }
 }
 
-export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDashboardProps) {
+export function BusinessDashboard({ userId, onLogout, onNavigate, financialAccessRequired = false, financialAccessChecking = false, financialAccessGranted = false, onRequestFinancialAccess }: BusinessDashboardProps) {
   const tc = useThemeClasses();
   const navigate = React.useCallback((screen: string) => {
     try {
@@ -222,6 +226,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   const walletsRef = useRef<WalletRow[]>(cachedBizWallets);
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(false);
+  const balanceRequiresUnlock = (financialAccessRequired || financialAccessChecking) && !financialAccessGranted;
   const [walletsError, setWalletsError]   = useState<string | null>(null);
   const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() => hasActiveCachedVa(userId));
   const walletsLoadInFlightRef = useRef<Promise<void> | null>(null);
@@ -535,10 +540,22 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
                 </p>
                 <div className="flex items-end gap-2">
                   <h2 className="text-white font-semibold tracking-tight tabular-nums leading-none text-[44px] sm:text-[56px]">
-                    <span className="text-2xl sm:text-3xl text-white/50 mr-1 align-top">$</span>
-                    {usdLikeTotal.toFixed(2).split('.')[0]}
-                    <span className="text-2xl sm:text-3xl text-white/50">.{usdLikeTotal.toFixed(2).split('.')[1]}</span>
+                    {balanceRequiresUnlock ? <span>••••••</span> : <>
+                      <span className="text-2xl sm:text-3xl text-white/50 mr-1 align-top">$</span>
+                      {usdLikeTotal.toFixed(2).split('.')[0]}
+                      <span className="text-2xl sm:text-3xl text-white/50">.{usdLikeTotal.toFixed(2).split('.')[1]}</span>
+                    </>}
                   </h2>
+                  <button
+                    type="button"
+                    aria-label={balanceRequiresUnlock ? 'Show balance' : 'Balance visible'}
+                    onClick={() => {
+                      if (balanceRequiresUnlock && !financialAccessChecking) onRequestFinancialAccess?.();
+                    }}
+                    className="mb-1.5 rounded-full p-1.5 transition-colors hover:bg-white/[0.06]"
+                  >
+                    {balanceRequiresUnlock ? <Eye className="h-4 w-4 text-white/50" /> : <EyeOff className="h-4 w-4 text-white/50" />}
+                  </button>
                 </div>
                 <p className="text-[11px] text-white/40 mt-2">
                   {wallets.length === 0

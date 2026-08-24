@@ -34,7 +34,7 @@ Deno.test('SCA dynamic link changes when amount, payee, operation resource, or i
 });
 
 Deno.test('SCA residency scope includes the EEA and excludes UK, Switzerland, and Africa', () => {
-  for (const country of ['FR', 'DE', 'NO', 'IS', 'LI']) {
+  for (const country of ['FR', 'DE', 'NO', 'IS', 'LI', 'France', 'FRA']) {
     assert(classifyScaResidency(country).required, `${country} must require SCA`);
   }
   for (const country of ['GB', 'CH', 'KE', 'NG', 'ZA']) {
@@ -42,10 +42,11 @@ Deno.test('SCA residency scope includes the EEA and excludes UK, Switzerland, an
   }
 });
 
-Deno.test('missing, malformed, and unknown residency fail closed', () => {
+Deno.test('missing, malformed, and unknown residency do not impose EEA SCA', () => {
   for (const country of [null, '', 'France', 'ZZ']) {
     const result = classifyScaResidency(country);
-    assert(result.required && result.reason === 'residency_unknown', `${String(country)} must fail closed`);
+    if (country === 'France') assert(result.required, 'France must normalize to EEA');
+    else assert(!result.required && result.reason === 'residency_unknown', `${String(country)} must remain outside EEA SCA`);
   }
 });
 
@@ -53,8 +54,8 @@ Deno.test('business residency is authoritative over the base profile', async () 
   const db = {
     from(table: string) {
       const result = table === 'user_profiles'
-        ? { data: { id: 'user-1', account_type: 'business', country: 'KE' }, error: null }
-        : { data: { country: 'FR' }, error: null };
+        ? { data: { id: 'user-1', account_type: 'business', country: 'KE', kyc_status: 'approved', bridge_kyc_status: 'approved' }, error: null }
+        : { data: { country: 'FR', bridge_kyb_status: 'approved' }, error: null };
       const chain: any = {
         select: () => chain,
         eq: () => chain,
@@ -68,7 +69,7 @@ Deno.test('business residency is authoritative over the base profile', async () 
   assert(result.required && result.country === 'FR', 'business profile country must control business residency');
 });
 
-Deno.test('residency lookup errors fail closed', async () => {
+Deno.test('residency lookup errors do not impose EEA SCA', async () => {
   const db = {
     from() {
       const chain: any = {
@@ -81,5 +82,20 @@ Deno.test('residency lookup errors fail closed', async () => {
     rpc: () => Promise.resolve({ data: null, error: null }),
   };
   const result = await resolveScaResidencyRequirement(db, 'user-1');
-  assert(result.required && result.reason === 'residency_unknown', 'lookup errors must retain SCA');
+  assert(!result.required && result.reason === 'residency_unknown', 'lookup errors must not classify a user as verified EEA');
+});
+
+Deno.test('SCA is limited to verified EEA users', async () => {
+  const db = {
+    from(table: string) {
+      const result = table === 'user_profiles'
+        ? { data: { id: 'user-1', account_type: 'business', country: 'FR', kyc_status: 'approved', bridge_kyc_status: 'approved' }, error: null }
+        : { data: { country: 'France', bridge_kyb_status: 'under_review' }, error: null };
+      const chain: any = { select: () => chain, eq: () => chain, maybeSingle: () => Promise.resolve(result) };
+      return chain;
+    },
+    rpc: () => Promise.resolve({ data: null, error: null }),
+  };
+  const result = await resolveScaResidencyRequirement(db, 'user-1');
+  assert(!result.required && result.reason === 'verification_not_approved', 'unverified EEA users must not enter the SCA flow');
 });

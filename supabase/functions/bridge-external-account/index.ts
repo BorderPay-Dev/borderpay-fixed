@@ -178,6 +178,7 @@ Deno.serve(async (req) => {
     const r = await bridgeFetch({
       method: "GET",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
+      query:  { limit: 100 },
     });
     if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
     return json({

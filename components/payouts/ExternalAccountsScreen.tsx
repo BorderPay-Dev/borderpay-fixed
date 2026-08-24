@@ -100,11 +100,6 @@ function readCache(cacheKey: string): ExternalAccountRow[] {
   } catch { return []; }
 }
 
-function isRequestTimeout(value: unknown): boolean {
-  const raw = typeof value === 'string' ? value : JSON.stringify(value || '');
-  return /request_timeout|timed out|timeout|aborted/i.test(raw);
-}
-
 export function ExternalAccountsScreen({ onBack, onAdd, onWithdraw }: ExternalAccountsScreenProps) {
   const tc = useThemeClasses();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
@@ -117,6 +112,7 @@ export function ExternalAccountsScreen({ onBack, onAdd, onWithdraw }: ExternalAc
   const [rows, setRows] = useState<ExternalAccountRow[]>(cached);
   const rowsRef = useRef<ExternalAccountRow[]>(cached);
   const loadInFlightRef = useRef<Promise<void> | null>(null);
+  const [loading, setLoading] = useState(cached.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
@@ -140,6 +136,7 @@ export function ExternalAccountsScreen({ onBack, onAdd, onWithdraw }: ExternalAc
     const isColdStart = seededRows.length === 0;
 
     // Background refresh only: keep first paint native-fast, even with no cache.
+    if (isColdStart) setLoading(true);
     setError(null);
     try {
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
@@ -152,11 +149,13 @@ export function ExternalAccountsScreen({ onBack, onAdd, onWithdraw }: ExternalAc
         setRows(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } else if (seededRows.length === 0 && !isRequestTimeout(r?.error)) {
+      } else if (seededRows.length === 0) {
         setError(friendlyError(r?.error, 'Could not load payout accounts'));
       }
     } catch (e: any) {
-      if (seededRows.length === 0 && !isRequestTimeout(e)) setError(friendlyError(e, 'Could not load payout accounts'));
+      if (seededRows.length === 0) setError(friendlyError(e, 'Could not load payout accounts'));
+    } finally {
+      setLoading(false);
     }
     })();
     loadInFlightRef.current = run;
@@ -287,7 +286,12 @@ export function ExternalAccountsScreen({ onBack, onAdd, onWithdraw }: ExternalAc
       </header>
 
       <main className="px-5 sm:px-6 pb-10 max-w-md mx-auto">
-        {error ? (
+        {loading && rows.length === 0 ? (
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#C7FF00]" />
+            <p className={`mt-3 text-sm ${tc.textMuted}`}>Loading payout accounts…</p>
+          </div>
+        ) : error ? (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
             <p className="text-sm text-red-300">{error}</p>
             <button
