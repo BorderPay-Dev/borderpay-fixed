@@ -136,7 +136,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     confirmPassword: '',
     selectedCountry: null, // No default - user must explicitly select their country
     agreedToTerms: false,
-    accountType: 'individual', // default = unchanged behaviour
+    accountType: 'business',
     companyName: '',
     registrationNumber: '',
     dateOfBirth: '',
@@ -186,8 +186,11 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
   const handleCreateAccount = async () => {
     const {
       fullName, email, phone, password, confirmPassword, selectedCountry, agreedToTerms,
-      accountType, companyName, registrationNumber,
+      companyName, registrationNumber,
     } = formData;
+    // The public BorderPay mobile app is a direct Business signup channel.
+    // Keep the submitted value constant even if client state is tampered with.
+    const accountType = 'business' as const;
 
     setFormError('');
 
@@ -487,10 +490,10 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         id: data.user.id,
                         email: data.user.email,
                         full_name: formData.fullName,
-                        ...(formData.accountType === 'business' ? { company_name: formData.companyName } : {}),
+                        company_name: formData.companyName,
                         kyc_status: 'not_started',
                         bridge_kyc_status: 'not_started',
-                        account_type: formData.accountType,
+                        account_type: 'business',
                       }));
                       if (data.session?.access_token) {
                         localStorage.setItem('borderpay_token', data.session.access_token);
@@ -892,42 +895,17 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
       )}
 
       <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="space-y-3.5">
-        {/* Account type toggle — additive. Default 'individual' so the
-            existing flow renders identically for users who don't change it. */}
+        {/* Direct BorderPay signup is Business-only. Authorized partner
+            onboarding is served through its separately signed channel. */}
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-gray-300">I'm signing up as</label>
-          <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={formData.accountType === 'individual'}
-              onClick={() => updateForm({ accountType: 'individual' })}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${
-                formData.accountType === 'individual'
-                  ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
-                  : 'bg-white/[0.04] text-gray-300 border-white/10 hover:border-white/20'
-              }`}
-            >
-              <User className="w-4 h-4" /> Individual
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={formData.accountType === 'business'}
-              onClick={() => updateForm({ accountType: 'business' })}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${
-                formData.accountType === 'business'
-                  ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
-                  : 'bg-white/[0.04] text-gray-300 border-white/10 hover:border-white/20'
-              }`}
-            >
+          <div aria-label="Account type" className="grid grid-cols-1 gap-2">
+            <div className="flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold bg-[#C7FF00] text-black border-[#C7FF00]">
               <Building className="w-4 h-4" /> Business
-            </button>
+            </div>
           </div>
           <p className="text-[11px] text-gray-500">
-            {formData.accountType === 'individual'
-              ? 'Personal wallet, cards, transfers — KYC required.'
-              : 'For registered companies. Business verification is handled securely by BorderPay.'}
+            For registered companies. Business verification is handled securely by BorderPay.
           </p>
         </div>
 
