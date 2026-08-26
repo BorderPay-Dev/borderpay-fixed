@@ -74,7 +74,7 @@ for path, mutation in protected.items():
     require(source.index('consumeScaAuthorization({') < source.rindex(mutation), f'{path} must consume SCA before provider mutation')
 
 yellowcard = text('supabase/functions/yellowcard-transaction/index.ts')
-require('code: "yellow_card_payout_funding_not_configured"' in yellowcard,
+require('code: "yellow_card_payout_locked"' in yellowcard,
         'Yellow Card production payout must remain unavailable until its SCA and treasury funding contract is complete')
 
 send = text('components/send/SendMoneyFlow.tsx')
