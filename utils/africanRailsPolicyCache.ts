@@ -12,7 +12,9 @@ export type AfricanPolicyRow = {
   raw: Record<string, unknown>;
 };
 
-const CACHE_VERSION = 'v3';
+// Bump whenever the authoritative corridor source changes so clients cannot
+// keep rendering a stale pre-production/static catalogue after a cutover.
+const CACHE_VERSION = 'v4-production-api';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 15000;
 

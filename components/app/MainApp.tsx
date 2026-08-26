@@ -1024,7 +1024,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onBack={navigateBack}
             // Dashboard owns its financial refresh when it remounts. Starting
             // a second shell snapshot here races that canonical read (and is
-            // especially wrong for isolated Yellow Card sandbox transfers,
+            // especially wrong for isolated Yellow Card provider transfers,
             // which do not mutate the user's live wallets).
             onComplete={navigateBack}
             onNavigate={navigateTo}

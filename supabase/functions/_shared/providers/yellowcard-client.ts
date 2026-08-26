@@ -1,11 +1,11 @@
 /**
- * Yellow Card HTTP client (sandbox-first).
+ * Yellow Card production HTTP client.
  *
  * Uses Yellow Card's HMAC auth scheme:
  * timestamp + request path + method + base64(sha256(body)) for write requests.
  */
 
-const DEFAULT_SANDBOX_BASE_URL = "https://sandbox.api.yellowcard.io/business";
+const PRODUCTION_BASE_URL = "https://api.yellowcard.io/business";
 
 function firstEnv(...names: string[]): string {
   for (const name of names) {
@@ -16,26 +16,20 @@ function firstEnv(...names: string[]): string {
 }
 
 const YC_API_KEY = firstEnv(
-  "YC_SANDBOX_API_KEY",
-  "YELLOW_CARD_SANDBOX_API_KEY",
-  "YC_API_KEY",
-  "YELLOW_CARD_API_KEY",
-  "YELLOWCARD_API_KEY",
+  "YC_PRODUCTION_API_KEY",
+  "YELLOW_CARD_PRODUCTION_API_KEY",
 );
 const YC_SECRET_KEY = firstEnv(
-  "YC_SANDBOX_SECRET_KEY",
-  "YELLOW_CARD_SANDBOX_SECRET_KEY",
-  "YC_SECRET_KEY",
-  "YELLOW_CARD_SECRET_KEY",
-  "YELLOWCARD_SECRET_KEY",
+  "YC_PRODUCTION_SECRET_KEY",
+  "YELLOW_CARD_PRODUCTION_SECRET_KEY",
 );
 const YC_BASE_URL = firstEnv(
-  "YC_SANDBOX_BASE_URL",
-  "YELLOW_CARD_SANDBOX_BASE_URL",
-  "YC_BASE_URL",
-  "YELLOW_CARD_BASE_URL",
-  "YELLOWCARD_BASE_URL",
-) || DEFAULT_SANDBOX_BASE_URL;
+  "YC_PRODUCTION_BASE_URL",
+  "YELLOW_CARD_PRODUCTION_BASE_URL",
+) || PRODUCTION_BASE_URL;
+const YC_EGRESS_RELAY_URL = firstEnv("YC_EGRESS_RELAY_URL");
+const YC_EGRESS_RELAY_TOKEN = firstEnv("YC_EGRESS_RELAY_TOKEN");
+const REQUIRED_RELAY_URL = "https://static-ip.borderpayafrica.com/yellowcard/v1/request";
 const DEFAULT_TIMEOUT_MS = Number(firstEnv("YC_HTTP_TIMEOUT_MS", "YELLOW_CARD_HTTP_TIMEOUT_MS") || "15000");
 
 export interface YellowCardFetchOptions {
@@ -57,17 +51,31 @@ export interface YellowCardFetchResult<T = unknown> {
 
 export function getYellowCardConfig() {
   const baseUrl = YC_BASE_URL.replace(/\/+$/, "");
+  const productionHostPinned = baseUrl === PRODUCTION_BASE_URL;
   return {
-    configured: Boolean(YC_API_KEY && YC_SECRET_KEY),
+    configured: Boolean(
+      YC_API_KEY && YC_SECRET_KEY && productionHostPinned &&
+      YC_EGRESS_RELAY_URL === REQUIRED_RELAY_URL && YC_EGRESS_RELAY_TOKEN.length >= 32
+    ),
     base_url: baseUrl,
-    environment: baseUrl.includes("sandbox.") ? "sandbox" : "production",
+    environment: productionHostPinned ? "production" : "invalid",
+    production_host_pinned: productionHostPinned,
+    relay_configured: YC_EGRESS_RELAY_URL === REQUIRED_RELAY_URL && YC_EGRESS_RELAY_TOKEN.length >= 32,
     key_prefix: YC_API_KEY ? `${YC_API_KEY.slice(0, 6)}...` : null,
+  };
+}
+
+export function getYellowCardWebhookCredentials() {
+  return {
+    apiKey: YC_API_KEY,
+    secretKey: YC_SECRET_KEY,
   };
 }
 
 function buildUrl(path: string, query?: YellowCardFetchOptions["query"]): URL {
   const base = YC_BASE_URL.replace(/\/+$/, "");
-  const url = new URL(path.startsWith("http") ? path : `${base}${path.startsWith("/") ? path : `/${path}`}`);
+  if (/^https?:/i.test(path)) throw new Error("yellow_card_absolute_url_forbidden");
+  const url = new URL(`${base}${path.startsWith("/") ? path : `/${path}`}`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined || value === null || value === "") continue;
@@ -75,6 +83,13 @@ function buildUrl(path: string, query?: YellowCardFetchOptions["query"]): URL {
     }
   }
   return url;
+}
+
+function relayPath(path: string): string {
+  if (/^https?:/i.test(path)) throw new Error("yellow_card_absolute_url_forbidden");
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (!/^\/[a-z0-9/_-]+$/i.test(normalized)) throw new Error("yellow_card_invalid_relative_path");
+  return normalized;
 }
 
 function toBase64(bytes: ArrayBuffer): string {
@@ -112,7 +127,8 @@ function parseJson(raw: string): any {
 export async function yellowCardFetch<T = unknown>(
   opts: YellowCardFetchOptions,
 ): Promise<YellowCardFetchResult<T>> {
-  if (!YC_API_KEY || !YC_SECRET_KEY) {
+  if (!YC_API_KEY || !YC_SECRET_KEY || YC_BASE_URL.replace(/\/+$/, "") !== PRODUCTION_BASE_URL ||
+      YC_EGRESS_RELAY_URL !== REQUIRED_RELAY_URL || YC_EGRESS_RELAY_TOKEN.length < 32) {
     return {
       ok: false,
       status: 503,
@@ -134,15 +150,24 @@ export async function yellowCardFetch<T = unknown>(
   const timeout = setTimeout(() => controller.abort(), Math.max(1_000, timeoutMs));
 
   try {
-    const res = await fetch(url.toString(), {
-      method,
+    const res = await fetch(YC_EGRESS_RELAY_URL, {
+      method: "POST",
       headers: {
         "Accept": "application/json",
-        "Authorization": `YcHmacV1 ${YC_API_KEY}:${signature}`,
-        "X-YC-Timestamp": timestamp,
-        ...(bodyText ? { "Content-Type": "application/json" } : {}),
+        "Authorization": `Bearer ${YC_EGRESS_RELAY_TOKEN}`,
+        "Content-Type": "application/json",
+        "X-BorderPay-YC-Authorization": `YcHmacV1 ${YC_API_KEY}:${signature}`,
+        "X-BorderPay-YC-Timestamp": timestamp,
       },
-      body: bodyText || undefined,
+      body: JSON.stringify({
+        method,
+        // Yellow Card signs the complete API pathname (`/business/...`), but
+        // the restricted relay accepts provider-relative routes only.
+        path: relayPath(opts.path),
+        query: Object.fromEntries(url.searchParams.entries()),
+        body: bodyText ? JSON.parse(bodyText) : null,
+        timeout_ms: Math.max(1_000, timeoutMs),
+      }),
       signal: controller.signal,
     });
     const rawText = await res.text();

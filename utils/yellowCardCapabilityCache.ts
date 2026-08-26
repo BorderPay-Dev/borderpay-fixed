@@ -10,7 +10,7 @@ type CacheEntry = {
 
 const memory = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<any>>();
-// Bump when response eligibility rules change so a stale empty sandbox route
+// Bump when response eligibility rules change so a stale empty provider route
 // cannot survive a corrected deployment in localStorage.
 const CACHE_PREFIX = 'borderpay_yellowcard_capability_v4:';
 
@@ -79,7 +79,7 @@ function hasUsableCapability(action: CapabilityAction, result: any): boolean {
 }
 
 /**
- * Cache read-only Yellow Card sandbox discovery. Transaction preflight/create
+ * Cache read-only Yellow Card production discovery. Transaction preflight/create
  * responses are intentionally excluded so execution and idempotency stay live.
  */
 export async function loadYellowCardCapability(

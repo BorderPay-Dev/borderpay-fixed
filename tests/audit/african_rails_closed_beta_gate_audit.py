@@ -8,7 +8,7 @@ SEND_UI = ROOT / "components/send/SendMoneyFlow.tsx"
 RECEIVE_UI = ROOT / "components/receive/ReceiveMoneyScreen.tsx"
 ENDPOINTS = [
     "yellowcard-capabilities",
-    "yellowcard-sandbox-transaction",
+    "yellowcard-transaction",
 ]
 
 TESTER = "adhiamboadhiambo22@gmail.com"
@@ -23,37 +23,25 @@ frontend = FRONTEND_GATE.read_text()
 send_ui = SEND_UI.read_text()
 receive_ui = RECEIVE_UI.read_text()
 
-for label, source in [("server", server), ("frontend", frontend)]:
-    if TESTER not in source:
-        failures.append(f"{label} gate is missing the controlled tester")
-    for email in DEMO_TESTERS:
-        if email not in source:
-            failures.append(f"{label} gate is missing app-review tester {email}")
-
-if "african_rails_closed_beta" not in server:
-    failures.append("server gate is missing the fail-closed response code")
-
-if "africanRailsTester ? <button" not in send_ui or "Send to Africa coming soon" not in send_ui:
-    failures.append("send UI does not render a disabled coming-soon state for live users")
-if "!africanRailsTester ? <div" not in receive_ui or "African receive rails coming soon" not in receive_ui:
-    failures.append("receive UI does not render a disabled coming-soon state for live users")
-if "isNativeRuntime" in frontend:
-    failures.append("native runtime blocks the three explicitly approved review accounts")
+if "const africanPayoutEnabled = false" not in send_ui or "Send to Africa coming soon" not in send_ui:
+    failures.append("production payout UI is not fail-closed")
+if "isVerified ? <button" not in receive_ui or "Complete identity verification" not in receive_ui:
+    failures.append("production Receive is not limited to verified customers")
 
 for endpoint in ENDPOINTS:
     path = ROOT / f"supabase/functions/{endpoint}/index.ts"
     source = path.read_text()
-    gate_tokens = ["await authenticateAfricanRailsTester", "isAfricanRailsTesterEmail(user.email)"]
+    gate_tokens = ["auth.getUser", "await authenticateAfricanRailsUser"]
     gate_pos = min((source.find(token) for token in gate_tokens if source.find(token) >= 0), default=-1)
     capability_pos = source.find("getYellowCardConfig()")
     if gate_pos < 0 or capability_pos < 0 or gate_pos > capability_pos:
         failures.append(f"{endpoint} checks provider runtime before tester access")
 
-capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
-policy_pos = capabilities.find('if (action === "corridor_policy")')
-deny_pos = capabilities.find('if (!isAfricanRailsTesterEmail(user.email))')
-if deny_pos < 0 or policy_pos < 0 or deny_pos > policy_pos:
-    failures.append("yellowcard-capabilities exposes corridor policy before tester access")
+transaction = (ROOT / "supabase/functions/yellowcard-transaction/index.ts").read_text()
+if "receive_country_must_match_account_country" not in transaction or "allow_all_receive_countries" in transaction:
+    failures.append("production Receive country restriction is missing or client-bypassable")
+if 'code: "yellow_card_payout_funding_not_configured"' not in transaction:
+    failures.append("production payout execution is not fail-closed")
 
 if failures:
     print("african_rails_closed_beta_gate_audit: FAIL")
@@ -61,4 +49,4 @@ if failures:
         print(f" - {failure}")
     raise SystemExit(1)
 
-print("african_rails_closed_beta_gate_audit: PASS")
+print("african_rails_production_access_gate_audit: PASS")

@@ -1,5 +1,5 @@
 import {
-  buildYellowCardSandboxReceivePayload,
+  buildYellowCardReceivePayload,
   redactYellowCardReceivePayload,
 } from "../supabase/functions/_shared/providers/yellowcard-payload.ts";
 
@@ -27,8 +27,8 @@ for (const settlement of [
   { cryptoCurrency: "USDC" as const, cryptoNetwork: "BASE" as const, walletAddress: "0x1111111111111111111111111111111111111111" },
   { cryptoCurrency: "USDT" as const, cryptoNetwork: "TRC20" as const, walletAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC" },
 ]) {
-  Deno.test(`Yellow Card sandbox receive uses exact ${settlement.cryptoCurrency}/${settlement.cryptoNetwork} contract`, () => {
-    const payload = buildYellowCardSandboxReceivePayload({
+  Deno.test(`Yellow Card production receive uses exact ${settlement.cryptoCurrency}/${settlement.cryptoNetwork} contract`, () => {
+    const payload = buildYellowCardReceivePayload({
       sequenceId: "53f7c7fa-f2bb-450c-8f6d-9ff0000f0099",
       channelId: "channel-test",
       localAmount: 1000,
@@ -65,8 +65,8 @@ for (const settlement of [
   });
 }
 
-Deno.test("Yellow Card sandbox receive fails closed without full KYC", () => {
-  assertThrows(() => buildYellowCardSandboxReceivePayload({
+Deno.test("Yellow Card production receive fails closed without full KYC", () => {
+  assertThrows(() => buildYellowCardReceivePayload({
     sequenceId: "53f7c7fa-f2bb-450c-8f6d-9ff0000f0099",
     channelId: "channel-test",
     localAmount: 1000,
@@ -90,7 +90,7 @@ Deno.test("Yellow Card sandbox receive fails closed without full KYC", () => {
 });
 
 Deno.test("Yellow Card receive supports provider channelType auto-routing", () => {
-  const payload = buildYellowCardSandboxReceivePayload({
+  const payload = buildYellowCardReceivePayload({
     sequenceId: "53f7c7fa-f2bb-450c-8f6d-9ff0000f0099",
     channelType: "bank",
     localAmount: 1000,
@@ -117,7 +117,7 @@ Deno.test("Yellow Card receive supports provider channelType auto-routing", () =
 });
 
 Deno.test("Yellow Card receive includes a redirect URL for redirect-based channels", () => {
-  const payload = buildYellowCardSandboxReceivePayload({
+  const payload = buildYellowCardReceivePayload({
     sequenceId: "11111111-1111-4111-8111-111111111111",
     channelId: "channel-za-bank",
     localAmount: 5000,

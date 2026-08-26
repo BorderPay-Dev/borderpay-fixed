@@ -39,7 +39,6 @@ import { isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/Ex
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
-import { canUseAfricanRails } from '../../utils/africanRailsAccess';
 import { buildReceiptPdf } from '../../utils/receipts/buildReceiptPdf';
 import { exportReceiptPdf } from '../../utils/receipts/exportReceiptPdf';
 import {
@@ -130,7 +129,6 @@ interface Wallet {
   balance: number;
   symbol?: string;
   bridge_wallet_id?: string | null;
-  sandbox?: boolean;
 }
 
 interface ExternalAccountOption {
@@ -479,15 +477,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } catch {}
     return 'pending';
   });
-  const africanRailsTester = useMemo(() => {
-    try {
-      const stored = localStorage.getItem('borderpay_user');
-      const user = stored ? JSON.parse(stored) : {};
-      return canUseAfricanRails({ id: userId || user?.id, email: user?.email });
-    } catch {
-      return canUseAfricanRails({ id: userId });
-    }
-  }, [userId]);
+  // Payouts remain unavailable until customer funding, treasury prefunding,
+  // and provider reconciliation can be completed as one auditable operation.
+  const africanPayoutEnabled = false;
 
   const sendWalletsCacheKey = useMemo(
     () => financialCacheKey(SEND_WALLETS_CACHE_KEY, { userId }),
@@ -564,7 +556,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step]);
   const [method, setMethod] = useState<TransferMethod>(hasSavedPayoutIntent ? 'us_ach_wire' : 'stablecoin');
   const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
-    africanRailsTester ? readCachedAfricanPolicyRows('payout') : []
+    africanPayoutEnabled ? readCachedAfricanPolicyRows('payout') : []
   );
   const [africanPolicyLoading, setAfricanPolicyLoading] = useState(false);
   const africanPolicyLoadingRef = useRef(false);
@@ -577,7 +569,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   } | null>(null);
 
   const loadAfricanPolicy = useCallback(async (force = false) => {
-    if (!africanRailsTester) return;
+    if (!africanPayoutEnabled) return;
     if (africanPolicyLoadingRef.current) return;
     const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
     if (!force && africanPolicyRows.length > 0 && cacheIsFresh) return;
@@ -597,10 +589,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       africanPolicyLoadingRef.current = false;
       setAfricanPolicyLoading(false);
     }
-  }, [africanPolicyRows.length, africanRailsTester]);
+  }, [africanPolicyRows.length, africanPayoutEnabled]);
 
   useEffect(() => {
-    if (!africanRailsTester) return;
+    if (!africanPayoutEnabled) return;
     const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
     if (africanPolicyRows.length > 0 && cacheIsFresh) return;
     let active = true;
@@ -620,7 +612,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return () => {
       active = false;
     };
-  }, [africanPolicyRows.length, africanRailsTester]);
+  }, [africanPolicyRows.length, africanPayoutEnabled]);
 
   useEffect(() => {
     if (step === 'africa-destination' || step === 'africa-rail') {
@@ -812,14 +804,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [selectedAfricanFundingCurrency, setSelectedAfricanFundingCurrency] = useState('');
   const [selectedExternalFundingCurrency, setSelectedExternalFundingCurrency] = useState('');
   const africanFundingWallets = useMemo(
-    () => (africanRailsTester ? [
-      { id: 'yellow-card-sandbox-usdc', currency: 'USDC', balance: 100000, sandbox: true },
-      { id: 'yellow-card-sandbox-usdt', currency: 'USDT', balance: 100000, sandbox: true },
-    ] : wallets)
+    () => wallets
       .map((wallet) => ({ ...wallet, currency: String(wallet.currency || '').toUpperCase() }))
       .filter((wallet) => AFRICAN_FUNDING_CURRENCY_PRIORITY.includes(wallet.currency))
       .sort((a, b) => AFRICAN_FUNDING_CURRENCY_PRIORITY.indexOf(a.currency) - AFRICAN_FUNDING_CURRENCY_PRIORITY.indexOf(b.currency)),
-    [africanRailsTester, wallets],
+    [wallets],
   );
   const externalFundingWallets = useMemo(
     () => wallets
@@ -881,7 +870,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     })[0] || null;
   }, [amount, selectedAfricanRail, selectedCurrency]);
   const selectedAfricanProvider = providerFromPolicy(selectedAfricanPolicyRow);
-  const requiresInstitutionSelection = isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsTester;
+  const requiresInstitutionSelection = isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanPayoutEnabled;
   const [africanQuote, setAfricanQuote] = useState<{
     destinationAmount: number | null;
     rate: number | null;
@@ -889,7 +878,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   } | null>(null);
   const [africanQuoteLoading, setAfricanQuoteLoading] = useState(false);
   const [africanQuoteError, setAfricanQuoteError] = useState('');
-  const [yellowCardSandboxOutcome, setYellowCardSandboxOutcome] = useState<'success' | 'failure'>('success');
   // One Yellow Card sequence per African payout intent. A retry of the same
   // corridor, amount and beneficiary must reuse the original sequence so a
   // timeout or double tap cannot create a second provider transaction.
@@ -931,10 +919,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       setAfricanQuoteError('');
       return;
     }
-    if (!africanRailsTester) {
+    if (!africanPayoutEnabled) {
       setAfricanQuote(null);
       setAfricanQuoteLoading(false);
-      setAfricanQuoteError('This route remains in controlled integration testing.');
+      setAfricanQuoteError('African payouts are temporarily unavailable.');
       return;
     }
     const reqId = africanQuoteReqRef.current + 1;
@@ -966,7 +954,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (africanQuoteReqRef.current === reqId) setAfricanQuoteLoading(false);
       }
     })();
-  }, [amount, isAfricanPayout, selectedAfricanCountryCode, selectedAfricanRail, selectedCurrency, activeFundingCurrency, africanRailsTester]);
+  }, [amount, isAfricanPayout, selectedAfricanCountryCode, selectedAfricanRail, selectedCurrency, activeFundingCurrency, africanPayoutEnabled]);
 
   const africanPolicyFee = useMemo(() => {
     if (!isAfricanPayout || !selectedAfricanPolicyRow || !africanQuote?.destinationAmount) return null;
@@ -1457,7 +1445,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         && reason.trim().length > 0;
     }
     if (isAfricanPayout) {
-      return africanRailsTester && num > 0 && !!activeFundingWallet && !africanInsufficientFunding &&
+      return africanPayoutEnabled && num > 0 && !!activeFundingWallet && !africanInsufficientFunding &&
         !africanQuoteLoading && !!africanQuote?.destinationAmount && !!africanPolicyFee && reason.trim().length > 0;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
@@ -1472,7 +1460,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     const terminalFailure = new Set(['failed', 'rejected', 'cancelled', 'canceled', 'expired']);
     [5_000, 15_000, 30_000].forEach((delay) => {
       window.setTimeout(async () => {
-        const status: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+        const status: any = await backendAPI.payouts.yellowCardTransaction({
           action: 'status',
           sequence_id: sequenceId,
         });
@@ -1484,7 +1472,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         if (terminalFailure.has(next)) {
           setTransactionPending(false);
-          setErrorMessage('Yellow Card could not complete this sandbox transaction. Keep the transaction reference for the provider report.');
+          setErrorMessage('Yellow Card could not complete this transaction. Keep the transaction reference for support.');
           setStep('error');
         }
       }, delay);
@@ -1560,8 +1548,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           },
         });
       } else if (method === 'bank' || method === 'mobile_money') {
-        if (!africanRailsTester) {
-          throw new Error('African rail transfers are visible for planning but execution remains in controlled integration testing.');
+        if (!africanPayoutEnabled) {
+          throw new Error('African payouts are temporarily unavailable while treasury funding reconciliation is completed.');
         }
         if (!selectedAfricanCountryCode || !selectedAfricanRail) {
           throw new Error('Select a destination country and payout rail.');
@@ -1590,7 +1578,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           network_id: selectedBank.code,
           reason: reason.trim(),
           recipient_name: beneficiaryName,
-          sandbox_outcome: yellowCardSandboxOutcome,
+          recipient_account_number: method === 'mobile_money'
+            ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
+            : accountNumber.trim(),
         };
         const intentFingerprint = JSON.stringify(request);
         if (yellowCardSequenceRef.current?.fingerprint !== intentFingerprint) {
@@ -1600,11 +1590,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           };
         }
         const sequenceId = yellowCardSequenceRef.current.sequenceId;
-        result = await backendAPI.payouts.yellowCardSandboxTransaction({
+        result = await backendAPI.payouts.yellowCardTransaction({
           action: 'create_send',
           ...request,
           sequence_id: sequenceId,
-          operator_confirmed: true,
           sca_authorization_id: scaAuthorizationId,
         });
       } else {
@@ -1615,9 +1604,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         // The provider webhook owns the balance mutation. Drop every derived
         // financial cache now so Dashboard, Wallet, Activity and Notifications
         // cannot keep rendering the pre-payout snapshot after navigation.
-        // Yellow Card sandbox uses isolated simulator funds and never mutates
-        // live Bridge wallets. Preserve Dashboard's last verified snapshot.
-        if (!isAfricanPayout) backendAPI.financial.invalidateForUser(userId);
+        backendAPI.financial.invalidateForUser(userId);
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
         setTransactionId(
@@ -1740,7 +1727,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         network_id: selectedBank.code,
         reason: reason.trim(),
         recipient_name: recipientName.trim() || resolvedName || undefined,
-        sandbox_outcome: yellowCardSandboxOutcome,
+        recipient_account_number: method === 'mobile_money'
+          ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
+          : accountNumber.trim(),
       };
       const fingerprint = JSON.stringify(requestBase);
       if (yellowCardSequenceRef.current?.fingerprint !== fingerprint) {
@@ -1750,7 +1739,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         action: 'create_send',
         ...requestBase,
         sequence_id: yellowCardSequenceRef.current.sequenceId,
-        operator_confirmed: true,
       };
       scaPaymentRequestRef.current = request;
     } else {
@@ -1922,7 +1910,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <div className="space-y-3">
-              {africanRailsTester ? <button
+              {africanPayoutEnabled ? <button
                 type="button"
                 onClick={() => {
                   setStep('africa-destination');
@@ -1996,7 +1984,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <div className="min-w-0 flex-1">
                     <p className={`truncate text-sm font-semibold ${tc.text}`}>External digital dollar</p>
                     <p className="mt-1 truncate text-xs font-semibold text-cyan-400">USDC on Base or USDT on TRON</p>
-                    <p className="mt-1 truncate text-xs text-white/40">Pending sandbox evidence sign-off</p>
+                    <p className="mt-1 truncate text-xs text-white/40">Release approval pending</p>
                   </div>
                   <span className="rounded-full bg-amber-400/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-amber-300">
                     Pending
@@ -2792,7 +2780,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </label>
                 {isAfricanPayout && activeFundingWallet && (
                   <span className="shrink-0 rounded-full bg-[#C7FF00]/12 px-3 py-1 text-[11px] font-bold text-[#C7FF00] shadow-[0_0_18px_rgba(199,255,0,0.18)]">
-                    {activeFundingWallet.sandbox ? 'Sandbox test balance' : `${formatMoney(Number(activeFundingWallet.balance || 0), 'USD')} available`}
+                    {`${formatMoney(Number(activeFundingWallet.balance || 0), 'USD')} available`}
                   </span>
                 )}
                 {isExternalAccountOfframp && activeExternalFundingWallet && (
@@ -2839,7 +2827,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         >
                           <span className={`block text-sm font-bold ${selected ? 'text-[#C7FF00]' : tc.text}`}>{currency}</span>
                           <span className={`mt-1 block text-[11px] ${tc.textMuted}`}>
-                            {wallet ? (wallet.sandbox ? 'Sandbox test funds' : `${formatMoney(Number(wallet.balance || 0), 'USD')} balance`) : 'Wallet unavailable'}
+                            {wallet ? `${formatMoney(Number(wallet.balance || 0), 'USD')} balance` : 'Wallet unavailable'}
                           </span>
                         </button>
                       );
@@ -3087,7 +3075,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       <div className="flex justify-between">
                         <span className={`text-xs ${tc.textMuted}`}>Funding Source</span>
                         <span className={`text-sm font-medium ${tc.text}`}>
-                          {activeFundingWallet.sandbox ? `${activeFundingWallet.currency} sandbox test funds` : `${activeFundingWallet.currency} Wallet`}
+                          {`${activeFundingWallet.currency} Wallet`}
                         </span>
                       </div>
                     )}
@@ -3225,29 +3213,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     </span>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsTester && (
-              <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-4`}>
-                <p className={`text-xs font-semibold ${tc.text} mb-3`}>Sandbox outcome</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['success', 'failure'] as const).map((outcome) => (
-                    <button
-                      key={outcome}
-                      type="button"
-                      onClick={() => setYellowCardSandboxOutcome(outcome)}
-                      className={`rounded-xl border px-3 py-2 text-xs font-bold capitalize transition-colors ${
-                        yellowCardSandboxOutcome === outcome
-                          ? 'border-[#C7FF00] bg-[#C7FF00]/10 text-[#C7FF00]'
-                          : `${tc.borderLight} ${tc.textMuted}`
-                      }`}
-                    >
-                      {outcome}
-                    </button>
-                  ))}
-                </div>
-                <p className={`mt-2 text-[11px] ${tc.textMuted}`}>Integration-review tester only. No real recipient funds move.</p>
               </div>
             )}
 

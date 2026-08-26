@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-edge = (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.ts").read_text()
+edge = (ROOT / "supabase/functions/yellowcard-transaction/index.ts").read_text()
 send = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 receive = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 errors = (ROOT / "utils/errors/friendlyError.ts").read_text()

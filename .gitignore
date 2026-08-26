@@ -32,3 +32,4 @@ yarn-error.log*
 # Supabase CLI local residue (link/deploy artifacts — never commit)
 .tools/
 supabase/.temp/
+.env*

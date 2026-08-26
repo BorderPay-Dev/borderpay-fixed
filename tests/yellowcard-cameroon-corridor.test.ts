@@ -3,8 +3,8 @@ import {
   findYellowCardCommercialRail,
 } from "../supabase/functions/_shared/providers/yellowcard-commercial-policy.ts";
 import {
-  buildYellowCardSandboxReceivePayload,
-  buildYellowCardSandboxSendPayload,
+  buildYellowCardReceivePayload,
+  buildYellowCardSendPayload,
 } from "../supabase/functions/_shared/providers/yellowcard-payload.ts";
 import { resolveYellowCardRouting } from "../supabase/functions/_shared/providers/yellowcard-routing.ts";
 
@@ -100,7 +100,7 @@ Deno.test("Cameroon fees use PDF pricing plus BorderPay markup and doubled minim
 });
 
 Deno.test("Cameroon generated send and receive bodies contain exact route parameters", () => {
-  const send = buildYellowCardSandboxSendPayload({
+  const send = buildYellowCardSendPayload({
     sequenceId: "33333333-3333-4333-8333-333333333333",
     channelId: SEND_CHANNEL,
     localAmount: 5_000,
@@ -112,7 +112,7 @@ Deno.test("Cameroon generated send and receive bodies contain exact route parame
     destination: { accountName: "Sandbox Recipient", accountNumber: "+2371111111111", accountType: "momo", networkId: MOBILE_WALLET },
     settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", cryptoAmount: 10, refundAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe" },
   }) as Record<string, any>;
-  const receive = buildYellowCardSandboxReceivePayload({
+  const receive = buildYellowCardReceivePayload({
     sequenceId: "44444444-4444-4444-8444-444444444444",
     channelId: RECEIVE_CHANNEL,
     localAmount: 5_000,

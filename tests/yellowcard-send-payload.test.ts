@@ -1,4 +1,7 @@
-import { buildYellowCardSandboxSendPayload } from "../supabase/functions/_shared/providers/yellowcard-payload.ts";
+import {
+  buildYellowCardSendPayload,
+  redactYellowCardSendPayload,
+} from "../supabase/functions/_shared/providers/yellowcard-payload.ts";
 
 const base = () => ({
   sequenceId: "2603f2c2-217e-46ff-b82a-4387924ff5ae",
@@ -33,7 +36,7 @@ const base = () => ({
 });
 
 Deno.test("Yellow Card Send payload follows the exact selected corridor", () => {
-  const payload = buildYellowCardSandboxSendPayload(base()) as Record<string, any>;
+  const payload = buildYellowCardSendPayload(base()) as Record<string, any>;
   if (payload.channelId !== "channel-ke-momo-send") throw new Error("missing exact channelId");
   if ("localAmount" in payload || "amount" in payload) {
     throw new Error("direct-settlement Send must omit amount and localAmount");
@@ -51,9 +54,22 @@ Deno.test("Yellow Card Send rejects an incomplete corridor body", () => {
   input.channelId = "";
   let threw = false;
   try {
-    buildYellowCardSandboxSendPayload(input);
+    buildYellowCardSendPayload(input);
   } catch (error) {
     threw = String(error).includes("yellow_card_missing_channel_id");
   }
   if (!threw) throw new Error("missing channelId must fail closed");
+});
+
+Deno.test("Yellow Card Send persistence redacts customer and funding secrets", () => {
+  const redacted = redactYellowCardSendPayload(buildYellowCardSendPayload(base())) as Record<string, any>;
+  if (redacted.sender.phone !== "[redacted]" || redacted.sender.idNumber !== "[redacted]") {
+    throw new Error("sender identity was persisted without redaction");
+  }
+  if (redacted.destination.accountNumber !== "[redacted]") {
+    throw new Error("recipient account was persisted without redaction");
+  }
+  if (redacted.settlementInfo.refundAddress !== "[redacted]") {
+    throw new Error("refund address was persisted without redaction");
+  }
 });

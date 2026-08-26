@@ -164,19 +164,19 @@ verify_jwt = true
 [functions.external-wallet]
 verify_jwt = true
 
-# Yellow Card read-only commercial policy and sandbox provider discovery.
+# Yellow Card production commercial policy and provider discovery.
 [functions.yellowcard-capabilities]
 verify_jwt = true
 
-# Yellow Card controlled sandbox Send/Receive execution.
-[functions.yellowcard-sandbox-transaction]
+# Yellow Card production Receive execution. Payout execution remains fail-closed
+# until customer funding and treasury reconciliation are atomic.
+[functions.yellowcard-transaction]
 verify_jwt = true
 
-# Admin/tester-only provider diagnostics.
-[functions.yellowcard-sandbox-diagnostics]
-verify_jwt = true
+[functions.yellowcard-webhook]
+verify_jwt = false
 
-# Admin-only, read-only channel discovery; never activates corridors.
+# Admin-only, production-only, read-only provider discovery.
 [functions.yellowcard-corridor-sync]
 verify_jwt = true
 

@@ -40,14 +40,18 @@ for endpoint in (
     "bridge-wallet",
     "bridge-provision-stablecoins",
     "external-wallet",
-    "yellowcard-sandbox-transaction",
+    "yellowcard-transaction",
 ):
     source = read(f"supabase/functions/{endpoint}/index.ts")
     require("getFinancialAccessBlock" in source, f"{endpoint} must enforce the shared account guard")
     call = "await getFinancialAccessBlock("
     call_at = source.find(call)
     require(call_at >= 0, f"{endpoint} must invoke the shared account guard")
-    auth_at = max(source.rfind("auth.getUser", 0, call_at), source.rfind("authenticateAfricanRailsTester", 0, call_at))
+    auth_at = max(
+        source.rfind("auth.getUser", 0, call_at),
+        source.rfind("authenticateAfricanRailsTester", 0, call_at),
+        source.rfind("authenticateAfricanRailsUser", 0, call_at),
+    )
     require(auth_at >= 0 and auth_at < call_at, f"{endpoint} guard must run after authentication")
 
 print("paused account gate audit: PASS")

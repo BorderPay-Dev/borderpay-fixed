@@ -1,0 +1,23 @@
+[Unit]
+Description=BorderPay Yellow Card restricted egress relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=borderpay-relay
+Group=borderpay-relay
+EnvironmentFile=/etc/borderpay/yellowcard-relay.env
+WorkingDirectory=/opt/borderpay-yellowcard-relay
+ExecStart=/usr/bin/node /opt/borderpay-yellowcard-relay/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

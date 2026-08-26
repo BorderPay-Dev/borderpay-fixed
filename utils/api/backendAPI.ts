@@ -27,12 +27,12 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-customer') return 30000;
   if (endpoint === 'bridge-transfer') return 45000;
   if (endpoint === 'bridge-external-account') return 30000;
-  // Yellow Card sandbox orchestration performs authenticated routing discovery,
+  // Yellow Card production orchestration performs authenticated routing discovery,
   // preflight persistence and provider submission. Its upstream deadline is
   // longer than the generic UI deadline, so aborting at 8s creates false
   // failures while the idempotent server request continues in the background.
   if (endpoint === 'yellowcard-capabilities') return 30000;
-  if (endpoint === 'yellowcard-sandbox-transaction') return 90000;
+  if (endpoint === 'yellowcard-transaction') return 90000;
   return 8000;
 }
 
@@ -2677,8 +2677,8 @@ export const payoutsAPI = {
     body: JSON.stringify({ action, ...payload }),
   }),
 
-  yellowCardSandboxTransaction: async (payload: Record<string, unknown>) =>
-    apiCall<Record<string, unknown>>(yellowCardFunction('sandbox-transaction'), {
+  yellowCardTransaction: async (payload: Record<string, unknown>) =>
+    apiCall<Record<string, unknown>>(yellowCardFunction('transaction'), {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
