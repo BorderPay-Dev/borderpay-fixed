@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { assertScaOperation, CUSTOMER_SCA_ENFORCEMENT_ENABLED, resolveScaResidencyRequirement, scaPayloadHash } from "../_shared/sca.ts";
+import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { assertScaOperation, classifyScaResidency, CUSTOMER_SCA_ENFORCEMENT_ENABLED, scaPayloadHash } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -35,6 +37,45 @@ async function verifyFactor(endpoint: "verify-pin" | "verify-2fa", auth: string,
   }
 }
 
+async function resolveProviderScaRequirement(supabase: any, userId: string) {
+  const identity = await loadAndAssertBridgeIdentityInvariant(supabase, userId);
+  if (!identity.ok) {
+    console.error("sca_bridge_identity_invariant_failed", {
+      user_id: userId,
+      reason: identity.failure.reason,
+    });
+    throw new Error("bridge_identity_unavailable");
+  }
+
+  const { bridge_customer_id: customerId, verification_status: verificationStatus } = identity.context;
+  if (String(verificationStatus || "").toLowerCase() !== "approved" || !customerId) {
+    return { required: false, country: null, reason: "verification_not_approved" as const };
+  }
+
+  const customer = await bridgeProvider.getCustomerProfile(customerId);
+  const requirement = classifyScaResidency(customer.country);
+  if (requirement.reason === "residency_unknown") {
+    console.error("sca_bridge_residency_missing", { user_id: userId, bridge_customer_id: customerId });
+    throw new Error("bridge_residency_unavailable");
+  }
+
+  const checkedAt = new Date();
+  const { error: scopeError } = await supabase.from("sca_customer_scopes").upsert({
+    user_id: userId,
+    bridge_customer_id: customerId,
+    provider_country: requirement.country,
+    sca_required: requirement.required,
+    source: "bridge_customer_api",
+    checked_at: checkedAt.toISOString(),
+    expires_at: new Date(checkedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+  }, { onConflict: "user_id" });
+  if (scopeError) {
+    console.error("sca_scope_persistence_failed", { user_id: userId, code: scopeError.code });
+    throw new Error("sca_scope_persistence_failed");
+  }
+  return requirement;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -54,7 +95,10 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
 
-  if (!CUSTOMER_SCA_ENFORCEMENT_ENABLED) {
+  if (
+    !CUSTOMER_SCA_ENFORCEMENT_ENABLED
+    || Deno.env.get("UNIVERSAL_SCA_ENFORCEMENT_ENABLED") !== "true"
+  ) {
     return json({
       success: true,
       data: {
@@ -65,7 +109,22 @@ Deno.serve(async (req) => {
     });
   }
 
-  const residency = await resolveScaResidencyRequirement(supabase, user.id);
+  let residency;
+  try {
+    // Bridge's Customer API is authoritative for legal residence. Mutable
+    // browser/profile country fields must never determine EEA SCA scope.
+    residency = await resolveProviderScaRequirement(supabase, user.id);
+  } catch (error) {
+    console.error("sca_provider_requirement_failed", {
+      user_id: user.id,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    return json({
+      success: false,
+      code: "sca_scope_unavailable",
+      error: "Strong-authentication scope could not be verified. Financial access remains locked.",
+    }, 503);
+  }
   if (body.action === "requirement") {
     return json({ success: true, data: { sca_required: residency.required, residency_status: residency.reason } });
   }
@@ -80,7 +139,7 @@ Deno.serve(async (req) => {
   const resource = String(body.resource || "").trim();
   const pin = String(body.pin || "");
   const totp = String(body.totp || "");
-  if (!/^\d{4,6}$/.test(pin) || !/^\d{6}$/.test(totp)) {
+  if (!/^\d{6}$/.test(pin) || !/^\d{6}$/.test(totp)) {
     return json({ success: false, code: "sca_factors_required", error: "Transaction PIN and 6-digit authenticator code are required." }, 400);
   }
 

@@ -1,8 +1,9 @@
 export type ScaOperation = "wallet_access" | "payment" | "beneficiary_change" | "security_change";
+export type BridgeInitiationChannel = "other_mobile_payment" | "other";
 
-// Emergency rollback. Customer SCA must not be re-enabled until Bridge's EEA
-// scope is implemented and approved end to end.
-export const CUSTOMER_SCA_ENFORCEMENT_ENABLED = false;
+// Compile-time release boundary. Production activation remains controlled by
+// the server-only UNIVERSAL_SCA_ENFORCEMENT_ENABLED runtime secret.
+export const CUSTOMER_SCA_ENFORCEMENT_ENABLED = true;
 
 type ScaDatabaseClient = {
   from: (table: string) => any;
@@ -97,6 +98,19 @@ const OPERATIONS = new Set<ScaOperation>([
   "wallet_access", "payment", "beneficiary_change", "security_change",
 ]);
 
+export function bridgeScaInitiation(channel: unknown) {
+  const normalized = String(channel || "").trim();
+  if (normalized !== "other_mobile_payment" && normalized !== "other") {
+    throw new Error("invalid_bridge_initiation_channel");
+  }
+  return {
+    channel: normalized as BridgeInitiationChannel,
+    subchannel: "remote" as const,
+    // Bridge requires the enum string itself, not an outcome object.
+    attestations: { sca: "sca_used" as const },
+  };
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") {
@@ -139,17 +153,38 @@ export async function consumeScaAuthorization(params: {
   operation: ScaOperation;
   resource: string;
   request: unknown;
-}): Promise<{ ok: true } | { ok: false; status: number; body: Record<string, unknown> }> {
-  if (!CUSTOMER_SCA_ENFORCEMENT_ENABLED) return { ok: true };
+  required?: boolean;
+}): Promise<
+  | { ok: true; required: false; applied: false }
+  | { ok: true; required: true; applied: true; authorizationId: string }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  if (!CUSTOMER_SCA_ENFORCEMENT_ENABLED) {
+    return { ok: true, required: false, applied: false };
+  }
 
   // Rollout gate: older signed mobile releases cannot submit an SCA
   // authorization. Keep enforcement off until compatible App Store and Play
   // builds are published; the new web client still performs the full flow.
   // Enabling this secret is a release-control action, not a client flag.
-  if (Deno.env.get("UNIVERSAL_SCA_ENFORCEMENT_ENABLED") !== "true") return { ok: true };
+  const residency = params.required == null
+    ? await resolveScaResidencyRequirement(params.supabase, params.userId)
+    : { required: params.required };
+  if (!residency.required) return { ok: true, required: false, applied: false };
 
-  const residency = await resolveScaResidencyRequirement(params.supabase, params.userId);
-  if (!residency.required) return { ok: true };
+  // Bridge-marked wallets remain blocked until the runtime rollout control is
+  // enabled; they must never silently fall through without SCA.
+  if (Deno.env.get("UNIVERSAL_SCA_ENFORCEMENT_ENABLED") !== "true") {
+    return {
+      ok: false,
+      status: 503,
+      body: {
+        success: false,
+        code: "sca_not_activated",
+        error: "Strong authentication is not activated for this wallet. Nothing was sent.",
+      },
+    };
+  }
 
   const authorizationId = String(params.authorizationId || "").trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(authorizationId)) {
@@ -183,5 +218,5 @@ export async function consumeScaAuthorization(params: {
       body: { success: false, code: "sca_invalid", error: "Strong authentication expired, was already used, or does not match this action." },
     };
   }
-  return { ok: true };
+  return { ok: true, required: true, applied: true, authorizationId };
 }

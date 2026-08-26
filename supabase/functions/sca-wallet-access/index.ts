@@ -31,6 +31,9 @@ Deno.serve(async (req) => {
     operation: "wallet_access",
     resource: "wallet_balances",
     request,
+    // Only sca-authorize can issue this bound authorization, after checking
+    // Bridge's authoritative Customer API scope.
+    required: true,
   });
   if (!sca.ok) return json(sca.body, sca.status);
   const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();

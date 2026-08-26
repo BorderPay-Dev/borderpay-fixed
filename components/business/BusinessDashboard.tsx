@@ -227,6 +227,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, financialAcces
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
   const [walletsLoading, setWalletsLoading] = useState(false);
   const balanceRequiresUnlock = (financialAccessRequired || financialAccessChecking) && !financialAccessGranted;
+  const financialReadAllowed = !financialAccessChecking && (!financialAccessRequired || financialAccessGranted);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
   const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() => hasActiveCachedVa(userId));
   const walletsLoadInFlightRef = useRef<Promise<void> | null>(null);
@@ -269,6 +270,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, financialAcces
   })).filter((w: WalletRow) => !!w.currency && isSpendableBusinessWallet(w));
 
   const loadWallets = async (force = false) => {
+    if (!financialReadAllowed) return;
     if (walletsLoadInFlightRef.current) {
       await walletsLoadInFlightRef.current;
       return;
@@ -435,6 +437,17 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, financialAcces
   };
 
   useEffect(() => {
+    if (!financialReadAllowed) {
+      backendAPI.financial.invalidateForUser(userId);
+      setWallets([]);
+      walletsRef.current = [];
+      setVirtualAccounts([]);
+      setTransactions([]);
+      setSelectedVa(null);
+      setHasVirtualAccounts(false);
+      setWalletsLoading(false);
+      return;
+    }
     loadWallets();
     const onFocus = () => { void loadWallets(); };
     const onVisibility = () => {
@@ -447,7 +460,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, financialAcces
       document.removeEventListener('visibilitychange', onVisibility);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [financialReadAllowed, userId]);
 
   useEffect(() => {
     const prewarmKey = `borderpay_business_dashboard_prewarm_v1:${userId}`;
@@ -558,7 +571,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, financialAcces
                   </button>
                 </div>
                 <p className="text-[11px] text-white/40 mt-2">
-                  {wallets.length === 0
+                  {!financialReadAllowed
+                    ? 'Unlock to view your accounts.'
+                    : wallets.length === 0
                     ? 'No accounts yet. Open one to start.'
                     : `Across ${wallets.length} ${wallets.length === 1 ? 'account' : 'accounts'}`}
                 </p>
@@ -637,7 +652,20 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, financialAcces
 
           <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-              {accountChipCount === 0 ? (
+              {!financialReadAllowed ? (
+                <button
+                  type="button"
+                  disabled={financialAccessChecking}
+                  onClick={() => onRequestFinancialAccess?.()}
+                  className={`flex-shrink-0 w-[280px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-left ${financialAccessChecking ? 'cursor-wait opacity-70' : tc.hoverBg}`}
+                >
+                  <ShieldCheck className="w-5 h-5 text-[#C7FF00]" />
+                  <p className={`mt-3 text-sm font-semibold ${tc.text}`}>Financial information locked</p>
+                  <p className={`mt-1 text-[11px] ${tc.textMuted}`}>
+                    {financialAccessChecking ? 'Checking regional security requirements…' : 'Verify with strong authentication to view accounts and wallets.'}
+                  </p>
+                </button>
+              ) : accountChipCount === 0 ? (
                 <button
                   onPointerDown={() => prefetchScreen('add-wallet')}
                   onMouseEnter={() => prefetchScreen('add-wallet')}
@@ -737,7 +765,9 @@ export function BusinessDashboard({ userId, onLogout, onNavigate, financialAcces
         </section>
 
         {/* ── Treasury management ─────────────────────────────────── */}
-        <TreasuryCard totalUsd={usdLikeTotal} wallets={wallets} transactions={transactions} userId={userId} />
+        {financialReadAllowed ? (
+          <TreasuryCard totalUsd={usdLikeTotal} wallets={wallets} transactions={transactions} userId={userId} />
+        ) : null}
 
         {/* Profile error */}
         {profileError && (

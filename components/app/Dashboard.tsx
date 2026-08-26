@@ -274,6 +274,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   const { prefs, updatePrefs } = usePreferences();
   const [balanceHidden, setBalanceHidden] = useState(prefs.hide_balance);
   const balanceRequiresUnlock = (financialAccessRequired || financialAccessChecking) && !financialAccessGranted;
+  const financialReadAllowed = !financialAccessChecking && (!financialAccessRequired || financialAccessGranted);
   const effectiveBalanceHidden = balanceRequiresUnlock || balanceHidden;
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(() => cachedProfile?.profile_picture_url || null);
   const [profilePicLoaded, setProfilePicLoaded] = useState(false);
@@ -404,6 +405,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
   // ─── data loading ─────────────────────────────────────────────────────────
   const loadDashboardData = useCallback(async () => {
+    if (!financialReadAllowed) return;
     if (dashboardLoadInFlightRef.current) {
       await dashboardLoadInFlightRef.current;
       return;
@@ -550,7 +552,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
         dashboardLoadInFlightRef.current = null;
       }
     }
-  }, [accountChipCount, dashRecentKey, dashRefreshTsKey, dashVaKey, dashWalletsKey, userCountry, verificationResolved, userId]);
+  }, [accountChipCount, dashRecentKey, dashRefreshTsKey, dashVaKey, dashWalletsKey, financialReadAllowed, userCountry, verificationResolved, userId]);
 
   const retryDashboardData = useCallback(() => {
     backendAPI.financial.invalidateForUser(userId);
@@ -564,6 +566,18 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   }, [accountChipCount, loadDashboardData, userId]);
 
   useEffect(() => {
+    if (!financialReadAllowed) {
+      backendAPI.financial.invalidateForUser(userId);
+      setWallets([]);
+      setVirtualAccounts([]);
+      setRecentTransactions([]);
+      setTotalBalance(0);
+      setWalletsLoaded(false);
+      setTxLoaded(false);
+      setSelectedVa(null);
+      setLoading(false);
+      return;
+    }
     loadDashboardData();
     const onFocus = () => { void loadDashboardData(); };
     const onVisibility = () => {
@@ -575,7 +589,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [loadDashboardData]);
+  }, [financialReadAllowed, loadDashboardData, userId]);
 
   useEffect(() => {
     const prewarmKey = `borderpay_dashboard_prewarm_v1:${userId}`;
@@ -751,7 +765,9 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
               </button>
             </div>
             <p className="text-[11px] text-white/40 mt-1.5">
-              {loading && !walletsLoaded && accountChipCount === 0
+              {!financialReadAllowed
+                ? tt('dashboard.unlockAccounts', 'Unlock to view your accounts.')
+                : loading && !walletsLoaded && accountChipCount === 0
                 ? tt('dashboard.loadingAccounts', 'Loading your accounts…')
                 : accountChipCount > 0
                 ? `${tt('dashboard.across', 'Across')} ${accountChipCount} ${accountChipCount === 1 ? 'account' : 'accounts'}`
@@ -901,7 +917,20 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
         <div className="overflow-x-auto pb-1 -mb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="px-4 sm:px-5 flex gap-2.5 min-w-min">
-            {loading && !walletsLoaded && accountChipCount === 0 ? (
+            {!financialReadAllowed ? (
+              <button
+                type="button"
+                disabled={financialAccessChecking}
+                onClick={() => onRequestFinancialAccess?.()}
+                className={`flex-shrink-0 w-[280px] rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-4 text-left ${financialAccessChecking ? 'cursor-wait opacity-70' : tc.hoverBg}`}
+              >
+                <ShieldCheck className="w-5 h-5 text-[#C7FF00]" />
+                <p className={`mt-3 text-sm font-semibold ${tc.text}`}>Financial information locked</p>
+                <p className={`mt-1 text-[11px] ${tc.textMuted}`}>
+                  {financialAccessChecking ? 'Checking regional security requirements…' : 'Verify with strong authentication to view accounts and wallets.'}
+                </p>
+              </button>
+            ) : loading && !walletsLoaded && accountChipCount === 0 ? (
               <div className="flex gap-2.5" aria-label="Loading accounts">
                 <Skeleton className="w-[164px] h-[156px] rounded-2xl" />
                 <Skeleton className="w-[164px] h-[156px] rounded-2xl" />
@@ -1040,7 +1069,20 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
           </button>
         </div>
 
-        {recentTransactions.length === 0 && !txLoaded ? (
+        {!financialReadAllowed ? (
+          <button
+            type="button"
+            disabled={financialAccessChecking}
+            onClick={() => onRequestFinancialAccess?.()}
+            className={`w-full rounded-2xl border ${tc.cardBorder} ${tc.card} px-5 py-8 text-center ${financialAccessChecking ? 'cursor-wait opacity-70' : tc.hoverBg}`}
+          >
+            <ShieldCheck className="w-6 h-6 text-[#C7FF00] mx-auto mb-2" />
+            <p className={`text-sm ${tc.text} font-medium`}>Financial activity locked</p>
+            <p className={`text-[11px] ${tc.textMuted} mt-0.5`}>
+              {financialAccessChecking ? 'Checking regional security requirements…' : 'Verify to view transaction history.'}
+            </p>
+          </button>
+        ) : recentTransactions.length === 0 && !txLoaded ? (
           // Cold load with nothing cached → shape, not spinner.
           <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
             {[0, 1, 2].map((i) => (

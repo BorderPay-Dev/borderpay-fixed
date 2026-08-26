@@ -751,6 +751,27 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Money movement ────────────────────────────────────────────────────────
+  /** Read Bridge's authoritative per-wallet SCA requirement before transfer. */
+  async getWalletTransferPolicy(
+    customerId: string,
+    walletId: string,
+  ): Promise<{ initiation_required: boolean }> {
+    const r = await bridgeFetch({
+      method: "GET",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/wallets/${encodeURIComponent(walletId)}`,
+    });
+    if (!r.ok) {
+      throw new BridgeProviderError(`Bridge getWalletTransferPolicy failed [${r.status}]`, {
+        status: r.status,
+        request_id: r.request_id,
+        bridge_error: r.error,
+        raw_text: r.raw_text?.slice(0, 1000),
+      });
+    }
+    const data = (r.data as any)?.data ?? r.data;
+    return { initiation_required: data?.initiation_required === true };
+  }
+
   async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
     const bridgeRail = (rail: string) => String(rail || "").toLowerCase();
     const body: Record<string, unknown> = {
@@ -787,6 +808,7 @@ export class BridgeProvider implements PaymentProvider {
         developer_fee: input.developer_fee.flat_amount,
       } : {}),
       ...(input.features ? { features: input.features } : {}),
+      ...(input.initiation ? { initiation: input.initiation } : {}),
     };
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,

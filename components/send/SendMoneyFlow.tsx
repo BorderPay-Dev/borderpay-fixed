@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import {
   ArrowLeft, Building2, Search,
@@ -1501,6 +1502,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
     try {
       let result: any;
+      const initiationChannel = Capacitor.isNativePlatform() ? 'other_mobile_payment' : 'other';
 
       if (method === 'stablecoin') {
         if (stablecoinMinimumError) {
@@ -1528,6 +1530,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           external_wallet_id: cryptoSavedWalletId,
           bridge_payment_route_id: cryptoSavedRouteId,
           sca_authorization_id: scaAuthorizationId,
+          initiation_channel: initiationChannel,
           // Required by bridge-transfer v2. Reusing the per-mount key
           // means a network retry of the same Confirm tap returns the
           // original transfer_id (server-side replay), not a duplicate.
@@ -1547,6 +1550,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         result = await backendAPI.bridge.transfer.create({
           idempotency_key: transferIdempotencyKey,
           sca_authorization_id: scaAuthorizationId,
+          initiation_channel: initiationChannel,
           source: {
             payment_rail: 'bridge_wallet',
             currency: activeExternalFundingCurrency,
@@ -1688,10 +1692,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
 
     let request: Record<string, any>;
+    const initiationChannel = Capacitor.isNativePlatform() ? 'other_mobile_payment' : 'other';
     if (method === 'stablecoin') {
       const symbol = crypto.token.toUpperCase();
       request = {
         idempotency_key: transferIdempotencyKey,
+        initiation_channel: initiationChannel,
         source: {
           payment_rail: 'bridge_wallet',
           currency: symbol,
@@ -1712,6 +1718,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         : selectedExternalAccount.account_type === 'gb' ? 'faster_payments' : 'ach';
       request = {
         idempotency_key: transferIdempotencyKey,
+        initiation_channel: initiationChannel,
         source: {
           payment_rail: 'bridge_wallet',
           currency: activeExternalFundingCurrency,

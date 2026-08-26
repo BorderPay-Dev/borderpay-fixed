@@ -75,7 +75,7 @@ import {
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
-import { consumeScaAuthorization } from "../_shared/sca.ts";
+import { bridgeScaInitiation, consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -592,6 +592,31 @@ Deno.serve(async (req) => {
   const normalizedDestinationType = normalizeBridgeEndpointType(enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail);
   const transactionDirection = normalizedSourceType === "wallet" ? "debit" : "credit";
   const transactionType = transactionDirection === "debit" ? "withdrawal" : "deposit";
+  let bridgeInitiationRequired = false;
+
+  if (normalizedSourceType === "wallet") {
+    const sourceWalletId = String(body?.source?.bridge_wallet_id || "").trim();
+    if (!sourceWalletId) {
+      return await failAfterAuth({
+        success: false,
+        code: "source_wallet_required",
+        error: "The selected wallet is not ready for sending yet. Refresh your wallet and try again.",
+      }, 400, profile.account_type);
+    }
+    try {
+      const walletPolicy = await bridgeProvider.getWalletTransferPolicy(
+        String(profile.bridge_customer_id),
+        sourceWalletId,
+      );
+      bridgeInitiationRequired = walletPolicy.initiation_required;
+    } catch {
+      return await failAfterAuth({
+        success: false,
+        code: "wallet_policy_unavailable",
+        error: "We could not verify this wallet's authentication requirements. Nothing was sent.",
+      }, 503, profile.account_type);
+    }
+  }
 
   if (normalizedSourceType === "wallet") {
     try {
@@ -631,8 +656,29 @@ Deno.serve(async (req) => {
     operation: "payment",
     resource: "bridge_transfer",
     request: body,
+    required: bridgeInitiationRequired,
   });
   if (!sca.ok) return await failAfterAuth(sca.body, sca.status, profile.account_type);
+
+  let bridgeInitiation;
+  if (bridgeInitiationRequired) {
+    if (!sca.applied) {
+      return await failAfterAuth({
+        success: false,
+        code: "sca_required",
+        error: "Strong customer authentication is required for this wallet. Nothing was sent.",
+      }, 403, profile.account_type);
+    }
+    try {
+      bridgeInitiation = bridgeScaInitiation(body?.initiation_channel);
+    } catch {
+      return await failAfterAuth({
+        success: false,
+        code: "client_update_required",
+        error: "Update BorderPay before sending from this wallet. Nothing was sent.",
+      }, 426, profile.account_type);
+    }
+  }
 
   try {
     fxLog("bridge_request_sent", {
@@ -675,6 +721,7 @@ Deno.serve(async (req) => {
             ),
           }
         : undefined,
+      initiation: bridgeInitiation,
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.

@@ -1914,6 +1914,7 @@ export const stablecoinAPI = {
      */
     idempotency_key: string;
     sca_authorization_id: string;
+    initiation_channel: 'other_mobile_payment' | 'other';
   }) {
     const symbol = (data.coin || 'usdc').toUpperCase();
     const chain  = (data.chain || 'base').toUpperCase();
@@ -1924,6 +1925,7 @@ export const stablecoinAPI = {
         body: JSON.stringify({
           idempotency_key: data.idempotency_key,
           sca_authorization_id: data.sca_authorization_id,
+          initiation_channel: data.initiation_channel,
           source:      {
             payment_rail: 'bridge_wallet',
             currency:     symbol,
@@ -2425,6 +2427,7 @@ export const bridgeAPI = {
       developer_fee?: { percentage?: number; flat_amount?: string };
       idempotency_key?: string;
       sca_authorization_id: string;
+      initiation_channel: 'other_mobile_payment' | 'other';
     }) =>
       apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed' }>(
         'bridge-transfer',

@@ -1197,8 +1197,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
               userId={userId}
               onLogout={onLogout}
               onNavigate={navigateTo as (s: string) => void}
-              financialAccessRequired={scaRequirement === 'required'}
-              financialAccessChecking={scaRequirement === 'checking'}
+              financialAccessRequired={scaRequirement !== 'not_required'}
+              financialAccessChecking={scaRequirement === 'checking' || scaRequirement === 'unavailable'}
               financialAccessGranted={walletAccessGranted}
               onRequestFinancialAccess={() => setWalletAccessRequested(true)}
             />
@@ -1210,8 +1210,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
             onLogout={onLogout}
             onNavigate={navigateTo}
             currentScreen={currentScreen}
-            financialAccessRequired={scaRequirement === 'required'}
-            financialAccessChecking={scaRequirement === 'checking'}
+            financialAccessRequired={scaRequirement !== 'not_required'}
+            financialAccessChecking={scaRequirement === 'checking' || scaRequirement === 'unavailable'}
             financialAccessGranted={walletAccessGranted}
             onRequestFinancialAccess={() => setWalletAccessRequested(true)}
           />

@@ -1,4 +1,5 @@
 import {
+  bridgeScaInitiation,
   classifyScaResidency,
   resolveScaResidencyRequirement,
   scaCanonicalPayload,
@@ -33,6 +34,18 @@ Deno.test('SCA dynamic link changes when amount, payee, operation resource, or i
   assert(original !== await scaPayloadHash('yellowcard_transaction', base), 'resource change must invalidate authorization');
 });
 
+Deno.test('Bridge SCA attestation uses the exact enum-string contract', () => {
+  const web = bridgeScaInitiation('other');
+  assert(web.channel === 'other', 'web channel must be other');
+  assert(web.subchannel === 'remote', 'Bridge digital transfers must be remote');
+  assert(web.attestations.sca === 'sca_used', 'SCA must be the enum string, not an object');
+  const mobile = bridgeScaInitiation('other_mobile_payment');
+  assert(mobile.channel === 'other_mobile_payment', 'native channel must be other_mobile_payment');
+  let rejected = false;
+  try { bridgeScaInitiation('p2p_mobile_payment'); } catch { rejected = true; }
+  assert(rejected, 'unsupported initiation channels must fail closed');
+});
+
 Deno.test('SCA residency scope includes the EEA and excludes UK, Switzerland, and Africa', () => {
   for (const country of ['FR', 'DE', 'NO', 'IS', 'LI', 'France', 'FRA']) {
     assert(classifyScaResidency(country).required, `${country} must require SCA`);
@@ -42,7 +55,7 @@ Deno.test('SCA residency scope includes the EEA and excludes UK, Switzerland, an
   }
 });
 
-Deno.test('missing, malformed, and unknown residency do not impose EEA SCA', () => {
+Deno.test('the raw classifier never guesses that unknown residency is EEA', () => {
   for (const country of [null, '', 'France', 'ZZ']) {
     const result = classifyScaResidency(country);
     if (country === 'France') assert(result.required, 'France must normalize to EEA');
@@ -69,7 +82,7 @@ Deno.test('business residency is authoritative over the base profile', async () 
   assert(result.required && result.country === 'FR', 'business profile country must control business residency');
 });
 
-Deno.test('residency lookup errors do not impose EEA SCA', async () => {
+Deno.test('legacy profile lookup errors remain unknown rather than guessed EEA', async () => {
   const db = {
     from() {
       const chain: any = {

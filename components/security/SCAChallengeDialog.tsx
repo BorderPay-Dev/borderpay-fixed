@@ -51,7 +51,7 @@ export function SCAChallengeDialog(props: Props) {
   }
 
   const submit = async () => {
-    if (!/^\d{4,6}$/.test(pin) || !/^\d{6}$/.test(totp)) {
+    if (!/^\d{6}$/.test(pin) || !/^\d{6}$/.test(totp)) {
       toast.error('Enter your transaction PIN and 6-digit authenticator code.');
       return;
     }
