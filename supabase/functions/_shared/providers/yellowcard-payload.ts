@@ -86,7 +86,7 @@ function retailKyc(input: YellowCardRetailKyc, prefix: "sender" | "recipient") {
   };
 }
 
-export function buildYellowCardSandboxSendPayload(
+export function buildYellowCardSendPayload(
   input: YellowCardSendPayloadInput,
 ): Record<string, unknown> {
   const localAmount = Number(input.localAmount);
@@ -138,7 +138,32 @@ export function buildYellowCardSandboxSendPayload(
   };
 }
 
-export function buildYellowCardSandboxReceivePayload(
+export function redactYellowCardSendPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const sender = payload.sender && typeof payload.sender === "object"
+    ? payload.sender as Record<string, unknown>
+    : null;
+  const destination = payload.destination && typeof payload.destination === "object"
+    ? payload.destination as Record<string, unknown>
+    : null;
+  const settlement = payload.settlementInfo && typeof payload.settlementInfo === "object"
+    ? payload.settlementInfo as Record<string, unknown>
+    : null;
+  return {
+    ...payload,
+    sender: sender ? {
+      ...sender,
+      phone: "[redacted]",
+      address: "[redacted]",
+      dob: "[redacted]",
+      email: "[redacted]",
+      idNumber: "[redacted]",
+    } : undefined,
+    destination: destination ? { ...destination, accountNumber: "[redacted]" } : undefined,
+    settlementInfo: settlement ? { ...settlement, refundAddress: "[redacted]" } : undefined,
+  };
+}
+
+export function buildYellowCardReceivePayload(
   input: YellowCardReceivePayloadInput,
 ): Record<string, unknown> {
   const localAmount = Number(input.localAmount);

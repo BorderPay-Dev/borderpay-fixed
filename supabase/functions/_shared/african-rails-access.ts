@@ -12,7 +12,7 @@ export type AfricanRailsAccessResult =
   | { allowed: true; user: { id: string; email?: string | null } }
   | { allowed: false; status: 401 | 403; code: string; message: string };
 
-export async function authenticateAfricanRailsTester(
+export async function authenticateAfricanRailsUser(
   supabase: any,
   req: Request,
 ): Promise<AfricanRailsAccessResult> {
@@ -20,12 +20,21 @@ export async function authenticateAfricanRailsTester(
   if (!token) {
     return { allowed: false, status: 401, code: "authorization_required", message: "Authorization required" };
   }
-
   const { data, error } = await supabase.auth.getUser(token);
   const user = data?.user;
   if (error || !user?.id) {
     return { allowed: false, status: 401, code: "unauthorized", message: "Unauthorized" };
   }
+  return { allowed: true, user: { id: String(user.id), email: user.email || null } };
+}
+
+export async function authenticateAfricanRailsTester(
+  supabase: any,
+  req: Request,
+): Promise<AfricanRailsAccessResult> {
+  const access = await authenticateAfricanRailsUser(supabase, req);
+  if (!access.allowed) return access;
+  const user = access.user;
 
   const email = String(user.email || "").trim().toLowerCase();
   if (!isAfricanRailsTesterEmail(email)) {
@@ -63,7 +72,6 @@ export async function recordAfricanRailsOperatorAlert(
     metadata: {
       endpoint: input.endpoint,
       code: input.code,
-      tester_only: true,
       occurred_at: new Date().toISOString(),
     },
     resolved: false,

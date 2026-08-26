@@ -1,11 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { isAfricanRailsTesterEmail } from "../_shared/african-rails-access.ts";
 import { listYellowCardCommercialRails, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
-import { isYellowCardSandboxCountryEnabled } from "../_shared/providers/yellowcard-sandbox-scope.ts";
 import {
   resolveYellowCardRouting,
+  yellowCardRows,
   yellowCardProviderChannelType,
 } from "../_shared/providers/yellowcard-routing.ts";
 
@@ -19,6 +18,10 @@ const json = (body: unknown, status = 200) =>
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+const enabled = (name: string) => ["1", "true", "yes", "on", "enabled"].includes(
+  String(Deno.env.get(name) || "").trim().toLowerCase(),
+);
 
 const discoveryCache = new Map<string, { expiresAt: number; data: unknown }>();
 const discoveryInFlight = new Map<string, Promise<unknown>>();
@@ -38,11 +41,18 @@ async function cachedDiscovery(key: string, ttlMs: number, load: () => Promise<a
 }
 
 function rows(value: any, key: string): any[] {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.[key])) return value[key];
-  if (Array.isArray(value?.data)) return value.data;
-  if (Array.isArray(value?.data?.[key])) return value.data[key];
-  return [];
+  return yellowCardRows(value, key);
+}
+
+async function discoverCatalog(path: "/channels" | "/networks", key: "channels" | "networks", country: string) {
+  const filtered: any = await cachedDiscovery(`${key}:${country}`, 5 * 60_000, () =>
+    yellowCardFetch({ method: "GET", path, query: { country } })
+  );
+  if (filtered?.ok && yellowCardRows(filtered.data, key).length > 0) return filtered;
+  if (!filtered?.ok && filtered?.status !== 400) return filtered;
+  return cachedDiscovery(`${key}:all`, 5 * 60_000, () =>
+    yellowCardFetch({ method: "GET", path })
+  );
 }
 
 function normalizedRate(payload: any, currency: string, direction: string) {
@@ -71,22 +81,17 @@ Deno.serve(async (req) => {
   const { data: authData, error: authError } = await supa.auth.getUser(token);
   const user = authData?.user;
   if (authError || !user?.id) return json({ success: false, code: "unauthorized", error: "Unauthorized" }, 401);
-  if (!isAfricanRailsTesterEmail(user.email)) {
-    return json({ success: false, code: "african_rails_closed_beta", error: "Yellow Card integration testing is restricted." }, 403);
-  }
-
   let body: any = {};
   try { body = await req.json(); } catch { return json({ success: false, code: "invalid_json" }, 400); }
   const action = String(body?.action || "corridor_policy").trim().toLowerCase();
   const country = String(body?.country || "").trim().toUpperCase();
   const currency = String(body?.currency || "").trim().toUpperCase();
   const config = getYellowCardConfig();
-  if (!config.configured || config.environment !== "sandbox") {
-    return json({ success: false, code: "yellow_card_sandbox_unavailable", error: "African rails testing is unavailable." }, 503);
+  if (!enabled("YC_PRODUCTION_ENABLED") || !config.configured || config.environment !== "production") {
+    return json({ success: false, code: "yellow_card_production_unavailable", error: "African rails are temporarily unavailable." }, 503);
   }
   if (action === "corridor_policy") {
     const direction = String(body?.direction || "receive").trim().toLowerCase();
-    const testerAllReceiveCountries = direction === "receive" && isAfricanRailsTesterEmail(user.email);
     if (direction !== "receive" && direction !== "payout") {
       return json({ success: false, code: "unsupported_direction" }, 400);
     }
@@ -99,7 +104,7 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (profileError) return json({ success: false, code: "profile_country_lookup_failed" }, 503);
       profileCountry = normalizeYellowCardCountryCode(profile?.country);
-      if (!testerAllReceiveCountries && !/^[A-Z]{2}$/.test(profileCountry)) {
+      if (!/^[A-Z]{2}$/.test(profileCountry)) {
         return json({ success: true, data: { local_rail_policy: {
           provider: "yellow_card", direction, source: "yellow_card_commercial_team_document_2026",
           eligibility: "account_country_only", account_country: null, rows: [],
@@ -108,26 +113,52 @@ Deno.serve(async (req) => {
     }
     const commercialRows = listYellowCardCommercialRails(
       direction as "receive" | "payout",
-      direction === "receive" && !testerAllReceiveCountries ? profileCountry : null,
+      direction === "receive" ? profileCountry : null,
     );
-    // Keep the signed commercial schedule visible in the sandbox catalogue.
-    // Provider discovery is retained as diagnostics and is re-checked when a
-    // tester selects a corridor; it must not silently shrink the 21-country,
-    // 28-rail test matrix when Yellow Card omits sandbox network metadata.
-    const publicRows = commercialRows.filter((row) => isYellowCardSandboxCountryEnabled(row.country_code));
+    const [channelsResult, networksResult]: any[] = await Promise.all([
+      discoverCatalog("/channels", "channels", direction === "receive" ? profileCountry : ""),
+      discoverCatalog("/networks", "networks", direction === "receive" ? profileCountry : ""),
+    ]);
+    if (!channelsResult?.ok || !networksResult?.ok) {
+      return json({
+        success: false,
+        code: channelsResult?.error || networksResult?.error || "yellow_card_catalog_unavailable",
+        error: "Unable to load live African rails.",
+      }, 502);
+    }
+    const availability = commercialRows.map((row) => {
+      const routing = resolveYellowCardRouting({
+        channels: channelsResult.data,
+        networks: networksResult.data,
+        direction: row.direction,
+        country: row.country_code,
+        currency: row.destination_currency,
+        rail: row.channel,
+      });
+      const networkRequired = row.direction === "payout" || row.channel === "mobile_money";
+      return {
+        row,
+        available: routing.channelAvailable && (!networkRequired || routing.networkAvailable),
+      };
+    });
+    const publicRows = availability.filter(({ available }) => available).map(({ row }) => row);
+    const unavailableRows = availability.filter(({ available }) => !available).map(({ row }) => ({
+      country_code: row.country_code,
+      destination_currency: row.destination_currency,
+      channel: row.channel,
+    }));
     return json({ success: true, data: { local_rail_policy: {
       provider: "yellow_card",
       direction,
-      source: "yellow_card_commercial_team_document_2026",
-      source_document_date: "2026-07-08",
-      eligibility: testerAllReceiveCountries
-        ? "integration_tester_all_receive_countries"
-        : direction === "receive" ? "account_country_only" : "global_sender",
+      source: "yellow_card_production_api",
+      pricing_source: "yellow_card_commercial_team_document_2026",
+      pricing_source_document_date: "2026-07-08",
+      eligibility: direction === "receive" ? "account_country_only" : "global_sender",
       account_country: direction === "receive" ? profileCountry : null,
       rows: publicRows,
-      discovery_status: "deferred_until_corridor_selection",
+      discovery_status: "live",
       discovery_error: null,
-      unavailable_rows: [],
+      unavailable_rows: unavailableRows,
     } } });
   }
   if (action === "routing") {
@@ -137,16 +168,13 @@ Deno.serve(async (req) => {
       !["receive", "payout"].includes(direction) || !["bank", "mobile_money"].includes(rail)) {
       return json({ success: false, code: "yellow_card_invalid_routing_request" }, 400);
     }
-    if (!isYellowCardSandboxCountryEnabled(country)) {
-      return json({ success: false, code: "yellow_card_sandbox_country_not_enabled" }, 403);
-    }
     const signed = listYellowCardCommercialRails(direction as "receive" | "payout", country).some((row) =>
       row.destination_currency === currency && row.channel === rail
     );
     if (!signed) return json({ success: false, code: "yellow_card_commercial_corridor_unavailable" }, 403);
     const [channelsResult, networksResult]: any[] = await Promise.all([
-      cachedDiscovery(`channels:${country}`, 5 * 60_000, () => yellowCardFetch({ method: "GET", path: "/channels", query: { country } })),
-      cachedDiscovery(`networks:${country}`, 5 * 60_000, () => yellowCardFetch({ method: "GET", path: "/networks", query: { country } })),
+      discoverCatalog("/channels", "channels", country),
+      discoverCatalog("/networks", "networks", country),
     ]);
     if (!channelsResult.ok) {
       return json({
@@ -157,7 +185,7 @@ Deno.serve(async (req) => {
     }
     // Yellow Card's published Networks contract supports country filtering.
     // Do not fan out undocumented channelId requests: that multiplies provider
-    // calls per screen and can rate-limit every corridor during sandbox review.
+    // calls per screen and can rate-limit every corridor during discovery.
     if (!networksResult.ok) {
       return json({ success: false, code: networksResult.error || "yellow_card_routing_discovery_failed", error: "Unable to load available payout rails." }, 502);
     }

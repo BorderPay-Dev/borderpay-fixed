@@ -27,7 +27,7 @@ AUDITS = (
     "password_recovery_routing_audit.py",
     "kyc_path_canonical_audit.py",
     "kyc_tos_warning_audit.py",
-    "african_rails_closed_beta_gate_audit.py",
+    "yellowcard_production_cutover_audit.py",
     "african_rails_customer_ui_audit.py",
     "current_access_model_regression_audit.py",
 )

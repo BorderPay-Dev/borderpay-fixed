@@ -67,12 +67,15 @@ protected = {
     'supabase/functions/bridge-transfer/index.ts': 'bridgeProvider.createTransfer',
     'supabase/functions/bridge-external-account/index.ts': 'bridgeFetch({',
     'supabase/functions/external-wallet/index.ts': 'createCryptoRoute({',
-    'supabase/functions/yellowcard-sandbox-transaction/index.ts': 'yellowCardFetch({\n    method: "POST"',
 }
 for path, mutation in protected.items():
     source = text(path)
     require('consumeScaAuthorization({' in source, f'{path} must consume SCA')
     require(source.index('consumeScaAuthorization({') < source.rindex(mutation), f'{path} must consume SCA before provider mutation')
+
+yellowcard = text('supabase/functions/yellowcard-transaction/index.ts')
+require('code: "yellow_card_payout_funding_not_configured"' in yellowcard,
+        'Yellow Card production payout must remain unavailable until its SCA and treasury funding contract is complete')
 
 send = text('components/send/SendMoneyFlow.tsx')
 require("operation: 'payment'" in send and 'sca_authorization_id' in send, 'Send must obtain and submit bound SCA')

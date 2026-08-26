@@ -6,21 +6,16 @@ const send = await Deno.readTextFile(new URL("../components/send/SendMoneyFlow.t
 const receive = await Deno.readTextFile(new URL("../components/receive/ReceiveMoneyScreen.tsx", import.meta.url));
 const app = await Deno.readTextFile(new URL("../App.tsx", import.meta.url));
 const lock = await Deno.readTextFile(new URL("../components/security/AppLockScreen.tsx", import.meta.url));
-const sandboxTransaction = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-sandbox-transaction/index.ts", import.meta.url));
+const yellowCardTransaction = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-transaction/index.ts", import.meta.url));
 const capabilities = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-capabilities/index.ts", import.meta.url));
 const backend = await Deno.readTextFile(new URL("../utils/api/backendAPI.ts", import.meta.url));
 const mainApp = await Deno.readTextFile(new URL("../components/app/MainApp.tsx", import.meta.url));
 
-Deno.test("African send performs one create call and retains its sequence across retries", () => {
-  assert(!send.includes("action: 'preflight_send',"), "send must not repeat provider discovery");
-  assert(send.includes("action: 'create_send',"));
-  assert(send.includes("value.length === 6 && !transactionAuthorizationRef.current"));
-  assert(send.includes("if (transactionAuthorizationRef.current) return;"));
-  const successStart = send.indexOf("if (result.success) {");
-  const pinStart = send.indexOf("const handlePinComplete", successStart);
-  assert(successStart >= 0 && pinStart > successStart);
-  assert(!send.slice(successStart, pinStart).includes("yellowCardSequenceRef.current = null;"));
-  assert(send.includes("if (isAfricanPayout) yellowCardSequenceRef.current = null;"));
+Deno.test("African send remains fail closed during the production receive cutover", () => {
+  assert(send.includes("const africanPayoutEnabled = false;"));
+  assert(send.includes("African payouts are temporarily unavailable"));
+  assert(yellowCardTransaction.includes('!flag("YC_PRODUCTION_SEND_ENABLED")'));
+  assert(yellowCardTransaction.includes('code: "yellow_card_payout_locked"'));
 });
 
 Deno.test("app unlock preserves the mounted screen behind a blocking overlay", () => {
@@ -38,14 +33,19 @@ Deno.test("app unlock refreshes expired cached sessions before PIN verification"
   assert(lock.indexOf("Date.now() + 30_000") < lock.indexOf("PINManager.verifyAppUnlockPINResult"));
 });
 
-Deno.test("sandbox collection creation never waits on Bridge identity enrichment", () => {
-  assert(sandboxTransaction.includes("if (!useSandboxIdentitySample && profile.bridge_customer_id"));
-  assert(sandboxTransaction.indexOf("const useSandboxIdentitySample") < sandboxTransaction.indexOf("bridgeProvider.getCustomerProfile"));
-  assert(sandboxTransaction.includes('idNumber: str(profile.id_number || bridgeIdentity?.id_number || (useSandboxIdentitySample ? "0123456789" : ""))'));
+Deno.test("production collection uses verified identity and never substitutes test KYC", () => {
+  assert(yellowCardTransaction.includes("if (profile.bridge_customer_id && ("));
+  assert(yellowCardTransaction.includes("bridgeProvider.getCustomerProfile(profile.bridge_customer_id)"));
+  assert(yellowCardTransaction.includes("idNumber: str(profile.id_number || bridgeIdentity?.id_number)"));
+  assert(!yellowCardTransaction.includes("useSandboxIdentitySample"));
+  assert(!yellowCardTransaction.includes("0123456789"));
+  assert(!yellowCardTransaction.includes("allow_all_receive_countries"));
 });
 
-Deno.test("sandbox sends preserve dashboard data and receive enforces provider limits", () => {
-  assert(send.includes("if (!isAfricanPayout) backendAPI.financial.invalidateForUser(userId);"));
+Deno.test("production payouts fail closed and receive enforces provider limits", () => {
+  assert(send.includes("const africanPayoutEnabled = false;"));
+  assert(yellowCardTransaction.includes('!flag("YC_PRODUCTION_SEND_ENABLED")'));
+  assert(yellowCardTransaction.includes('code: "yellow_card_payout_locked"'));
   assert(mainApp.includes("onComplete={navigateBack}"));
   assert(backend.includes("preserveKnownFinancialSurfaces"));
   assert(backend.includes("financial_surfaces_partial: true"));

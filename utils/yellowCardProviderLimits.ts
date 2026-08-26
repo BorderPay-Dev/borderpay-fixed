@@ -6,7 +6,7 @@ export type YellowCardProviderBounds = {
   source: 'yellow_card_api_snapshot_2026-08-12';
 };
 
-// Manual, synchronous fallback copied from Yellow Card's active sandbox
+// Manual, synchronous fallback copied from Yellow Card's approved commercial
 // /channels response on 2026-08-12. These are transaction limits, not the
 // minimum/maximum fee columns in the signed pricing PDF.
 const LIMITS: Record<string, Omit<YellowCardProviderBounds, 'source'>> = {

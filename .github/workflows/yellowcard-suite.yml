@@ -6,6 +6,9 @@ on:
     paths:
       - "supabase/functions/yellowcard-*/**"
       - "supabase/functions/_shared/providers/yellowcard*.ts"
+      - "supabase/config.toml"
+      - "supabase/migrations/*yellowcard*"
+      - "ops/yellowcard-relay/**"
       - "components/send/**"
       - "components/receive/**"
       - "utils/fees/yellowCard*.ts"
@@ -31,16 +34,16 @@ jobs:
         run: |
           deno test tests/yellowcard-commercial-fees.test.ts
           deno test tests/yellowcard-commercial-policy.test.ts
-          deno test tests/yellowcard-sandbox-account-scope.test.ts
           deno test tests/yellowcard-cameroon-corridor.test.ts
           deno test tests/yellowcard-routing.test.ts
           deno test tests/yellowcard-send-payload.test.ts
           deno test tests/yellowcard-receive-payload.test.ts
           deno check --node-modules-dir=auto supabase/functions/yellowcard-capabilities/index.ts
-          deno check --node-modules-dir=auto supabase/functions/yellowcard-sandbox-transaction/index.ts
+          deno check --node-modules-dir=auto supabase/functions/yellowcard-transaction/index.ts
+          deno check --node-modules-dir=auto supabase/functions/yellowcard-webhook/index.ts
 
       - name: Verify Yellow Card execution boundaries
         run: |
-          python3 tests/audit/yellowcard_send_execution_audit.py
-          python3 tests/audit/yellowcard_commercial_scope_audit.py
-          python3 tests/audit/yellowcard_sandbox_outcome_regression_audit.py
+          python3 tests/audit/yellowcard_production_cutover_audit.py
+          python3 tests/audit/yellowcard_honest_submission_state_audit.py
+          python3 tests/audit/yellowcard_retry_idempotency_audit.py

@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-edge = (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.ts").read_text()
+edge = (ROOT / "supabase/functions/yellowcard-transaction/index.ts").read_text()
 ui = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 receive_ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
@@ -12,36 +12,31 @@ server_fees = (ROOT / "supabase/functions/_shared/fees/schedule.ts").read_text()
 client_fees = (ROOT / "utils/fees/schedule.ts").read_text()
 
 for fragment in (
-    'action === "preflight_send"',
-    'action === "create_send"',
+    'action === "preflight_send" || action === "create_send"',
+    'buildYellowCardSendPayload({',
+    'redactYellowCardSendPayload(providerBody)',
+    '!flag("YC_PRODUCTION_SEND_ENABLED")',
+    'code: "yellow_card_payout_locked"',
     'path: isSend ? "/send" : "/receive"',
-    'sandboxOutcome',
-    '"1111111111" : "0000000000"',
-    'name: `${sandboxOutcome === "success" ? "Successful" : "Failure"} ${context.kyc.name}`',
-    'accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome)',
-    'cryptoAmount: Number(body?.crypto_amount)',
-    'SANDBOX_FAILURE_EVM_ADDRESS',
-    'SANDBOX_FAILURE_TRON_ADDRESS',
-    'accountNumber: sandboxAccount(context.country, context.channel, "success")',
     'direction: isSend ? "payout" : "receive"',
-    'existing.direction === "payout"',
-    'buildYellowCardSandboxSendPayload({',
-    'channelId: str(context.selectedChannel?.id)',
-    'localAmount: context.localAmount',
     'const networkRequired = isSend || context.channel === "mobile_money"',
 ):
-    assert fragment in edge, f"missing Yellow Card send server contract: {fragment}"
+    assert fragment in edge, f"missing Yellow Card production boundary: {fragment}"
+
+send_lock = 'if (isSend && !flag("YC_PRODUCTION_SEND_ENABLED"))'
+assert edge.index(send_lock) < edge.rindex('const sequenceId = str(body?.sequence_id)')
+assert 'allow_all_receive_countries' not in edge
 
 payload_builder = (ROOT / "supabase/functions/_shared/providers/yellowcard-payload.ts").read_text()
-send_payload = payload_builder.split("export function buildYellowCardSandboxReceivePayload", 1)[0]
-assert "directSettlement: true" in send_payload
-assert "localAmount," not in send_payload
+assert "buildYellowCardReceivePayload" in payload_builder
+assert "buildYellowCardSendPayload" in payload_builder
+assert "redactYellowCardSendPayload" in payload_builder
+assert "directSettlement: true" in payload_builder
 
 for fragment in (
     "loadYellowCardCapability('quote'",
     "loadYellowCardCapability('routing'",
-    "action: 'create_send'",
-    "yellowCardSandboxOutcome",
+    "const africanPayoutEnabled = false",
     "convertYellowCardLocalFeeToFunding(africanPolicyFee.amount, destinationAmount, sourceAmount)",
     "const executionLocalAmount = Math.round(africanQuote.destinationAmount)",
     "result.data?.transaction?.provider_transaction_id",
@@ -49,9 +44,11 @@ for fragment in (
 ):
     assert fragment in ui, f"missing Yellow Card send UI contract: {fragment}"
 
-# Creation performs server-side preflight and execution atomically. Requiring a
-# separate UI preflight call here would restore the duplicate/timeout race.
-assert ui.count("action: 'create_send'") == 1
+# Both the PIN and EEA-SCA continuation paths retain the same idempotent
+# sequence contract, but neither is reachable while production payout is off.
+assert ui.count("action: 'create_send'") == 2
+assert "if (!africanPayoutEnabled)" in ui
+assert ui.count("recipient_account_number:") == 2
 
 assert "backendAPI.payouts.createTransfer" not in ui
 assert "backendAPI.payouts.resolveAccount" not in ui
