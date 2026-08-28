@@ -279,8 +279,9 @@ const clamp = (value: number, minimum: number | null, maximum: number | null) =>
 
 /**
  * Customer fee contract:
- * - add the configured two percentage-point markup to every percentage fee;
- * - add 100% to every fixed, minimum, and maximum local-currency fee.
+ * - calculate the provider fee exactly from the signed commercial schedule;
+ * - add BorderPay's configured 2 percentage points to percentage pricing;
+ * - add 50% to provider fixed, minimum, and maximum local-currency amounts.
  */
 export function calculateYellowCardCustomerFee(
   rail: YellowCardCommercialRail,
@@ -293,26 +294,28 @@ export function calculateYellowCardCustomerFee(
   const providerFixed = pricing.provider_fee_local;
   const providerMinimum = pricing.minimum_fee_local;
   const providerMaximum = pricing.maximum_fee_local;
-  const customerPercent = providerPercent === null ? null : providerPercent + AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT;
-  const customerFixed = providerFixed === null ? null : providerFixed * 2;
-  const customerMinimum = providerMinimum === null ? null : providerMinimum * 2;
-  const customerMaximum = providerMaximum === null ? null : providerMaximum * 2;
-
   const providerAmount = providerFixed !== null
     ? providerFixed
     : providerPercent !== null
       ? clamp((amount * providerPercent) / 100, providerMinimum, providerMaximum)
       : providerMinimum ?? 0;
+  const customerPercent = providerPercent === null
+    ? null
+    : providerPercent + AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT;
+  const customerFixed = providerFixed === null ? null : providerFixed * 1.5;
+  const customerMinimum = providerMinimum === null ? null : providerMinimum * 1.5;
+  const customerMaximum = providerMaximum === null ? null : providerMaximum * 1.5;
   const customerAmount = customerFixed !== null
     ? customerFixed
     : customerPercent !== null
       ? clamp((amount * customerPercent) / 100, customerMinimum, customerMaximum)
-      : customerMinimum ?? (amount * AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT) / 100;
+      : customerMinimum ?? 0;
+  const borderpayAmount = customerAmount - providerAmount;
 
   return {
     ...pricing,
     provider_amount_local: providerAmount,
-    borderpay_amount_local: Math.max(0, customerAmount - providerAmount),
+    borderpay_amount_local: borderpayAmount,
     customer_amount_local: customerAmount,
     customer_fee_percent: customerPercent,
     customer_fee_local: customerFixed,

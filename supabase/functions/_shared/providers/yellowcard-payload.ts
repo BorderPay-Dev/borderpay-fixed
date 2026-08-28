@@ -18,6 +18,11 @@ export interface YellowCardRetailKyc {
   idType: string;
 }
 
+export interface YellowCardInstitutionKyc {
+  businessName: string;
+  businessId: string;
+}
+
 export interface YellowCardReceivePayloadInput {
   sequenceId: string;
   channelId?: string;
@@ -39,13 +44,15 @@ export interface YellowCardReceivePayloadInput {
 
 export interface YellowCardSendPayloadInput {
   sequenceId: string;
-  channelId: string;
+  channelId?: string;
+  channelType?: YellowCardAccountType;
   localAmount: number;
   country: string;
   currency: string;
   reason: string;
   customerUID: string;
-  sender: YellowCardRetailKyc;
+  customerType?: "retail" | "institution";
+  sender: YellowCardRetailKyc | YellowCardInstitutionKyc;
   destination: {
     accountName: string;
     accountNumber: string;
@@ -53,6 +60,17 @@ export interface YellowCardSendPayloadInput {
     networkId: string;
   };
   settlementInfo: YellowCardSendSettlement;
+}
+
+export interface YellowCardDirectSettlementSendInstruction {
+  providerTransactionId: string;
+  sequenceId: string;
+  cryptoCurrency: "USDC" | "USDT";
+  cryptoNetwork: "BASE" | "TRC20";
+  cryptoAmount: number;
+  convertedAmount: number;
+  walletAddress: string;
+  expiresAt: string;
 }
 
 const PAYMENT_REASONS = new Set([
@@ -86,6 +104,13 @@ function retailKyc(input: YellowCardRetailKyc, prefix: "sender" | "recipient") {
   };
 }
 
+function institutionKyc(input: YellowCardInstitutionKyc) {
+  return {
+    businessName: required(input.businessName, "sender_business_name"),
+    businessId: required(input.businessId, "sender_business_id"),
+  };
+}
+
 export function buildYellowCardSendPayload(
   input: YellowCardSendPayloadInput,
 ): Record<string, unknown> {
@@ -114,14 +139,23 @@ export function buildYellowCardSendPayload(
     (settlementInfo.cryptoCurrency === "USDT" && settlementInfo.cryptoNetwork === "TRC20");
   if (!supportedSettlement) throw new Error("yellow_card_unsupported_settlement_route");
 
+  const channelId = String(input.channelId || "").trim();
+  const channelType = input.channelType;
+  if (!channelId && channelType !== "bank" && channelType !== "momo") {
+    throw new Error("yellow_card_missing_channel_routing");
+  }
+  const customerType = input.customerType === "institution" ? "institution" : "retail";
+
   return {
-    channelId: required(input.channelId, "channel_id"),
+    ...(channelType ? { channelType } : { channelId }),
     sequenceId: required(input.sequenceId, "sequence_id"),
     // Yellow Card direct-settlement Send derives the transfer amount from
     // settlementInfo.cryptoAmount. Its API rejects both amount and
     // localAmount when directSettlement is true.
     reason,
-    sender: retailKyc(input.sender, "sender"),
+    sender: customerType === "institution"
+      ? institutionKyc(input.sender as YellowCardInstitutionKyc)
+      : retailKyc(input.sender as YellowCardRetailKyc, "sender"),
     destination: {
       accountName: required(input.destination.accountName, "destination_account_name"),
       accountNumber: required(input.destination.accountNumber, "destination_account_number"),
@@ -129,12 +163,76 @@ export function buildYellowCardSendPayload(
       networkId: required(input.destination.networkId, "network_id"),
     },
     forceAccept: true,
-    customerType: "retail",
+    customerType,
     customerUID: required(input.customerUID, "customer_uid"),
     country: required(input.country, "country").toUpperCase(),
     currency: required(input.currency, "currency").toUpperCase(),
     directSettlement: true,
     settlementInfo,
+  };
+}
+
+export const buildYellowCardDirectSettlementSendPayload = buildYellowCardSendPayload;
+
+/**
+ * Treat Yellow Card's locked response as authority before any Bridge funding
+ * transfer is created. This prevents a stale client quote from paying the
+ * wrong local amount or funding a substituted address/asset/network.
+ */
+export function parseYellowCardDirectSettlementSendInstruction(
+  response: unknown,
+  expected: Pick<YellowCardSendPayloadInput, "sequenceId" | "localAmount" | "settlementInfo">,
+  nowMs = Date.now(),
+): YellowCardDirectSettlementSendInstruction {
+  const envelope = response && typeof response === "object" && !Array.isArray(response)
+    ? response as Record<string, any>
+    : {};
+  const body = envelope.data && typeof envelope.data === "object" && !Array.isArray(envelope.data)
+    ? envelope.data as Record<string, any>
+    : envelope;
+  const settlement = body.settlementInfo && typeof body.settlementInfo === "object"
+    ? body.settlementInfo as Record<string, any>
+    : {};
+  const providerTransactionId = required(body.id, "provider_transaction_id");
+  const sequenceId = required(body.sequenceId, "sequence_id");
+  const cryptoCurrency = required(settlement.cryptoCurrency, "crypto_currency").toUpperCase();
+  const cryptoNetwork = required(settlement.cryptoNetwork, "crypto_network").toUpperCase();
+  const walletAddress = required(settlement.walletAddress, "funding_wallet_address");
+  const expiresAt = required(settlement.expiresAt || body.expiresAt, "funding_expiry");
+  const cryptoAmount = Number(settlement.cryptoAmount);
+  const convertedAmount = Number(body.convertedAmount);
+
+  if (sequenceId !== expected.sequenceId) throw new Error("yellow_card_sequence_mismatch");
+  if (cryptoCurrency !== expected.settlementInfo.cryptoCurrency) {
+    throw new Error("yellow_card_settlement_asset_mismatch");
+  }
+  if (cryptoNetwork !== expected.settlementInfo.cryptoNetwork) {
+    throw new Error("yellow_card_settlement_network_mismatch");
+  }
+  if (!Number.isFinite(cryptoAmount) || cryptoAmount <= 0) {
+    throw new Error("yellow_card_invalid_funding_amount");
+  }
+  const expectedMinor = BigInt(Math.round(Number(expected.settlementInfo.cryptoAmount) * 1_000_000));
+  const returnedMinor = BigInt(Math.round(cryptoAmount * 1_000_000));
+  if (expectedMinor !== returnedMinor) throw new Error("yellow_card_funding_amount_mismatch");
+  if (!Number.isInteger(convertedAmount) || convertedAmount !== Number(expected.localAmount)) {
+    throw new Error("yellow_card_destination_amount_mismatch");
+  }
+
+  const expiryMs = Date.parse(expiresAt);
+  if (!Number.isFinite(expiryMs) || expiryMs <= nowMs) {
+    throw new Error("yellow_card_funding_instruction_expired");
+  }
+
+  return {
+    providerTransactionId,
+    sequenceId,
+    cryptoCurrency: cryptoCurrency as "USDC" | "USDT",
+    cryptoNetwork: cryptoNetwork as "BASE" | "TRC20",
+    cryptoAmount,
+    convertedAmount,
+    walletAddress,
+    expiresAt: new Date(expiryMs).toISOString(),
   };
 }
 

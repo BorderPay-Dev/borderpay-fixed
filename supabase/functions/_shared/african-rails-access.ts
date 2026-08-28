@@ -1,3 +1,5 @@
+import { loadAndAssertBridgeIdentityInvariant } from "./bridge-identity-invariant.ts";
+
 const AFRICAN_RAILS_TEST_EMAILS = new Set([
   "adhiamboadhiambo22@gmail.com",
   "appreview.individual@borderpayafrica.com",
@@ -26,6 +28,28 @@ export async function authenticateAfricanRailsUser(
     return { allowed: false, status: 401, code: "unauthorized", message: "Unauthorized" };
   }
   return { allowed: true, user: { id: String(user.id), email: user.email || null } };
+}
+
+/** Production access gate: African rails are available to verified accounts,
+ * never to an email allowlist or browser-supplied verification claim. */
+export async function authenticateVerifiedAfricanRailsUser(
+  supabase: any,
+  req: Request,
+): Promise<AfricanRailsAccessResult> {
+  const access = await authenticateAfricanRailsUser(supabase, req);
+  if (!access.allowed) return access;
+  const identity = await loadAndAssertBridgeIdentityInvariant(supabase, access.user.id);
+  if (!identity.ok ||
+      String(identity.context.verification_status || "").trim().toLowerCase() !== "approved" ||
+      !identity.context.bridge_customer_id) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "african_rails_verification_required",
+      message: "African rails require completed account verification.",
+    };
+  }
+  return access;
 }
 
 export async function authenticateAfricanRailsTester(

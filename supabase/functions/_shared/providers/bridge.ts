@@ -15,6 +15,7 @@
  */
 
 import { bridgeFetch } from "./bridge-client.ts";
+import { buildBridgeTransferBody } from "./bridge-transfer-payload.ts";
 import type {
   PaymentProvider,
   CustomerCreateInput, CustomerCreateResult,
@@ -22,6 +23,7 @@ import type {
   VirtualAccountCreateInput, VirtualAccountResult,
   WalletCreateInput,   WalletResult,
   TransferCreateInput, TransferResult,
+  TransferStatusResult,
   LiquidationAddressCreateInput, LiquidationAddressResult,
 } from "./types.ts";
 
@@ -752,42 +754,7 @@ export class BridgeProvider implements PaymentProvider {
 
   // ── Money movement ────────────────────────────────────────────────────────
   async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
-    const bridgeRail = (rail: string) => String(rail || "").toLowerCase();
-    const body: Record<string, unknown> = {
-      ...(input.source.amount ? { amount: input.source.amount } : {}),
-      ...(input.on_behalf_of ? { on_behalf_of: input.on_behalf_of } : {}),
-      source: {
-        payment_rail: bridgeRail(input.source.payment_rail),
-        currency:     String(input.source.currency).toLowerCase(),
-        ...(input.source.chain ? { chain: String(input.source.chain).toLowerCase() } : {}),
-        ...(input.source.from_address ? { from_address: input.source.from_address } : {}),
-        ...(input.source.bridge_wallet_id ? { bridge_wallet_id: input.source.bridge_wallet_id } : {}),
-        ...(input.source.external_account_id ? { external_account_id: input.source.external_account_id } : {}),
-      },
-      destination: {
-        payment_rail: bridgeRail(input.destination.payment_rail),
-        currency:     String(input.destination.currency).toLowerCase(),
-        ...(input.destination.chain ? { chain: String(input.destination.chain).toLowerCase() } : {}),
-        ...(input.destination.address  ? { to_address: input.destination.address } : {}),
-        ...(input.destination.bridge_wallet_id ? { bridge_wallet_id: input.destination.bridge_wallet_id } : {}),
-        ...(input.destination.external_account_id ? { external_account_id: input.destination.external_account_id } : {}),
-        ...(input.destination.deposit_id ? { deposit_id: input.destination.deposit_id } : {}),
-        ...(input.destination.bank_account ? {
-          bank_account_number: input.destination.bank_account.account_number,
-          bank_routing_number: input.destination.bank_account.routing_number,
-          iban:                input.destination.bank_account.iban,
-          bic:                 input.destination.bank_account.bic,
-        } : {}),
-      },
-      ...(input.developer_fee ? {
-        developer_fee_percent:
-          input.developer_fee.percentage == null
-            ? undefined
-            : String(input.developer_fee.percentage),
-        developer_fee: input.developer_fee.flat_amount,
-      } : {}),
-      ...(input.features ? { features: input.features } : {}),
-    };
+    const body = buildBridgeTransferBody(input);
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,
       idempotencyKey: input.idempotency_key,
@@ -825,6 +792,27 @@ export class BridgeProvider implements PaymentProvider {
       state,
       raw:         r.data,
     };
+  }
+
+  async getTransfer(transferId: string): Promise<TransferStatusResult> {
+    const id = String(transferId || "").trim();
+    if (!id) throw new BridgeProviderError("Bridge transfer id is required");
+    const r = await bridgeFetch({
+      method: "GET",
+      path: `/v0/transfers/${encodeURIComponent(id)}`,
+      retryable: true,
+    });
+    if (!r.ok) {
+      throw new BridgeProviderError(`Bridge getTransfer failed [${r.status}]`, {
+        status: r.status,
+        request_id: r.request_id,
+        raw_text: r.raw_text?.slice(0, 1000),
+      });
+    }
+    const data = (r.data as any)?.data ?? r.data;
+    const returnedId = String(data?.id || id);
+    const state = String(data?.state || data?.status || "unknown").toLowerCase();
+    return { provider: this.name, transfer_id: returnedId, state, raw: r.data };
   }
 
   async createLiquidationAddress(input: LiquidationAddressCreateInput): Promise<LiquidationAddressResult> {

@@ -148,6 +148,11 @@ export interface TransferCreateInput {
     mobile_money?:  { provider: string; phone: string };  // future
   };
   developer_fee?:  { percentage?: number; flat_amount?: string };
+  sca_attestation?: {
+    outcome: "sca_used" | "sca_not_used";
+    channel: "other" | "app" | "web";
+    subchannel: "remote" | "in_person";
+  };
   features?: {
     static_template?: boolean;
     flexible_amount?: boolean;
@@ -161,6 +166,13 @@ export interface TransferResult {
   transfer_id:  string;
   state:        string;              // raw provider state (preserved)
   raw:          unknown;
+}
+
+export interface TransferStatusResult {
+  provider: ProviderName;
+  transfer_id: string;
+  state: string;
+  raw: unknown;
 }
 
 export interface LiquidationAddressCreateInput {

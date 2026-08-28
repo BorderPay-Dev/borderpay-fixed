@@ -6,6 +6,7 @@ import {
   parseYellowCardWebhook,
   verifyYellowCardWebhookSignature,
 } from "../_shared/providers/yellowcard-webhook.ts";
+import { yellowCardJitWebhookTarget } from "../_shared/providers/yellowcard-jit-webhook.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -47,6 +48,46 @@ Deno.serve(async (req) => {
     if (event.apiKey !== credentials.apiKey) return json({ success: false, code: "api_key_mismatch" }, 401);
 
     const fingerprint = await sha256Hex(`production:${event.event}:${event.sequenceId}:${event.executedAt}:${rawBody}`);
+    const { data: jitPayout, error: jitLookupError } = await supabase
+      .from("yellowcard_jit_payouts")
+      .select("id,state,sequence_id,yellowcard_send_transaction_id")
+      .eq("sequence_id", event.sequenceId)
+      .maybeSingle();
+    if (jitLookupError) throw new Error(`yellow_card_jit_lookup_failed:${jitLookupError.message}`);
+    if (jitPayout?.id) {
+      const target = yellowCardJitWebhookTarget({
+        event: event.event,
+        status: event.status,
+        currentState: jitPayout.state,
+      });
+      if (target) {
+        const { error: transitionError } = await supabase.rpc("transition_yellowcard_jit_payout", {
+          p_payout_id: jitPayout.id,
+          p_event_key: `yellowcard:${fingerprint}`,
+          p_to_state: target,
+          p_source: "yellowcard_webhook",
+          p_evidence: {
+            event: event.event,
+            status: event.status,
+            sequence_id: event.sequenceId,
+            provider_transaction_id: event.providerTransactionId,
+            executed_at: event.executedAt,
+            error_code: event.errorCode,
+          },
+          p_provider_status: event.status,
+          p_yellowcard_credit_transaction_id: event.event.startsWith("CRYPTO_RECEIVE.")
+            ? event.providerTransactionId
+            : null,
+          p_yellowcard_send_transaction_id: event.event.startsWith("SEND.")
+            ? event.providerTransactionId
+            : null,
+          p_failure_code: target === "FAILED" ? event.errorCode || event.status : null,
+          p_failure_detail: target === "FAILED" ? `Yellow Card ${event.event}` : null,
+        });
+        if (transitionError) throw new Error(`yellow_card_jit_transition_failed:${transitionError.message}`);
+      }
+      return json({ success: true, code: target ? "jit_payout_projected" : "jit_event_recorded" });
+    }
     const { data: result, error } = await supabase.rpc("apply_yellowcard_webhook_event", {
       p_environment: "production",
       p_event_fingerprint: fingerprint,

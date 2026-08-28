@@ -183,11 +183,23 @@ async function spendableWalletBalanceMinor(userId: string, currency: string): Pr
     .eq("entity_type", "wallet")
     .eq("currency", String(currency || "").toUpperCase());
   if (error) throw new Error(`balance_check_failed:${error.message}`);
-  return (data || []).reduce((sum: bigint, row: Record<string, unknown>) => {
+  const ledgerBalance = (data || []).reduce((sum: bigint, row: Record<string, unknown>) => {
     const amount = BigInt(String(row.amount_minor ?? "0"));
     const abs = amount < 0n ? -amount : amount;
     return String(row.direction || "").toLowerCase() === "debit" ? sum - abs : sum + abs;
   }, 0n);
+  const { data: reservations, error: reservationError } = await supa
+    .from("yellowcard_jit_payouts")
+    .select("customer_debit_amount_minor")
+    .eq("user_id", userId)
+    .eq("settlement_asset", String(currency || "").toUpperCase())
+    .in("state", ["PENDING_SWEEP", "SEND_INTENT_CREATED", "TREASURY_SWEEP_SENT", "REFUND_PENDING"]);
+  if (reservationError) throw new Error(`reservation_check_failed:${reservationError.message}`);
+  const reserved = (reservations || []).reduce(
+    (sum: bigint, row: Record<string, unknown>) => sum + BigInt(String(row.customer_debit_amount_minor ?? "0")),
+    0n,
+  );
+  return ledgerBalance - reserved;
 }
 
 async function recordTransferProviderAlert(input: {

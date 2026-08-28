@@ -173,6 +173,16 @@ verify_jwt = true
 [functions.yellowcard-transaction]
 verify_jwt = true
 
+# Production JIT payout intent. Creating or moving funds still requires both
+# YC_PRODUCTION_SEND_ENABLED and YC_JIT_PAYOUT_ENABLED.
+[functions.yellowcard-jit-payout]
+verify_jwt = true
+
+# Internal worker validates its own dedicated bearer token. It remains inert
+# while either production payout flag is absent or false.
+[functions.yellowcard-jit-worker]
+verify_jwt = false
+
 [functions.yellowcard-webhook]
 verify_jwt = false
 
