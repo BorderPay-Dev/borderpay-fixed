@@ -7,15 +7,17 @@ const receive = await Deno.readTextFile(new URL("../components/receive/ReceiveMo
 const app = await Deno.readTextFile(new URL("../App.tsx", import.meta.url));
 const lock = await Deno.readTextFile(new URL("../components/security/AppLockScreen.tsx", import.meta.url));
 const yellowCardTransaction = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-transaction/index.ts", import.meta.url));
+const yellowCardJit = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-jit-payout/index.ts", import.meta.url));
 const capabilities = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-capabilities/index.ts", import.meta.url));
 const backend = await Deno.readTextFile(new URL("../utils/api/backendAPI.ts", import.meta.url));
 const mainApp = await Deno.readTextFile(new URL("../components/app/MainApp.tsx", import.meta.url));
 
-Deno.test("African send remains fail closed during the production receive cutover", () => {
-  assert(send.includes("const africanPayoutEnabled = false;"));
+Deno.test("African send follows the authenticated production JIT readiness gate", () => {
+  assert(send.includes("yellowCardJitPayout({ action: 'readiness' })"));
+  assert(send.includes("result?.data?.execution_enabled === true"));
   assert(send.includes("African payouts are temporarily unavailable"));
-  assert(yellowCardTransaction.includes('!flag("YC_PRODUCTION_SEND_ENABLED")'));
-  assert(yellowCardTransaction.includes('code: "yellow_card_payout_locked"'));
+  assert(yellowCardJit.includes('!flag("YC_PRODUCTION_SEND_ENABLED") || !flag("YC_JIT_PAYOUT_ENABLED")'));
+  assert(yellowCardJit.includes('code: "yellow_card_jit_payout_disabled"'));
 });
 
 Deno.test("app unlock preserves the mounted screen behind a blocking overlay", () => {
@@ -42,15 +44,16 @@ Deno.test("production collection uses verified identity and never substitutes te
   assert(!yellowCardTransaction.includes("allow_all_receive_countries"));
 });
 
-Deno.test("production payouts fail closed and receive enforces provider limits", () => {
-  assert(send.includes("const africanPayoutEnabled = false;"));
+Deno.test("production JIT payouts fail closed and receive enforces provider limits", () => {
+  assert(send.includes("yellowCardJitPayout"));
+  assert(send.includes("settlement_asset: activeFundingCurrency"));
   assert(yellowCardTransaction.includes('!flag("YC_PRODUCTION_SEND_ENABLED")'));
   assert(yellowCardTransaction.includes('code: "yellow_card_payout_locked"'));
   assert(mainApp.includes("onComplete={navigateBack}"));
   assert(backend.includes("preserveKnownFinancialSurfaces"));
   assert(backend.includes("financial_surfaces_partial: true"));
   assert(send.includes("action: 'status'"));
-  assert(send.includes("['failed', 'rejected', 'cancelled', 'canceled', 'expired']"));
+  assert(send.includes("const terminalFailure = new Set(['failed'])"));
   assert(receive.includes("collectionProviderMinimum !== null && amount < collectionProviderMinimum"));
   assert(receive.includes("Minimum amount is"));
   assert(receive.includes("collectionNetworksLoading || !collectionProviderLimitsReady"));

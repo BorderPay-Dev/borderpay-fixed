@@ -5,13 +5,14 @@ ROOT = Path(__file__).resolve().parents[2]
 FLOW = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 RECEIVE_FLOW = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 EDGE = (ROOT / "supabase/functions/yellowcard-transaction/index.ts").read_text()
+JIT_EDGE = (ROOT / "supabase/functions/yellowcard-jit-payout/index.ts").read_text()
 
 failures = []
 
 required_flow = [
-    "yellowCardSequenceRef",
-    "const intentFingerprint = JSON.stringify(request)",
-    "sequence_id: sequenceId",
+    "yellowCardJitPayout",
+    "idempotency_key: transferIdempotencyKey",
+    "}, transferIdempotencyKey)",
 ]
 for marker in required_flow:
     if marker not in FLOW:
@@ -19,6 +20,14 @@ for marker in required_flow:
 
 if "sequence_id: globalThis.crypto.randomUUID()" in FLOW:
     failures.append("create_send must not submit a fresh Yellow Card sequence on every retry")
+
+for marker in (
+    'req.headers.get("Idempotency-Key")',
+    '.eq("user_id", access.user.id).eq("idempotency_key", idempotencyKey)',
+    'code: "idempotent_replay"',
+):
+    if marker not in JIT_EDGE:
+        failures.append(f"JIT endpoint is missing idempotency marker: {marker}")
 
 required_receive_flow = [
     "collectionSequenceRef.current?.fingerprint !== intentFingerprint",

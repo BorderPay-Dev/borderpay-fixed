@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 edge = (ROOT / "supabase/functions/yellowcard-transaction/index.ts").read_text()
+jit_edge = (ROOT / "supabase/functions/yellowcard-jit-payout/index.ts").read_text()
 ui = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 receive_ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
@@ -36,19 +37,22 @@ assert "directSettlement: true" in payload_builder
 for fragment in (
     "loadYellowCardCapability('quote'",
     "loadYellowCardCapability('routing'",
-    "const africanPayoutEnabled = false",
+    "yellowCardJitPayout({ action: 'readiness' })",
+    "result?.data?.execution_enabled === true",
     "convertYellowCardLocalFeeToFunding(africanPolicyFee.amount, destinationAmount, sourceAmount)",
     "const executionLocalAmount = Math.round(africanQuote.destinationAmount)",
-    "result.data?.transaction?.provider_transaction_id",
-    "result.data?.transaction?.sequence_id",
+    "result.data?.payout?.id",
+    "result.data?.payout?.sequence_id",
 ):
     assert fragment in ui, f"missing Yellow Card send UI contract: {fragment}"
 
-# Both the PIN and EEA-SCA continuation paths retain the same idempotent
-# sequence contract, but neither is reachable while production payout is off.
-assert ui.count("action: 'create_send'") == 2
+# Both the PIN and EEA-SCA continuation paths retain the same idempotent JIT
+# request, while the endpoint remains the final rollout authority.
+assert ui.count("action: 'create'") == 2
 assert "if (!africanPayoutEnabled)" in ui
-assert ui.count("recipient_account_number:") == 2
+assert ui.count("account_number:") >= 2
+assert "yellowCardJitPayout" in ui
+assert 'code: "yellow_card_jit_payout_disabled"' in jit_edge
 
 assert "backendAPI.payouts.createTransfer" not in ui
 assert "backendAPI.payouts.resolveAccount" not in ui

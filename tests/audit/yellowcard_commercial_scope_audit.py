@@ -22,7 +22,8 @@ assert 'allow_all_receive_countries' not in transaction
 assert 'yellow_card_commercial_corridor_unavailable' in transaction
 assert 'return `${direction}:${userId}:${country}`' in cache
 assert "if (provider !== 'yellow_card') return" in cache
-assert "const africanPayoutEnabled = false" in send
+assert "yellowCardJitPayout({ action: 'readiness' })" in send
+assert "result?.data?.execution_enabled === true" in send
 assert '<MotionConfig reducedMotion="always">' in send
 assert 'autoFocus' not in send
 assert '[overflow-anchor:none]' in send

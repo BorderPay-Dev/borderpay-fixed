@@ -114,8 +114,12 @@ require('if (isSend) {' in transaction and 'yellow_card_customer_funding_orchest
         "production Send must not be unlocked by a feature flag alone")
 require("yellowCardTransaction" in receive and "yellowcard-transaction" in api,
         "customer Receive must call the production transaction endpoint")
-require("const africanPayoutEnabled = false" in send,
-        "customer Send must remain unavailable during treasury funding integration")
+require("yellowCardJitPayout({ action: 'readiness' })" in send and
+        "result?.data?.execution_enabled === true" in send,
+        "customer Send must follow authenticated server-side JIT readiness")
+require('code: "yellow_card_jit_payout_disabled"' in
+        (ROOT / "supabase/functions/yellowcard-jit-payout/index.ts").read_text(),
+        "JIT payout execution must fail closed when rollout flags are disabled")
 
 require('req.headers.get("X-YC-Signature")' in webhook and
         "verifyYellowCardWebhookSignature" in webhook,

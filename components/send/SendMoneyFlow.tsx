@@ -477,9 +477,27 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } catch {}
     return 'pending';
   });
-  // Payouts remain unavailable until customer funding, treasury prefunding,
-  // and provider reconciliation can be completed as one auditable operation.
-  const africanPayoutEnabled = false;
+  // Fail closed until the authenticated production JIT endpoint confirms that
+  // both execution switches are enabled. This prevents a stale frontend build
+  // from advertising a payout path that operations has paused server-side.
+  const [africanPayoutEnabled, setAfricanPayoutEnabled] = useState(false);
+  const [africanPayoutReadinessLoaded, setAfricanPayoutReadinessLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void backendAPI.payouts.yellowCardJitPayout({ action: 'readiness' })
+      .then((result: any) => {
+        if (!active) return;
+        setAfricanPayoutEnabled(result?.success === true && result?.data?.execution_enabled === true);
+      })
+      .catch(() => {
+        if (active) setAfricanPayoutEnabled(false);
+      })
+      .finally(() => {
+        if (active) setAfricanPayoutReadinessLoaded(true);
+      });
+    return () => { active = false; };
+  }, [userId]);
 
   const sendWalletsCacheKey = useMemo(
     () => financialCacheKey(SEND_WALLETS_CACHE_KEY, { userId }),
@@ -878,10 +896,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   } | null>(null);
   const [africanQuoteLoading, setAfricanQuoteLoading] = useState(false);
   const [africanQuoteError, setAfricanQuoteError] = useState('');
-  // One Yellow Card sequence per African payout intent. A retry of the same
-  // corridor, amount and beneficiary must reuse the original sequence so a
-  // timeout or double tap cannot create a second provider transaction.
-  const yellowCardSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
   const transactionAuthorizationRef = useRef(false);
   const scaPaymentRequestRef = useRef<Record<string, any> | null>(null);
   const africanQuoteReqRef = useRef(0);
@@ -1454,18 +1468,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   // Process transaction
   // ---------------------------------------------------------------------------
-  const reconcileYellowCardStatus = (sequenceId: string) => {
-    if (!sequenceId) return;
-    const terminalSuccess = new Set(['completed', 'complete', 'successful', 'success', 'settled']);
-    const terminalFailure = new Set(['failed', 'rejected', 'cancelled', 'canceled', 'expired']);
-    [5_000, 15_000, 30_000].forEach((delay) => {
+  const reconcileYellowCardStatus = (payoutId: string) => {
+    if (!payoutId) return;
+    const terminalSuccess = new Set(['completed']);
+    const terminalFailure = new Set(['failed']);
+    [5_000, 15_000, 30_000, 60_000, 120_000, 300_000].forEach((delay) => {
       window.setTimeout(async () => {
-        const status: any = await backendAPI.payouts.yellowCardTransaction({
+        const status: any = await backendAPI.payouts.yellowCardJitPayout({
           action: 'status',
-          sequence_id: sequenceId,
+          payout_id: payoutId,
         });
         if (!status?.success) return;
-        const next = String(status.data?.transaction?.provider_status || status.data?.transaction?.status || '').toLowerCase();
+        const next = String(status.data?.payout?.state || '').toLowerCase();
         if (terminalSuccess.has(next)) {
           setTransactionPending(false);
           return;
@@ -1566,36 +1580,31 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const beneficiaryName = recipientName.trim() || resolvedName || undefined;
         if (!selectedBank?.code) throw new Error('Select the recipient bank or mobile money network.');
         const localAmount = Math.round(africanQuote.destinationAmount);
-        const settlementNetwork = activeFundingCurrency === 'USDC' ? 'BASE' : 'TRC20';
+        const settlementNetwork = activeFundingCurrency === 'USDC' ? 'BASE' : 'TRON';
         const request = scaPaymentRequestRef.current || {
-          currency: selectedCurrency,
+          action: 'create',
           country: selectedAfricanCountryCode,
+          currency: selectedCurrency,
           channel: method,
           local_amount: localAmount,
-          settlement_currency: activeFundingCurrency,
+          settlement_asset: activeFundingCurrency,
           settlement_network: settlementNetwork,
-          crypto_amount: parseFloat(amount),
+          settlement_amount: String(parseFloat(amount)),
+          bridge_wallet_id: activeFundingWallet.bridge_wallet_id,
           network_id: selectedBank.code,
           reason: reason.trim(),
-          recipient_name: beneficiaryName,
-          recipient_account_number: method === 'mobile_money'
-            ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
-            : accountNumber.trim(),
+          recipient: {
+            account_name: beneficiaryName,
+            account_number: method === 'mobile_money'
+              ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
+              : accountNumber.trim(),
+          },
+          idempotency_key: transferIdempotencyKey,
         };
-        const intentFingerprint = JSON.stringify(request);
-        if (yellowCardSequenceRef.current?.fingerprint !== intentFingerprint) {
-          yellowCardSequenceRef.current = {
-            fingerprint: intentFingerprint,
-            sequenceId: globalThis.crypto.randomUUID(),
-          };
-        }
-        const sequenceId = yellowCardSequenceRef.current.sequenceId;
-        result = await backendAPI.payouts.yellowCardTransaction({
-          action: 'create_send',
+        result = await backendAPI.payouts.yellowCardJitPayout({
           ...request,
-          sequence_id: sequenceId,
           sca_authorization_id: scaAuthorizationId,
-        });
+        }, transferIdempotencyKey);
       } else {
         throw new Error('Unsupported transfer method.');
       }
@@ -1608,25 +1617,27 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
         setTransactionId(
-          result.data?.transaction?.provider_transaction_id
+          result.data?.payout?.id
+          || result.data?.transaction?.provider_transaction_id
           || result.data?.transaction_id
           || result.data?.transfer_id
           || ''
         );
         setTransactionRef(
-          result.data?.transaction?.sequence_id
+          result.data?.payout?.sequence_id
+          || result.data?.transaction?.sequence_id
           || result.data?.reference
           || result.data?.transfer_id
           || ''
         );
         setNewBalance(result.data?.new_balance ?? null);
-        const providerState = String(result.data?.transaction?.provider_status || result.data?.transaction?.status || '').toLowerCase();
+        const providerState = String(result.data?.payout?.state || result.data?.transaction?.provider_status || result.data?.transaction?.status || '').toLowerCase();
         const pendingConfirmation = (result as any)?.code === 'provider_confirmation_pending' ||
           ['confirmation_pending', 'created', 'process', 'processing', 'pending', 'submitted'].includes(providerState);
         setTransactionPending(pendingConfirmation);
         setStep('success');
         if (isAfricanPayout) {
-          reconcileYellowCardStatus(String(result.data?.transaction?.sequence_id || ''));
+          reconcileYellowCardStatus(String(result.data?.payout?.id || ''));
         }
         if (pendingConfirmation) toast.info('Transfer submitted. Confirmation is pending.');
         else toast.success(t('send.txSuccessful'));
@@ -1721,25 +1732,22 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         country: selectedAfricanCountryCode,
         channel: method,
         local_amount: Math.round(africanQuote.destinationAmount),
-        settlement_currency: activeFundingCurrency,
-        settlement_network: activeFundingCurrency === 'USDC' ? 'BASE' : 'TRC20',
-        crypto_amount: parseFloat(amount),
+        action: 'create',
+        settlement_asset: activeFundingCurrency,
+        settlement_network: activeFundingCurrency === 'USDC' ? 'BASE' : 'TRON',
+        settlement_amount: String(parseFloat(amount)),
+        bridge_wallet_id: activeFundingWallet.bridge_wallet_id,
         network_id: selectedBank.code,
         reason: reason.trim(),
-        recipient_name: recipientName.trim() || resolvedName || undefined,
-        recipient_account_number: method === 'mobile_money'
-          ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
-          : accountNumber.trim(),
+        recipient: {
+          account_name: recipientName.trim() || resolvedName || undefined,
+          account_number: method === 'mobile_money'
+            ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
+            : accountNumber.trim(),
+        },
+        idempotency_key: transferIdempotencyKey,
       };
-      const fingerprint = JSON.stringify(requestBase);
-      if (yellowCardSequenceRef.current?.fingerprint !== fingerprint) {
-        yellowCardSequenceRef.current = { fingerprint, sequenceId: globalThis.crypto.randomUUID() };
-      }
-      request = {
-        action: 'create_send',
-        ...requestBase,
-        sequence_id: yellowCardSequenceRef.current.sequenceId,
-      };
+      request = requestBase;
       scaPaymentRequestRef.current = request;
     } else {
       toast.error('This payment rail is not ready for strong authentication. Nothing was sent.');
@@ -1761,7 +1769,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
       const authorization: any = await backendAPI.auth.authorizeSCA({
         operation: 'payment',
-        resource: method === 'bank' || method === 'mobile_money' ? 'yellowcard_transaction' : 'bridge_transfer',
+        resource: method === 'bank' || method === 'mobile_money' ? 'yellowcard_jit_payout' : 'bridge_transfer',
         request,
         pin,
         totp,
@@ -1943,7 +1951,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="min-w-0 flex-1">
                   <p className={`truncate text-sm font-semibold ${tc.text}`}>Send to Africa</p>
                   <p className="mt-1 truncate text-xs font-semibold text-[#58D66D]">Mobile money and local bank rails</p>
-                  <p className="mt-1 truncate text-xs text-white/40">African send rails are coming soon</p>
+                  <p className="mt-1 truncate text-xs text-white/40">
+                    {africanPayoutReadinessLoaded ? 'African send rails are temporarily unavailable' : 'Checking live availability…'}
+                  </p>
                 </div>
                 <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
                   Soon
@@ -3404,7 +3414,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className="space-y-3">
               <button
                 onClick={() => {
-                  if (isAfricanPayout) yellowCardSequenceRef.current = null;
                   setAmount('');
                   setReason('');
                   setPin('');

@@ -100,6 +100,17 @@ Deno.serve(async (req) => {
   if (!config.configured || config.environment !== "production" || !config.production_host_pinned) {
     return json({ success: false, code: "yellow_card_production_unavailable" }, 503);
   }
+  if (action === "readiness") {
+    return json({
+      success: true,
+      data: {
+        execution_enabled: flag("YC_PRODUCTION_SEND_ENABLED") && flag("YC_JIT_PAYOUT_ENABLED"),
+        environment: "production",
+        route_source: "yellow_card_live_channels_and_networks",
+        settlement_routes: ["USDC_BASE", "USDT_TRON"],
+      },
+    });
+  }
   const country = upper(body?.country);
   const currency = upper(body?.currency);
   const channel = lower(body?.channel) as "bank" | "mobile_money";

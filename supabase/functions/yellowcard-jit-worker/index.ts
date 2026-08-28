@@ -230,10 +230,16 @@ Deno.serve(async (req) => {
       !config.configured || config.environment !== "production" || !config.production_host_pinned) {
     return json({ success: false, code: "yellow_card_jit_payout_disabled" }, 503);
   }
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* empty scheduler body */ }
+  const requestedBatchSize = Number(body.batch_size || 5);
+  const batchSize = Number.isInteger(requestedBatchSize)
+    ? Math.max(1, Math.min(requestedBatchSize, 10))
+    : 5;
   const lockToken = crypto.randomUUID();
   const { data: rows, error } = await db.rpc("claim_yellowcard_jit_payouts", {
     p_lock_token: lockToken,
-    p_limit: 10,
+    p_limit: batchSize,
     p_lease_seconds: 90,
   });
   if (error) return json({ success: false, code: "yellow_card_jit_queue_unavailable" }, 503);

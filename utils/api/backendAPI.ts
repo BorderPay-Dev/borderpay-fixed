@@ -33,6 +33,7 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   // failures while the idempotent server request continues in the background.
   if (endpoint === 'yellowcard-capabilities') return 30000;
   if (endpoint === 'yellowcard-transaction') return 90000;
+  if (endpoint === 'yellowcard-jit-payout') return 90000;
   return 8000;
 }
 
@@ -2680,6 +2681,13 @@ export const payoutsAPI = {
   yellowCardTransaction: async (payload: Record<string, unknown>) =>
     apiCall<Record<string, unknown>>(yellowCardFunction('transaction'), {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  yellowCardJitPayout: async (payload: Record<string, unknown>, idempotencyKey?: string) =>
+    apiCall<Record<string, unknown>>(yellowCardFunction('jit-payout'), {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: JSON.stringify(payload),
     }),
 
