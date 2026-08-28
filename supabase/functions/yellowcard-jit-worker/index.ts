@@ -228,7 +228,9 @@ Deno.serve(async (req) => {
   const config = getYellowCardConfig();
   if (!flag("YC_PRODUCTION_SEND_ENABLED") || !flag("YC_JIT_PAYOUT_ENABLED") ||
       !config.configured || config.environment !== "production" || !config.production_host_pinned) {
-    return json({ success: false, code: "yellow_card_jit_payout_disabled" }, 503);
+    // Scheduled polling while operations has paused execution is healthy and
+    // must not manufacture recurring 5xx noise in the project health signal.
+    return json({ success: true, code: "yellow_card_jit_payout_paused", data: { paused: true } });
   }
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* empty scheduler body */ }
