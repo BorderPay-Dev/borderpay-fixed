@@ -24,12 +24,13 @@ import { sessionAPI } from '../../utils/api/sessionAPI';
 import { toast } from 'sonner';
 
 import { backendAPI } from '../../utils/api/backendAPI';
-import { TOTPManager, BiometricManager } from '../../utils/security/SecurityManager';
+import { BiometricManager } from '../../utils/security/SecurityManager';
 import { TwoFactorVerify } from './TwoFactorVerify';
 import { authAPI, storeUserProfile, setBiometricLoginPending, clearBiometricLoginPending, isAppLocked, setAppLocked, clearAppLocked } from '../../utils/supabase/client';
 import { ENV_CONFIG, isKycVerified } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { bootstrapAppReviewDemoCache, isAppReviewDemoEmail } from '../../utils/review/appReviewDemoBootstrap';
+import { isNativeRuntime } from '../../utils/native/mobileRuntime';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -75,21 +76,6 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
   useEffect(() => {
     setBiometricAvailable(BiometricManager.isLoginAvailable());
   }, []);
-
-  // Auto-enroll biometrics after successful password login
-  const tryBiometricEnrollment = async (userId: string, userName: string) => {
-    try {
-      if (BiometricManager.isEnrolled(userId)) return; // Already enrolled
-      const supported = await BiometricManager.isSupported();
-      if (!supported) return;
-      const available = await window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.();
-      if (!available) return;
-      // Silently enroll — if user cancels the prompt, we just skip
-      await BiometricManager.enroll(userId, userName);
-    } catch {
-      // Non-critical — don't block login
-    }
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,13 +150,22 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         localStorage.setItem('borderpay_biometric_user_id', data.user.id);
 
         // Auto-enroll biometrics (non-blocking, fires in background)
-        tryBiometricEnrollment(data.user.id, userProfile.full_name || data.user.email || 'User');
 
-        const has2FA      = TOTPManager.isEnabled(userProfile.id);
-        const profileHas2FA = userProfile.two_factor_enabled || userProfile.mfa_enabled;
+        // Server enrollment is authoritative. Cached profile flags can outlive
+        // an incomplete/reset enrollment and must never trap a signed-in user.
+        let has2FA = false;
+        try {
+          const security: any = await backendAPI.auth.getSecurityStatus(userProfile.id);
+          has2FA = Boolean(security?.success && security?.data?.two_factor_enabled);
+          userProfile.two_factor_enabled = has2FA;
+          userProfile.mfa_enabled = has2FA;
+          storeUserProfile(userProfile);
+        } catch {
+          has2FA = false;
+        }
         const isVerified  = isKycVerified(userProfile);
 
-        if (isVerified && (has2FA || profileHas2FA)) {
+        if (isVerified && has2FA) {
           setPendingUser(userProfile);
           setShow2FA(true);
           return;
@@ -251,7 +246,8 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
     try {
       // Step 1: Device support
-      if (!window.PublicKeyCredential) {
+      const nativeMobile = isNativeRuntime();
+      if (!nativeMobile && !window.PublicKeyCredential) {
         toast.error('Biometric authentication not supported on this browser');
         return;
       }
@@ -276,7 +272,9 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
         return;
       }
 
-      const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      const available = nativeMobile
+        ? await BiometricManager.isSupported()
+        : await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       if (!available) {
         toast.info('Platform biometric not available. Please sign in with your password.');
         if (userProfile.email) setEmail(userProfile.email);
@@ -352,9 +350,18 @@ export function LoginScreen({ onLoginSuccess, onNavigateToSignUp, onNavigateToFo
 
       toast.success('Biometric authentication successful!');
 
-      const has2FA = TOTPManager.isEnabled(mergedProfile.id);
+      let has2FA = false;
+      try {
+        const security: any = await backendAPI.auth.getSecurityStatus(mergedProfile.id);
+        has2FA = Boolean(security?.success && security?.data?.two_factor_enabled);
+        mergedProfile.two_factor_enabled = has2FA;
+        mergedProfile.mfa_enabled = has2FA;
+        storeUserProfile(mergedProfile);
+      } catch {
+        has2FA = false;
+      }
       const isVerified = isKycVerified(mergedProfile);
-      if (isVerified && (has2FA || mergedProfile.two_factor_enabled || mergedProfile.mfa_enabled)) {
+      if (isVerified && has2FA) {
         setPendingUser(mergedProfile);
         setShow2FA(true);
       } else {

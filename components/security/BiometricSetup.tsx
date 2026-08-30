@@ -11,6 +11,7 @@ import { Fingerprint, CheckCircle, AlertCircle, Shield, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { BiometricManager } from '../../utils/security/SecurityManager';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { useBridgeScaAction } from '../../utils/security/useBridgeScaAction';
 
 interface BiometricSetupProps {
   userId: string;
@@ -19,6 +20,7 @@ interface BiometricSetupProps {
 }
 
 export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupProps) {
+  const { authorize: authorizeBridgeSca, challenge: scaChallenge } = useBridgeScaAction();
   const [supported, setSupported] = useState<boolean | null>(null);
   const [enrolled, setEnrolled] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
@@ -34,7 +36,24 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
     setEnrolled(BiometricManager.isEnrolled(userId));
   };
 
-  const handleEnroll = async () => {
+  const handleEnroll = () => {
+    void (async () => {
+      try {
+        const authorizationId = await authorizeBridgeSca({
+          operation: 'security_change',
+          resource: 'biometric_change',
+          request: { action: 'enable_biometric' },
+          title: 'Confirm biometric enrollment',
+          description: 'Verify this security change before enrolling a new authenticator.',
+        });
+        await performEnroll(authorizationId);
+      } catch (error) {
+        toast.error(friendlyError(error, 'Biometric enrollment was cancelled.'));
+      }
+    })();
+  };
+
+  const performEnroll = async (authorizationId: string) => {
     setEnrolling(true);
     try {
       // Get user name from stored profile
@@ -47,7 +66,7 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
         }
       } catch { /* fallback */ }
 
-      const result = await BiometricManager.enroll(userId, userName);
+      const result = await BiometricManager.enroll(userId, userName, authorizationId);
 
       if (result.success) {
         setSuccess(true);
@@ -66,9 +85,24 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
 
   const handleDisable = async () => {
     if (!confirm('Disable biometric authentication? You can re-enable it anytime.')) return;
+    try {
+      const authorizationId = await authorizeBridgeSca({
+        operation: 'security_change',
+        resource: 'biometric_change',
+        request: { action: 'disable_biometric' },
+        title: 'Confirm biometric removal',
+        description: 'Verify this security change before removing the authenticator.',
+      });
+      await performDisable(authorizationId);
+    } catch (error) {
+      toast.error(friendlyError(error, 'Biometric removal was cancelled.'));
+    }
+  };
+
+  const performDisable = async (authorizationId: string) => {
     // Delete the server credential; only show "disabled" if it actually
     // succeeded, so we never leave an orphan row that blocks re-enroll.
-    const r = await BiometricManager.disable(userId);
+    const r = await BiometricManager.disable(userId, authorizationId);
     if (r.success) {
       setEnrolled(false);
       toast.success('Biometric disabled');
@@ -113,7 +147,7 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
           >
             <h2 className="text-xl font-bold">Biometric Enabled!</h2>
             <p className="text-sm text-gray-400">
-              You can now use Face ID, Touch ID, or your fingerprint to unlock BorderPay and confirm transactions.
+              You can now use Face ID, Touch ID, or your fingerprint to unlock BorderPay. Payments still require your PIN and authenticator code.
             </p>
             <div className="bg-[#C7FF00]/5 border border-[#C7FF00]/20 rounded-2xl p-4 mt-6">
               <p className="text-xs text-[#C7FF00]">
@@ -143,7 +177,7 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
             <div className="bg-[#C7FF00]/5 border border-[#C7FF00]/20 rounded-2xl p-4 flex items-center gap-3">
               <Shield size={20} className="text-[#C7FF00] flex-shrink-0" />
               <p className="text-xs text-[#C7FF00] text-left">
-                Face ID / Touch ID / Fingerprint is active for login and transaction verification
+                Face ID / Touch ID / Fingerprint is active for app unlock. It does not replace payment SCA.
               </p>
             </div>
 
@@ -163,7 +197,7 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
             <div className="text-center">
               <h2 className="text-xl font-bold mb-2">Enable Biometric Login</h2>
               <p className="text-sm text-gray-400">
-                Use Face ID, Touch ID, or your fingerprint to quickly unlock BorderPay and approve transactions.
+                Use Face ID, Touch ID, or your fingerprint to quickly unlock BorderPay. Financial actions use separate strong authentication.
               </p>
             </div>
 
@@ -171,7 +205,7 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
             <div className="space-y-3">
               {[
                 { title: 'Instant Unlock', desc: 'Open the app with a glance or touch' },
-                { title: 'Transaction Approval', desc: 'Confirm payments without entering your PIN' },
+                { title: 'Separate Payment Security', desc: 'Payments still require your PIN and authenticator code' },
                 { title: 'On-Device Security', desc: 'Biometric data never leaves your device' },
               ].map((feature, i) => (
                 <div key={i} className="flex gap-3 bg-white/5 border border-white/10 rounded-2xl p-4">
@@ -211,6 +245,7 @@ export function BiometricSetup({ userId, onBack, onComplete }: BiometricSetupPro
           </motion.div>
         )}
       </div>
+      {scaChallenge}
     </div>
   );
 }

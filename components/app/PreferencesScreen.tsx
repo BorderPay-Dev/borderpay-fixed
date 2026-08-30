@@ -38,6 +38,10 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
   };
 
   const handleBiometricToggle = async () => {
+    await performBiometricToggle('');
+  };
+
+  const performBiometricToggle = async (authorizationId: string) => {
     setBiometricLoading(true);
     try {
       const userId = localStorage.getItem('borderpay_biometric_user_id') || '';
@@ -49,7 +53,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
       if (prefs.biometric_enabled) {
         // Disable — delete the server credential first; only reflect "disabled"
         // if it actually succeeded, otherwise the orphan row blocks re-enroll.
-        const r = await BiometricManager.disable(userId);
+        const r = await BiometricManager.disable(userId, authorizationId);
         if (r.success) {
           updatePrefs({ biometric_enabled: false });
           hapticFeedback();
@@ -66,7 +70,7 @@ export function PreferencesScreen({ onBack }: PreferencesScreenProps) {
         }
         const user = localStorage.getItem('borderpay_user');
         const userName = user ? JSON.parse(user).full_name || 'User' : 'User';
-        const result = await BiometricManager.enroll(userId, userName);
+        const result = await BiometricManager.enroll(userId, userName, authorizationId);
         if (result.success) {
           updatePrefs({ biometric_enabled: true });
           hapticFeedback();
