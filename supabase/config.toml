@@ -189,10 +189,6 @@ verify_jwt = true
 [functions.yellowcard-jit-worker]
 verify_jwt = false
 
-# Admin/tester-only provider diagnostics.
-[functions.yellowcard-sandbox-diagnostics]
-verify_jwt = true
-
 # Admin-only, read-only channel discovery; never activates corridors.
 [functions.yellowcard-corridor-sync]
 verify_jwt = true

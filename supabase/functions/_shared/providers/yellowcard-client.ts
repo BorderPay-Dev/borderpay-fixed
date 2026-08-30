@@ -6,7 +6,6 @@
  */
 
 const PRODUCTION_BASE_URL = "https://api.yellowcard.io/business";
-const SANDBOX_BASE_URL = "https://sandbox.api.yellowcard.io/business";
 
 function firstEnv(...names: string[]): string {
   for (const name of names) {
@@ -19,15 +18,21 @@ function firstEnv(...names: string[]): string {
 const PRODUCTION_ENABLED = ["1", "true", "yes", "on"].includes(
   firstEnv("YC_PRODUCTION_ENABLED").toLowerCase(),
 );
-const YC_API_KEY = PRODUCTION_ENABLED
-  ? firstEnv("YC_PRODUCTION_API_KEY", "YELLOW_CARD_PRODUCTION_API_KEY", "YC_API_KEY", "YELLOW_CARD_API_KEY", "YELLOWCARD_API_KEY")
-  : firstEnv("YC_SANDBOX_API_KEY", "YELLOW_CARD_SANDBOX_API_KEY");
-const YC_SECRET_KEY = PRODUCTION_ENABLED
-  ? firstEnv("YC_PRODUCTION_SECRET_KEY", "YELLOW_CARD_PRODUCTION_SECRET_KEY", "YC_SECRET_KEY", "YELLOW_CARD_SECRET_KEY", "YELLOWCARD_SECRET_KEY")
-  : firstEnv("YC_SANDBOX_SECRET_KEY", "YELLOW_CARD_SANDBOX_SECRET_KEY");
-const YC_BASE_URL = PRODUCTION_ENABLED
-  ? firstEnv("YC_PRODUCTION_BASE_URL", "YELLOW_CARD_PRODUCTION_BASE_URL") || PRODUCTION_BASE_URL
-  : firstEnv("YC_SANDBOX_BASE_URL", "YELLOW_CARD_SANDBOX_BASE_URL") || SANDBOX_BASE_URL;
+const YC_API_KEY = firstEnv(
+  "YC_PRODUCTION_API_KEY",
+  "YELLOW_CARD_PRODUCTION_API_KEY",
+  "YC_API_KEY",
+  "YELLOW_CARD_API_KEY",
+  "YELLOWCARD_API_KEY",
+);
+const YC_SECRET_KEY = firstEnv(
+  "YC_PRODUCTION_SECRET_KEY",
+  "YELLOW_CARD_PRODUCTION_SECRET_KEY",
+  "YC_SECRET_KEY",
+  "YELLOW_CARD_SECRET_KEY",
+  "YELLOWCARD_SECRET_KEY",
+);
+const YC_BASE_URL = firstEnv("YC_PRODUCTION_BASE_URL", "YELLOW_CARD_PRODUCTION_BASE_URL") || PRODUCTION_BASE_URL;
 const YC_EGRESS_RELAY_URL = firstEnv("YC_EGRESS_RELAY_URL");
 const YC_EGRESS_RELAY_TOKEN = firstEnv("YC_EGRESS_RELAY_TOKEN");
 const DEFAULT_TIMEOUT_MS = Number(firstEnv("YC_HTTP_TIMEOUT_MS", "YELLOW_CARD_HTTP_TIMEOUT_MS") || "15000");
@@ -52,9 +57,9 @@ export interface YellowCardFetchResult<T = unknown> {
 export function getYellowCardConfig() {
   const baseUrl = YC_BASE_URL.replace(/\/+$/, "");
   return {
-    configured: Boolean(YC_API_KEY && YC_SECRET_KEY),
+    configured: Boolean(PRODUCTION_ENABLED && YC_API_KEY && YC_SECRET_KEY),
     base_url: baseUrl,
-    environment: baseUrl.includes("sandbox.") ? "sandbox" : "production",
+    environment: "production",
     transport: YC_EGRESS_RELAY_URL ? "restricted_egress_relay" : "direct",
     production_enabled: PRODUCTION_ENABLED,
     key_prefix: YC_API_KEY ? `${YC_API_KEY.slice(0, 6)}...` : null,
@@ -112,7 +117,7 @@ function parseJson(raw: string): any {
 export async function yellowCardFetch<T = unknown>(
   opts: YellowCardFetchOptions,
 ): Promise<YellowCardFetchResult<T>> {
-  if (!YC_API_KEY || !YC_SECRET_KEY) {
+  if (!PRODUCTION_ENABLED || !YC_API_KEY || !YC_SECRET_KEY) {
     return {
       ok: false,
       status: 503,

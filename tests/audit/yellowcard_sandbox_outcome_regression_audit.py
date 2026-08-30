@@ -13,6 +13,10 @@ def source(path: str) -> str:
 
 if (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.ts").exists():
     raise SystemExit("legacy Yellow Card sandbox transaction endpoint must remain removed")
+if (ROOT / "supabase/functions/yellowcard-sandbox-diagnostics/index.ts").exists():
+    raise SystemExit("legacy Yellow Card sandbox diagnostics endpoint must remain removed")
+if (ROOT / "supabase/functions/_shared/providers/yellowcard-sandbox-scope.ts").exists():
+    raise SystemExit("legacy Yellow Card sandbox scope must remain removed")
 
 send = source("components/send/SendMoneyFlow.tsx")
 receive = source("components/receive/ReceiveMoneyScreen.tsx")
@@ -20,6 +24,8 @@ capabilities = source("supabase/functions/yellowcard-capabilities/index.ts")
 receive_endpoint = source("supabase/functions/yellowcard-receive/index.ts")
 payout_endpoint = source("supabase/functions/yellowcard-jit-payout/index.ts")
 access = source("supabase/functions/_shared/african-rails-access.ts")
+client = source("supabase/functions/_shared/providers/yellowcard-client.ts")
+config = source("supabase/config.toml")
 
 combined = "\n".join((send, receive, capabilities, receive_endpoint, payout_endpoint, access))
 for forbidden in (
@@ -31,6 +37,18 @@ for forbidden in (
 ):
     if forbidden in combined:
         raise SystemExit(f"tester-only Yellow Card behavior remains: {forbidden}")
+
+for forbidden in (
+    "sandbox.api.yellowcard.io",
+    "YC_SANDBOX_API_KEY",
+    "YC_SANDBOX_SECRET_KEY",
+    "YC_SANDBOX_BASE_URL",
+):
+    if forbidden in client:
+        raise SystemExit(f"Yellow Card runtime must be production-only: {forbidden}")
+
+if "yellowcard-sandbox" in config:
+    raise SystemExit("Yellow Card sandbox function remains registered")
 
 required = {
     "Send UI": (send, "backendAPI.payouts.yellowCardJitPayout"),
