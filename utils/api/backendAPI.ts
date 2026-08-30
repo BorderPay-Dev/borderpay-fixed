@@ -45,6 +45,19 @@ function sanitizeError(raw: string | undefined): string {
 
 // ── Core API caller with retry for transient network failures ────────────────
 
+function hasAuthenticatedSubject(token: string | null): token is string {
+  if (!token || token === ANON_KEY) return false;
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  try {
+    const payloadPart = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(payloadPart.padEnd(Math.ceil(payloadPart.length / 4) * 4, '=')));
+    return typeof payload?.sub === 'string' && payload.sub.length > 0 && payload.role !== 'anon';
+  } catch {
+    return false;
+  }
+}
+
 async function apiCall<T = any>(
   endpoint: string,
   options: RequestInit = {},
@@ -59,11 +72,20 @@ async function apiCall<T = any>(
       if (token) localStorage.setItem('borderpay_token', token);
     }
 
+    // Never send the public anon key (or a malformed/stale value) as a user
+    // bearer token. Doing so makes GoTrue process /user with no `sub` claim,
+    // creates recurring 403 warnings, and can contribute to noisy health
+    // signals while the signed-out UI is polling authenticated endpoints.
+    if (!hasAuthenticatedSubject(token)) {
+      if (token) localStorage.removeItem('borderpay_token');
+      return { success: false, error: 'Authentication required' };
+    }
+
     // When body is FormData, let the browser set Content-Type (multipart boundary)
     const isFormData = options.body instanceof FormData;
     const baseHeaders: Record<string, string> = {
       'apikey': ANON_KEY,
-      'Authorization': `Bearer ${token || ANON_KEY}`,
+      'Authorization': `Bearer ${token}`,
     };
     if (!isFormData) {
       baseHeaders['Content-Type'] = 'application/json';
