@@ -17,6 +17,8 @@ if (ROOT / "supabase/functions/yellowcard-sandbox-diagnostics/index.ts").exists(
     raise SystemExit("legacy Yellow Card sandbox diagnostics endpoint must remain removed")
 if (ROOT / "supabase/functions/_shared/providers/yellowcard-sandbox-scope.ts").exists():
     raise SystemExit("legacy Yellow Card sandbox scope must remain removed")
+if (ROOT / "utils/yellowCardProviderLimits.ts").exists():
+    raise SystemExit("sandbox-derived Yellow Card UI limits must remain removed")
 
 send = source("components/send/SendMoneyFlow.tsx")
 receive = source("components/receive/ReceiveMoneyScreen.tsx")
@@ -34,6 +36,8 @@ for forbidden in (
     "isAfricanRailsTesterEmail",
     "yellow-card-sandbox-usdc",
     "yellow-card-sandbox-usdt",
+    "yellowCardProviderBounds",
+    "manual:",
 ):
     if forbidden in combined:
         raise SystemExit(f"tester-only Yellow Card behavior remains: {forbidden}")
