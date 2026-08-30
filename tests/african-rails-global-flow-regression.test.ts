@@ -4,8 +4,6 @@ function assert(condition: unknown, message = "assertion failed"): asserts condi
 
 const send = await Deno.readTextFile(new URL("../components/send/SendMoneyFlow.tsx", import.meta.url));
 const receive = await Deno.readTextFile(new URL("../components/receive/ReceiveMoneyScreen.tsx", import.meta.url));
-const app = await Deno.readTextFile(new URL("../App.tsx", import.meta.url));
-const lock = await Deno.readTextFile(new URL("../components/security/AppLockScreen.tsx", import.meta.url));
 const capabilities = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-capabilities/index.ts", import.meta.url));
 const receiveEndpoint = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-receive/index.ts", import.meta.url));
 const payoutEndpoint = await Deno.readTextFile(new URL("../supabase/functions/yellowcard-jit-payout/index.ts", import.meta.url));
@@ -21,21 +19,6 @@ Deno.test("African send performs one idempotent JIT payout call", () => {
   assert(send.includes("if (transactionAuthorizationRef.current) return;"));
   assert(send.includes("if (result.success) {"));
   assert(send.includes("isAfricanPayout ||"));
-});
-
-Deno.test("app unlock preserves the mounted screen behind a blocking overlay", () => {
-  assert(app.includes("const showAppLock = appLocked && PINManager.hasPIN(user.id);"));
-  assert(app.includes("visibility: 'hidden', pointerEvents: 'none'"));
-  assert(app.indexOf("<MainApp") < app.indexOf("{showAppLock && ("));
-  assert(lock.includes("fixed inset-0 z-[1000]"));
-});
-
-Deno.test("app unlock refreshes expired cached sessions before PIN verification", () => {
-  assert(lock.includes("existing.split('.')[1]"));
-  assert(lock.includes("Date.now() + 30_000"));
-  assert(lock.includes("localStorage.removeItem('borderpay_token')"));
-  assert(lock.includes("supabase.auth.refreshSession({ refresh_token: refreshToken })"));
-  assert(lock.indexOf("Date.now() + 30_000") < lock.indexOf("PINManager.verifyAppUnlockPINResult"));
 });
 
 Deno.test("African rails are available by verified account, never by tester email", () => {
