@@ -17,6 +17,7 @@ import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { useBridgeScaAction } from '../../utils/security/useBridgeScaAction';
 
 interface Props {
   onBack: () => void;
@@ -61,6 +62,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
 
 export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const tc = useThemeClasses();
+  const { authorize: authorizeBridgeSca, challenge: scaChallenge } = useBridgeScaAction();
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
   const userId = (authAPI.getStoredUser()?.id as string) || '';
@@ -130,9 +132,25 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       return;
     }
     if (!validAddress(chain, address)) { toast.error(`That address isn't valid for ${chainName(chain)}.`); return; }
+    try {
+      const request = { action: 'add', label: label.trim(), chain, asset, address: address.trim() };
+      const authorizationId = await authorizeBridgeSca({
+        operation: 'beneficiary_change',
+        resource: 'external_wallet',
+        request,
+        title: 'Confirm withdrawal wallet',
+        description: 'Verify this beneficiary change with your account password and authenticator code.',
+      });
+      await saveAuthorized(authorizationId);
+    } catch (error) {
+      toast.error(friendlyError(error, 'Wallet creation was cancelled.'));
+    }
+  };
+
+  const saveAuthorized = async (authorizationId: string) => {
     setSaving(true);
     try {
-      const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() });
+      const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() }, authorizationId);
       if (r?.success && r.data?.wallet) {
         const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)]);
         setWallets(next);
@@ -147,9 +165,24 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   };
 
   const remove = async (id: string) => {
+    try {
+      const authorizationId = await authorizeBridgeSca({
+        operation: 'beneficiary_change',
+        resource: 'external_wallet',
+        request: { action: 'remove', id },
+        title: 'Confirm withdrawal wallet removal',
+        description: 'Verify this beneficiary change with your account password and authenticator code.',
+      });
+      await removeAuthorized(id, authorizationId);
+    } catch (error) {
+      toast.error(friendlyError(error, 'Wallet removal was cancelled.'));
+    }
+  };
+
+  const removeAuthorized = async (id: string, authorizationId: string) => {
     setRemoving(id);
     try {
-      const r: any = await backendAPI.externalWallets.remove(id);
+      const r: any = await backendAPI.externalWallets.remove(id, authorizationId);
       if (r?.success) {
         const next = wallets.filter(w => w.id !== id);
         setWallets(next);
@@ -335,6 +368,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
           </div>
         </>
       )}
+      {scaChallenge}
     </div>
   );
 }

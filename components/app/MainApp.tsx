@@ -61,8 +61,11 @@ import {
   navPerfStartRoute,
 } from '../../utils/performance/navigationPerf';
 import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
-import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { canDiscoverAfricanRails } from '../../utils/africanRailsAccess';
 import { isBridgeAccountPaused } from '../../utils/bridgeAccountStatus';
+import { initializeNativePush } from '../../utils/notifications/nativePush';
+import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
+import { friendlyError } from '../../utils/errors/friendlyError';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
 // Each loader is exported via `prefetchers` so that hover/touchstart on a
@@ -114,6 +117,7 @@ const SendMoneyFlow = lazyImport(() => import('../send/SendMoneyFlow').then(m =>
 const BulkPayoutScreen = lazyImport(() => import('../business/BulkPayoutScreen').then(m => ({ default: m.BulkPayoutScreen })));
 const PayrollScreen = lazyImport(() => import('../business/PayrollScreen').then(m => ({ default: m.PayrollScreen })));
 const AddExternalAccountScreen = lazyImport(() => import('../payouts/AddExternalAccountScreen').then(m => ({ default: m.AddExternalAccountScreen })));
+const PartnerApiPortalScreen = lazyImport(() => import('../business/PartnerApiPortalScreen').then(m => ({ default: m.PartnerApiPortalScreen })));
 const eagerPreload = () => Promise.resolve();
 
 // Map of screen → preload function. Exposed on `window.__borderpay_prefetch`
@@ -146,6 +150,7 @@ const SCREEN_PRELOADERS: Record<string, () => Promise<unknown>> = {
   'bulk-payout':         (BulkPayoutScreen as any).preload,
   payroll:              (PayrollScreen as any).preload,
   'add-external-account': (AddExternalAccountScreen as any).preload,
+  'partner-api':          (PartnerApiPortalScreen as any).preload,
 };
 
 export function prefetchScreen(name: string) {
@@ -201,6 +206,7 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
     case 'payroll':
     case 'add-external-account':
     case 'add-wallet':
+    case 'partner-api':
       return screen as AppScreen;
     default:
       return 'dashboard';
@@ -368,7 +374,8 @@ export type AppScreen =
   | 'external-wallets'
   | 'bulk-payout'
   | 'payroll'
-  | 'add-external-account';
+  | 'add-external-account'
+  | 'partner-api';
 
 // ── AppShell ↔ MainApp routing bridge ──────────────────────────────────
 // The shell speaks `AppRoute` (Home/Send/Receive/Account + drawer items).
@@ -379,6 +386,12 @@ export type AppScreen =
 const TOP_LEVEL_SCREENS: ReadonlySet<AppScreen> = new Set([
   'dashboard', 'home', 'wallet-detail', 'transactions',
   'cards', 'profile', 'settings', 'kyc', 'team', 'notifications',
+]);
+
+// Bridge DOP account-access scope only. Fund-in/Receive, login, KYC and
+// ordinary profile navigation are intentionally excluded.
+const BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS: ReadonlySet<AppScreen> = new Set([
+  'dashboard', 'home', 'wallet-detail', 'transactions',
 ]);
 
 const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
@@ -423,9 +436,9 @@ type StablecoinConfirmData = {
 };
 
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
-  const africanRailsTester = canUseAfricanRails({
-    id: userId,
-    email: (authAPI.getStoredUser() as any)?.email,
+  const africanRailsProfile = authAPI.getStoredUser() as any;
+  const africanRailsDiscoveryAllowed = canDiscoverAfricanRails({
+    id: userId || africanRailsProfile?.id,
   });
   const initialScreenFromCallback = useMemo<AppScreen>(() => {
     try {
@@ -443,6 +456,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       : ['dashboard', initialScreenFromCallback],
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>('loading');
+  const [scaCountry, setScaCountry] = useState<string | null>(null);
+  const [walletAccessUntil, setWalletAccessUntil] = useState(0);
+  const [scaDialogOpen, setScaDialogOpen] = useState(false);
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -458,6 +475,24 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+
+  const refreshScaScope = useCallback(async () => {
+    setScaScope('loading');
+    try {
+      const response: any = await backendAPI.auth.getScaScope();
+      if (!response?.success || !response?.data) {
+        setScaScope('unknown');
+        return;
+      }
+      setScaCountry(response.data.country || null);
+      setScaScope(response.data.required === true ? 'required' : 'not_required');
+    } catch {
+      setScaScope('unknown');
+    }
+  }, []);
+
+  useEffect(() => { void refreshScaScope(); }, [refreshScaScope]);
+
   const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean }>(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
@@ -695,6 +730,21 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     scrollToTop();
   };
 
+  useEffect(() => {
+    let dispose: () => void = () => {};
+    let cancelled = false;
+    void initializeNativePush(() => navigateTo('transactions'))
+      .then((cleanup) => {
+        if (cancelled) cleanup();
+        else dispose = cleanup;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      dispose();
+    };
+  }, [userId]);
+
   React.useEffect(() => {
     (window as any).__borderpay_navigate = navigateTo;
     (window as any).__borderpay_nav_perf_report = navPerfGetReport;
@@ -913,7 +963,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   // already instant because MainApp seeds their caches before screen open;
   // Africa rails need the same treatment instead of waiting for Send/Receive.
   React.useEffect(() => {
-    if (!africanRailsTester) return;
+    if (!africanRailsDiscoveryAllowed) return;
     let cancelled = false;
     const warmTsKey = financialCacheKey('borderpay_african_rails_policy_warm_ts_v1', { userId });
     const warm = async () => {
@@ -935,7 +985,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     if (typeof ric === 'function') ric(() => { void warm(); }, { timeout: 1200 });
     else setTimeout(() => { void warm(); }, 300);
     return () => { cancelled = true; };
-  }, [userId, africanRailsTester]);
+  }, [userId, africanRailsDiscoveryAllowed]);
 
   const navigateBack = () => {
     if (navigationStack.length > 1) {
@@ -974,6 +1024,29 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   const renderScreen = () => {
     const isBusinessAccount = accountType === 'business' || hasBusinessAccountCached();
+    const protectedAccountAccess = BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS.has(currentScreen);
+    const accessGranted = walletAccessUntil > Date.now();
+    if (protectedAccountAccess && scaScope !== 'not_required' && !accessGranted) {
+      if (scaScope === 'loading') {
+        return <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-sm text-gray-400">Checking account-access requirements…</div>;
+      }
+      if (scaScope === 'unknown') {
+        return (
+          <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white">
+            <h2 className="font-bold">Financial information unavailable</h2>
+            <p className="mt-2 text-sm text-gray-400">We could not verify the regulatory access requirement. No balance or transaction data was displayed.</p>
+            <button type="button" onClick={() => void refreshScaScope()} className="mt-5 rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black">Try again</button>
+          </div>
+        );
+      }
+      return (
+        <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white">
+          <h2 className="font-bold">Unlock financial information</h2>
+          <p className="mt-2 text-sm text-gray-400">For verified EEA custodial-wallet accounts{scaCountry ? ` in ${scaCountry}` : ''}, Bridge requires account-password and authenticator verification before balances, wallet details, or transaction history are shown.</p>
+          <button type="button" onClick={() => setScaDialogOpen(true)} className="mt-5 rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black">Verify access</button>
+        </div>
+      );
+    }
     switch (currentScreen) {
       case 'cards':
         return <CardsScreen onBack={navigateBack} />;
@@ -989,7 +1062,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <SendMoneyFlow
             userId={userId}
             onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
+            // Dashboard owns its financial refresh when it remounts. Starting
+            // a second shell snapshot here races that canonical read (and is
+            // especially wrong for isolated Yellow Card sandbox transfers,
+            // which do not mutate the user's live wallets).
+            onComplete={navigateBack}
             onNavigate={navigateTo}
           />
         );
@@ -1111,6 +1188,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           />
         );
 
+      case 'partner-api':
+        if (!isBusinessAccount) return <Dashboard userId={userId} onLogout={onLogout} onNavigate={navigateTo} currentScreen="dashboard" />;
+        return <PartnerApiPortalScreen onBack={navigateBack} />;
+
       case 'profile':
         return <ProfileScreen userId={userId} onBack={navigateBack} />;
 
@@ -1190,6 +1271,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <Suspense fallback={<ScreenSkeleton />}>
             {TOP_LEVEL_SCREENS.has(currentScreen) ? (
               <AppShell
+                key={`sca-wallet-${refreshKey}`}
                 route={screenToShellRoute(currentScreen)}
                 onRoute={(r) => navigateTo(SHELL_TO_SCREEN[r])}
                 userName={shellUserName}
@@ -1220,6 +1302,28 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           </Suspense>
         </ErrorBoundary>
       </div>
+
+      <SCAChallengeDialog
+        open={scaDialogOpen}
+        title="Unlock financial information"
+        description="Confirm with your account password and authenticator code. Access lasts five minutes."
+        operation="wallet_access"
+        resource="financial_account_access"
+        request={{ purpose: 'financial_account_access' }}
+        onCancel={() => setScaDialogOpen(false)}
+        onAuthorized={async (authorizationId) => {
+          const grant: any = await backendAPI.auth.grantWalletAccess(authorizationId);
+          if (!grant?.success || !grant?.data?.granted) {
+            toast.error(friendlyError(grant?.error, 'Financial access could not be granted.'));
+            return;
+          }
+          const expiresAt = Date.parse(String(grant.data.expires_at || ''));
+          setWalletAccessUntil(Number.isFinite(expiresAt) ? expiresAt : Date.now() + 5 * 60_000);
+          setScaDialogOpen(false);
+          setRefreshKey((value) => value + 1);
+        }}
+      />
+
 
       {/* New Device / IP Security Alert */}
       <AnimatePresence>

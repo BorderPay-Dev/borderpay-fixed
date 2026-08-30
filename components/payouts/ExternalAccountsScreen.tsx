@@ -17,6 +17,7 @@ import { FloatingBackButton } from '../common/FloatingBackButton';
 import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { useBridgeScaAction } from '../../utils/security/useBridgeScaAction';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface ExternalAccountRow {
@@ -104,6 +105,7 @@ function isRequestTimeout(value: unknown): boolean {
 
 export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
   const tc = useThemeClasses();
+  const { authorize: authorizeBridgeSca, challenge: scaChallenge } = useBridgeScaAction();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
@@ -200,9 +202,24 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
 
   const remove = async (extId: string) => {
+    try {
+      const authorizationId = await authorizeBridgeSca({
+        operation: 'beneficiary_change',
+        resource: 'bridge_external_account',
+        request: { action: 'delete', external_account_id: extId },
+        title: 'Confirm payout account removal',
+        description: 'Verify this beneficiary change with your account password and authenticator code.',
+      });
+      await removeAuthorized(extId, authorizationId);
+    } catch (error) {
+      toast.error(friendlyError(error, 'Payout account removal was cancelled.'));
+    }
+  };
+
+  const removeAuthorized = async (extId: string, authorizationId: string) => {
     setRemoving(extId);
     try {
-      const r: any = await backendAPI.bridge.externalAccount.remove(extId);
+      const r: any = await backendAPI.bridge.externalAccount.remove(extId, authorizationId);
       if (r?.success) {
         toast.success('Payout account removed.');
         setRows(prev => {
@@ -340,6 +357,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
           </div>
         )}
       </main>
+      {scaChallenge}
     </div>
   );
 }
