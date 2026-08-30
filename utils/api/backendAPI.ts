@@ -16,6 +16,7 @@ import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
 import { normalizeTransactionReceipt } from '../transactions/receipt';
 import { txDirection } from '../transactions/direction';
 import { friendlyError } from '../errors/friendlyError';
+import { extractExternalAccountList } from './externalAccountList';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -27,6 +28,13 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-customer') return 30000;
   if (endpoint === 'bridge-transfer') return 45000;
   if (endpoint === 'bridge-external-account') return 30000;
+  // Yellow Card production Receive performs authenticated routing discovery,
+  // preflight persistence and provider submission. Its upstream deadline is
+  // longer than the generic UI deadline, so aborting at 8s creates false
+  // failures while the idempotent server request continues in the background.
+  if (endpoint === 'yellowcard-capabilities') return 30000;
+  if (endpoint === 'yellowcard-receive') return 90000;
+  if (endpoint === 'yellowcard-jit-payout') return 45000;
   return 8000;
 }
 
@@ -127,6 +135,7 @@ async function apiCall<T = any>(
       return {
         success: false,
         error: sanitizeError(data.error || data.message),
+        ...(data?.data !== undefined ? { data: data.data } : {}),
         ...(data?.code ? { code: data.code } : {}),
         ...(data?.upgrade_to ? { upgrade_to: data.upgrade_to } : {}),
       } as any;
@@ -144,7 +153,7 @@ async function apiCall<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
-      return { success: false, error: 'Request timed out. Please try again.' };
+      return { success: false, code: 'response_unconfirmed', error: 'We could not confirm the response. Please try again.' } as any;
     }
     // Retry once on network failure for critical calls
     if (retries < 1 && !options.signal?.aborted) {
@@ -222,7 +231,7 @@ async function apiCallPublic<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
-      return { success: false, error: 'Request timed out. Please try again.' };
+      return { success: false, code: 'response_unconfirmed', error: 'We could not confirm the response. Please try again.' } as any;
     }
     return { success: false, error: sanitizeError(error.message || 'Connection error. Please check your internet and try again.') };
   }
@@ -266,19 +275,23 @@ export const authSecurityAPI = {
     });
   },
 
+  async getOnboardingConfig(onboardingToken?: string) {
+    return apiCallPublic('onboarding-config', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(onboardingToken ? { onboarding_token: onboardingToken } : {}),
+      }),
+    });
+  },
+
   async signup(data: {
     email:        string;
     password:     string;
     full_name:    string;
     phone_number?: string;
     country_code: string;
-    /**
-     * Optional. Default 'individual' on the server. When 'business', the
-     * client also collects `company_name` (+ optional `registration_number`)
-     * and inserts a public.business_profiles row post-confirmation. The
-     * value is recorded in auth.users.raw_user_meta_data for audit.
-     */
-    account_type?:        'individual' | 'business';
+    /** Required. The server never defaults a missing value to Individual. */
+    account_type:         'individual' | 'business';
     company_name?:        string;
     registration_number?: string;
     business_owners?:     Array<{
@@ -288,6 +301,7 @@ export const authSecurityAPI = {
     }>;
     captcha_token?:       string;
     referral_code?:       string;
+    onboarding_token?:    string;
   }, anonKey: string) {
     return apiCallPublic('auth-signup', {
       method: 'POST',
@@ -302,10 +316,52 @@ export const authSecurityAPI = {
     });
   },
 
-  async changePIN(oldPin: string, newPin: string) {
+  async getScaScope() {
+    return apiCall<{
+      required: boolean;
+      status: 'required' | 'not_required';
+      reason: string;
+      country: string | null;
+      verified: boolean;
+      has_custodial_wallet: boolean | null;
+    }>('sca-scope', { method: 'POST', body: '{}' });
+  },
+
+  async authorizeSCA(input: {
+    operation: 'wallet_access' | 'payment' | 'beneficiary_change' | 'security_change';
+    resource: string;
+    request: Record<string, unknown>;
+    password: string;
+    totp: string;
+  }) {
+    return apiCall<{ required: boolean; authorization_id: string | null; expires_at?: string }>('sca-authorize', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  async grantWalletAccess(scaAuthorizationId: string) {
+    return apiCall<{ granted: boolean; expires_at: string }>('sca-wallet-access', {
+      method: 'POST',
+      body: JSON.stringify({ sca_authorization_id: scaAuthorizationId }),
+    });
+  },
+
+  async changePIN(oldPin: string, newPin: string, scaAuthorizationId?: string) {
     return apiCall('change-pin', {
       method: 'POST',
-      body: JSON.stringify({ old_pin: oldPin, new_pin: newPin }),
+      body: JSON.stringify({ old_pin: oldPin, new_pin: newPin, sca_authorization_id: scaAuthorizationId }),
+    });
+  },
+
+  async changePassword(currentPassword: string, newPassword: string, scaAuthorizationId: string) {
+    return apiCall('change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+        sca_authorization_id: scaAuthorizationId,
+      }),
     });
   },
 
@@ -330,10 +386,10 @@ export const authSecurityAPI = {
     });
   },
 
-  async disable2FA(userId: string, password: string) {
+  async disable2FA(userId: string, password: string, scaAuthorizationId?: string) {
     return apiCall('disable-2fa', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId, password }),
+      body: JSON.stringify({ user_id: userId, password, sca_authorization_id: scaAuthorizationId }),
     });
   },
 
@@ -852,6 +908,50 @@ export const financialReadModelAPI = (() => {
     }
   }
 
+  function preserveKnownFinancialSurfaces(userId: string, next: any): any {
+    if (!next?.success || !next?.data) return next;
+
+    const previous =
+      (lastAnySnapshotUserId === userId ? lastAnySnapshot : null) ||
+      loadPersistedSnapshot(anySnapshotKey(userId))?.snapshot ||
+      null;
+    if (!previous?.success || !previous?.data) return next;
+
+    const collection = (snapshot: any, key: string): any[] =>
+      Array.isArray(snapshot?.data?.[key]) ? snapshot.data[key] : [];
+    const surfaceKeys = ['wallets', 'stablecoin_wallets', 'virtual_accounts'];
+    const previousSurfaceCount = surfaceKeys.reduce(
+      (count, key) => count + collection(previous, key).length,
+      0,
+    );
+    const nextSurfaceCount = surfaceKeys.reduce(
+      (count, key) => count + collection(next, key).length,
+      0,
+    );
+
+    // A user cannot lose every provisioned wallet and receive account because
+    // an isolated payout was submitted. Treat an all-empty replacement as a
+    // transient/partial read and keep the last server-confirmed surfaces. Real
+    // closures are represented by account status changes, not missing rows.
+    if (previousSurfaceCount === 0 || nextSurfaceCount !== 0) return next;
+
+    const previousTransactions = collection(previous, 'transactions');
+    const nextTransactions = collection(next, 'transactions');
+    return {
+      ...next,
+      data: {
+        ...next.data,
+        wallets: collection(previous, 'wallets'),
+        stablecoin_wallets: collection(previous, 'stablecoin_wallets'),
+        virtual_accounts: collection(previous, 'virtual_accounts'),
+        transactions: nextTransactions.length > 0 ? nextTransactions : previousTransactions,
+        total_balance: previous.data.total_balance,
+        has_funding_surface: previous.data.has_funding_surface,
+        financial_surfaces_partial: true,
+      },
+    };
+  }
+
   function invalidateForUser(userIdRaw: string) {
     const userId = String(userIdRaw || '').trim();
     if (!userId) return;
@@ -889,7 +989,8 @@ export const financialReadModelAPI = (() => {
   function refreshSnapshotInBackground(userId: string, snapshotKey: string, limit: number) {
     if (inFlight && inFlightKey === snapshotKey) return;
     inFlightKey = snapshotKey;
-    inFlight = fetchSnapshot(userId, limit).then((next) => {
+    inFlight = fetchSnapshot(userId, limit).then((rawNext) => {
+      const next = preserveKnownFinancialSurfaces(userId, rawNext);
       if (next?.success) rememberSnapshot(snapshotKey, userId, next);
       return next;
     }).finally(() => {
@@ -957,8 +1058,8 @@ export const financialReadModelAPI = (() => {
     const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
     const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
     const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
-    const externalAccounts = ((externalListRes as any)?.success && Array.isArray((externalListRes as any)?.data?.external_accounts))
-      ? (externalListRes as any).data.external_accounts
+    const externalAccounts = (externalListRes as any)?.success
+      ? extractExternalAccountList((externalListRes as any)?.data)
       : [];
     const externalAccountCapabilities = ((externalCapsRes as any)?.success && Array.isArray((externalCapsRes as any)?.data?.supported_account_types))
       ? (externalCapsRes as any).data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb')
@@ -1089,7 +1190,8 @@ export const financialReadModelAPI = (() => {
       if (inFlight && inFlightKey === key) return inFlight;
 
       inFlightKey = key;
-      inFlight = fetchSnapshot(user.id, limit).then((next) => {
+      inFlight = fetchSnapshot(user.id, limit).then((rawNext) => {
+        const next = preserveKnownFinancialSurfaces(user.id, rawNext);
         if (next?.success) rememberSnapshot(key, user.id, next);
         return next;
       }).finally(() => {
@@ -1223,8 +1325,8 @@ export const financialReadModelAPI = (() => {
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
         ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb')
         : [];
-      const externalAccounts = (externalListRes?.success && Array.isArray(externalListRes?.data?.external_accounts))
-        ? externalListRes.data.external_accounts
+      const externalAccounts = externalListRes?.success
+        ? extractExternalAccountList(externalListRes?.data)
         : [];
       return {
         success: true,
@@ -1815,6 +1917,7 @@ export const stablecoinAPI = {
      * never silently fall back to a server-generated key.
      */
     idempotency_key: string;
+    sca_authorization_id: string;
   }) {
     const symbol = (data.coin || 'usdc').toUpperCase();
     const chain  = (data.chain || 'base').toUpperCase();
@@ -1824,6 +1927,7 @@ export const stablecoinAPI = {
         method: 'POST',
         body: JSON.stringify({
           idempotency_key: data.idempotency_key,
+          sca_authorization_id: data.sca_authorization_id,
           source:      {
             payment_rail: 'bridge_wallet',
             currency:     symbol,
@@ -1852,6 +1956,48 @@ export const adminAPI = {
     apiCall('send-confirmation-email', {
       method: 'POST',
       body: JSON.stringify({ action: 'broadcast', campaign, ...input }),
+    }),
+  broadcastIndividualPolicyNotice: async (input: {
+    dry_run: boolean;
+    start_index: number;
+    confirmation?: 'SEND_INDIVIDUAL_POLICY_NOTICE';
+  }) =>
+    apiCall<{
+      dry_run: boolean;
+      campaign: string;
+      eligible_recipients: number;
+      selected_recipients: number;
+      sent_count?: number;
+      failed_count?: number;
+      failed?: Array<{ user_id: string; email: string; error: string }>;
+      start_index: number;
+      next_start_index: number;
+      has_more: boolean;
+      preview?: Array<{ user_id: string; email: string; full_name: string }>;
+    }>('individual-policy-broadcast', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  broadcastEurNamedAccountNotice: async (input: {
+    dry_run: boolean;
+    start_index: number;
+    confirmation?: 'SEND_EUR_NAMED_ACCOUNT_NOTICE';
+  }) =>
+    apiCall<{
+      dry_run: boolean;
+      campaign: string;
+      eligible_recipients: number;
+      selected_recipients: number;
+      sent_count?: number;
+      failed_count?: number;
+      failed?: Array<{ user_id: string; email: string; error: string }>;
+      start_index: number;
+      next_start_index: number;
+      has_more: boolean;
+      preview?: Array<{ user_id: string; email: string; full_name: string }>;
+    }>('eur-named-account-broadcast', {
+      method: 'POST',
+      body: JSON.stringify(input),
     }),
 };
 
@@ -2324,6 +2470,7 @@ export const bridgeAPI = {
       destination: { payment_rail: string; currency: string; chain?: string; address?: string; bridge_wallet_id?: string; external_account_id?: string; deposit_id?: string; bank_account?: { account_number?: string; routing_number?: string; iban?: string; bic?: string } };
       developer_fee?: { percentage?: number; flat_amount?: string };
       idempotency_key?: string;
+      sca_authorization_id: string;
     }) =>
       apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed' }>(
         'bridge-transfer',
@@ -2387,16 +2534,16 @@ export const bridgeAPI = {
           bank_name?: string;
           account: { sort_code: string; account_number: string };
         }
-    ) =>
+    , scaAuthorizationId: string) =>
       apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'gb'; currency: 'USD' | 'EUR' | 'GBP'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
-        { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
+        { method: 'POST', body: JSON.stringify({ action: 'create', account, sca_authorization_id: scaAuthorizationId }) },
       ),
 
-    remove: async (externalAccountId: string) =>
+    remove: async (externalAccountId: string, scaAuthorizationId: string) =>
       apiCall<{ deleted: boolean; external_account_id: string }>(
         'bridge-external-account',
-        { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId }) },
+        { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId, sca_authorization_id: scaAuthorizationId }) },
       ),
 
     /** Read payout destinations from Bridge (source of truth). */
@@ -2501,7 +2648,7 @@ export const webauthnAPI = {
       'webauthn-register-options',
       { method: 'POST', body: JSON.stringify({}) },
     ),
-  registerVerify: async (input: { response: any; nickname?: string }) =>
+  registerVerify: async (input: { response: any; nickname?: string; sca_authorization_id: string }) =>
     apiCall<{}>('webauthn-register-verify', {
       method: 'POST',
       body:   JSON.stringify(input),
@@ -2520,7 +2667,7 @@ export const webauthnAPI = {
    *  credential_id to remove all (full biometric disable). Required so a
    *  disabled credential is actually gone server-side — otherwise re-enroll
    *  on the same device fails with InvalidStateError (excludeCredentials). */
-  disable: async (input?: { credential_id?: string }) =>
+  disable: async (input: { credential_id?: string; sca_authorization_id: string }) =>
     apiCall<{ deleted_count: number }>('webauthn-delete', {
       method: 'POST',
       body:   JSON.stringify(input || {}),
@@ -2569,18 +2716,27 @@ const approvedPayoutFunction = (suffix: string): string =>
 /** African payout helpers (Phase B foundation — read-only lookups). */
 export const payoutsAPI = {
   yellowCardCapabilities: async (
-    action: 'corridor_policy' | 'routing' | 'channels' | 'networks' | 'rates',
+    action: 'corridor_policy' | 'routing' | 'channels' | 'networks' | 'rates' | 'quote',
     payload: Record<string, unknown> = {},
   ) => apiCall<Record<string, unknown>>(yellowCardFunction('capabilities'), {
     method: 'POST',
     body: JSON.stringify({ action, ...payload }),
   }),
 
-  yellowCardSandboxTransaction: async (payload: Record<string, unknown>) =>
-    apiCall<Record<string, unknown>>(yellowCardFunction('sandbox-transaction'), {
+  yellowCardReceive: async (payload: Record<string, unknown>) =>
+    apiCall<Record<string, unknown>>(yellowCardFunction('receive'), {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  yellowCardJitPayout: async (
+    payload: Record<string, unknown>,
+    idempotencyKey: string,
+  ) => apiCall<Record<string, unknown>>(yellowCardFunction('jit-payout'), {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(payload),
+  }),
 
   /**
    * Bulk payout (payroll / supplier / contractor / marketplace). Runs the same
@@ -2619,10 +2775,10 @@ export interface ExternalWallet {
 export const externalWalletsAPI = {
   list: async () =>
     apiCall<{ wallets: ExternalWallet[] }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'list' }) }),
-  add: async (w: { label: string; chain: string; asset: string; address: string }) =>
-    apiCall<{ wallet: ExternalWallet }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'add', ...w }) }),
-  remove: async (id: string) =>
-    apiCall<{ removed: boolean }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'remove', id }) }),
+  add: async (w: { label: string; chain: string; asset: string; address: string }, scaAuthorizationId: string) =>
+    apiCall<{ wallet: ExternalWallet }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'add', ...w, sca_authorization_id: scaAuthorizationId }) }),
+  remove: async (id: string, scaAuthorizationId: string) =>
+    apiCall<{ removed: boolean }>('external-wallet', { method: 'POST', body: JSON.stringify({ action: 'remove', id, sca_authorization_id: scaAuthorizationId }) }),
 };
 
 export interface SupportTicket {
@@ -2711,6 +2867,24 @@ export const affiliateAPI = {
     }),
 };
 
+export type PartnerPortalAction =
+  | 'get_portal'
+  | 'create_api_key'
+  | 'revoke_api_key'
+  | 'add_ip_allowlist'
+  | 'disable_ip_allowlist'
+  | 'create_webhook_endpoint'
+  | 'rotate_webhook_secret'
+  | 'disable_webhook_endpoint';
+
+export const partnerPortalAPI = {
+  request: async <T = any>(action: PartnerPortalAction, input: Record<string, unknown> = {}) =>
+    apiCall<T>('api-partner-portal', {
+      method: 'POST',
+      body: JSON.stringify({ action, ...input }),
+    }),
+};
+
 export const backendAPI = {
   auth: authSecurityAPI,
   user: userAPI,
@@ -2733,6 +2907,7 @@ export const backendAPI = {
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,
   affiliate:    affiliateAPI,
+  partnerPortal: partnerPortalAPI,
   support:      supportAPI,
   team:         teamAPI,
   webauthn:     webauthnAPI,

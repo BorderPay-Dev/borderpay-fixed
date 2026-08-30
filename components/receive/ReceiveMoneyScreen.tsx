@@ -27,15 +27,16 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TransactionSecurityGate } from '../security/TransactionSecurityGate';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '../ui/input-otp';
-import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { canDiscoverAfricanRails } from '../../utils/africanRailsAccess';
 import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
-import { loadIpCountry } from '../../utils/geoCountry';
 import {
   loadAfricanPolicyRows,
   readCachedAfricanPolicyRows,
   type AfricanPolicyRow,
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
+import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
+import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -46,7 +47,7 @@ interface ReceiveMoneyScreenProps {
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
 interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
-type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-security-gate' | 'africa-auth' | 'africa-success';
+type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-security-gate' | 'africa-auth' | 'africa-processing' | 'africa-success';
 interface AfricanCountryOption {
   countryCode: string;
   countryName: string;
@@ -189,13 +190,9 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
   const storedUser = authAPI.getStoredUser() || {};
   const userId = (storedUser.id as string) || '';
-  const africanRailsTester = canUseAfricanRails({
-    id: userId || (storedUser as any)?.id,
-    email: (storedUser as any)?.email,
-  });
+  const africanRailsDiscoveryAllowed = canDiscoverAfricanRails({ id: userId });
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
   const [country, setCountry] = useState<string | null>(() => readCachedCountry());
-  const [ipCountry, setIpCountry] = useState<string | null>(null);
 
   const stableWalletsCacheKey = useMemo(
     () => financialCacheKey('borderpay_wallets_v1', { userId }),
@@ -255,7 +252,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     screenTopRef.current?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
   }, [receiveStep]);
   const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
-    africanRailsTester ? readCachedAfricanPolicyRows('receive') : []
+    africanRailsDiscoveryAllowed ? readCachedAfricanPolicyRows('receive') : []
   );
   const [africanPolicyLoading, setAfricanPolicyLoading] = useState(false);
   const africanPolicyLoadingRef = useRef(false);
@@ -268,16 +265,26 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     rows: AfricanPolicyRow[];
   } | null>(null);
   const [collectionAmount, setCollectionAmount] = useState('');
+  const [collectionReason, setCollectionReason] = useState('');
   const [collectionSourceAccount, setCollectionSourceAccount] = useState('');
   const [collectionNetworks, setCollectionNetworks] = useState<Array<{ id: string; name: string }>>([]);
+  const [collectionProviderMinimum, setCollectionProviderMinimum] = useState<number | null>(null);
+  const [collectionProviderMaximum, setCollectionProviderMaximum] = useState<number | null>(null);
+  const [collectionProviderLimitsReady, setCollectionProviderLimitsReady] = useState(false);
   const [selectedCollectionNetworkId, setSelectedCollectionNetworkId] = useState('');
   const [collectionNetworksLoading, setCollectionNetworksLoading] = useState(false);
+  const collectionSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
+  const collectionAuthorizationRef = useRef(false);
+  const collectionStatusPollRef = useRef(0);
   const [collectionLoading, setCollectionLoading] = useState(false);
+  const [collectionStatusRefreshing, setCollectionStatusRefreshing] = useState(false);
+  const [collectionStatusDelayed, setCollectionStatusDelayed] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
   const [collectionPin, setCollectionPin] = useState('');
   useEffect(() => {
     if (receiveStep !== 'africa-auth') setCollectionPin('');
   }, [receiveStep]);
+  useEffect(() => () => { collectionStatusPollRef.current += 1; }, []);
   const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
   const [hasBiometricFactor, setHasBiometricFactor] = useState(() => BiometricManager.isEnrolled(userId));
 
@@ -299,12 +306,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   }, [userId]);
 
   const africanCountries = useMemo(() => buildAfricanCountries(africanPolicyRows), [africanPolicyRows]);
-  const regionalAfricanCountries = useMemo(
-    () => africanRailsTester
-      ? africanCountries
-      : ipCountry ? africanCountries.filter((item) => item.countryCode === ipCountry) : [],
-    [africanCountries, africanRailsTester, ipCountry],
-  );
+  // The backend returns Receive rails only for the authenticated account's
+  // verified profile country. IP geolocation is presentation context, never
+  // an eligibility authority (customers may travel or use corporate VPNs).
+  const regionalAfricanCountries = africanCountries;
   const selectedAfricanCountry = useMemo(
     () => africanCountries.find((item) => item.countryCode === selectedAfricanCountryCode) || null,
     [africanCountries, selectedAfricanCountryCode],
@@ -341,16 +346,9 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
-  useEffect(() => {
-    let active = true;
-    void loadIpCountry().then((value) => {
-      if (active) setIpCountry(value);
-    });
-    return () => { active = false; };
-  }, []);
 
   const loadAfricanReceivePolicy = useCallback(async (force = false) => {
-    if (!africanRailsTester) return;
+    if (!africanRailsDiscoveryAllowed) return;
     if (africanPolicyLoadingRef.current) return;
     if (!force && africanPolicyRows.length > 0) return;
     africanPolicyLoadingRef.current = true;
@@ -370,10 +368,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       africanPolicyLoadingRef.current = false;
       setAfricanPolicyLoading(false);
     }
-  }, [africanPolicyRows.length, africanRailsTester]);
+  }, [africanPolicyRows.length, africanRailsDiscoveryAllowed]);
 
   useEffect(() => {
-    if (!africanRailsTester) return;
+    if (!africanRailsDiscoveryAllowed) return;
     if (africanPolicyRows.length > 0) return;
     let active = true;
     void loadAfricanPolicyRows('receive', {
@@ -390,7 +388,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     return () => {
       active = false;
     };
-  }, [africanPolicyRows.length, africanRailsTester]);
+  }, [africanPolicyRows.length, africanRailsDiscoveryAllowed]);
 
   const shouldRunProviderSync = () => {
     try {
@@ -497,13 +495,19 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   };
 
   const resetAfricanReceiveFlow = () => {
+    collectionStatusPollRef.current += 1;
+    collectionSequenceRef.current = null;
     setSelectedAfricanCountryCode('');
     setSelectedAfricanRail(null);
     setReceiveStep('method');
     setCollectionAmount('');
+    setCollectionReason('');
     setCollectionSourceAccount('');
     setCollectionNetworks([]);
     setSelectedCollectionNetworkId('');
+    setCollectionProviderLimitsReady(false);
+    setCollectionStatusRefreshing(false);
+    setCollectionStatusDelayed(false);
     setCollectionResult(null);
   };
 
@@ -544,15 +548,69 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     onBack();
   };
 
+  const refreshAfricanCollectionStatus = async (poll = false) => {
+    const sequenceId = String(
+      (collectionResult as any)?.sequence_id || collectionSequenceRef.current?.sequenceId || '',
+    ).trim();
+    if (!sequenceId) return;
+
+    const pollId = collectionStatusPollRef.current + 1;
+    collectionStatusPollRef.current = pollId;
+    setCollectionStatusRefreshing(true);
+    setCollectionStatusDelayed(false);
+    const terminal = new Set([
+      'complete', 'settlement_complete', 'failed', 'settlement_failed',
+      'refunded', 'cancelled', 'canceled', 'expired',
+    ]);
+    const attempts = poll ? 8 : 1;
+
+    try {
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        if (collectionStatusPollRef.current !== pollId) return;
+        const res: any = await backendAPI.payouts.yellowCardReceive({
+          action: 'status',
+          sequence_id: sequenceId,
+        });
+        if (collectionStatusPollRef.current !== pollId) return;
+        if (res?.success && res?.data?.transaction) {
+          const transaction = res.data.transaction;
+          setCollectionResult(transaction);
+          const status = String(transaction.provider_status || transaction.status || '').toLowerCase();
+          if (terminal.has(status)) return;
+        }
+        if (attempt + 1 < attempts) {
+          await new Promise((resolve) => setTimeout(resolve, 2_500));
+        }
+      }
+      if (collectionStatusPollRef.current === pollId) setCollectionStatusDelayed(true);
+    } catch {
+      if (collectionStatusPollRef.current === pollId) setCollectionStatusDelayed(true);
+    } finally {
+      if (collectionStatusPollRef.current === pollId) setCollectionStatusRefreshing(false);
+    }
+  };
+
   const createAfricanCollection = async () => {
     if (!selectedAfricanCountry || !selectedAfricanRail) return;
-    if (!africanRailsTester) {
-      toast.error('Local top-up execution remains in controlled integration testing.');
+    if (!africanRailsDiscoveryAllowed) {
+      toast.error('Complete account verification to use local top-up rails.');
       return;
     }
     const amount = Number(collectionAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Enter a valid amount.');
+      return;
+    }
+    if (collectionNetworksLoading || !collectionProviderLimitsReady) {
+      toast.error('The allowed amount range is not available yet. Please try again.');
+      return;
+    }
+    if (collectionProviderMinimum !== null && amount < collectionProviderMinimum) {
+      toast.error(`Minimum amount is ${formatMoney(collectionProviderMinimum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}.`);
+      return;
+    }
+    if (collectionProviderMaximum !== null && amount > collectionProviderMaximum) {
+      toast.error(`Maximum amount is ${formatMoney(collectionProviderMaximum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}.`);
       return;
     }
     if (selectedAfricanProvider !== 'yellow_card') {
@@ -572,10 +630,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       ) || stables.find((wallet) =>
         String(wallet.currency).toUpperCase() === 'USDT' && String(wallet.chain).toLowerCase() === 'tron'
       );
-      // Yellow Card sandbox simulator funds are isolated from Bridge wallets.
-      // Existing wallets only choose the settlement asset; demo accounts can
-      // safely default to the documented USDC/Base sandbox route.
-      const settlementCurrency = String(settlementWallet?.currency || 'USDC').toUpperCase();
+      if (!settlementWallet) {
+        throw new Error('An active USDC/Base or USDT/Tron settlement wallet is required.');
+      }
+      // The backend independently resolves the authenticated user's active
+      // Bridge wallet. The browser supplies only the desired asset and rail.
+      const settlementCurrency = String(settlementWallet.currency).toUpperCase();
       const settlementNetwork = settlementCurrency === 'USDC' ? 'BASE' : 'TRC20';
       const baseRequest = {
         currency: selectedAfricanRail.currency,
@@ -584,35 +644,45 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         local_amount: amount,
         settlement_currency: settlementCurrency,
         settlement_network: settlementNetwork,
-        reason: 'other',
+        reason: collectionReason.trim(),
         network_id: selectedCollectionNetworkId || undefined,
       };
-      const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
-        action: 'preflight',
-        ...baseRequest,
-      });
-      if (!preflight?.success) throw new Error(preflight?.error || preflight?.code || 'The receive preflight failed.');
-      const selectedNetworkId = String(preflight?.data?.selected_network_id || '');
-      const networkRequired = selectedAfricanRail.channel === 'mobile_money';
-      if (!preflight?.data?.can_create || (networkRequired && !selectedNetworkId)) {
-        const blockers = Array.isArray(preflight?.data?.blockers) ? preflight.data.blockers : [];
-        if (blockers.includes('active_channel_unavailable')) throw new Error('This Yellow Card corridor is not currently active.');
-        if (blockers.includes('kyc_incomplete')) throw new Error('The sandbox recipient profile is incomplete.');
-        throw new Error('Select a payment network before creating this sandbox transaction.');
+      const intentFingerprint = JSON.stringify(baseRequest);
+      if (collectionSequenceRef.current?.fingerprint !== intentFingerprint) {
+        collectionSequenceRef.current = {
+          fingerprint: intentFingerprint,
+          sequenceId: crypto.randomUUID(),
+        };
       }
-      const res: any = await backendAPI.payouts.yellowCardSandboxTransaction({
+      const res: any = await backendAPI.payouts.yellowCardReceive({
         action: 'create_receive',
         ...baseRequest,
-        network_id: selectedNetworkId || undefined,
-        sequence_id: crypto.randomUUID(),
-        operator_confirmed: true,
+        sequence_id: collectionSequenceRef.current.sequenceId,
       });
-      if (!res?.success) throw new Error(res?.error || 'Could not create collection request.');
-      const data = res.data || {};
+      if (!res?.success) {
+        const blockers = Array.isArray(res?.data?.preflight?.blockers) ? res.data.preflight.blockers : [];
+        if (blockers.includes('kyc_incomplete')) {
+          throw new Error('Your verified identity record is missing information required for this amount. Try an amount below US$20 or contact support.');
+        }
+        if (blockers.includes('active_channel_unavailable')) {
+          throw new Error('This receive route is temporarily unavailable. Please try again later.');
+        }
+        if (blockers.includes('payment_network_required')) {
+          throw new Error('Select an available payment network and try again.');
+        }
+        throw new Error(res?.error || 'Could not create collection request.');
+      }
+      const data = res.data?.transaction || res.data || {};
       setCollectionResult(data);
       setReceiveStep('africa-success');
-      toast.success('Collection request created.');
+      void refreshAfricanCollectionStatus(true);
+      if (res?.code === 'provider_confirmation_pending' || data?.provider_status === 'confirmation_pending') {
+        toast.info('Collection submitted. Confirmation is pending.');
+      } else {
+        toast.success('Collection request created.');
+      }
     } catch (error: any) {
+      setReceiveStep('africa-auth');
       toast.error(friendlyError(error?.message, 'Could not create collection request.'));
     } finally {
       setCollectionLoading(false);
@@ -622,14 +692,23 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const authorizeCollectionWithPin = async (value: string) => {
     setCollectionPin(value);
     if (value.length !== 6) return;
-    const verification = await PINManager.verifyTransactionPIN(userId, value);
-    if (!verification.success) {
-      toast.error(friendlyError(verification.error, 'Incorrect PIN'));
+    if (collectionAuthorizationRef.current) return;
+    collectionAuthorizationRef.current = true;
+    setCollectionLoading(true);
+    try {
+      const verification = await PINManager.verifyTransactionPIN(userId, value);
+      if (!verification.success) {
+        toast.error(friendlyError(verification.error, 'Incorrect PIN'));
+        setCollectionPin('');
+        return;
+      }
       setCollectionPin('');
-      return;
+      setReceiveStep('africa-processing');
+      await createAfricanCollection();
+    } finally {
+      collectionAuthorizationRef.current = false;
+      setCollectionLoading(false);
     }
-    setCollectionPin('');
-    await createAfricanCollection();
   };
 
   useEffect(() => { setIsVerified(readCachedVerified()); }, [userId]);
@@ -637,11 +716,23 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     if (!selectedAfricanRail || !selectedAfricanCountryCode || selectedAfricanProvider !== 'yellow_card') {
       setCollectionNetworks([]);
       setSelectedCollectionNetworkId('');
+      setCollectionProviderMinimum(null);
+      setCollectionProviderMaximum(null);
+      setCollectionProviderLimitsReady(false);
       return;
     }
     let active = true;
+    const fallback = yellowCardProviderBounds(
+      selectedAfricanCountryCode,
+      selectedAfricanRail.currency,
+      selectedAfricanRail.channel,
+      'receive',
+    );
+    setCollectionProviderMinimum(fallback?.minimum ?? null);
+    setCollectionProviderMaximum(fallback?.maximum ?? null);
+    setCollectionProviderLimitsReady(Boolean(fallback));
     setCollectionNetworksLoading(true);
-    void backendAPI.payouts.yellowCardCapabilities('routing', {
+    void loadYellowCardCapability('routing', {
       country: selectedAfricanCountryCode,
       currency: selectedAfricanRail.currency,
       channel: selectedAfricanRail.channel,
@@ -650,6 +741,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       .then((res: any) => {
         if (!active || !res?.success) return;
         const raw = res?.data?.routing?.networks;
+        const rawChannels = res?.data?.routing?.channels;
+        const channelRows = Array.isArray(rawChannels) ? rawChannels : [];
+        const minimums = channelRows.map((row: any) => Number(row?.minimum)).filter((value: number) => Number.isFinite(value) && value > 0);
+        const maximums = channelRows.map((row: any) => Number(row?.maximum)).filter((value: number) => Number.isFinite(value) && value > 0);
+        setCollectionProviderMinimum(minimums.length ? Math.min(...minimums) : null);
+        setCollectionProviderMaximum(maximums.length ? Math.max(...maximums) : null);
+        setCollectionProviderLimitsReady(channelRows.length > 0);
         const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.networks) ? raw.networks : Array.isArray(raw?.data) ? raw.data : [];
         const expected = selectedAfricanRail.channel === 'mobile_money'
           ? new Set(['phone', 'momo', 'mobile', 'mobile_money', 'mobilemoney', 'msisdn'])
@@ -753,9 +851,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   }, [collectionAmountNumber, collectionFee, selectedAfricanRail?.currency]);
 
   const canCreateAfricanCollection = useMemo(() => {
-    if (!africanRailsTester) return false;
+    if (!africanRailsDiscoveryAllowed) return false;
+    if (collectionNetworksLoading || !collectionProviderLimitsReady) return false;
     if (collectionAmountNumber <= 0) return false;
+    if (collectionProviderMinimum !== null && collectionAmountNumber < collectionProviderMinimum) return false;
+    if (collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum) return false;
     if (!collectionFee) return false;
+    if (!collectionReason.trim()) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
     if (selectedAfricanRail?.channel === 'mobile_money' && !selectedCollectionNetworkId) return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
@@ -764,8 +866,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     return true;
   }, [
     collectionAmountNumber,
+    collectionProviderMinimum,
+    collectionProviderMaximum,
+    collectionProviderLimitsReady,
+    collectionNetworksLoading,
     collectionFee,
-    africanRailsTester,
+    collectionReason,
+    africanRailsDiscoveryAllowed,
     collectionSourceAccount,
     receiveUsesYellowCardForm,
     selectedAfricanRail?.channel,
@@ -831,7 +938,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
             </h2>
 
             <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden mb-6`}>
-              {africanRailsTester ? <button
+              {africanRailsDiscoveryAllowed ? <button
                 type="button"
                 onClick={() => {
                   setSelectedAfricanCountryCode('');
@@ -861,20 +968,20 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                 {africanPolicyLoading
                   ? <Loader2 className={`w-4 h-4 ${tc.textMuted} animate-spin flex-shrink-0 ml-1`} />
                   : <ChevronRight className={`w-4 h-4 ${tc.textMuted} flex-shrink-0 ml-1`} />}
-              </button> : !africanRailsTester ? <div
+              </button> : !africanRailsDiscoveryAllowed ? <div
                 className="flex min-h-[72px] w-full cursor-not-allowed items-center gap-3 px-4 py-3.5 text-left opacity-60"
                 aria-disabled="true"
-                aria-label="African receive rails coming soon"
+                aria-label="African receive rails require account verification"
               >
                 <div className="w-11 h-11 rounded-xl bg-[#58D66D]/12 border border-[#58D66D]/25 flex items-center justify-center flex-shrink-0">
                   <Smartphone className="w-5 h-5 text-[#58D66D]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={`text-[15px] font-semibold ${tc.text} truncate`}>African receive rails</div>
-                  <div className="text-[11px] text-white/40">African receive rails are coming soon</div>
+                  <div className="text-[11px] text-white/40">Complete verification to use this feature</div>
                 </div>
                 <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
-                  Soon
+                  Verify
                 </span>
               </div> : null}
 
@@ -1062,9 +1169,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   onClick={() => {
                     setSelectedAfricanRail(rail);
                     setCollectionAmount('');
+                    setCollectionReason('');
                     setCollectionSourceAccount('');
                     setCollectionNetworks([]);
                     setSelectedCollectionNetworkId('');
+                    setCollectionProviderMinimum(null);
+                    setCollectionProviderMaximum(null);
+                    setCollectionProviderLimitsReady(false);
                     setCollectionResult(null);
                     setReceiveStep('africa-details');
                   }}
@@ -1130,11 +1241,51 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   <input
                     type="number"
                     inputMode="decimal"
+                    min={collectionProviderMinimum ?? undefined}
+                    max={collectionProviderMaximum ?? undefined}
                     value={collectionAmount}
                     onChange={(e) => setCollectionAmount(e.target.value)}
                     placeholder={`0.00 ${selectedAfricanRail.currency}`}
                     className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
                   />
+                  {collectionProviderMinimum !== null && collectionAmountNumber > 0 && collectionAmountNumber < collectionProviderMinimum && (
+                    <p className="mt-1.5 text-xs text-red-400">
+                      Minimum amount is {formatMoney(collectionProviderMinimum, selectedAfricanRail.currency)} {selectedAfricanRail.currency}.
+                    </p>
+                  )}
+                  {collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum && (
+                    <p className="mt-1.5 text-xs text-red-400">
+                      Maximum amount is {formatMoney(collectionProviderMaximum, selectedAfricanRail.currency)} {selectedAfricanRail.currency}.
+                    </p>
+                  )}
+                  {(collectionProviderMinimum !== null || collectionProviderMaximum !== null) && (
+                    <p className={`mt-1.5 text-xs ${
+                      (collectionProviderMinimum !== null && collectionAmountNumber > 0 && collectionAmountNumber < collectionProviderMinimum) ||
+                      (collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum)
+                        ? 'text-red-400'
+                        : tc.textMuted
+                    }`}>
+                      Allowed amount: {collectionProviderMinimum !== null
+                        ? `${formatMoney(collectionProviderMinimum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}`
+                        : 'No minimum'}{' – '}{collectionProviderMaximum !== null
+                        ? `${formatMoney(collectionProviderMaximum, selectedAfricanRail.currency)} ${selectedAfricanRail.currency}`
+                        : 'No provider maximum'}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${tc.textMuted} mb-1.5 block`}>Transaction reason</label>
+                  <select
+                    value={collectionReason}
+                    onChange={(event) => setCollectionReason(event.target.value)}
+                    required
+                    className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
+                  >
+                    <option value="">Choose a transaction reason</option>
+                    {YELLOW_CARD_PAYMENT_REASONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
                 </div>
                 {receiveUsesYellowCardForm && (
                   <div>
@@ -1243,6 +1394,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     <span className={tc.textMuted}>Payment method</span>
                     <span className={`${tc.text} text-right`}>{railLabel(selectedAfricanRail.channel)}</span>
                   </div>
+                  <div className="flex justify-between gap-4 text-xs">
+                    <span className={tc.textMuted}>Reason</span>
+                    <span className={`${tc.text} text-right`}>{YELLOW_CARD_PAYMENT_REASONS.find((item) => item.value === collectionReason)?.label || collectionReason}</span>
+                  </div>
                   {collectionSourceAccount.trim() && (
                     <div className="flex justify-between gap-4 text-xs">
                       <span className={tc.textMuted}>
@@ -1325,7 +1480,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
             {hasPinFactor && (
               <div className="flex justify-center mb-6">
-                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} type="password" autoComplete="off" inputMode="numeric" pattern="[0-9]*">
+                <InputOTP maxLength={6} value={collectionPin} onChange={authorizeCollectionWithPin} disabled={collectionLoading} type="password" autoComplete="off" inputMode="numeric" pattern="[0-9]*">
                   <InputOTPGroup>
                     <InputOTPSlot index={0} mask />
                     <InputOTPSlot index={1} mask />
@@ -1338,17 +1493,33 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
               </div>
             )}
 
+            {collectionLoading && (
+              <div className={`mb-6 flex items-center justify-center gap-2 text-sm ${tc.textMuted}`} role="status" aria-live="polite">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Authorizing and submitting securely…
+              </div>
+            )}
+
             {hasBiometricFactor && (
               <button
                 type="button"
                 disabled={collectionLoading}
                 onClick={async () => {
-                  const result = await BiometricManager.verify(userId);
-                  if (!result.success) {
-                    toast.error(friendlyError(result.error, 'Biometric verification failed'));
-                    return;
+                  if (collectionAuthorizationRef.current) return;
+                  collectionAuthorizationRef.current = true;
+                  setCollectionLoading(true);
+                  try {
+                    const result = await BiometricManager.verify(userId);
+                    if (!result.success) {
+                      toast.error(friendlyError(result.error, 'Biometric verification failed'));
+                      return;
+                    }
+                    setReceiveStep('africa-processing');
+                    await createAfricanCollection();
+                  } finally {
+                    collectionAuthorizationRef.current = false;
+                    setCollectionLoading(false);
                   }
-                  await createAfricanCollection();
                 }}
                 className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white disabled:opacity-50"
               >
@@ -1359,12 +1530,36 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
           </div>
         )}
 
+        {receiveStep === 'africa-processing' && selectedAfricanCountry && selectedAfricanRail && (
+          <div className="px-5 py-16 text-center" role="status" aria-live="polite">
+            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[#C7FF00]/10">
+              <Loader2 className="h-8 w-8 animate-spin text-[#C7FF00]" />
+            </div>
+            <p className={`mb-2 text-base font-semibold ${tc.text}`}>Processing collection…</p>
+            <p className={`text-sm ${tc.textMuted}`}>Please do not close the app</p>
+          </div>
+        )}
+
         {receiveStep === 'africa-success' && selectedAfricanCountry && selectedAfricanRail && (
           <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} p-6 text-center mb-6`}>
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-500/15">
               <CheckCircle className="h-9 w-9 text-green-400" />
             </div>
-            <h2 className={`text-xl font-bold ${tc.text}`}>Collection request created</h2>
+            <h2 className={`text-xl font-bold ${tc.text}`}>
+              {(collectionResult as any)?.provider_status === 'confirmation_pending' ? 'Collection submitted' : 'Collection request created'}
+            </h2>
+            {(collectionResult as any)?.provider_status === 'confirmation_pending' && (
+              <p className={`mt-2 text-sm ${tc.textMuted}`}>Confirmation is pending. Do not submit this collection again.</p>
+            )}
+            {collectionStatusRefreshing && (
+              <p className={`mt-2 text-sm ${tc.textMuted}`} role="status">Checking the latest provider status…</p>
+            )}
+            {collectionStatusDelayed && !collectionStatusRefreshing && (
+              <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-left">
+                <p className="text-xs font-semibold text-amber-300">Status update delayed</p>
+                <p className={`mt-1 text-xs ${tc.textMuted}`}>The collection was not submitted again. Retry the status check safely.</p>
+              </div>
+            )}
             <p className={`mt-2 text-sm ${tc.textMuted}`}>
               {formatMoney(collectionAmountNumber, selectedAfricanRail.currency)} {selectedAfricanRail.currency} · {selectedAfricanCountry.countryName}
             </p>
@@ -1385,6 +1580,16 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
               </div>
             )}
             <div className="mt-6 space-y-3">
+              {collectionStatusDelayed && (
+                <button
+                  type="button"
+                  onClick={() => { void refreshAfricanCollectionStatus(false); }}
+                  disabled={collectionStatusRefreshing}
+                  className={`w-full h-11 rounded-full border ${tc.borderLight} ${tc.text} text-sm font-semibold ${tc.hoverBg} disabled:opacity-50`}
+                >
+                  {collectionStatusRefreshing ? 'Checking status…' : 'Retry status check'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={resetAfricanReceiveFlow}

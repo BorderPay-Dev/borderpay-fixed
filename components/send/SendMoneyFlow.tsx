@@ -38,8 +38,9 @@ import { isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/Ex
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
-import { canUseAfricanRails } from '../../utils/africanRailsAccess';
+import { canDiscoverAfricanRails } from '../../utils/africanRailsAccess';
 import { buildReceiptPdf } from '../../utils/receipts/buildReceiptPdf';
+import { exportReceiptPdf } from '../../utils/receipts/exportReceiptPdf';
 import {
   hasFreshAfricanPolicyRows,
   loadAfricanPolicyRows,
@@ -47,6 +48,12 @@ import {
   type AfricanPolicyRow,
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
+import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
+import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
+import {
+  SendCapabilityTimeoutError,
+  withSendCapabilityTimeout,
+} from './sendCapabilityTimeout';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +72,10 @@ type AfricanCountryOption = {
 
 const UI_CRYPTO_MIN_GROSS_USD = 5.0;
 const AFRICAN_POLICY_REQUEST_TIMEOUT_MS = 15000;
+// Customer submission is wired to the production-only JIT endpoint. The
+// server-side YC_PRODUCTION_SEND_ENABLED and YC_JIT_PAYOUT_ENABLED controls
+// remain the final fail-closed authority for irreversible execution.
+const AFRICAN_SEND_EXECUTION_ENABLED = true;
 
 function normalizeCryptoRoute(network?: string, token?: string): CryptoWithdrawalValues {
   const n = String(network || '').toLowerCase();
@@ -107,6 +118,13 @@ interface Institution {
   code: string;
   name: string;
   type?: string;
+  channelIds?: string[];
+}
+
+interface YellowCardChannelLimit {
+  id: string;
+  minimum: number | null;
+  maximum: number | null;
 }
 
 interface Wallet {
@@ -115,7 +133,6 @@ interface Wallet {
   balance: number;
   symbol?: string;
   bridge_wallet_id?: string | null;
-  sandbox?: boolean;
 }
 
 interface ExternalAccountOption {
@@ -355,6 +372,14 @@ function nestedValue(input: any, path: string) {
 }
 
 function extractAfricanQuote(input: any, sourceAmount: number) {
+  const normalized = input?.quote;
+  if (normalized && Number(normalized.rate) > 0) {
+    return {
+      destinationAmount: Number(normalized.destination_amount) || sourceAmount * Number(normalized.rate),
+      rate: Number(normalized.rate),
+      fee: null,
+    };
+  }
   const rates = input?.rates ?? input;
   const providerRateRows = Array.isArray(rates?.rates)
     ? rates.rates
@@ -456,13 +481,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } catch {}
     return 'pending';
   });
-  const africanRailsTester = useMemo(() => {
+  const africanRailsDiscoveryAllowed = useMemo(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
       const user = stored ? JSON.parse(stored) : {};
-      return canUseAfricanRails({ id: userId || user?.id, email: user?.email });
+      return canDiscoverAfricanRails({ id: userId || user?.id });
     } catch {
-      return canUseAfricanRails({ id: userId });
+      return canDiscoverAfricanRails({ id: userId });
     }
   }, [userId]);
 
@@ -530,7 +555,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step]);
   const [method, setMethod] = useState<TransferMethod>('stablecoin');
   const [africanPolicyRows, setAfricanPolicyRows] = useState<AfricanPolicyRow[]>(() =>
-    africanRailsTester ? readCachedAfricanPolicyRows('payout') : []
+    africanRailsDiscoveryAllowed ? readCachedAfricanPolicyRows('payout') : []
   );
   const [africanPolicyLoading, setAfricanPolicyLoading] = useState(false);
   const africanPolicyLoadingRef = useRef(false);
@@ -543,7 +568,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   } | null>(null);
 
   const loadAfricanPolicy = useCallback(async (force = false) => {
-    if (!africanRailsTester) return;
+    if (!africanRailsDiscoveryAllowed) return;
     if (africanPolicyLoadingRef.current) return;
     const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
     if (!force && africanPolicyRows.length > 0 && cacheIsFresh) return;
@@ -563,10 +588,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       africanPolicyLoadingRef.current = false;
       setAfricanPolicyLoading(false);
     }
-  }, [africanPolicyRows.length, africanRailsTester]);
+  }, [africanPolicyRows.length, africanRailsDiscoveryAllowed]);
 
   useEffect(() => {
-    if (!africanRailsTester) return;
+    if (!africanRailsDiscoveryAllowed) return;
     const cacheIsFresh = hasFreshAfricanPolicyRows('payout');
     if (africanPolicyRows.length > 0 && cacheIsFresh) return;
     let active = true;
@@ -586,7 +611,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     return () => {
       active = false;
     };
-  }, [africanPolicyRows.length, africanRailsTester]);
+  }, [africanPolicyRows.length, africanRailsDiscoveryAllowed]);
 
   useEffect(() => {
     if (step === 'africa-destination' || step === 'africa-rail') {
@@ -603,6 +628,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Bank / MoMo details
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [africanProviderChannels, setAfricanProviderChannels] = useState<YellowCardChannelLimit[]>([]);
   const [selectedBank, setSelectedBank] = useState<Institution | null>(null);
   const [bankSearch, setBankSearch] = useState('');
   const [showBankList, setShowBankList] = useState(false);
@@ -762,14 +788,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [selectedAfricanFundingCurrency, setSelectedAfricanFundingCurrency] = useState('');
   const [selectedExternalFundingCurrency, setSelectedExternalFundingCurrency] = useState('');
   const africanFundingWallets = useMemo(
-    () => (africanRailsTester ? [
-      { id: 'yellow-card-sandbox-usdc', currency: 'USDC', balance: 100000, sandbox: true },
-      { id: 'yellow-card-sandbox-usdt', currency: 'USDT', balance: 100000, sandbox: true },
-    ] : wallets)
+    () => wallets
       .map((wallet) => ({ ...wallet, currency: String(wallet.currency || '').toUpperCase() }))
       .filter((wallet) => AFRICAN_FUNDING_CURRENCY_PRIORITY.includes(wallet.currency))
       .sort((a, b) => AFRICAN_FUNDING_CURRENCY_PRIORITY.indexOf(a.currency) - AFRICAN_FUNDING_CURRENCY_PRIORITY.indexOf(b.currency)),
-    [africanRailsTester, wallets],
+    [wallets],
   );
   const externalFundingWallets = useMemo(
     () => wallets
@@ -831,7 +854,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     })[0] || null;
   }, [amount, selectedAfricanRail, selectedCurrency]);
   const selectedAfricanProvider = providerFromPolicy(selectedAfricanPolicyRow);
-  const requiresInstitutionSelection = isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsTester;
+  const requiresInstitutionSelection = isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsDiscoveryAllowed;
   const [africanQuote, setAfricanQuote] = useState<{
     destinationAmount: number | null;
     rate: number | null;
@@ -839,7 +862,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   } | null>(null);
   const [africanQuoteLoading, setAfricanQuoteLoading] = useState(false);
   const [africanQuoteError, setAfricanQuoteError] = useState('');
-  const [yellowCardSandboxOutcome, setYellowCardSandboxOutcome] = useState<'success' | 'failure'>('success');
+  // One Yellow Card sequence per African payout intent. A retry of the same
+  // corridor, amount and beneficiary must reuse the original sequence so a
+  // timeout or double tap cannot create a second provider transaction.
+  const transactionAuthorizationRef = useRef(false);
+  const scaPaymentRequestRef = useRef<Record<string, any> | null>(null);
   const africanQuoteReqRef = useRef(0);
 
   // Instant fallback fee — shown immediately on first paint.
@@ -875,10 +902,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       setAfricanQuoteError('');
       return;
     }
-    if (!africanRailsTester) {
+    if (!africanRailsDiscoveryAllowed) {
       setAfricanQuote(null);
       setAfricanQuoteLoading(false);
-      setAfricanQuoteError('This route remains in controlled integration testing.');
+      setAfricanQuoteError('Complete account verification to use this route.');
       return;
     }
     const reqId = africanQuoteReqRef.current + 1;
@@ -887,10 +914,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setAfricanQuoteError('');
     (async () => {
       try {
-        const res: any = await backendAPI.payouts.yellowCardCapabilities('rates', {
+        const res: any = await loadYellowCardCapability('quote', {
           currency: selectedCurrency,
           country: selectedAfricanCountryCode,
           amount: num,
+          direction: 'payout',
         });
         if (africanQuoteReqRef.current !== reqId) return;
         if (!res?.success || !res?.data) {
@@ -909,7 +937,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (africanQuoteReqRef.current === reqId) setAfricanQuoteLoading(false);
       }
     })();
-  }, [amount, isAfricanPayout, selectedAfricanCountryCode, selectedAfricanRail, selectedCurrency, activeFundingCurrency, africanRailsTester]);
+  }, [amount, isAfricanPayout, selectedAfricanCountryCode, selectedAfricanRail, selectedCurrency, activeFundingCurrency, africanRailsDiscoveryAllowed]);
 
   const africanPolicyFee = useMemo(() => {
     if (!isAfricanPayout || !selectedAfricanPolicyRow || !africanQuote?.destinationAmount) return null;
@@ -945,6 +973,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (africanQuote?.destinationAmount && africanQuote.destinationAmount > 0) return africanQuote.destinationAmount / sourceAmount;
     return null;
   }, [africanQuote, isAfricanPayout, sourceAmount]);
+  const africanProviderBounds = useMemo(() => {
+    if (!isAfricanPayout || africanProviderChannels.length === 0) return { minimum: null, maximum: null };
+    const linkedIds = new Set(selectedBank?.channelIds || []);
+    const linked = linkedIds.size > 0
+      ? africanProviderChannels.filter((channel) => linkedIds.has(channel.id))
+      : africanProviderChannels;
+    const candidates = linked.length > 0 ? linked : africanProviderChannels;
+    const minimums = candidates.map((row) => row.minimum).filter((value): value is number => value !== null && value > 0);
+    const maximums = candidates.map((row) => row.maximum).filter((value): value is number => value !== null && value > 0);
+    return {
+      minimum: minimums.length ? Math.min(...minimums) : null,
+      maximum: maximums.length ? Math.max(...maximums) : null,
+    };
+  }, [africanProviderChannels, isAfricanPayout, selectedBank]);
   const africanInsufficientFunding = isAfricanPayout
     && !!activeFundingWallet
     && sourceAmount > 0
@@ -978,28 +1020,116 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // PIN & result
   const [pin, setPin] = useState('');
+  const [scaPassword, setScaPassword] = useState('');
+  const [scaTotp, setScaTotp] = useState('');
+  const [bridgeScaScope, setBridgeScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>('loading');
   useEffect(() => {
-    if (step !== 'pin') setPin('');
+    if (step !== 'pin') {
+      setPin('');
+    }
   }, [step]);
   const [snapshotReady, setSnapshotReady] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
-  const institutionsLoadInFlightRef = useRef<Promise<void> | null>(null);
+  const [institutionsLoadError, setInstitutionsLoadError] = useState('');
+  const institutionsLoadRequestIdRef = useRef(0);
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
+  const [transactionPending, setTransactionPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
   const institutionsCacheKey = useMemo(
-    () => `borderpay_send_institutions_v2:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
+    () => `borderpay_send_institutions_v3:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
   const institutionsRefreshTsKey = useMemo(
-    () => `borderpay_send_institutions_refreshed_at_v2:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
+    () => `borderpay_send_institutions_refreshed_at_v3:${userId}:${method}:${selectedAfricanCountryCode}:${selectedCurrency}`,
     [userId, method, selectedAfricanCountryCode, selectedCurrency]
   );
+  const institutionsLimitsCacheKey = `${institutionsCacheKey}:channel-limits`;
   const [hasPinFactor, setHasPinFactor] = useState(() => PINManager.hasPIN(userId));
   const [hasBiometricFactor, setHasBiometricFactor] = useState(() => BiometricManager.isEnrolled(userId));
-  const hasAnyAuthFactor = hasPinFactor || hasBiometricFactor;
+  const hasAnyAuthFactor = hasPinFactor;
+
+  useEffect(() => {
+    let cancelled = false;
+    backendAPI.auth.getScaScope().then((result: any) => {
+      if (cancelled) return;
+      if (!result?.success || !result?.data) setBridgeScaScope('unknown');
+      else setBridgeScaScope(result.data.required === true ? 'required' : 'not_required');
+    }).catch(() => { if (!cancelled) setBridgeScaScope('unknown'); });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  const buildYellowCardJitRequest = () => {
+    if (!isAfricanPayout || !activeFundingWallet?.bridge_wallet_id || !selectedBank || !africanQuote?.destinationAmount) {
+      return null;
+    }
+    return {
+      action: 'create',
+      country: selectedAfricanCountryCode,
+      currency: selectedCurrency,
+      channel: method,
+      local_amount: Math.round(africanQuote.destinationAmount),
+      settlement_asset: activeFundingCurrency,
+      settlement_network: activeFundingCurrency === 'USDT' ? 'TRON' : 'BASE',
+      settlement_amount: String(sourceAmount),
+      bridge_wallet_id: activeFundingWallet.bridge_wallet_id,
+      network_id: selectedBank.code,
+      recipient: {
+        account_name: recipientName.trim(),
+        account_number: method === 'mobile_money'
+          ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
+          : accountNumber.trim(),
+      },
+      reason: reason.trim(),
+      idempotency_key: transferIdempotencyKey,
+    };
+  };
+
+  const buildPaymentScaContext = () => {
+    if (method === 'stablecoin') {
+      const symbol = crypto.token.toUpperCase();
+      return { resource: 'bridge_transfer', request: {
+        idempotency_key: transferIdempotencyKey,
+        source: {
+          payment_rail: 'bridge_wallet',
+          currency: symbol,
+          amount: String(parseFloat(amount)),
+          ...(selectedWallet?.bridge_wallet_id ? { bridge_wallet_id: selectedWallet.bridge_wallet_id } : {}),
+        },
+        destination: {
+          payment_rail: crypto.network,
+          currency: symbol,
+          chain: crypto.network.toUpperCase(),
+          address: crypto.address.trim(),
+          ...(cryptoSavedWalletId ? { external_wallet_id: cryptoSavedWalletId } : {}),
+          ...(cryptoSavedRouteId ? { bridge_payment_route_id: cryptoSavedRouteId } : {}),
+        },
+      } };
+    }
+    if (method === 'us_ach_wire' && selectedExternalAccount) {
+      const destinationRail = selectedExternalAccount.account_type === 'iban' ? 'sepa'
+        : selectedExternalAccount.account_type === 'gb' ? 'faster_payments' : 'ach';
+      return { resource: 'bridge_transfer', request: {
+        idempotency_key: transferIdempotencyKey,
+        source: {
+          payment_rail: 'bridge_wallet',
+          currency: activeExternalFundingCurrency,
+          amount: String(parseFloat(amount)),
+          ...(activeExternalFundingWallet?.bridge_wallet_id ? { bridge_wallet_id: activeExternalFundingWallet.bridge_wallet_id } : {}),
+        },
+        destination: {
+          payment_rail: destinationRail,
+          currency: selectedExternalAccount.currency,
+          external_account_id: selectedExternalAccount.bridge_external_account_id,
+        },
+      } };
+    }
+    const yellowCardRequest = buildYellowCardJitRequest();
+    if (yellowCardRequest) return { resource: 'yellowcard_jit_payout', request: yellowCardRequest };
+    return null;
+  };
   useEffect(() => {
     let active = true;
     void Promise.all([
@@ -1007,7 +1137,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       BiometricManager.isSupported(),
     ]).then(([security, biometricSupported]: any[]) => {
       if (!active) return;
-      if (security?.success) setHasPinFactor(Boolean(security?.data?.pin_set));
+      if (security?.success) {
+        setHasPinFactor(Boolean(security?.data?.pin_set));
+      }
       const serverBiometric = Boolean(security?.success && security?.data?.biometric_enrolled);
       if (serverBiometric) {
         try { localStorage.setItem('borderpay_biometric_enrolled', 'true'); } catch { /* preserve server truth without blocking */ }
@@ -1123,11 +1255,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [step, method, selectedCurrency, selectedAfricanCountryCode, selectedAfricanRail]);
 
   const loadInstitutions = async () => {
-    if (institutionsLoadInFlightRef.current) {
-      await institutionsLoadInFlightRef.current;
-      return;
-    }
-    const run = (async () => {
+    const requestId = ++institutionsLoadRequestIdRef.current;
     // Fast route re-entry: render cached institutions instantly when available.
     let seededFromCache = false;
     try {
@@ -1141,34 +1269,70 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
       }
     } catch { /* noop */ }
+    let seededLimitsFromCache = false;
+    try {
+      const cachedLimits = JSON.parse(localStorage.getItem(institutionsLimitsCacheKey) || '[]');
+      if (Array.isArray(cachedLimits) && cachedLimits.length > 0) {
+        setAfricanProviderChannels(cachedLimits);
+        seededLimitsFromCache = true;
+      }
+    } catch { /* noop */ }
+    if (!seededLimitsFromCache && selectedAfricanCountryCode && (method === 'bank' || method === 'mobile_money')) {
+      const fallback = yellowCardProviderBounds(selectedAfricanCountryCode, selectedCurrency, method, 'payout');
+      if (fallback) {
+        setAfricanProviderChannels([{
+          id: `manual:${selectedAfricanCountryCode}:${selectedCurrency}:${method}:payout`,
+          minimum: fallback.minimum,
+          maximum: fallback.maximum,
+        }]);
+        seededLimitsFromCache = true;
+      }
+    }
     if (!seededFromCache) setInstitutions([]);
     // Throttle duplicate rail fetches on quick step toggles.
     try {
       const last = Number(localStorage.getItem(institutionsRefreshTsKey) || '0');
-      if (Number.isFinite(last) && Date.now() - last < 5 * 60_000) return;
+      if (seededFromCache && seededLimitsFromCache && Number.isFinite(last) && Date.now() - last < 5 * 60_000) {
+        setInstitutionsLoadError('');
+        setLoadingInstitutions(false);
+        return;
+      }
     } catch { /* noop */ }
 
     if (!selectedAfricanCountryCode || (method !== 'bank' && method !== 'mobile_money')) {
       setInstitutions([]);
+      setAfricanProviderChannels([]);
       setSelectedBank(null);
+      setInstitutionsLoadError('');
       setLoadingInstitutions(false);
       return;
     }
 
+    setInstitutionsLoadError('');
     setLoadingInstitutions(true);
     try {
       const res: any = selectedAfricanProvider === 'yellow_card'
-        ? await backendAPI.payouts.yellowCardCapabilities('routing', {
-          country: selectedAfricanCountryCode,
-          currency: selectedCurrency,
-          channel: method,
-          direction: 'payout',
-        })
+        ? await withSendCapabilityTimeout(
+          loadYellowCardCapability('routing', {
+            country: selectedAfricanCountryCode,
+            currency: selectedCurrency,
+            channel: method,
+            direction: 'payout',
+          }),
+        )
         : null;
+      if (requestId !== institutionsLoadRequestIdRef.current) return;
       if (!res?.success) {
         throw new Error(res?.error || 'Unable to load available payout rails.');
       }
       const providerNetworks = res?.data?.routing?.networks;
+      const providerChannels = Array.isArray(res?.data?.routing?.channels)
+        ? res.data.routing.channels.map((row: any) => ({
+          id: String(row?.id || ''),
+          minimum: Number.isFinite(Number(row?.minimum)) && Number(row.minimum) > 0 ? Number(row.minimum) : null,
+          maximum: Number.isFinite(Number(row?.maximum)) && Number(row.maximum) > 0 ? Number(row.maximum) : null,
+        })).filter((row: YellowCardChannelLimit) => row.id)
+        : [];
       const rawList = Array.isArray(providerNetworks)
         ? providerNetworks
         : (Array.isArray(providerNetworks?.networks) ? providerNetworks.networks
@@ -1186,32 +1350,38 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ).trim(),
           name: String(row?.name || row?.bank_name || row?.network || row?.provider || row?.code || `Rail ${idx + 1}`).trim(),
           type: method,
+          channelIds: Array.isArray(row?.channelIds) ? row.channelIds.map((id: unknown) => String(id || '')).filter(Boolean) : [],
         }))
         .filter((row) => row.code && row.name);
+      if (list.length === 0) {
+        try { localStorage.removeItem(institutionsRefreshTsKey); } catch { /* noop */ }
+        throw new Error('No active network is available for the selected route.');
+      }
       setInstitutions(list);
+      setAfricanProviderChannels(providerChannels);
       setSelectedBank((prev) => {
         if (!prev) return null;
         return list.some((row) => row.code === prev.code) ? prev : null;
       });
       try { localStorage.setItem(institutionsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
+      try { localStorage.setItem(institutionsLimitsCacheKey, JSON.stringify(providerChannels)); } catch { /* noop */ }
       try { localStorage.setItem(institutionsRefreshTsKey, String(Date.now())); } catch { /* noop */ }
-    } catch {
+    } catch (error: unknown) {
+      if (requestId !== institutionsLoadRequestIdRef.current) return;
       // A transient provider refresh must not erase a previously validated
-      // corridor list or expose provider-network loading errors to the user.
+      // corridor list. A bounded timeout remains visible and retryable.
       if (!seededFromCache) {
         setInstitutions([]);
         setSelectedBank(null);
       }
+      if (error instanceof SendCapabilityTimeoutError) {
+        setInstitutionsLoadError(seededFromCache
+          ? 'Live payout rails took too long to refresh. Cached options remain available; retry when ready.'
+          : 'Payout rails took too long to load. Check your connection and try again.');
+      }
     } finally {
-      setLoadingInstitutions(false);
-    }
-    })();
-    institutionsLoadInFlightRef.current = run;
-    try {
-      await run;
-    } finally {
-      if (institutionsLoadInFlightRef.current === run) {
-        institutionsLoadInFlightRef.current = null;
+      if (requestId === institutionsLoadRequestIdRef.current) {
+        setLoadingInstitutions(false);
       }
     }
   };
@@ -1230,11 +1400,22 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       setLimitError(null);
       return;
     }
+    if (isAfricanPayout) {
+      if (africanProviderBounds.minimum !== null && amountToValidate < africanProviderBounds.minimum) {
+        setLimitError(`Minimum recipient amount is ${formatMoney(africanProviderBounds.minimum, selectedCurrency)} ${selectedCurrency}.`);
+        return;
+      }
+      if (africanProviderBounds.maximum !== null && amountToValidate > africanProviderBounds.maximum) {
+        setLimitError(`Maximum recipient amount is ${formatMoney(africanProviderBounds.maximum, selectedCurrency)} ${selectedCurrency}.`);
+        return;
+      }
+      setLimitError(null);
+      return;
+    }
     const channel = method === 'mobile_money' ? 'mobile_money' : 'bank';
     const symbol = getCurrencySymbol(selectedCurrency);
-    const err = validateTransferAmount(amountToValidate, selectedCurrency, channel, symbol);
-    setLimitError(err);
-  }, [amount, selectedCurrency, method, isAfricanPayout, africanQuote?.destinationAmount]);
+    setLimitError(validateTransferAmount(amountToValidate, selectedCurrency, channel, symbol));
+  }, [amount, selectedCurrency, method, isAfricanPayout, africanQuote?.destinationAmount, africanProviderBounds]);
 
   const stablecoinMinimumError = useMemo(() => {
     if (method !== 'stablecoin') return null;
@@ -1303,8 +1484,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         && reason.trim().length > 0;
     }
     if (isAfricanPayout) {
-      return africanRailsTester && num > 0 && !!activeFundingWallet && !africanInsufficientFunding &&
-        !africanQuoteLoading && !!africanQuote?.destinationAmount && !!africanPolicyFee;
+      return africanRailsDiscoveryAllowed && num > 0 && !!activeFundingWallet && !africanInsufficientFunding &&
+        !africanQuoteLoading && !!africanQuote?.destinationAmount && !!africanPolicyFee && reason.trim().length > 0;
     }
     return num > 0 && selectedWallet && num <= selectedWallet.balance;
   };
@@ -1312,7 +1493,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   // Process transaction
   // ---------------------------------------------------------------------------
-  const processTransaction = async (verifiedPin: string) => {
+  const processTransaction = async (scaAuthorizationId: string) => {
+    setTransactionPending(false);
     // Never retain a transaction PIN while a request is in flight or after a
     // route transition. Non-stablecoin flows have already verified it locally.
     setPin('');
@@ -1347,7 +1529,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           bridge_wallet_id: selectedWallet.bridge_wallet_id,
           external_wallet_id: cryptoSavedWalletId,
           bridge_payment_route_id: cryptoSavedRouteId,
-          transaction_pin: verifiedPin,
+          sca_authorization_id: scaAuthorizationId,
           // Required by bridge-transfer v2. Reusing the per-mount key
           // means a network retry of the same Confirm tap returns the
           // original transfer_id (server-side replay), not a duplicate.
@@ -1366,6 +1548,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           : 'ach';
         result = await backendAPI.bridge.transfer.create({
           idempotency_key: transferIdempotencyKey,
+          sca_authorization_id: scaAuthorizationId,
           source: {
             payment_rail: 'bridge_wallet',
             currency: activeExternalFundingCurrency,
@@ -1379,59 +1562,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           },
         });
       } else if (method === 'bank' || method === 'mobile_money') {
-        if (!africanRailsTester) {
-          throw new Error('African rail transfers are visible for planning but execution remains in controlled integration testing.');
+        const request = buildYellowCardJitRequest();
+        if (!request) {
+          throw new Error('This payout route is incomplete. Refresh the live route and try again.');
         }
-        if (!selectedAfricanCountryCode || !selectedAfricanRail) {
-          throw new Error('Select a destination country and payout rail.');
-        }
-        if (!activeFundingWallet) {
-          throw new Error('Add USDC or USDT before sending to Africa.');
-        }
-        if (selectedAfricanProvider !== 'yellow_card') {
-          throw new Error('This payout corridor is not available yet.');
-        }
-        if (!africanQuote?.destinationAmount) {
-          throw new Error('Quote this corridor before sending.');
-        }
-        const beneficiaryName = recipientName.trim() || resolvedName || undefined;
-        if (!selectedBank?.code) throw new Error('Select the recipient bank or mobile money network.');
-        const localAmount = Math.round(africanQuote.destinationAmount);
-        const settlementNetwork = activeFundingCurrency === 'USDC' ? 'BASE' : 'TRC20';
-        const request = {
-          currency: selectedCurrency,
-          country: selectedAfricanCountryCode,
-          channel: method,
-          local_amount: localAmount,
-          settlement_currency: activeFundingCurrency,
-          settlement_network: settlementNetwork,
-          crypto_amount: parseFloat(amount),
-          network_id: selectedBank.code,
-          reason: 'other',
-          recipient_name: beneficiaryName,
-          sandbox_outcome: yellowCardSandboxOutcome,
-        };
-        const preflight: any = await backendAPI.payouts.yellowCardSandboxTransaction({
-          action: 'preflight_send',
+        result = await backendAPI.payouts.yellowCardJitPayout({
           ...request,
-        });
-        if (!preflight?.success) {
-          throw new Error(preflight?.error || preflight?.code || 'The send preflight failed.');
-        }
-        if (!preflight?.data?.can_create) {
-          const blockers = Array.isArray(preflight?.data?.blockers) ? preflight.data.blockers : [];
-          if (blockers.includes('payment_network_required')) throw new Error('Select an available payment network and try again.');
-          if (blockers.includes('active_channel_unavailable')) throw new Error('This Yellow Card corridor is not currently active.');
-          if (blockers.includes('kyc_incomplete')) throw new Error('The sandbox sender profile is incomplete.');
-          throw new Error('The send preflight is incomplete.');
-        }
-        result = await backendAPI.payouts.yellowCardSandboxTransaction({
-          action: 'create_send',
-          ...request,
-          channel_id: preflight.data.selected_channel_id,
-          sequence_id: globalThis.crypto.randomUUID(),
-          operator_confirmed: true,
-        });
+          sca_authorization_id: scaAuthorizationId,
+        }, transferIdempotencyKey);
       } else {
         throw new Error('Unsupported transfer method.');
       }
@@ -1440,29 +1578,56 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         // The provider webhook owns the balance mutation. Drop every derived
         // financial cache now so Dashboard, Wallet, Activity and Notifications
         // cannot keep rendering the pre-payout snapshot after navigation.
-        backendAPI.financial.invalidateForUser(userId);
+        if (!isAfricanPayout) backendAPI.financial.invalidateForUser(userId);
         // bridge-transfer returns { transfer_id, state }; legacy paths return
         // { transaction_id, reference, new_balance }. Surface whichever exists.
         setTransactionId(
-          result.data?.transaction?.provider_transaction_id
+          result.data?.payout?.id
+          || result.data?.transaction?.provider_transaction_id
           || result.data?.transaction_id
           || result.data?.transfer_id
           || ''
         );
         setTransactionRef(
-          result.data?.transaction?.sequence_id
+          result.data?.payout?.sequence_id
+          || result.data?.transaction?.sequence_id
           || result.data?.reference
           || result.data?.transfer_id
           || ''
         );
         setNewBalance(result.data?.new_balance ?? null);
+        const providerState = String(
+          result.data?.payout?.state
+          || result.data?.payout?.provider_status
+          || result.data?.transaction?.provider_status
+          || result.data?.transaction?.status
+          || ''
+        ).toLowerCase();
+        const pendingConfirmation = (result as any)?.code === 'provider_confirmation_pending' ||
+          isAfricanPayout ||
+          ['confirmation_pending', 'created', 'process', 'processing', 'pending', 'submitted', 'pending_sweep', 'send_intent_created', 'treasury_sweep_sent', 'yellow_card_credited', 'dispatched_to_rails'].includes(providerState);
+        setTransactionPending(pendingConfirmation);
         setStep('success');
-        toast.success(t('send.txSuccessful'));
+        if (pendingConfirmation) toast.info('Transfer submitted. Confirmation is pending.');
+        else toast.success(t('send.txSuccessful'));
       } else {
         // Map structured server codes to friendly user-facing messages.
         const code = (result as any)?.code;
+        const preflightBlockers = Array.isArray((result as any)?.data?.preflight?.blockers)
+          ? (result as any).data.preflight.blockers.map((value: unknown) => String(value))
+          : [];
         const friendly =
-          code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
+          code === 'yellow_card_preflight_incomplete' && preflightBlockers.includes('kyc_incomplete')
+            ? 'Verified identity document details required for this payout are unavailable. Contact support; do not retry this transaction.'
+        : code === 'bridge_identity_evidence_lookup_failed'
+            ? 'We could not verify the identity evidence required for this payout. Contact support; do not retry this transaction.'
+        : code === 'yellow_card_amount_outside_provider_limits'
+            ? 'The recipient amount is outside the currently allowed range for this payout route.'
+        : code === 'yellow_card_preflight_incomplete' && preflightBlockers.includes('active_channel_unavailable')
+            ? 'This payout route is temporarily unavailable. Do not retry until the route is restored.'
+        : code === 'yellow_card_preflight_incomplete' && preflightBlockers.includes('payment_network_required')
+            ? 'Select an available recipient network before submitting the payout.'
+        : code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
         : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the digital dollar path for now.'
         : method === 'stablecoin'         ? mapCryptoTransferError(code, result.error, crypto)
@@ -1485,22 +1650,62 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
   };
 
-  const handlePinComplete = async (value: string) => {
-    setPin(value);
-    if (value.length === 6) {
-      if (!hasPinFactor) {
-        toast.error('Set a transaction PIN or use biometric verification to continue.');
-        setPin('');
+  const handlePinComplete = (value: string) => setPin(value.replace(/\D/g, '').slice(0, 6));
+
+  const authorizeAndProcess = async () => {
+    if (transactionAuthorizationRef.current) return;
+    const paymentContext = buildPaymentScaContext();
+    const paymentNeedsSca = Boolean(paymentContext) && bridgeScaScope === 'required';
+    if (!paymentNeedsSca && !hasPinFactor) {
+      toast.error('Set up a transaction PIN before sending.');
+      return;
+    }
+    if (!paymentNeedsSca && !/^\d{4,6}$/.test(pin)) {
+      toast.error('Enter your transaction PIN.');
+      return;
+    }
+
+    transactionAuthorizationRef.current = true;
+    try {
+      if (paymentContext && bridgeScaScope === 'unknown') {
+        toast.error('We could not determine the regulatory authentication requirement. Nothing was sent.');
         return;
       }
-      const verification = await PINManager.verifyTransactionPIN(userId, value);
-      if (!verification.success) {
-        toast.error(friendlyError(verification.error, t('send.incorrectPin') || 'Incorrect PIN'));
-        setPin('');
+      if (paymentContext && bridgeScaScope === 'loading') {
+        toast.error('Account security checks are still loading. Try again shortly.');
         return;
+      }
+      let scaAuthorizationId = '';
+      if (paymentNeedsSca && paymentContext) {
+        if (scaPassword.length < 8 || !/^\d{6}$/.test(scaTotp)) {
+          toast.error('Enter your account password and 6-digit authenticator code.');
+          return;
+        }
+        const authorized: any = await backendAPI.auth.authorizeSCA({
+          operation: 'payment',
+          resource: paymentContext.resource,
+          request: paymentContext.request,
+          password: scaPassword,
+          totp: scaTotp,
+        });
+        if (!authorized?.success || !authorized?.data?.authorization_id) {
+          toast.error(friendlyError(authorized?.error, 'Strong authentication failed.'));
+          return;
+        }
+        scaAuthorizationId = String(authorized.data.authorization_id);
+      } else {
+        const verified: any = await backendAPI.auth.verifyPIN(pin);
+        if (!verified?.success) {
+          toast.error(friendlyError(verified?.error, 'Incorrect transaction PIN'));
+          return;
+        }
       }
       setPin('');
-      void processTransaction(method === 'stablecoin' ? value : '__verified__');
+      setScaPassword('');
+      setScaTotp('');
+      await processTransaction(scaAuthorizationId);
+    } finally {
+      transactionAuthorizationRef.current = false;
     }
   };
 
@@ -1521,12 +1726,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       case 'africa-destination': return 'Send to Africa';
       case 'africa-rail': return selectedAfricanCountry?.countryName || 'Send to Africa';
       case 'crypto-wallet': return 'Withdrawal Wallet';
-      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Digital Dollar Transfer' : t('send.borderPayDetails');
+      case 'details': return method === 'us_ach_wire' ? 'External account details' : method === 'stablecoin' ? 'Digital Dollar Transfer' : t('send.borderPayDetails');
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
       case 'processing': return t('send.processingTx');
-      case 'success': return t('send.txSuccessful');
+      case 'success': return transactionPending ? 'Confirmation pending' : t('send.txSuccessful');
       case 'error': return t('send.txFailed');
       default: return t('send.title');
     }
@@ -1545,7 +1750,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     ? `${selectedExternalAccount.currency} account`
     : 'External account';
 
-  const downloadReceiptPdf = () => {
+  const downloadReceiptPdf = async () => {
     const recipientAccount = isAfricanPayout && method === 'mobile_money'
       ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
       : accountNumber;
@@ -1574,14 +1779,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       { label: 'Note', value: 'This receipt confirms your BorderPay money out request. Final settlement status may depend on the receiving rail.' },
     ];
     const blob = buildReceiptPdf(receiptLines);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `BorderPay-receipt-${transactionId || transactionRef || Date.now()}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    try {
+      await exportReceiptPdf(blob, `BorderPay-receipt-${transactionId || transactionRef || Date.now()}.pdf`);
+    } catch (error) {
+      toast.error(friendlyError(error, 'Could not open the receipt. Please try again.'));
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -1638,7 +1840,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <div className="space-y-3">
-              {africanRailsTester ? <button
+              {AFRICAN_SEND_EXECUTION_ENABLED && africanRailsDiscoveryAllowed ? <button
                 type="button"
                 onClick={() => {
                   setStep('africa-destination');
@@ -1663,7 +1865,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </button> : <div
                 className={`flex w-full cursor-not-allowed items-center gap-3 rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 text-left opacity-60`}
                 aria-disabled="true"
-                aria-label="Send to Africa coming soon"
+                aria-label="Send to Africa temporarily unavailable"
               >
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#58D66D]/25 bg-[#58D66D]/12">
                   <Smartphone className="h-5 w-5 text-[#58D66D]" />
@@ -1671,10 +1873,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="min-w-0 flex-1">
                   <p className={`truncate text-sm font-semibold ${tc.text}`}>Send to Africa</p>
                   <p className="mt-1 truncate text-xs font-semibold text-[#58D66D]">Mobile money and local bank rails</p>
-                  <p className="mt-1 truncate text-xs text-white/40">African send rails are coming soon</p>
+                  <p className="mt-1 truncate text-xs text-white/40">Settlement activation in progress</p>
                 </div>
                 <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white/60">
-                  Soon
+                  Unavailable
                 </span>
               </div>}
 
@@ -1712,7 +1914,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   <div className="min-w-0 flex-1">
                     <p className={`truncate text-sm font-semibold ${tc.text}`}>External digital dollar</p>
                     <p className="mt-1 truncate text-xs font-semibold text-cyan-400">USDC on Base or USDT on TRON</p>
-                    <p className="mt-1 truncate text-xs text-white/40">Pending sandbox evidence sign-off</p>
+                    <p className="mt-1 truncate text-xs text-white/40">Transfers are temporarily unavailable</p>
                   </div>
                   <span className="rounded-full bg-amber-400/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-amber-300">
                     Pending
@@ -1824,6 +2026,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       onClick={() => {
                         setSelectedAfricanCountryCode(country.countryCode);
                         setSelectedAfricanRail(null);
+                        setAfricanProviderChannels([]);
                         setSelectedBank(null);
                         setAccountNumber('');
                         setRecipientName('');
@@ -1897,6 +2100,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   type="button"
                   onClick={() => {
                     setSelectedAfricanRail(option);
+                    setAfricanProviderChannels([]);
                     setMethod(option.channel);
                     setSelectedCurrency(option.currency);
                     setSelectedBank(null);
@@ -2159,6 +2363,20 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       </span>
                       <ChevronDown size={18} className={`${tc.textMuted} transition-transform ${showBankList ? 'rotate-180' : ''}`} />
                     </button>
+                  )}
+
+                  {institutionsLoadError && (
+                    <div role="alert" className="mt-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+                      <p className="text-xs text-amber-300">{institutionsLoadError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadInstitutions()}
+                        disabled={loadingInstitutions}
+                        className="mt-2 text-xs font-semibold text-[#C7FF00] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Retry payout rails
+                      </button>
+                    </div>
                   )}
 
                   {(!selectedAfricanRail || requiresInstitutionSelection) && showBankList && !loadingInstitutions && (
@@ -2464,7 +2682,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </label>
                 {isAfricanPayout && activeFundingWallet && (
                   <span className="shrink-0 rounded-full bg-[#C7FF00]/12 px-3 py-1 text-[11px] font-bold text-[#C7FF00] shadow-[0_0_18px_rgba(199,255,0,0.18)]">
-                    {activeFundingWallet.sandbox ? 'Sandbox test balance' : `${formatMoney(Number(activeFundingWallet.balance || 0), 'USD')} available`}
+                    {`${formatMoney(Number(activeFundingWallet.balance || 0), 'USD')} available`}
                   </span>
                 )}
                 {isExternalAccountOfframp && activeExternalFundingWallet && (
@@ -2511,7 +2729,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         >
                           <span className={`block text-sm font-bold ${selected ? 'text-[#C7FF00]' : tc.text}`}>{currency}</span>
                           <span className={`mt-1 block text-[11px] ${tc.textMuted}`}>
-                            {wallet ? (wallet.sandbox ? 'Sandbox test funds' : `${formatMoney(Number(wallet.balance || 0), 'USD')} balance`) : 'Wallet unavailable'}
+                            {wallet ? `${formatMoney(Number(wallet.balance || 0), 'USD')} balance` : 'Wallet unavailable'}
                           </span>
                         </button>
                       );
@@ -2523,6 +2741,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   {africanQuote?.destinationAmount && (
                     <p className="px-1 text-xs text-[#C7FF00]">
                       Recipient gets about {formatMoney(africanQuote.destinationAmount, selectedCurrency)} {selectedCurrency}
+                    </p>
+                  )}
+                  {(africanProviderBounds.minimum !== null || africanProviderBounds.maximum !== null) && (
+                    <p className={`px-1 text-xs ${limitError ? 'text-red-400' : tc.textMuted}`}>
+                      Allowed recipient amount: {africanProviderBounds.minimum !== null
+                        ? `${formatMoney(africanProviderBounds.minimum, selectedCurrency)} ${selectedCurrency}`
+                        : 'No minimum'}{' – '}{africanProviderBounds.maximum !== null
+                        ? `${formatMoney(africanProviderBounds.maximum, selectedCurrency)} ${selectedCurrency}`
+                        : 'No provider maximum'}
                     </p>
                   )}
                   {africanComputedRate && (
@@ -2625,13 +2852,28 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             {/* Reason */}
             <div className="mb-6">
               <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>{t('send.reason')}</label>
-              <input
-                type="text"
-                value={reason}
-                onChange={e => setReason(e.target.value)}
-                placeholder={method === 'us_ach_wire' ? t('send.usReasonPlaceholder') : t('send.reasonPlaceholder')}
-                className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
-              />
+              {isAfricanPayout ? (
+                <select
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  required
+                  className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                >
+                  <option value="">Choose a transaction reason</option>
+                  {YELLOW_CARD_PAYMENT_REASONS.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  required
+                  placeholder={method === 'us_ach_wire' ? t('send.usReasonPlaceholder') : t('send.reasonPlaceholder')}
+                  className={`w-full ${tc.inputBg} border ${tc.borderLight} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50 ${tc.text}`}
+                />
+              )}
             </div>
 
             <button
@@ -2735,7 +2977,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                       <div className="flex justify-between">
                         <span className={`text-xs ${tc.textMuted}`}>Funding Source</span>
                         <span className={`text-sm font-medium ${tc.text}`}>
-                          {activeFundingWallet.sandbox ? `${activeFundingWallet.currency} sandbox test funds` : `${activeFundingWallet.currency} Wallet`}
+                          {`${activeFundingWallet.currency} Wallet`}
                         </span>
                       </div>
                     )}
@@ -2876,29 +3118,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
             )}
 
-            {isAfricanPayout && selectedAfricanProvider === 'yellow_card' && africanRailsTester && (
-              <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4 mb-4`}>
-                <p className={`text-xs font-semibold ${tc.text} mb-3`}>Sandbox outcome</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['success', 'failure'] as const).map((outcome) => (
-                    <button
-                      key={outcome}
-                      type="button"
-                      onClick={() => setYellowCardSandboxOutcome(outcome)}
-                      className={`rounded-xl border px-3 py-2 text-xs font-bold capitalize transition-colors ${
-                        yellowCardSandboxOutcome === outcome
-                          ? 'border-[#C7FF00] bg-[#C7FF00]/10 text-[#C7FF00]'
-                          : `${tc.borderLight} ${tc.textMuted}`
-                      }`}
-                    >
-                      {outcome}
-                    </button>
-                  ))}
-                </div>
-                <p className={`mt-2 text-[11px] ${tc.textMuted}`}>Integration-review tester only. No real recipient funds move.</p>
-              </div>
-            )}
-
             {/* Warning */}
             <div className="flex items-start gap-2 px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl mb-6">
               <AlertCircle size={16} className="text-yellow-400 mt-0.5 flex-shrink-0" />
@@ -2943,57 +3162,84 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <div className="w-20 h-20 rounded-full bg-[#C7FF00]/10 flex items-center justify-center mx-auto mb-4">
                 <Lock className="w-10 h-10 text-[#C7FF00]" />
               </div>
-              <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>{t('send.enterPinToConfirm')}</h2>
+              <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>
+                {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire')
+                  ? 'Strong authentication required'
+                  : t('send.enterPinToConfirm')}
+              </h2>
               <p className={`text-sm ${tc.textSecondary}`}>
                 {formatSourceMoney(parseFloat(amount))} {sourceCurrencyDisplay} → {transferRecipientLabel}
               </p>
             </div>
 
-            <div className="flex justify-center mb-8">
-              <InputOTP
-                maxLength={6}
-                value={pin}
-                onChange={handlePinComplete}
-                type="password"
-                autoComplete="off"
-                inputMode="numeric"
-                pattern="[0-9]*"
-              >
-                <InputOTPGroup>
-                  <InputOTPSlot index={0} mask />
-                  <InputOTPSlot index={1} mask />
-                  <InputOTPSlot index={2} mask />
-                  <InputOTPSlot index={3} mask />
-                  <InputOTPSlot index={4} mask />
-                  <InputOTPSlot index={5} mask />
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
-
-            {/* Biometric option */}
-            {hasBiometricFactor && (
-              <div className="px-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex-1 h-px bg-white/10" />
-                  <span className="text-xs text-gray-500 uppercase tracking-widest">or</span>
-                  <div className="flex-1 h-px bg-white/10" />
-                </div>
-                <button
-                  onClick={async () => {
-                    const result = await BiometricManager.verify(userId);
-                    if (result.success) {
-                      processTransaction('__biometric__');
-                    } else {
-                      toast.error(friendlyError(result.error, 'Biometric verification failed'));
-                    }
-                  }}
-                  className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-white hover:bg-white/[0.07] transition-all active:scale-[0.98]"
+            {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') ? (
+              <div className="px-5 mb-6">
+                <label htmlFor="bridge-sca-password" className={`mb-2 block text-xs ${tc.textMuted}`}>Account password</label>
+                <input
+                  id="bridge-sca-password"
+                  type="password"
+                  value={scaPassword}
+                  onChange={(event) => setScaPassword(event.target.value)}
+                  autoComplete="current-password"
+                  className={`w-full rounded-2xl border ${tc.borderLight} bg-black px-4 py-3 ${tc.text}`}
+                />
+              </div>
+            ) : (
+              <div className="flex justify-center mb-8">
+                <InputOTP
+                  maxLength={6}
+                  value={pin}
+                  onChange={handlePinComplete}
+                  type="password"
+                  autoComplete="off"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                 >
-                  <Shield size={20} className="text-[#C7FF00]" />
-                  <span className="text-sm font-semibold">Use Biometric</span>
-                </button>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} mask />
+                    <InputOTPSlot index={1} mask />
+                    <InputOTPSlot index={2} mask />
+                    <InputOTPSlot index={3} mask />
+                    <InputOTPSlot index={4} mask />
+                    <InputOTPSlot index={5} mask />
+                  </InputOTPGroup>
+                </InputOTP>
               </div>
             )}
+            {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') && (
+              <div className="px-5 mb-6">
+                <label htmlFor="bridge-sca-totp" className={`mb-2 block text-xs ${tc.textMuted}`}>Authenticator code</label>
+                <input
+                  id="bridge-sca-totp"
+                  value={scaTotp}
+                  onChange={(event) => setScaTotp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className={`w-full rounded-2xl border ${tc.borderLight} bg-black px-4 py-3 text-center tracking-[0.35em] ${tc.text}`}
+                  placeholder="000000"
+                />
+                <p className={`mt-2 text-xs ${tc.textMuted}`}>Required only for verified EEA custodial-wallet payments.</p>
+              </div>
+            )}
+            <div className="px-5 space-y-3">
+              <button
+                type="button"
+                onClick={() => void authorizeAndProcess()}
+                disabled={transactionAuthorizationRef.current || (
+                  bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire')
+                    ? scaPassword.length < 8 || !/^\d{6}$/.test(scaTotp)
+                    : !/^\d{4,6}$/.test(pin)
+                )}
+                className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Verify and send
+              </button>
+              <p className={`text-center text-xs ${tc.textMuted}`}>
+                {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire')
+                  ? 'Verified EEA custodial-wallet payments require account password and authenticator verification.'
+                  : 'Money movement requires your server-verified transaction PIN.'}
+              </p>
+            </div>
           </motion.div>
         )}
 
@@ -3034,7 +3280,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               <CheckCircle className="w-12 h-12 text-green-500" />
             </motion.div>
 
-            <h2 className={`text-xl font-bold mb-2 ${tc.text}`}>{t('send.txSuccessful')}</h2>
+            <h2 className={`text-xl font-bold mb-2 ${tc.text}`}>{transactionPending ? 'Transfer submitted' : t('send.txSuccessful')}</h2>
+            {transactionPending && (
+              <p className={`mb-4 text-sm ${tc.textMuted}`}>Confirmation is pending. Do not submit this transfer again.</p>
+            )}
             <p className="text-2xl font-bold text-[#C7FF00] mb-1">
               {formatSourceMoney(parseFloat(amount))}
             </p>
@@ -3084,6 +3333,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   setPin('');
                   setTransactionId('');
                   setTransactionRef('');
+                  setTransactionPending(false);
                   setNewBalance(null);
                   setStep(isAfricanPayout ? 'africa-destination' : 'method');
                 }}
@@ -3124,12 +3374,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <p className={`text-sm ${tc.textMuted} mb-8 max-w-xs mx-auto`}>{errorMessage}</p>
 
             <div className="space-y-3">
-              <button
-                onClick={() => { setPin(''); setStep('pin'); }}
-                className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
-              >
-                {t('send.tryAgain')}
-              </button>
+              {!/do not retry/i.test(errorMessage) && (
+                <button
+                  onClick={() => { setPin(''); setStep('pin'); }}
+                  className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
+                >
+                  {t('send.tryAgain')}
+                </button>
+              )}
               <button
                 onClick={onBack}
                 className={`w-full ${tc.card} border ${tc.borderLight} py-4 rounded-full font-bold ${tc.text} ${tc.hoverBg} transition-all active:scale-[0.98]`}

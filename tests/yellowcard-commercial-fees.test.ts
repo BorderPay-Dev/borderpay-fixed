@@ -32,21 +32,23 @@ Deno.test("adds two percentage points to pure percentage pricing", () => {
   }
 });
 
-Deno.test("doubles fixed local-currency pricing", () => {
+Deno.test("adds half of the provider fixed local-currency fee", () => {
   const result = fee("payout", "KE", "KES", "mobile_money", 1_000);
   if (!result) throw new Error("missing fee");
-  if (result.provider_amount_local !== 126 || result.customer_amount_local !== 252) {
+  if (result.provider_amount_local !== 126 || result.borderpay_amount_local !== 63 ||
+      result.customer_fee_local !== 189 || result.customer_amount_local !== 189) {
     throw new Error(`unexpected Kenya MoMo payout fee: ${JSON.stringify(result)}`);
   }
 });
 
-Deno.test("adds two points and doubles minimum and maximum fees", () => {
+Deno.test("adds half of provider minimum and maximum amounts", () => {
   const minimum = fee("receive", "KE", "KES", "bank", 50_000);
   if (minimum !== null) throw new Error("Kenya bank pricing must not be inferred outside its signed >250,000 band");
   const capped = fee("receive", "KE", "KES", "bank", 300_000);
   if (!capped) throw new Error("missing capped fee");
-  if (capped.customer_fee_percent !== 3 || capped.customer_minimum_fee_local !== 1_500 ||
-      capped.customer_maximum_fee_local !== 3_000 || capped.customer_amount_local !== 3_000) {
+  if (capped.provider_amount_local !== 1_500 || capped.borderpay_amount_local !== 750 ||
+      capped.customer_fee_percent !== 3 || capped.customer_minimum_fee_local !== 1_125 ||
+      capped.customer_maximum_fee_local !== 2_250 || capped.customer_amount_local !== 2_250) {
     throw new Error(`unexpected Kenya bank receive fee: ${JSON.stringify(capped)}`);
   }
 });
@@ -54,7 +56,7 @@ Deno.test("adds two points and doubles minimum and maximum fees", () => {
 Deno.test("selects signed fixed-fee amount bands", () => {
   const result = fee("receive", "BW", "BWP", "bank", 150_000);
   if (!result) throw new Error("missing Botswana fee");
-  if (result.provider_amount_local !== 300 || result.customer_amount_local !== 600) {
+  if (result.provider_amount_local !== 300 || result.borderpay_amount_local !== 150 || result.customer_amount_local !== 450) {
     throw new Error(`unexpected Botswana receive fee: ${JSON.stringify(result)}`);
   }
 });
@@ -62,13 +64,13 @@ Deno.test("selects signed fixed-fee amount bands", () => {
 Deno.test("uses the later signed band at an overlapping boundary", () => {
   const result = fee("receive", "MW", "MWK", "bank", 40_000_000);
   if (!result) throw new Error("missing Malawi boundary fee");
-  if (result.provider_amount_local !== 1_000 || result.customer_amount_local !== 2_000) {
+  if (result.provider_amount_local !== 1_000 || result.borderpay_amount_local !== 500 || result.customer_amount_local !== 1_500) {
     throw new Error(`unexpected Malawi boundary fee: ${JSON.stringify(result)}`);
   }
 });
 
 Deno.test("converts the complete local customer fee into source-wallet currency", () => {
-  const sourceFee = convertYellowCardLocalFeeToFunding(252, 1_000, 8);
-  if (sourceFee !== 2.016) throw new Error(`unexpected source fee: ${sourceFee}`);
-  if (convertYellowCardLocalFeeToFunding(252, 0, 8) !== 0) throw new Error("invalid quote must fail closed");
+  const sourceFee = convertYellowCardLocalFeeToFunding(189, 1_000, 8);
+  if (sourceFee !== 1.512) throw new Error(`unexpected source fee: ${sourceFee}`);
+  if (convertYellowCardLocalFeeToFunding(189, 0, 8) !== 0) throw new Error("invalid quote must fail closed");
 });

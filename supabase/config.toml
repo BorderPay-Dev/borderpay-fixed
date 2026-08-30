@@ -3,6 +3,11 @@
 
 project_id = "orwrcpwsffjlvzuraxjc"
 
+[auth]
+# All customer creation goes through policy-enforcing Edge Functions. This does
+# not disable sign-in for existing users or service-role admin.createUser.
+enable_signup = false
+
 # PIN recovery starts before a valid app session and is protected by an
 # enumeration-safe request plus a random, hashed, single-use reset token.
 [functions.auth-request-pin-reset]
@@ -12,6 +17,11 @@ verify_jwt = false
 verify_jwt = false
 
 # ── Edge function-specific overrides ────────────────────────────────────────
+
+# Policy-enforcing public signup endpoint. It creates Auth identities only via
+# service-role after direct/partner onboarding authorization is accepted.
+[functions.auth-signup]
+verify_jwt = false
 
 # kyc-submit — LEGACY, REMOVED. Repo source is a 410 "Gone" stub and the function
 # is NOT deployed. The live KYC flow is the Bridge hosted-link
@@ -30,6 +40,17 @@ verify_jwt = true
 # (supabase.auth.getUser(token)). MUST stay JWT-gated — never deploy with
 # --no-verify-jwt. Pinned explicitly so the deploy default can't be flipped.
 [functions.get-user-profile]
+verify_jwt = true
+
+# Bridge SCA scope and authorization. These routes authenticate the user JWT
+# and derive EEA scope from Bridge customer/wallet data, never browser input.
+[functions.sca-scope]
+verify_jwt = true
+
+[functions.sca-authorize]
+verify_jwt = true
+
+[functions.sca-wallet-access]
 verify_jwt = true
 
 # Bridge external accounts — authenticated payout destination endpoint.
@@ -59,6 +80,16 @@ verify_jwt = true
 # auth-signup / auth-resend-verification / auth-reset-password (they call it;
 # absent → 404).
 [functions.send-email]
+verify_jwt = false
+
+# Narrow admin-only service notice for existing Individual customers. The
+# function additionally checks public.admin_users and hard-caps batches at 30.
+[functions.individual-policy-broadcast]
+verify_jwt = false
+
+# Manual operator campaign for customers with active EUR virtual accounts.
+# The function performs its own admin authorization and explicit-send gate.
+[functions.eur-named-account-broadcast]
 verify_jwt = false
 
 # Legacy confirmation sender (deprecated). Kept for compatibility only and now
@@ -107,6 +138,9 @@ verify_jwt = false
 [functions.bridge-transfer]
 verify_jwt = true
 
+[functions.change-password]
+verify_jwt = true
+
 # Bulk payouts (payroll/supplier/contractor/marketplace) — same money gate as
 # bridge-transfer (BRIDGE_TRANSFERS_ENABLED) + KYC + activated plan.
 [functions.bridge-bulk-payout]
@@ -121,14 +155,14 @@ verify_jwt = true
 [functions.deactivate-inactive-virtual-accounts]
 verify_jwt = false
 
-# Auto-provision base stablecoin wallets (USDC/USDT) for activated users.
-[functions.bridge-provision-stablecoins]
-verify_jwt = true
+# Admin-only compliance operations. The function validates the bearer with
+# auth.getUser and active admin_users membership before any provider access.
+[functions.admin-compliance]
+verify_jwt = false
 
-# Authorize verification — admin-only gate clearance (NOT yet deployed). Requires
-# a valid JWT at the platform; the function then enforces the admin/service
-# check in-code before charging billable Bridge KYC/KYB.
-[functions.authorize-verification]
+# Auto-provision country-policy stablecoin wallets. The gateway validates both
+# user JWTs and the legacy service-role JWT before the function checks claims.
+[functions.bridge-provision-stablecoins]
 verify_jwt = true
 
 # Saved external stablecoin payout addresses (user-authenticated; server-side
@@ -136,13 +170,24 @@ verify_jwt = true
 [functions.external-wallet]
 verify_jwt = true
 
-# Yellow Card read-only commercial policy and sandbox provider discovery.
+# Yellow Card authenticated read-only production capability discovery. The
+# shared client fails closed unless the restricted production relay is set.
 [functions.yellowcard-capabilities]
 verify_jwt = true
 
-# Yellow Card controlled sandbox Send/Receive execution.
-[functions.yellowcard-sandbox-transaction]
+# Yellow Card production Receive. Send is not exposed by this function.
+[functions.yellowcard-receive]
 verify_jwt = true
+
+# Yellow Card production JIT payout intent. Provider execution remains behind
+# YC_PRODUCTION_SEND_ENABLED + YC_JIT_PAYOUT_ENABLED and verifies the caller.
+[functions.yellowcard-jit-payout]
+verify_jwt = true
+
+# Internal JIT worker. Authenticates YC_JIT_WORKER_TOKEN (or service role) in
+# code and remains disabled until both production Send flags are enabled.
+[functions.yellowcard-jit-worker]
+verify_jwt = false
 
 # Admin/tester-only provider diagnostics.
 [functions.yellowcard-sandbox-diagnostics]
@@ -152,9 +197,17 @@ verify_jwt = true
 [functions.yellowcard-corridor-sync]
 verify_jwt = true
 
+# Yellow Card signs the raw request body with X-YC-Signature. JWT verification
+# must be disabled so provider callbacks reach the in-function HMAC verifier.
+[functions.yellowcard-webhook]
+verify_jwt = false
+
 # Internal custodial subscription billing worker. Authenticates the dedicated
 # worker token (or service-role bearer) in code.
 [functions.subscription-billing-worker]
+verify_jwt = false
+
+[functions.push-delivery-worker]
 verify_jwt = false
 
 [functions.subscription-billing-admin]
@@ -173,4 +226,19 @@ verify_jwt = false
 # API gateway admin control plane — server/operator route; authenticated in-code
 # with the dedicated API_GATEWAY_ADMIN_TOKEN bearer, not a user JWT.
 [functions.api-gateway-admin]
+verify_jwt = false
+
+# Business partner self-service. Platform JWT and in-function getUser both
+# authenticate the caller; tenant ownership is derived server-side.
+[functions.api-partner-portal]
+verify_jwt = true
+
+# Tenant-scoped outbound partner webhook drain. Authenticates a dedicated,
+# timing-safe worker bearer in code; partner endpoints never call this route.
+[functions.api-webhook-worker]
+verify_jwt = false
+
+# Public read of the effective direct/partner signup choices. Partner choices
+# require a valid signed authorization; no tenant id or browser origin is trusted.
+[functions.onboarding-config]
 verify_jwt = false

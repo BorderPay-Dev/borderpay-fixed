@@ -1,11 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
-  authenticateAfricanRailsTester,
-  isAfricanRailsTesterEmail,
+  authenticateVerifiedAfricanRailsUser,
   recordAfricanRailsOperatorAlert,
 } from "../_shared/african-rails-access.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { extractBridgeWebhookIdentity } from "../_shared/providers/bridge-webhook-identity.ts";
 import { isBridgeProfileVerified } from "../_shared/providers/provider-corridor-policy.ts";
 import { calculateYellowCardCustomerFee, findYellowCardCommercialRail, normalizeYellowCardCountryCode } from "../_shared/providers/yellowcard-commercial-policy.ts";
 import { getYellowCardConfig, yellowCardFetch } from "../_shared/providers/yellowcard-client.ts";
@@ -14,9 +14,9 @@ import {
 } from "../_shared/providers/yellowcard-routing.ts";
 import { africanRailMarkupPercentForAccount } from "../_shared/fees/schedule.ts";
 import {
-  buildYellowCardSandboxReceivePayload,
-  buildYellowCardSandboxSendPayload,
+  buildYellowCardDirectSettlementReceivePayload,
   redactYellowCardReceivePayload,
+  yellowCardReducedKycEligible,
   type YellowCardRetailKyc,
   type YellowCardSettlement,
 } from "../_shared/providers/yellowcard-payload.ts";
@@ -35,6 +35,7 @@ const json = (body: unknown, status = 200) =>
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const APP_URL = String(Deno.env.get("APP_URL") || "https://app.borderpayafrica.com").replace(/\/+$/, "");
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -49,25 +50,13 @@ const str = (value: unknown) => String(value ?? "").trim();
 const upper = (value: unknown) => str(value).toUpperCase();
 const lower = (value: unknown) => str(value).toLowerCase();
 
-// Yellow Card sandbox outcome controls. Never send a customer's real Bridge
-// wallet address or phone number to the sandbox transaction simulator.
-const SANDBOX_SUCCESS_EVM_ADDRESS = "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe";
-const SANDBOX_SUCCESS_TRON_ADDRESS = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-const SANDBOX_FAILURE_EVM_ADDRESS = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
-const SANDBOX_FAILURE_TRON_ADDRESS = "TFvde3D6NQrjXrjqUsdwLTCvVhdPDYEBRV";
-const COUNTRY_DIAL_CODES: Record<string, string> = {
-  BJ: "229", BW: "267", BF: "226", CM: "237", CD: "243", CG: "242",
-  CI: "225", TD: "235", GA: "241", GH: "233", KE: "254", MW: "265",
-  ML: "223", NG: "234", RW: "250", SN: "221", TZ: "255", TG: "228",
-  UG: "256", ZA: "27", ZM: "260",
-};
-
-function sandboxAccount(country: string, channel: string, outcome: "success" | "failure"): string {
-  const digits = outcome === "success" ? "1111111111" : "0000000000";
-  if (channel !== "mobile_money") return digits;
-  const dialCode = COUNTRY_DIAL_CODES[country];
-  if (!dialCode) throw new Error("yellow_card_missing_sandbox_dial_code");
-  return `+${dialCode}${digits}`;
+async function yellowCardReadWithRetry(options: Parameters<typeof yellowCardFetch>[0]) {
+  let result = await yellowCardFetch(options);
+  for (let attempt = 0; !result.ok && attempt < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    result = await yellowCardFetch(options);
+  }
+  return result;
 }
 
 function yellowCardPayloadAccountType(channel: string): "bank" | "momo" {
@@ -85,7 +74,23 @@ function formatDob(value: unknown): string {
   return us ? raw : "";
 }
 
-function profileAddress(profile: any, bridgeIdentity: any): string {
+function yellowCardBuyRate(payload: any, currency: string): number | null {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.rates)
+      ? payload.rates
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.data?.rates)
+          ? payload.data.rates
+          : [];
+  const row = rows.find((item: any) => upper(item?.code || item?.currency) === currency);
+  const rate = Number(row?.buy);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+}
+
+function profileAddress(profile: any, bridgeIdentity: any, webhookIdentity: any): string {
+  if (webhookIdentity?.address) return str(webhookIdentity.address);
   const local = [profile?.address, profile?.city, profile?.state, profile?.postal_code]
     .map(str)
     .filter(Boolean)
@@ -96,6 +101,27 @@ function profileAddress(profile: any, bridgeIdentity: any): string {
     .map(str)
     .filter(Boolean)
     .join(", ");
+}
+
+async function loadSignedBridgeIdentityEvidence(bridgeCustomerId: string) {
+  const common = () => supa
+    .from("bridge_webhook_events")
+    .select("event_id,event_type,payload,received_at")
+    .eq("signature_ok", true)
+    .eq("processing_status", "completed")
+    .order("received_at", { ascending: false })
+    .limit(5);
+  const [customerEvents, kycEvents] = await Promise.all([
+    common().like("event_type", "customer.%").contains("payload", { event_object: { id: bridgeCustomerId } }),
+    common().like("event_type", "kyc_link.%").contains("payload", { event_object: { customer_id: bridgeCustomerId } }),
+  ]);
+  if (customerEvents.error || kycEvents.error) {
+    throw new Error("bridge_identity_evidence_lookup_failed");
+  }
+  return extractBridgeWebhookIdentity([
+    ...(customerEvents.data || []),
+    ...(kycEvents.data || []),
+  ]);
 }
 
 function publicTransaction(row: any) {
@@ -188,7 +214,7 @@ async function loadContext(userId: string, input: any) {
   }
 
   const profileCountry = normalizeYellowCardCountryCode(profile.country);
-  if (direction === "receive" && !input?.allow_all_receive_countries && profileCountry !== country) {
+  if (direction === "receive" && profileCountry !== country) {
     return { ok: false as const, status: 403, code: "receive_country_must_match_account_country" };
   }
 
@@ -205,7 +231,17 @@ async function loadContext(userId: string, input: any) {
   const policy = { enabled: true, code: "ok" as const, row: commercialRail };
 
   let bridgeIdentity: any = null;
-  if (profile.bridge_customer_id && (!profile.id_number || !profile.id_type || !profile.date_of_birth || !profile.address)) {
+  let webhookEvidence = extractBridgeWebhookIdentity([]);
+  // Fill missing local KYC only from the user's verified Bridge customer
+  // profile. Browser-supplied identity is never authoritative.
+  if (profile.bridge_customer_id) {
+    try {
+      webhookEvidence = await loadSignedBridgeIdentityEvidence(profile.bridge_customer_id);
+    } catch {
+      return { ok: false as const, status: 503, code: "bridge_identity_evidence_lookup_failed" };
+    }
+  }
+  if (profile.bridge_customer_id && (!profile.id_number || !profile.id_type || !profile.date_of_birth || !profile.address || !profile.phone)) {
     try {
       bridgeIdentity = await bridgeProvider.getCustomerProfile(profile.bridge_customer_id);
     } catch {
@@ -213,30 +249,63 @@ async function loadContext(userId: string, input: any) {
     }
   }
 
-  const useSandboxIdentitySample = input?.allow_sandbox_identity_sample === true;
   const kyc: YellowCardRetailKyc = {
-    name: str(profile.full_name || (useSandboxIdentitySample ? "Sample Name" : "")),
-    country: normalizeYellowCardCountryCode(profile.country || bridgeIdentity?.country) || (useSandboxIdentitySample ? "US" : ""),
-    phone: str(profile.phone || bridgeIdentity?.phone || (useSandboxIdentitySample ? "+12222222222" : "")),
-    address: profileAddress(profile, bridgeIdentity) || (useSandboxIdentitySample ? "Sample Address" : ""),
-    dob: formatDob(profile.date_of_birth || bridgeIdentity?.date_of_birth) || (useSandboxIdentitySample ? "01/01/1990" : ""),
-    email: lower(profile.email || (useSandboxIdentitySample ? "sandbox@borderpayafrica.com" : "")),
-    idNumber: str(profile.id_number || bridgeIdentity?.id_number || (useSandboxIdentitySample ? "0123456789" : "")),
-    idType: str(profile.id_type || bridgeIdentity?.id_type || (useSandboxIdentitySample ? "license" : "")),
+    name: str(webhookEvidence.values.name || profile.full_name),
+    country: normalizeYellowCardCountryCode(webhookEvidence.values.country || bridgeIdentity?.country || profile.country),
+    phone: str(webhookEvidence.values.phone || bridgeIdentity?.phone || profile.phone),
+    address: profileAddress(profile, bridgeIdentity, webhookEvidence.values),
+    dob: formatDob(webhookEvidence.values.dob || bridgeIdentity?.date_of_birth || profile.date_of_birth),
+    email: lower(webhookEvidence.values.email || profile.email),
+    // Document identity may come only from signed Bridge evidence or a fresh,
+    // authenticated Bridge customer read. Mutable browser metadata is never a
+    // source for cross-provider full-KYC submission.
+    idNumber: str(webhookEvidence.values.idNumber || bridgeIdentity?.id_number),
+    idType: str(webhookEvidence.values.idType || bridgeIdentity?.id_type),
   };
-  const missingKyc = Object.entries(kyc).filter(([, value]) => !value).map(([key]) => key);
+  const kycFieldSources = {
+    name: webhookEvidence.sources.name || "verified_local_profile",
+    country: webhookEvidence.sources.country || (bridgeIdentity?.country ? "bridge_customer_api" : "verified_local_profile"),
+    phone: webhookEvidence.sources.phone || (bridgeIdentity?.phone ? "bridge_customer_api" : "verified_local_profile"),
+    address: webhookEvidence.sources.address || (bridgeIdentity?.address_object ? "bridge_customer_api" : "verified_local_profile"),
+    dob: webhookEvidence.sources.dob || (bridgeIdentity?.date_of_birth ? "bridge_customer_api" : "verified_local_profile"),
+    email: webhookEvidence.sources.email || "verified_local_profile",
+    idNumber: webhookEvidence.sources.idNumber || (bridgeIdentity?.id_number ? "bridge_customer_api" : "unavailable"),
+    idType: webhookEvidence.sources.idType || (bridgeIdentity?.id_type ? "bridge_customer_api" : "unavailable"),
+  };
+  const missingFullKyc = Object.entries(kyc).filter(([, value]) => !value).map(([key]) => key);
+  const reducedKycCoreComplete = Boolean(kyc.name && kyc.country && kyc.email);
 
-  // Sandbox execution uses Yellow Card's documented simulator addresses.
-  // Never query or mutate a real Bridge wallet for this provider sandbox.
-
-  const channelsResult = await yellowCardFetch({ method: "GET", path: "/channels", query: { country } });
+  // These provider catalog calls are independent. Running them sequentially can
+  // consume two full upstream timeout windows and makes the UI abandon a valid
+  // preflight before it completes.
+  const [channelsResult, networksResult, ratesResult] = await Promise.all([
+    yellowCardReadWithRetry({ method: "GET", path: "/channels", query: { country } }),
+    yellowCardReadWithRetry({ method: "GET", path: "/networks", query: { country } }),
+    direction === "receive" && missingFullKyc.length > 0
+      ? yellowCardReadWithRetry({ method: "GET", path: "/rates", query: { currency }, timeoutMs: 10_000 })
+      : Promise.resolve(null),
+  ]);
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
   }
-  const networksResult = await yellowCardFetch({ method: "GET", path: "/networks", query: { country } });
   if (!networksResult.ok) {
     return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
   }
+  const buyRate = ratesResult?.ok ? yellowCardBuyRate(ratesResult.data, currency) : null;
+  const usdEquivalent = buyRate === null ? null : localAmount / buyRate;
+  // Yellow Card's documented Tier 0 contract permits reduced KYC only below
+  // USD 20 equivalent, with customerUID, and excludes BWP/NGN/ZAR. Bridge
+  // approval remains mandatory above, proving that the customer was screened.
+  // Yellow Card independently enforces its USD 200 lifetime Tier 0 ceiling.
+  const reducedKycEligible = yellowCardReducedKycEligible({
+    direction,
+    currency,
+    usdEquivalent,
+    missingFullKyc: missingFullKyc.length > 0,
+    coreComplete: reducedKycCoreComplete,
+  });
+  const kycTier: "full" | "reduced" = reducedKycEligible ? "reduced" : "full";
+  const missingKyc = reducedKycEligible ? [] : missingFullKyc;
   const routing = resolveYellowCardRouting({
     channels: channelsResult.data,
     networks: networksResult.data,
@@ -251,9 +320,25 @@ async function loadContext(userId: string, input: any) {
     return { ok: false as const, status: 422, code: "yellow_card_amount_outside_provider_limits" };
   }
 
+  const chain = settlementCurrency === "USDC" ? "base" : "tron";
+  const activeStatuses = ["active", "enabled", "ready", "provisioned"];
+  const walletSelect = "address,status,currency,chain,updated_at";
+  const [userWallets, businessWallets] = await Promise.all([
+    supa.from("bridge_wallets").select(walletSelect).eq("user_id", userId).ilike("currency", settlementCurrency).ilike("chain", chain),
+    supa.from("bridge_wallets").select(walletSelect).eq("business_user_id", userId).ilike("currency", settlementCurrency).ilike("chain", chain),
+  ]);
+  if (userWallets.error || businessWallets.error) {
+    return { ok: false as const, status: 503, code: "settlement_wallet_lookup_failed" };
+  }
+  const settlementWallet = [...(userWallets.data || []), ...(businessWallets.data || [])]
+    .filter((row: any) => str(row?.address) && activeStatuses.includes(lower(row?.status || "active")))
+    .sort((a: any, b: any) => Date.parse(str(b?.updated_at)) - Date.parse(str(a?.updated_at)))[0];
+  if (!settlementWallet?.address) {
+    return { ok: false as const, status: 409, code: "active_settlement_wallet_required" };
+  }
   const settlementInfo: YellowCardSettlement = settlementCurrency === "USDC"
-    ? { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: SANDBOX_SUCCESS_EVM_ADDRESS }
-    : { cryptoCurrency: "USDT", cryptoNetwork: "TRC20", walletAddress: SANDBOX_SUCCESS_TRON_ADDRESS };
+    ? { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: str(settlementWallet.address) }
+    : { cryptoCurrency: "USDT", cryptoNetwork: "TRC20", walletAddress: str(settlementWallet.address) };
 
   return {
     ok: true as const,
@@ -266,6 +351,10 @@ async function loadContext(userId: string, input: any) {
     profile,
     kyc,
     missingKyc,
+    kycTier,
+    usdEquivalent,
+    kycFieldSources,
+    bridgeEvidenceEventIds: webhookEvidence.eventIds,
     settlementInfo,
     channels: routing.channels,
     selectedChannel: routing.selectedChannel,
@@ -278,7 +367,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
-  const access = await authenticateAfricanRailsTester(supa, req);
+  const access = await authenticateVerifiedAfricanRailsUser(supa, req);
   if (!access.allowed) return json({ success: false, code: access.code, error: access.message }, access.status);
 
   let body: any;
@@ -289,20 +378,17 @@ Deno.serve(async (req) => {
   }
 
   const config = getYellowCardConfig();
-  if (!config.configured || config.environment !== "sandbox") {
+  if (!config.configured || config.environment !== "production" || config.production_enabled !== true) {
     await recordAfricanRailsOperatorAlert(supa, {
       userId: access.user.id,
-      endpoint: "yellowcard-sandbox-transaction",
-      code: "yellow_card_sandbox_unavailable",
-      message: "Yellow Card sandbox transaction adapter is unavailable or not in sandbox mode.",
+      endpoint: "yellowcard-receive",
+      code: "yellow_card_production_unavailable",
+      message: "Yellow Card production Receive is unavailable.",
     });
-    return json({ success: false, code: "yellow_card_sandbox_unavailable", error: "This test route is unavailable." }, 503);
+    return json({ success: false, code: "yellow_card_production_unavailable", error: "Yellow Card production Receive is unavailable." }, 503);
   }
-  if (flag("YC_LIVE_ROUTING_ENABLED")) {
-    return json({ success: false, code: "yellow_card_live_routing_blocked", error: "This function is sandbox-only." }, 403);
-  }
-  if (!flag("YC_SANDBOX_INTERNAL_ONLY", true)) {
-    return json({ success: false, code: "yellow_card_sandbox_gate_misconfigured", error: "This test route is unavailable." }, 503);
+  if (!flag("YC_PRODUCTION_ENABLED") || !flag("YC_PRODUCTION_RECEIVE_ENABLED")) {
+    return json({ success: false, code: "yellow_card_receive_disabled", error: "Yellow Card Receive is temporarily unavailable." }, 503);
   }
 
   const action = lower(body?.action || "preflight");
@@ -313,7 +399,7 @@ Deno.serve(async (req) => {
       .from("yellowcard_transactions")
       .select("*")
       .eq("user_id", access.user.id)
-      .eq("environment", "sandbox")
+      .eq("environment", "production")
       .eq("sequence_id", sequenceId)
       .maybeSingle();
     if (!existing) return json({ success: false, code: "yellow_card_transaction_not_found" }, 404);
@@ -336,17 +422,12 @@ Deno.serve(async (req) => {
     return json({ success: true, data: { transaction: publicTransaction(updated || { ...existing, ...updates }) } });
   }
 
-  const isSend = action === "preflight_send" || action === "create_send";
-  const sandboxOutcome: "success" | "failure" = lower(body?.sandbox_outcome) === "failure" ? "failure" : "success";
+  if (action === "preflight_send" || action === "create_send") {
+    return json({ success: false, code: "yellow_card_send_not_enabled", error: "Yellow Card Send is not enabled." }, 403);
+  }
   const context = await loadContext(access.user.id, {
     ...body,
-    direction: isSend ? "payout" : "receive",
-    // Server-derived exception for the named Yellow Card integration account.
-    // The client cannot enable this bypass for another user.
-    allow_all_receive_countries: isAfricanRailsTesterEmail(access.user.email),
-    // Yellow Card documents these sample KYC values for sandbox requests.
-    // They are never persisted and this function refuses production routing.
-    allow_sandbox_identity_sample: isAfricanRailsTesterEmail(access.user.email),
+    direction: "receive",
   });
   if (!context.ok) return json({ success: false, code: context.code, error: "Yellow Card preflight failed." }, context.status);
 
@@ -355,7 +436,7 @@ Deno.serve(async (req) => {
     return json({ success: false, code: "yellow_card_commercial_pricing_unavailable", error: "Commercial pricing is unavailable for this amount." }, 409);
   }
   const markupPercent = africanRailMarkupPercentForAccount(context.profile?.account_type);
-  const networkRequired = isSend || context.channel === "mobile_money";
+  const networkRequired = context.channel === "mobile_money";
   const blockers = [
     ...(context.missingKyc.length > 0 ? ["kyc_incomplete"] : []),
     ...(!context.selectedChannel ? ["active_channel_unavailable"] : []),
@@ -386,10 +467,11 @@ Deno.serve(async (req) => {
     },
     kyc_complete: context.missingKyc.length === 0,
     missing_kyc_fields: context.missingKyc,
+    kyc_tier: context.kycTier,
+    usd_equivalent: context.usdEquivalent,
     bridge_settlement_wallet_ready: false,
-    settlement_source: "yellow_card_sandbox",
-    sandbox_simulated: true,
-    sandbox_expected_outcome: sandboxOutcome,
+    settlement_source: "yellow_card_production",
+    provider_environment: "production",
     settlement_currency: context.settlementInfo.cryptoCurrency,
     settlement_network: context.settlementInfo.cryptoNetwork,
     channel_candidates: context.channels.map((row) => ({
@@ -413,14 +495,8 @@ Deno.serve(async (req) => {
     can_create: blockers.length === 0,
   };
   if (action === "preflight" || action === "preflight_send") return json({ success: true, data: preflight });
-  if (action !== "create_receive" && action !== "create_send") return json({ success: false, code: "unsupported_action" }, 400);
+  if (action !== "create_receive") return json({ success: false, code: "unsupported_action" }, 400);
 
-  if (!flag("YC_ENABLED") || !flag("YC_MONEY_MOVEMENT_ENABLED")) {
-    return json({ success: false, code: "yellow_card_money_movement_disabled", error: "This test route is unavailable." }, 503);
-  }
-  if (body?.operator_confirmed !== true) {
-    return json({ success: false, code: "operator_confirmation_required", data: { preflight } }, 409);
-  }
   if (!preflight.can_create) {
     return json({ success: false, code: "yellow_card_preflight_incomplete", data: { preflight } }, 409);
   }
@@ -432,10 +508,36 @@ Deno.serve(async (req) => {
   const { data: prior } = await supa
     .from("yellowcard_transactions")
     .select("*")
-    .eq("environment", "sandbox")
+    .eq("environment", "production")
     .eq("sequence_id", sequenceId)
     .maybeSingle();
   if (prior) {
+    // A previous POST may have reached Yellow Card even when our caller timed
+    // out before receiving the response. Reconcile the same sequence before
+    // answering the retry; never generate or submit a replacement sequence.
+    if (!prior.provider_transaction_id) {
+      const reconciled = await yellowCardFetch({
+        method: "GET",
+        path: prior.direction === "payout"
+          ? `/send/sequence-id/${encodeURIComponent(sequenceId)}`
+          : `/receive/sequence-id/${encodeURIComponent(sequenceId)}`,
+      });
+      if (reconciled.ok) {
+        const updates = providerFields(reconciled.data);
+        const { data: updated } = await supa
+          .from("yellowcard_transactions")
+          .update(updates)
+          .eq("id", prior.id)
+          .select("*")
+          .single();
+        const transaction = updated || { ...prior, ...updates };
+        return json({
+          success: Boolean(transaction.provider_transaction_id),
+          code: "idempotent_reconciled",
+          data: { transaction: publicTransaction(transaction) },
+        }, transaction.provider_transaction_id ? 200 : 409);
+      }
+    }
     return json({
       success: Boolean(prior.provider_transaction_id),
       code: prior.provider_transaction_id ? "idempotent_replay" : "yellow_card_reconciliation_required",
@@ -445,68 +547,26 @@ Deno.serve(async (req) => {
 
   let providerBody: Record<string, unknown>;
   try {
-    if (isSend && (!Number.isFinite(Number(body?.crypto_amount)) || Number(body.crypto_amount) <= 0)) {
-      throw new Error("yellow_card_invalid_crypto_amount");
-    }
-    providerBody = isSend ? buildYellowCardSandboxSendPayload({
-      channelId: str(context.selectedChannel?.id),
+    providerBody = buildYellowCardDirectSettlementReceivePayload({
       sequenceId,
-      localAmount: context.localAmount,
-      reason: str(body?.reason || "other").toLowerCase(),
-      sender: {
-        ...context.kyc,
-        // Yellow Card's documented direct-settlement sandbox outcome control.
-        name: `${sandboxOutcome === "success" ? "Successful" : "Failure"} ${context.kyc.name}`,
-      },
-      destination: {
-        accountName: str(body?.recipient_name) || "Sandbox Recipient",
-        accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome),
-        accountType: yellowCardPayloadAccountType(context.channel),
-        networkId: str(context.selectedNetwork?.id),
-      },
-      customerUID: access.user.id,
-      country: context.country,
-      currency: context.currency,
-      settlementInfo: context.settlementInfo.cryptoCurrency === "USDC"
-        ? {
-          cryptoCurrency: "USDC",
-          cryptoNetwork: "BASE",
-          cryptoAmount: Number(body?.crypto_amount),
-          refundAddress: context.settlementInfo.walletAddress,
-        }
-        : {
-          cryptoCurrency: "USDT",
-          cryptoNetwork: "TRC20",
-          cryptoAmount: Number(body?.crypto_amount),
-          refundAddress: context.settlementInfo.walletAddress,
-        },
-    }) : buildYellowCardSandboxReceivePayload({
-      sequenceId,
-      channelId: str(context.selectedChannel?.id),
+      channelType: yellowCardPayloadAccountType(context.channel),
       localAmount: context.localAmount,
       country: context.country,
       currency: context.currency,
       reason: str(body?.reason),
       customerUID: access.user.id,
       recipient: context.kyc,
+      kycTier: context.kycTier,
       source: {
         accountType: yellowCardPayloadAccountType(context.channel),
-        // A direct-settlement Receive failure is driven by Yellow Card's
-        // documented failure wallet address. Keep the fiat collection leg on
-        // its success account so the transaction reaches settlement instead
-        // of combining two independent failure triggers.
-        accountNumber: sandboxAccount(context.country, context.channel, "success"),
+        accountNumber: str(body?.source_account),
         ...(context.selectedNetwork?.id ? { networkId: str(context.selectedNetwork.id) } : {}),
       },
-      settlementInfo: context.settlementInfo.cryptoCurrency === "USDC"
-        ? {
-          ...context.settlementInfo,
-          walletAddress: sandboxOutcome === "success" ? SANDBOX_SUCCESS_EVM_ADDRESS : SANDBOX_FAILURE_EVM_ADDRESS,
-        }
-        : {
-          ...context.settlementInfo,
-          walletAddress: sandboxOutcome === "success" ? SANDBOX_SUCCESS_TRON_ADDRESS : SANDBOX_FAILURE_TRON_ADDRESS,
-        },
+      settlementInfo: context.settlementInfo,
+      // Yellow Card requires this for redirect-based deposit channels such as
+      // South Africa bank Receive. It is provider routing metadata; BorderPay
+      // continues to render the transaction result from the API response.
+      redirectUrl: `${APP_URL}/?screen=receive`,
     });
   } catch (error) {
     return json({ success: false, code: error instanceof Error ? error.message : "yellow_card_payload_invalid" }, 400);
@@ -516,8 +576,8 @@ Deno.serve(async (req) => {
     .from("yellowcard_transactions")
     .insert({
       user_id: access.user.id,
-      environment: "sandbox",
-      direction: isSend ? "payout" : "receive",
+      environment: "production",
+      direction: "receive",
       sequence_id: sequenceId,
       country_code: context.country,
       currency: context.currency,
@@ -528,53 +588,98 @@ Deno.serve(async (req) => {
       settlement_currency: context.settlementInfo.cryptoCurrency,
       settlement_network: context.settlementInfo.cryptoNetwork,
       status: "submitted",
-      request_payload: isSend
-        ? {
-          ...providerBody,
-          sender: providerBody.sender ? {
-            ...(providerBody.sender as Record<string, unknown>),
-            phone: "[redacted]", address: "[redacted]", dob: "[redacted]",
-            email: "[redacted]", idNumber: "[redacted]",
-          } : undefined,
-          destination: providerBody.destination ? {
-            ...(providerBody.destination as Record<string, unknown>),
-            accountNumber: "[redacted]",
-          } : undefined,
-          settlementInfo: providerBody.settlementInfo ? {
-            ...(providerBody.settlementInfo as Record<string, unknown>),
-            refundAddress: "[redacted]",
-          } : undefined,
-        }
-        : redactYellowCardReceivePayload(providerBody),
+      request_payload: redactYellowCardReceivePayload(providerBody),
       metadata: {
-        tester_only: true,
-        operator_confirmed: true,
-        source: "yellow_card_sandbox",
-        sandbox_simulated: true,
-        expected_outcome: sandboxOutcome,
+        source: "yellow_card_production",
+        kyc_tier: context.kycTier,
+        usd_equivalent: context.usdEquivalent,
+        kyc_field_sources: context.kycFieldSources,
+        bridge_evidence_event_ids: context.bridgeEvidenceEventIds,
       },
     })
     .select("*")
     .single();
   if (insertError || !inserted) {
-    return json({ success: false, code: "yellow_card_persistence_failed", error: "The test transaction was not sent." }, 500);
+    return json({ success: false, code: "yellow_card_persistence_failed", error: "The transaction was not sent." }, 500);
   }
 
-  const provider = await yellowCardFetch({ method: "POST", path: isSend ? "/send" : "/receive", body: providerBody });
+  const provider = await yellowCardFetch({
+    method: "POST",
+    path: "/receive",
+    body: providerBody,
+    // Sandbox creation is slower than catalog reads. The client waits 60s and
+    // retries reconcile the same sequence ID, so allow the provider to finish.
+    timeoutMs: 45_000,
+  });
+  if (!provider.ok && provider.status >= 500) {
+    // A transport delay or upstream 5xx does not prove rejection. Reconcile
+    // the same idempotent sequence before returning an honest pending state.
+    const reconciled = await yellowCardReadWithRetry({
+      method: "GET",
+      path: `/receive/sequence-id/${encodeURIComponent(sequenceId)}`,
+      timeoutMs: 20_000,
+    });
+    if (reconciled.ok) {
+      const reconciledUpdates = providerFields(reconciled.data);
+      const { data: reconciledRow } = await supa
+        .from("yellowcard_transactions")
+        .update(reconciledUpdates)
+        .eq("id", inserted.id)
+        .select("*")
+        .single();
+      return json({ success: true, code: "provider_reconciled", data: { transaction: publicTransaction(reconciledRow || { ...inserted, ...reconciledUpdates }) } });
+    }
+    if (reconciled.status === 404) {
+      const failedUpdates = {
+        status: "failed",
+        provider_status: "not_created",
+        provider_response: reconciled.data && typeof reconciled.data === "object" ? reconciled.data : {},
+        last_error: "yellow_card_transaction_not_created",
+        last_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const { data: failedRow } = await supa
+        .from("yellowcard_transactions")
+        .update(failedUpdates)
+        .eq("id", inserted.id)
+        .select("*")
+        .single();
+      return json({
+        success: false,
+        code: "yellow_card_transaction_not_created",
+        error: "Yellow Card did not create this transaction. Do not retry until the corridor is confirmed available.",
+        data: { transaction: publicTransaction(failedRow || { ...inserted, ...failedUpdates }) },
+      }, 422);
+    }
+    const pendingUpdates = {
+      status: "submitted",
+      provider_status: "confirmation_pending",
+      provider_response: provider.data && typeof provider.data === "object" ? provider.data : {},
+      last_error: provider.error || "provider_confirmation_pending",
+      last_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await supa.from("yellowcard_transactions").update(pendingUpdates).eq("id", inserted.id);
+    return json({
+      success: true,
+      code: "provider_confirmation_pending",
+      data: { transaction: publicTransaction({ ...inserted, ...pendingUpdates }) },
+    }, 202);
+  }
   if (!provider.ok) {
     const updates = {
       status: "failed",
       provider_status: "rejected",
       provider_response: provider.data && typeof provider.data === "object" ? provider.data : {},
-      last_error: provider.error || (isSend ? "yellow_card_send_failed" : "yellow_card_receive_failed"),
+      last_error: provider.error || "yellow_card_receive_failed",
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
     await supa.from("yellowcard_transactions").update(updates).eq("id", inserted.id);
     return json({
       success: false,
-      code: provider.error || (isSend ? "yellow_card_send_failed" : "yellow_card_receive_failed"),
-      error: "The Yellow Card sandbox request was rejected.",
+      code: provider.error || "yellow_card_receive_failed",
+      error: "The Yellow Card production request was rejected.",
       data: { transaction: publicTransaction({ ...inserted, ...updates }) },
     }, provider.status >= 400 && provider.status < 500 ? 422 : 502);
   }

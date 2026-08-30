@@ -1,18 +1,10 @@
-const AFRICAN_RAILS_TEST_EMAILS = new Set([
-  "adhiamboadhiambo22@gmail.com",
-  "appreview.individual@borderpayafrica.com",
-  "appreview.business@borderpayafrica.com",
-]);
-
-export function isAfricanRailsTesterEmail(value: unknown): boolean {
-  return AFRICAN_RAILS_TEST_EMAILS.has(String(value || "").trim().toLowerCase());
-}
+import { loadAndAssertBridgeIdentityInvariant } from "./bridge-identity-invariant.ts";
 
 export type AfricanRailsAccessResult =
   | { allowed: true; user: { id: string; email?: string | null } }
   | { allowed: false; status: 401 | 403; code: string; message: string };
 
-export async function authenticateAfricanRailsTester(
+export async function authenticateVerifiedAfricanRailsUser(
   supabase: any,
   req: Request,
 ): Promise<AfricanRailsAccessResult> {
@@ -27,13 +19,23 @@ export async function authenticateAfricanRailsTester(
     return { allowed: false, status: 401, code: "unauthorized", message: "Unauthorized" };
   }
 
-  const email = String(user.email || "").trim().toLowerCase();
-  if (!isAfricanRailsTesterEmail(email)) {
+  const identity = await loadAndAssertBridgeIdentityInvariant(supabase, String(user.id));
+  if (!identity.ok) {
     return {
       allowed: false,
       status: 403,
-      code: "african_rails_closed_beta",
-      message: "African rails are not available for this account.",
+      code: "african_rails_identity_unavailable",
+      message: "African rails require a verified account.",
+    };
+  }
+
+  const verificationStatus = String(identity.context.verification_status || "").trim().toLowerCase();
+  if (verificationStatus !== "approved" || !identity.context.bridge_customer_id) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "african_rails_verification_required",
+      message: "African rails require completed account verification.",
     };
   }
 
@@ -63,7 +65,7 @@ export async function recordAfricanRailsOperatorAlert(
     metadata: {
       endpoint: input.endpoint,
       code: input.code,
-      tester_only: true,
+      verified_accounts_only: true,
       occurred_at: new Date().toISOString(),
     },
     resolved: false,

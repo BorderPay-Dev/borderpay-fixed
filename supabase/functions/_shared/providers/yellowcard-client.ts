@@ -1,11 +1,12 @@
 /**
- * Yellow Card HTTP client (sandbox-first).
+ * Yellow Card HTTP client.
  *
  * Uses Yellow Card's HMAC auth scheme:
  * timestamp + request path + method + base64(sha256(body)) for write requests.
  */
 
-const DEFAULT_SANDBOX_BASE_URL = "https://sandbox.api.yellowcard.io/business";
+const PRODUCTION_BASE_URL = "https://api.yellowcard.io/business";
+const SANDBOX_BASE_URL = "https://sandbox.api.yellowcard.io/business";
 
 function firstEnv(...names: string[]): string {
   for (const name of names) {
@@ -15,27 +16,20 @@ function firstEnv(...names: string[]): string {
   return "";
 }
 
-const YC_API_KEY = firstEnv(
-  "YC_SANDBOX_API_KEY",
-  "YELLOW_CARD_SANDBOX_API_KEY",
-  "YC_API_KEY",
-  "YELLOW_CARD_API_KEY",
-  "YELLOWCARD_API_KEY",
+const PRODUCTION_ENABLED = ["1", "true", "yes", "on"].includes(
+  firstEnv("YC_PRODUCTION_ENABLED").toLowerCase(),
 );
-const YC_SECRET_KEY = firstEnv(
-  "YC_SANDBOX_SECRET_KEY",
-  "YELLOW_CARD_SANDBOX_SECRET_KEY",
-  "YC_SECRET_KEY",
-  "YELLOW_CARD_SECRET_KEY",
-  "YELLOWCARD_SECRET_KEY",
-);
-const YC_BASE_URL = firstEnv(
-  "YC_SANDBOX_BASE_URL",
-  "YELLOW_CARD_SANDBOX_BASE_URL",
-  "YC_BASE_URL",
-  "YELLOW_CARD_BASE_URL",
-  "YELLOWCARD_BASE_URL",
-) || DEFAULT_SANDBOX_BASE_URL;
+const YC_API_KEY = PRODUCTION_ENABLED
+  ? firstEnv("YC_PRODUCTION_API_KEY", "YELLOW_CARD_PRODUCTION_API_KEY", "YC_API_KEY", "YELLOW_CARD_API_KEY", "YELLOWCARD_API_KEY")
+  : firstEnv("YC_SANDBOX_API_KEY", "YELLOW_CARD_SANDBOX_API_KEY");
+const YC_SECRET_KEY = PRODUCTION_ENABLED
+  ? firstEnv("YC_PRODUCTION_SECRET_KEY", "YELLOW_CARD_PRODUCTION_SECRET_KEY", "YC_SECRET_KEY", "YELLOW_CARD_SECRET_KEY", "YELLOWCARD_SECRET_KEY")
+  : firstEnv("YC_SANDBOX_SECRET_KEY", "YELLOW_CARD_SANDBOX_SECRET_KEY");
+const YC_BASE_URL = PRODUCTION_ENABLED
+  ? firstEnv("YC_PRODUCTION_BASE_URL", "YELLOW_CARD_PRODUCTION_BASE_URL") || PRODUCTION_BASE_URL
+  : firstEnv("YC_SANDBOX_BASE_URL", "YELLOW_CARD_SANDBOX_BASE_URL") || SANDBOX_BASE_URL;
+const YC_EGRESS_RELAY_URL = firstEnv("YC_EGRESS_RELAY_URL");
+const YC_EGRESS_RELAY_TOKEN = firstEnv("YC_EGRESS_RELAY_TOKEN");
 const DEFAULT_TIMEOUT_MS = Number(firstEnv("YC_HTTP_TIMEOUT_MS", "YELLOW_CARD_HTTP_TIMEOUT_MS") || "15000");
 
 export interface YellowCardFetchOptions {
@@ -61,8 +55,14 @@ export function getYellowCardConfig() {
     configured: Boolean(YC_API_KEY && YC_SECRET_KEY),
     base_url: baseUrl,
     environment: baseUrl.includes("sandbox.") ? "sandbox" : "production",
+    transport: YC_EGRESS_RELAY_URL ? "restricted_egress_relay" : "direct",
+    production_enabled: PRODUCTION_ENABLED,
     key_prefix: YC_API_KEY ? `${YC_API_KEY.slice(0, 6)}...` : null,
   };
+}
+
+export function getYellowCardWebhookCredentials() {
+  return { apiKey: YC_API_KEY, secretKey: YC_SECRET_KEY };
 }
 
 function buildUrl(path: string, query?: YellowCardFetchOptions["query"]): URL {
@@ -134,15 +134,44 @@ export async function yellowCardFetch<T = unknown>(
   const timeout = setTimeout(() => controller.abort(), Math.max(1_000, timeoutMs));
 
   try {
-    const res = await fetch(url.toString(), {
-      method,
-      headers: {
-        "Accept": "application/json",
-        "Authorization": `YcHmacV1 ${YC_API_KEY}:${signature}`,
-        "X-YC-Timestamp": timestamp,
-        ...(bodyText ? { "Content-Type": "application/json" } : {}),
-      },
-      body: bodyText || undefined,
+    if (PRODUCTION_ENABLED && (!YC_EGRESS_RELAY_URL || !YC_EGRESS_RELAY_TOKEN)) {
+      return {
+        ok: false,
+        status: 503,
+        data: null,
+        rawText: "",
+        error: "yellow_card_production_relay_not_configured",
+      };
+    }
+    const useRelay = PRODUCTION_ENABLED && Boolean(YC_EGRESS_RELAY_URL && YC_EGRESS_RELAY_TOKEN);
+    const requestUrl = useRelay ? YC_EGRESS_RELAY_URL : url.toString();
+    const requestMethod = useRelay ? "POST" : method;
+    const requestBody = useRelay
+      ? JSON.stringify({
+        method,
+        path: opts.path.startsWith("/") ? opts.path : `/${opts.path}`,
+        query: opts.query || {},
+        ...(opts.body === undefined ? {} : { body: opts.body }),
+        timeout_ms: timeoutMs,
+      })
+      : bodyText || undefined;
+    const res = await fetch(requestUrl, {
+      method: requestMethod,
+      headers: useRelay
+        ? {
+          "Accept": "application/json",
+          "Authorization": `Bearer ${YC_EGRESS_RELAY_TOKEN}`,
+          "Content-Type": "application/json",
+          "X-BorderPay-YC-Authorization": `YcHmacV1 ${YC_API_KEY}:${signature}`,
+          "X-BorderPay-YC-Timestamp": timestamp,
+        }
+        : {
+          "Accept": "application/json",
+          "Authorization": `YcHmacV1 ${YC_API_KEY}:${signature}`,
+          "X-YC-Timestamp": timestamp,
+          ...(bodyText ? { "Content-Type": "application/json" } : {}),
+        },
+      body: requestBody,
       signal: controller.signal,
     });
     const rawText = await res.text();

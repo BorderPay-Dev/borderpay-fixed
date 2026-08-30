@@ -41,7 +41,7 @@ require(
 require(
     "supabase/functions/yellowcard-capabilities/index.ts",
     [
-        "const publicRows = commercialRows",
+        "const publicRows = commercialRows;",
         'discovery_status: "deferred_until_corridor_selection"',
         'path: "/networks", query: { country }',
     ],

@@ -50,9 +50,11 @@ export function calculateYellowCardCustomerFee(
   const providerMinimum = finiteNumber(selected ? selected.minimum_fee_local : raw.minimum_fee_local);
   const providerMaximum = finiteNumber(selected ? selected.maximum_fee_local : raw.maximum_fee_local);
   const customerPercent = providerPercent === null ? null : providerPercent + AFRICAN_RAIL_MARKUP_DEFAULT_PERCENT;
-  const customerFixed = providerFixed === null ? null : providerFixed * 2;
-  const customerMinimum = providerMinimum === null ? null : providerMinimum * 2;
-  const customerMaximum = providerMaximum === null ? null : providerMaximum * 2;
+  // Fixed/minimum/maximum provider charges carry the agreed 50% BorderPay
+  // markup. Percentage pricing remains provider rate + 2 percentage points.
+  const customerFixed = providerFixed === null ? null : providerFixed * 1.5;
+  const customerMinimum = providerMinimum === null ? null : providerMinimum * 1.5;
+  const customerMaximum = providerMaximum === null ? null : providerMaximum * 1.5;
 
   const providerAmount = providerFixed !== null
     ? providerFixed

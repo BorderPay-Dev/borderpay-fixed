@@ -34,3 +34,11 @@ Deno.test("receive catalog can only return the account region", () => {
   assert(nigeria.length === 1 && nigeria[0].channel === "bank", "Nigeria receive must be bank only");
   assert(listYellowCardCommercialRails("receive", "GB").length === 0, "UK accounts must not receive via African rails");
 });
+
+Deno.test("signed schedule exposes all contracted countries without inventing receive rails", () => {
+  const receive = [...new Set(listYellowCardCommercialRails("receive").map((row) => row.country_code))];
+  const send = [...new Set(listYellowCardCommercialRails("payout").map((row) => row.country_code))];
+  assert(receive.length === 19, `expected 19 signed Receive countries, got ${receive.length}`);
+  assert(send.length === 21, `expected 21 signed Send countries, got ${send.length}`);
+  assert(!receive.includes("CD") && !receive.includes("ET"), "Send-only countries leaked into Receive");
+});

@@ -33,13 +33,27 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-type Action = "config" | "channels" | "networks" | "rates";
+type Action = "config" | "channels" | "networks" | "rates" | "send_status" | "receive_status";
+
+function jwtRole(token: string): string {
+  try {
+    const encoded = token.split(".")[1] || "";
+    const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return String(JSON.parse(atob(padded))?.role || "");
+  } catch {
+    return "";
+  }
+}
 
 async function authorize(req: Request): Promise<{ ok: true; actorId: string; isAdmin: boolean } | { ok: false; status: number; body: unknown }> {
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return { ok: false, status: 401, body: { success: false, error: "Authorization required" } };
 
-  if (SUPABASE_SERVICE_ROLE && token === SUPABASE_SERVICE_ROLE) {
+  // The Edge gateway verifies legacy JWTs before invocation. Accept the
+  // verified service-role claim as well as the runtime secret's exact value;
+  // projects can rotate API keys without redeploying the platform secret.
+  if ((SUPABASE_SERVICE_ROLE && token === SUPABASE_SERVICE_ROLE) || jwtRole(token) === "service_role") {
     return { ok: true, actorId: "service_role", isAdmin: true };
   }
 
@@ -108,6 +122,7 @@ Deno.serve(async (req) => {
   const country = String(body?.country || "").trim().toUpperCase();
   const currency = String(body?.currency || "").trim().toUpperCase();
   const channelId = String(body?.channelId || body?.channel_id || "").trim();
+  const sequenceId = String(body?.sequenceId || body?.sequence_id || "").trim();
 
   if (action === "config") {
     return json({
@@ -199,5 +214,27 @@ Deno.serve(async (req) => {
     }, res.ok ? 200 : (res.status >= 400 && res.status < 600 ? res.status : 502));
   }
 
-  return json({ success: false, error: "Unsupported action. Use config, channels, networks, or rates." }, 400);
+  if (action === "send_status" || action === "receive_status") {
+    if (!/^[0-9a-f-]{36}$/i.test(sequenceId)) {
+      return json({ success: false, code: "invalid_sequence_id" }, 400);
+    }
+    const direction = action === "send_status" ? "send" : "receive";
+    const res = await yellowCardFetch({
+      method: "GET",
+      path: `/${direction}/sequence-id/${encodeURIComponent(sequenceId)}`,
+    });
+    return json({
+      success: res.ok,
+      code: res.ok ? "ok" : res.error,
+      error: res.ok ? undefined : res.error,
+      data: {
+        config,
+        request: { action, sequence_id: sequenceId },
+        provider_status: { http_status: res.status, request_id: res.requestId || null },
+        transaction: res.data,
+      },
+    }, res.ok ? 200 : (res.status >= 400 && res.status < 600 ? res.status : 502));
+  }
+
+  return json({ success: false, error: "Unsupported diagnostic action." }, 400);
 });
