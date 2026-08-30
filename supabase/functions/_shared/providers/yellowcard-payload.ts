@@ -91,6 +91,15 @@ export interface YellowCardDirectSettlementSendInstruction {
   cryptoAmount: number;
   walletAddress: string;
   expiresAt: string;
+  localAmount: number;
+  currency: string;
+}
+
+export interface YellowCardReceiveInstruction {
+  providerTransactionId: string;
+  sequenceId: string;
+  localAmount: number;
+  currency: string;
 }
 
 const PAYMENT_REASONS = new Set([
@@ -194,6 +203,7 @@ export function buildYellowCardDirectSettlementSendPayload(
     customerUID: required(input.customerUID, "customer_uid"),
     country: required(input.country, "country").toUpperCase(),
     currency: required(input.currency, "currency").toUpperCase(),
+    forceAccept: true,
     directSettlement: true,
     settlementInfo,
   };
@@ -207,7 +217,7 @@ export function buildYellowCardDirectSettlementSendPayload(
  */
 export function parseYellowCardDirectSettlementSendInstruction(
   response: unknown,
-  expected: Pick<YellowCardSendPayloadInput, "sequenceId" | "settlementInfo">,
+  expected: Pick<YellowCardSendPayloadInput, "sequenceId" | "localAmount" | "currency" | "settlementInfo">,
   nowMs = Date.now(),
 ): YellowCardDirectSettlementSendInstruction {
   const envelope = response && typeof response === "object" && !Array.isArray(response)
@@ -226,6 +236,8 @@ export function parseYellowCardDirectSettlementSendInstruction(
   const walletAddress = required(settlement.walletAddress, "funding_wallet_address");
   const expiresAt = required(settlement.expiresAt, "funding_expiry");
   const cryptoAmount = Number(settlement.cryptoAmount);
+  const localAmount = Number(body.convertedAmount);
+  const currency = required(body.currency, "currency").toUpperCase();
 
   if (sequenceId !== expected.sequenceId) throw new Error("yellow_card_sequence_mismatch");
   if (cryptoCurrency !== expected.settlementInfo.cryptoCurrency) {
@@ -240,6 +252,15 @@ export function parseYellowCardDirectSettlementSendInstruction(
   const expectedMinor = BigInt(Math.round(Number(expected.settlementInfo.cryptoAmount) * 1_000_000));
   const returnedMinor = BigInt(Math.round(cryptoAmount * 1_000_000));
   if (expectedMinor !== returnedMinor) throw new Error("yellow_card_funding_amount_mismatch");
+  if (!Number.isFinite(localAmount) || !Number.isInteger(localAmount) || localAmount <= 0) {
+    throw new Error("yellow_card_invalid_converted_amount");
+  }
+  if (localAmount !== Number(expected.localAmount)) {
+    throw new Error("yellow_card_local_amount_mismatch");
+  }
+  if (currency !== String(expected.currency || "").trim().toUpperCase()) {
+    throw new Error("yellow_card_currency_mismatch");
+  }
 
   const expiryMs = Date.parse(expiresAt);
   if (!Number.isFinite(expiryMs) || expiryMs <= nowMs) {
@@ -254,7 +275,44 @@ export function parseYellowCardDirectSettlementSendInstruction(
     cryptoAmount,
     walletAddress,
     expiresAt: new Date(expiryMs).toISOString(),
+    localAmount,
+    currency,
   };
+}
+
+/**
+ * Yellow Card documents localAmount/convertedAmount in major local-currency
+ * units. Validate the provider echo before BorderPay exposes a Receive as
+ * created. This prevents a request for ZMW 10,000 from being represented as
+ * ZMW 100 due to any client, relay, or provider contract drift.
+ */
+export function parseYellowCardReceiveInstruction(
+  response: unknown,
+  expected: Pick<YellowCardReceivePayloadInput, "sequenceId" | "localAmount" | "currency">,
+): YellowCardReceiveInstruction {
+  const envelope = response && typeof response === "object" && !Array.isArray(response)
+    ? response as Record<string, any>
+    : {};
+  const body = envelope.data && typeof envelope.data === "object" && !Array.isArray(envelope.data)
+    ? envelope.data as Record<string, any>
+    : envelope;
+  const providerTransactionId = required(body.id, "provider_transaction_id");
+  const sequenceId = required(body.sequenceId, "sequence_id");
+  const currency = required(body.currency, "currency").toUpperCase();
+  const localAmount = Number(body.convertedAmount);
+
+  if (sequenceId !== expected.sequenceId) throw new Error("yellow_card_sequence_mismatch");
+  if (currency !== String(expected.currency || "").trim().toUpperCase()) {
+    throw new Error("yellow_card_currency_mismatch");
+  }
+  if (!Number.isFinite(localAmount) || !Number.isInteger(localAmount) || localAmount <= 0) {
+    throw new Error("yellow_card_invalid_converted_amount");
+  }
+  if (localAmount !== Number(expected.localAmount)) {
+    throw new Error("yellow_card_local_amount_mismatch");
+  }
+
+  return { providerTransactionId, sequenceId, localAmount, currency };
 }
 
 export function buildYellowCardDirectSettlementReceivePayload(
@@ -317,6 +375,7 @@ export function buildYellowCardDirectSettlementReceivePayload(
     customerUID: required(input.customerUID, "customer_uid"),
     country,
     currency: required(input.currency, "currency").toUpperCase(),
+    forceAccept: true,
     directSettlement: true,
     settlementInfo,
     ...(input.redirectUrl ? { redirectUrl: required(input.redirectUrl, "redirect_url") } : {}),

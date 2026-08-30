@@ -104,6 +104,8 @@ async function createSendIntent(row: any): Promise<any> {
   }
   const instruction = parseYellowCardDirectSettlementSendInstruction(result.data, {
     sequenceId: row.sequence_id,
+    localAmount: Number(row.destination_amount),
+    currency: row.destination_currency,
     settlementInfo: payload.settlementInfo as any,
   });
   if (Date.parse(instruction.expiresAt) - Date.now() < 120_000) {

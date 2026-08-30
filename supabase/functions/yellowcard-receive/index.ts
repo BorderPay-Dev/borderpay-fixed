@@ -15,6 +15,7 @@ import {
 import { africanRailMarkupPercentForAccount } from "../_shared/fees/schedule.ts";
 import {
   buildYellowCardDirectSettlementReceivePayload,
+  parseYellowCardReceiveInstruction,
   redactYellowCardReceivePayload,
   yellowCardReducedKycEligible,
   type YellowCardRetailKyc,
@@ -383,12 +384,12 @@ Deno.serve(async (req) => {
       userId: access.user.id,
       endpoint: "yellowcard-receive",
       code: "yellow_card_production_unavailable",
-      message: "Yellow Card production Receive is unavailable.",
+      message: "BorderPay African rails receive is unavailable.",
     });
-    return json({ success: false, code: "yellow_card_production_unavailable", error: "Yellow Card production Receive is unavailable." }, 503);
+    return json({ success: false, code: "yellow_card_production_unavailable", error: "BorderPay African rails receive is unavailable." }, 503);
   }
   if (!flag("YC_PRODUCTION_ENABLED") || !flag("YC_PRODUCTION_RECEIVE_ENABLED")) {
-    return json({ success: false, code: "yellow_card_receive_disabled", error: "Yellow Card Receive is temporarily unavailable." }, 503);
+    return json({ success: false, code: "yellow_card_receive_disabled", error: "BorderPay African rails receive is temporarily unavailable." }, 503);
   }
 
   const action = lower(body?.action || "preflight");
@@ -423,13 +424,13 @@ Deno.serve(async (req) => {
   }
 
   if (action === "preflight_send" || action === "create_send") {
-    return json({ success: false, code: "yellow_card_send_not_enabled", error: "Yellow Card Send is not enabled." }, 403);
+    return json({ success: false, code: "yellow_card_send_not_enabled", error: "BorderPay African rails send is not enabled." }, 403);
   }
   const context = await loadContext(access.user.id, {
     ...body,
     direction: "receive",
   });
-  if (!context.ok) return json({ success: false, code: context.code, error: "Yellow Card preflight failed." }, context.status);
+  if (!context.ok) return json({ success: false, code: context.code, error: "BorderPay African rails preflight failed." }, context.status);
 
   const customerFee = calculateYellowCardCustomerFee(context.policy, context.localAmount);
   if (!customerFee) {
@@ -551,7 +552,7 @@ Deno.serve(async (req) => {
   try {
     providerBody = buildYellowCardDirectSettlementReceivePayload({
       sequenceId,
-      channelType: yellowCardPayloadAccountType(context.channel),
+      channelId: str(context.selectedChannel?.id),
       localAmount: context.localAmount,
       country: context.country,
       currency: context.currency,
@@ -649,7 +650,7 @@ Deno.serve(async (req) => {
       return json({
         success: false,
         code: "yellow_card_transaction_not_created",
-        error: "Yellow Card did not create this transaction. Do not retry until the corridor is confirmed available.",
+        error: "BorderPay did not create this transaction. Do not retry until the corridor is confirmed available.",
         data: { transaction: publicTransaction(failedRow || { ...inserted, ...failedUpdates }) },
       }, 422);
     }
@@ -681,9 +682,34 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       code: provider.error || "yellow_card_receive_failed",
-      error: "The Yellow Card production request was rejected.",
+      error: "The BorderPay African rails request was rejected.",
       data: { transaction: publicTransaction({ ...inserted, ...updates }) },
     }, provider.status >= 400 && provider.status < 500 ? 422 : 502);
+  }
+
+  try {
+    parseYellowCardReceiveInstruction(provider.data, {
+      sequenceId,
+      localAmount: context.localAmount,
+      currency: context.currency,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "yellow_card_response_invalid";
+    const updates = {
+      status: "failed",
+      provider_status: "amount_validation_failed",
+      provider_response: provider.data && typeof provider.data === "object" ? provider.data : {},
+      last_error: code,
+      last_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await supa.from("yellowcard_transactions").update(updates).eq("id", inserted.id);
+    return json({
+      success: false,
+      code,
+      error: "The payment amount could not be verified. No successful BorderPay collection was recorded.",
+      data: { transaction: publicTransaction({ ...inserted, ...updates }) },
+    }, 502);
   }
 
   const updates = providerFields(provider.data);

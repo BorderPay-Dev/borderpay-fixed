@@ -1,5 +1,6 @@
 import {
   buildYellowCardDirectSettlementReceivePayload,
+  parseYellowCardReceiveInstruction,
   redactYellowCardReceivePayload,
   yellowCardReducedKycEligible,
 } from "../supabase/functions/_shared/providers/yellowcard-payload.ts";
@@ -52,7 +53,7 @@ for (const settlement of [
     });
 
     assertEqual(payload.localAmount, 1000);
-    assertEqual("forceAccept" in payload, false);
+    assertEqual(payload.forceAccept, true);
     assertEqual(payload.directSettlement, true);
     assertEqual(payload.customerType, "retail");
     assertDeepEqual(payload.settlementInfo, settlement);
@@ -65,6 +66,44 @@ for (const settlement of [
     assertEqual(redacted.settlementInfo.walletAddress, "[redacted]");
   });
 }
+
+Deno.test("Yellow Card Receive preserves ZMW 10,000 as 10,000 major units", () => {
+  const input = {
+    sequenceId: "55555555-5555-4555-8555-555555555555",
+    channelId: "zambia-momo",
+    localAmount: 10_000,
+    country: "ZM",
+    currency: "ZMW",
+    reason: "bills",
+    customerUID: "verified-zambia-user",
+    recipient: {
+      name: "Verified Zambia User", country: "ZM", phone: "+260971111111",
+      address: "Lusaka", dob: "01/01/1990", email: "verified@example.com",
+      idNumber: "ZMB-123", idType: "national_id",
+    },
+    source: { accountType: "momo" as const, accountNumber: "+260971111111", networkId: "zambia-mobile-network" },
+    settlementInfo: {
+      cryptoCurrency: "USDC" as const,
+      cryptoNetwork: "BASE" as const,
+      walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe",
+    },
+  };
+  const payload = buildYellowCardDirectSettlementReceivePayload(input) as Record<string, any>;
+  assertEqual(payload.localAmount, 10_000);
+  const instruction = parseYellowCardReceiveInstruction({
+    id: "provider-receive-zm",
+    sequenceId: input.sequenceId,
+    currency: "ZMW",
+    convertedAmount: 10_000,
+  }, input);
+  assertEqual(instruction.localAmount, 10_000);
+  assertThrows(() => parseYellowCardReceiveInstruction({
+    id: "provider-receive-zm",
+    sequenceId: input.sequenceId,
+    currency: "ZMW",
+    convertedAmount: 100,
+  }, input), /yellow_card_local_amount_mismatch/);
+});
 
 Deno.test("Yellow Card production receive fails closed without full KYC", () => {
   assertThrows(() => buildYellowCardDirectSettlementReceivePayload({

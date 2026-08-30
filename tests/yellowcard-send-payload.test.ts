@@ -37,7 +37,7 @@ const base = () => ({
 
 Deno.test("Yellow Card Send payload follows the exact selected corridor", () => {
   const payload = buildYellowCardDirectSettlementSendPayload(base()) as Record<string, any>;
-  if ("forceAccept" in payload) throw new Error("simulator-only forceAccept leaked into production Send");
+  if (payload.forceAccept !== true) throw new Error("direct-settlement Send must be accepted explicitly");
   if (payload.channelType !== "momo") throw new Error("missing provider-selected channelType");
   if ("localAmount" in payload || "amount" in payload) {
     throw new Error("direct-settlement Send must omit amount and localAmount");
@@ -82,6 +82,8 @@ Deno.test("Yellow Card funding instruction must match the reserved Send intent",
   const instruction = parseYellowCardDirectSettlementSendInstruction({
     id: "provider-send-1",
     sequenceId: input.sequenceId,
+    currency: "KES",
+    convertedAmount: 12_810,
     settlementInfo: {
       cryptoCurrency: "USDC",
       cryptoNetwork: "BASE",
@@ -102,11 +104,15 @@ Deno.test("Yellow Card funding instruction fails closed on mismatched correlatio
     {
       id: "provider-send-1",
       sequenceId: "wrong-sequence",
+      currency: "KES",
+      convertedAmount: 12_810,
       settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", cryptoAmount: 100, walletAddress: "0x1", expiresAt: "2030-01-01T00:00:00Z" },
     },
     {
       id: "provider-send-1",
       sequenceId: input.sequenceId,
+      currency: "KES",
+      convertedAmount: 12_810,
       settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", cryptoAmount: 99, walletAddress: "0x1", expiresAt: "2030-01-01T00:00:00Z" },
     },
   ]) {
@@ -118,4 +124,28 @@ Deno.test("Yellow Card funding instruction fails closed on mismatched correlatio
     }
     if (!threw) throw new Error("mismatched provider instruction must be rejected");
   }
+});
+
+Deno.test("Yellow Card Send rejects a local payout amount changed by the provider", () => {
+  const input = base();
+  let threw = false;
+  try {
+    parseYellowCardDirectSettlementSendInstruction({
+      id: "provider-send-1",
+      sequenceId: input.sequenceId,
+      currency: "KES",
+      convertedAmount: 128.1,
+      settlementInfo: {
+        cryptoCurrency: "USDC",
+        cryptoNetwork: "BASE",
+        cryptoAmount: 100,
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        expiresAt: "2030-01-01T00:00:00Z",
+      },
+    }, input, Date.parse("2026-08-27T00:00:00Z"));
+  } catch (error) {
+    threw = String(error).includes("yellow_card_local_amount_mismatch") ||
+      String(error).includes("yellow_card_invalid_converted_amount");
+  }
+  if (!threw) throw new Error("provider local amount drift must fail closed before treasury funding");
 });
