@@ -6,6 +6,8 @@ client = (ROOT / "supabase/functions/_shared/providers/yellowcard-client.ts").re
 config = (ROOT / "supabase/config.toml").read_text()
 ui = (ROOT / "components/receive/ReceiveMoneyScreen.tsx").read_text()
 payload = (ROOT / "supabase/functions/_shared/providers/yellowcard-payload.ts").read_text()
+capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
+rate_math = (ROOT / "supabase/functions/_shared/providers/yellowcard-rate.ts").read_text()
 
 checks = {
     "production environment required": 'config.environment !== "production"' in receive,
@@ -13,6 +15,11 @@ checks = {
     "send explicitly blocked": 'code: "yellow_card_send_not_enabled"' in receive,
     "production rows are isolated": 'environment: "production"' in receive,
     "settlement wallet comes from Bridge inventory": '.from("bridge_wallets")' in receive,
+    "preflight confirms resolved settlement wallet": 'bridge_settlement_wallet_ready: true' in receive,
+    "receive quote divides local amount by live rate": 'direction === "receive"' in rate_math and 'sourceAmount / localPerUsdRate' in rate_math,
+    "capability quote uses direction-aware conversion": 'yellowCardDestinationAmount(amount, quote.rate, direction' in capabilities,
+    "UI labels settlement as digital dollars": 'Estimated digital dollars received' in ui,
+    "UI displays selected USDC or USDT settlement asset": 'collectionSettlementAsset' in ui,
     "simulator force-accept absent": 'forceAccept' not in receive and 'forceAccept' not in payload,
     "production request uses receive only": 'path: "/receive"' in receive,
     "production relay fails closed": 'yellow_card_production_relay_not_configured' in client,

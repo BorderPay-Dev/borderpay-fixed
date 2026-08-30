@@ -469,7 +469,9 @@ Deno.serve(async (req) => {
     missing_kyc_fields: context.missingKyc,
     kyc_tier: context.kycTier,
     usd_equivalent: context.usdEquivalent,
-    bridge_settlement_wallet_ready: false,
+    // loadContext fails closed unless it has resolved an active, authenticated
+    // Bridge USDC/Base or USDT/Tron wallet for this user.
+    bridge_settlement_wallet_ready: true,
     settlement_source: "yellow_card_production",
     provider_environment: "production",
     settlement_currency: context.settlementInfo.cryptoCurrency,

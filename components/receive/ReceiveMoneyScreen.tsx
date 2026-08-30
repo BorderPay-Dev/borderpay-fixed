@@ -46,6 +46,12 @@ interface ReceiveMoneyScreenProps {
 
 interface StableRow { id: string; currency: string; chain: string; address: string; status: string }
 interface VaRow     { id: string; currency: BridgeVirtualAccountCurrency; rail: string | null; status: string; account_details: any; bridge_virtual_account_id: string }
+interface CollectionQuote {
+  grossDigitalDollars: number;
+  localPerUsdRate: number;
+  side: string;
+  updatedAt: string | null;
+}
 type ReceiveStep = 'method' | 'africa-destination' | 'africa-rail' | 'africa-details' | 'africa-review' | 'africa-security-gate' | 'africa-auth' | 'africa-processing' | 'africa-success';
 interface AfricanCountryOption {
   countryCode: string;
@@ -279,6 +285,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [collectionStatusRefreshing, setCollectionStatusRefreshing] = useState(false);
   const [collectionStatusDelayed, setCollectionStatusDelayed] = useState(false);
   const [collectionResult, setCollectionResult] = useState<Record<string, unknown> | null>(null);
+  const [collectionQuote, setCollectionQuote] = useState<CollectionQuote | null>(null);
+  const [collectionQuoteLoading, setCollectionQuoteLoading] = useState(false);
+  const [collectionQuoteError, setCollectionQuoteError] = useState('');
+  const collectionQuoteRequestRef = useRef(0);
   const [collectionPin, setCollectionPin] = useState('');
   useEffect(() => {
     if (receiveStep !== 'africa-auth') setCollectionPin('');
@@ -846,11 +856,62 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     } : null;
   }, [collectionAmountNumber, selectedAfricanPolicyRow, selectedAfricanRail?.currency]);
 
+  useEffect(() => {
+    if (!selectedAfricanCountryCode || !selectedAfricanRail || collectionAmountNumber <= 0 || selectedAfricanProvider !== 'yellow_card') {
+      collectionQuoteRequestRef.current += 1;
+      setCollectionQuote(null);
+      setCollectionQuoteLoading(false);
+      setCollectionQuoteError('');
+      return;
+    }
+    const requestId = collectionQuoteRequestRef.current + 1;
+    collectionQuoteRequestRef.current = requestId;
+    setCollectionQuote(null);
+    setCollectionQuoteLoading(true);
+    setCollectionQuoteError('');
+    const timer = window.setTimeout(() => {
+      void loadYellowCardCapability('quote', {
+        currency: selectedAfricanRail.currency,
+        country: selectedAfricanCountryCode,
+        amount: collectionAmountNumber,
+        direction: 'receive',
+      }).then((res: any) => {
+        if (collectionQuoteRequestRef.current !== requestId) return;
+        const quote = res?.data?.quote;
+        const grossDigitalDollars = Number(quote?.destination_amount);
+        const localPerUsdRate = Number(quote?.rate);
+        if (!res?.success || !Number.isFinite(grossDigitalDollars) || grossDigitalDollars <= 0 || !Number.isFinite(localPerUsdRate) || localPerUsdRate <= 0) {
+          throw new Error(res?.error || 'Live Yellow Card receive rate is unavailable.');
+        }
+        setCollectionQuote({
+          grossDigitalDollars,
+          localPerUsdRate,
+          side: String(quote?.side || 'buy'),
+          updatedAt: quote?.updated_at ? String(quote.updated_at) : null,
+        });
+      }).catch((error: any) => {
+        if (collectionQuoteRequestRef.current !== requestId) return;
+        setCollectionQuote(null);
+        setCollectionQuoteError(friendlyError(error?.message, 'Live Yellow Card receive rate is unavailable.'));
+      }).finally(() => {
+        if (collectionQuoteRequestRef.current === requestId) setCollectionQuoteLoading(false);
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [collectionAmountNumber, selectedAfricanCountryCode, selectedAfricanProvider, selectedAfricanRail]);
+
+  const collectionSettlementAsset = useMemo(() => {
+    const usdc = visibleStableRows.find((wallet) => String(wallet.currency).toUpperCase() === 'USDC' && String(wallet.chain).toLowerCase() === 'base');
+    if (usdc) return 'USDC';
+    const usdt = visibleStableRows.find((wallet) => String(wallet.currency).toUpperCase() === 'USDT' && String(wallet.chain).toLowerCase() === 'tron');
+    return usdt ? 'USDT' : '';
+  }, [visibleStableRows]);
+
   const collectionReceiveNet = useMemo(() => {
-    if (collectionAmountNumber <= 0) return 0;
-    if (!collectionFee || collectionFee.currency !== selectedAfricanRail?.currency) return collectionAmountNumber;
-    return Math.max(0, collectionAmountNumber - collectionFee.amount);
-  }, [collectionAmountNumber, collectionFee, selectedAfricanRail?.currency]);
+    if (!collectionQuote || !collectionFee) return 0;
+    const localNet = Math.max(0, collectionAmountNumber - collectionFee.amount);
+    return localNet / collectionQuote.localPerUsdRate;
+  }, [collectionAmountNumber, collectionFee, collectionQuote]);
 
   const canCreateAfricanCollection = useMemo(() => {
     if (!africanRailsDiscoveryAllowed) return false;
@@ -859,6 +920,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     if (collectionProviderMinimum !== null && collectionAmountNumber < collectionProviderMinimum) return false;
     if (collectionProviderMaximum !== null && collectionAmountNumber > collectionProviderMaximum) return false;
     if (!collectionFee) return false;
+    if (collectionQuoteLoading || !collectionQuote || collectionReceiveNet <= 0 || !collectionSettlementAsset) return false;
     if (!collectionReason.trim()) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
     if (selectedAfricanRail?.channel === 'mobile_money' && !selectedCollectionNetworkId) return false;
@@ -874,6 +936,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     collectionProviderLimitsReady,
     collectionNetworksLoading,
     collectionFee,
+    collectionQuote,
+    collectionQuoteLoading,
+    collectionReceiveNet,
+    collectionSettlementAsset,
     collectionReason,
     africanRailsDiscoveryAllowed,
     collectionSourceAccount,
@@ -1332,8 +1398,11 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                   disabled={!canCreateAfricanCollection}
                   className="w-full h-12 rounded-full bg-[#C7FF00] text-black text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Review request
+                  {collectionQuoteLoading ? 'Loading live rate…' : 'Review request'}
                 </button>
+                {collectionQuoteError && (
+                  <p className="text-xs text-red-400">{collectionQuoteError}</p>
+                )}
 
                 <button
                   type="button"
@@ -1377,11 +1446,13 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                 </div>
 
                 <div className={`rounded-2xl ${tc.inputBg} border ${tc.borderLight} p-4`}>
-                  <p className={`text-xs ${tc.textMuted}`}>You receive</p>
+                  <p className={`text-xs ${tc.textMuted}`}>Estimated digital dollars received</p>
                   <p className="mt-1 text-3xl font-bold text-[#C7FF00]">
-                    {formatMoney(collectionReceiveNet, selectedAfricanRail.currency)}
+                    ${collectionReceiveNet.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
                   </p>
-                  <p className={`mt-1 text-xs ${tc.textMuted}`}>After transaction fee, when completed</p>
+                  <p className={`mt-1 text-xs ${tc.textMuted}`}>
+                    {collectionSettlementAsset} · after transaction fee · final amount confirmed by Yellow Card
+                  </p>
                 </div>
 
                 <div className="space-y-2 py-1">
@@ -1409,6 +1480,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                       </span>
                     </div>
                   )}
+                  <div className="flex justify-between gap-4 text-xs">
+                    <span className={tc.textMuted}>Live receive rate</span>
+                    <span className={`${tc.text} text-right`}>
+                      1 USD = {collectionQuote?.localPerUsdRate.toLocaleString(undefined, { maximumFractionDigits: 6 })} {selectedAfricanRail.currency}
+                    </span>
+                  </div>
                   <div className="flex justify-between gap-4 text-xs">
                     <span className={tc.textMuted}>
                       Transaction fee{collectionFee?.percent ? ` (${collectionFee.percent.toFixed(collectionFee.percent < 1 ? 2 : 3)}%)` : ''}
