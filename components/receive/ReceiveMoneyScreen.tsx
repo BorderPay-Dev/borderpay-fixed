@@ -616,6 +616,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       toast.error('This receive corridor is not available yet.');
       return;
     }
+    if (receiveUsesYellowCardForm && !collectionSourceAccount.trim()) {
+      toast.error(selectedAfricanRail.channel === 'mobile_money'
+        ? `Enter the payer's ${selectedAfricanCountry.countryName} mobile money number.`
+        : "Enter the payer's bank account number.");
+      return;
+    }
     if (receiveUsesYellowCardForm && selectedAfricanRail.channel === 'mobile_money' && !isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)) {
       toast.error(`Enter a valid ${selectedAfricanCountry.countryName} mobile money number.`);
       return;
@@ -641,6 +647,9 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         country: selectedAfricanCountry.countryCode,
         channel: selectedAfricanRail.channel,
         local_amount: amount,
+        source_account: selectedAfricanRail.channel === 'mobile_money'
+          ? formatInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode)
+          : collectionSourceAccount.trim() || undefined,
         settlement_currency: settlementCurrency,
         settlement_network: settlementNetwork,
         reason: collectionReason.trim(),
@@ -853,6 +862,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     if (!collectionReason.trim()) return false;
     if (selectedAfricanProvider !== 'yellow_card') return false;
     if (selectedAfricanRail?.channel === 'mobile_money' && !selectedCollectionNetworkId) return false;
+    if (receiveUsesYellowCardForm && !collectionSourceAccount.trim()) return false;
     if (receiveUsesYellowCardForm && selectedAfricanRail?.channel === 'mobile_money') {
       return isLikelyInternationalPhone(collectionSourceAccount, selectedAfricanCountryCode);
     }
@@ -1300,14 +1310,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                           setCollectionSourceAccount(formatInternationalPhone(collectionSourceAccount, selectedAfricanCountry.countryCode));
                         }
                       }}
-                      placeholder={selectedAfricanRail.channel === 'mobile_money' ? `+${COUNTRY_DIAL_CODES[selectedAfricanCountry.countryCode] || '254'}7xxxxxxxx` : 'Optional for bank collection'}
+                      placeholder={selectedAfricanRail.channel === 'mobile_money' ? `+${COUNTRY_DIAL_CODES[selectedAfricanCountry.countryCode] || '254'}7xxxxxxxx` : 'Enter payer account number'}
+                      required
                       className={`w-full ${tc.inputBg} rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#C7FF00]/50`}
                     />
-                    {selectedAfricanRail.channel === 'bank' && (
-                      <p className={`mt-1.5 px-1 text-[11px] ${tc.textMuted}`}>
-                        Leave blank if the bank rail does not require payer account details.
-                      </p>
-                    )}
                   </div>
                 )}
 

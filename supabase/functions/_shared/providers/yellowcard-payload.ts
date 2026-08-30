@@ -274,6 +274,9 @@ export function buildYellowCardDirectSettlementReceivePayload(
   if (accountType === "momo" && !String(input.source.networkId || "").trim()) {
     throw new Error("yellow_card_missing_network_id");
   }
+  if (!String(input.source.accountNumber || "").trim()) {
+    throw new Error("yellow_card_missing_source_account_number");
+  }
 
   const recipient = retailKyc(input.recipient, "recipient", input.kycTier);
   const country = required(input.country, "country").toUpperCase();
@@ -305,9 +308,7 @@ export function buildYellowCardDirectSettlementReceivePayload(
     recipient,
     source: {
       accountType,
-      ...(input.source.accountNumber
-        ? { accountNumber: required(input.source.accountNumber, "source_account_number") }
-        : {}),
+      accountNumber: required(input.source.accountNumber, "source_account_number"),
       ...(input.source.networkId
         ? { networkId: required(input.source.networkId, "network_id") }
         : {}),

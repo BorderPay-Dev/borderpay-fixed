@@ -163,7 +163,7 @@ Deno.test("Yellow Card receive supports provider channelType auto-routing", () =
       idNumber: "ID-123",
       idType: "license",
     },
-    source: { accountType: "bank" },
+    source: { accountType: "bank", accountNumber: "1111111111" },
     settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0x1111111111111111111111111111111111111111" },
   });
   assertEqual(payload.channelType, "bank");
@@ -190,6 +190,44 @@ Deno.test("Yellow Card receive includes a redirect URL for redirect-based channe
     redirectUrl: "https://app.borderpayafrica.com/?screen=receive",
   });
   assertEqual(payload.redirectUrl, "https://app.borderpayafrica.com/?screen=receive");
+});
+
+Deno.test("Yellow Card mobile-money receive requires the payer account number", () => {
+  assertThrows(() => buildYellowCardDirectSettlementReceivePayload({
+    sequenceId: "33333333-3333-4333-8333-333333333333",
+    channelType: "momo",
+    localAmount: 1_000,
+    country: "ZM",
+    currency: "ZMW",
+    reason: "other",
+    customerUID: "verified-zambia-user",
+    recipient: {
+      name: "Verified Zambia User", country: "ZM", phone: "+260971111111",
+      address: "Lusaka", dob: "01/01/1990", email: "verified@example.com",
+      idNumber: "ZMB-123", idType: "national_id",
+    },
+    source: { accountType: "momo", networkId: "zambia-mobile-network" },
+    settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe" },
+  }), /yellow_card_missing_source_account_number/);
+});
+
+Deno.test("Yellow Card bank receive requires the payer account number", () => {
+  assertThrows(() => buildYellowCardDirectSettlementReceivePayload({
+    sequenceId: "44444444-4444-4444-8444-444444444444",
+    channelType: "bank",
+    localAmount: 1_000,
+    country: "ZM",
+    currency: "ZMW",
+    reason: "other",
+    customerUID: "verified-zambia-user",
+    recipient: {
+      name: "Verified Zambia User", country: "ZM", phone: "+260971111111",
+      address: "Lusaka", dob: "01/01/1990", email: "verified@example.com",
+      idNumber: "ZMB-123", idType: "national_id",
+    },
+    source: { accountType: "bank" },
+    settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe" },
+  }), /yellow_card_missing_source_account_number/);
 });
 
 Deno.test("Yellow Card receive rejects KYC from another country", () => {

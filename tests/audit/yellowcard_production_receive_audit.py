@@ -18,6 +18,8 @@ checks = {
     "production relay fails closed": 'yellow_card_production_relay_not_configured' in client,
     "receive function requires JWT": '[functions.yellowcard-receive]\nverify_jwt = true' in config,
     "UI uses production receive endpoint": 'yellowCardReceive({' in ui,
+    "UI submits payer account number": "source_account:" in ui,
+    "backend requires payer account number": 'yellow_card_missing_source_account_number' in payload,
     "UI does not default a missing settlement wallet": "settlementWallet?.currency || 'USDC'" not in ui,
 }
 
