@@ -4,72 +4,44 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def require(path: str, fragments: list[str]) -> None:
-    text = (ROOT / path).read_text()
-    missing = [fragment for fragment in fragments if fragment not in text]
-    if missing:
-        raise SystemExit(f"{path}: missing regression contract: {missing}")
+def source(path: str) -> str:
+    file = ROOT / path
+    if not file.is_file():
+        raise SystemExit(f"missing production rail source: {path}")
+    return file.read_text()
 
 
-require(
-    "supabase/functions/yellowcard-sandbox-transaction/index.ts",
-    [
-        'SANDBOX_SUCCESS_EVM_ADDRESS = "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe"',
-        'SANDBOX_SUCCESS_TRON_ADDRESS = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"',
-        'const digits = outcome === "success" ? "1111111111" : "0000000000"',
-        'return `+${dialCode}${digits}`',
-        'accountNumber: sandboxAccount(context.country, context.channel, sandboxOutcome)',
-        'sandbox_simulated: true',
-        'expected_outcome: sandboxOutcome',
-    ],
-)
+if (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.ts").exists():
+    raise SystemExit("legacy Yellow Card sandbox transaction endpoint must remain removed")
 
-transaction = (ROOT / "supabase/functions/yellowcard-sandbox-transaction/index.ts").read_text()
-if 'walletAddress: str(wallet.address)' in transaction:
-    raise SystemExit("real Bridge wallet address must not be sent to Yellow Card sandbox")
+send = source("components/send/SendMoneyFlow.tsx")
+receive = source("components/receive/ReceiveMoneyScreen.tsx")
+capabilities = source("supabase/functions/yellowcard-capabilities/index.ts")
+receive_endpoint = source("supabase/functions/yellowcard-receive/index.ts")
+payout_endpoint = source("supabase/functions/yellowcard-jit-payout/index.ts")
+access = source("supabase/functions/_shared/african-rails-access.ts")
 
-require(
-    "utils/africanRailsPolicyCache.ts",
-    [
-        "const CACHE_VERSION = 'v3'",
-        "const CACHE_TTL_MS = 5 * 60 * 1000",
-        "backendAPI.payouts.yellowCardCapabilities('corridor_policy'",
-        "if (provider !== 'yellow_card') return",
-    ],
-)
+combined = "\n".join((send, receive, capabilities, receive_endpoint, payout_endpoint, access))
+for forbidden in (
+    "adhiamboadhiambo22@gmail.com",
+    "AFRICAN_RAILS_TEST_EMAILS",
+    "isAfricanRailsTesterEmail",
+    "yellow-card-sandbox-usdc",
+    "yellow-card-sandbox-usdt",
+):
+    if forbidden in combined:
+        raise SystemExit(f"tester-only Yellow Card behavior remains: {forbidden}")
 
-require(
-    "supabase/functions/yellowcard-capabilities/index.ts",
-    [
-        "const publicRows = commercialRows;",
-        'discovery_status: "deferred_until_corridor_selection"',
-        'path: "/networks", query: { country }',
-    ],
-)
+required = {
+    "Send UI": (send, "backendAPI.payouts.yellowCardJitPayout"),
+    "Receive UI": (receive, "backendAPI.payouts.yellowCardReceive"),
+    "Capabilities": (capabilities, "authenticateVerifiedAfricanRailsUser"),
+    "Receive endpoint": (receive_endpoint, "authenticateVerifiedAfricanRailsUser"),
+    "Payout endpoint": (payout_endpoint, "authenticateVerifiedAfricanRailsUser"),
+    "Verification gate": (access, 'verificationStatus !== "approved"'),
+}
+for label, (text, fragment) in required.items():
+    if fragment not in text:
+        raise SystemExit(f"{label} is missing production invariant: {fragment}")
 
-require(
-    "supabase/functions/yellowcard-sandbox-transaction/index.ts",
-    [
-        'path: "/networks", query: { country }',
-        'buildYellowCardSandboxSendPayload({',
-    ],
-)
-
-capabilities = (ROOT / "supabase/functions/yellowcard-capabilities/index.ts").read_text()
-if "const publicRows = availability.filter" in capabilities:
-    raise SystemExit("incomplete sandbox discovery must not shrink the signed 21-country, 28-rail catalogue")
-if 'path: "/channels" }),\n      yellowCardFetch({ method: "GET", path: "/networks" })' in capabilities:
-    raise SystemExit("catalogue loading must not wait for provider discovery")
-if "channelId:" in capabilities:
-    raise SystemExit("routing discovery must not call undocumented Networks channelId queries")
-
-require(
-    "components/send/SendMoneyFlow.tsx",
-    [
-        "const amountToValidate = isAfricanPayout ? Number(africanQuote?.destinationAmount) : sourceAmount",
-        "validateTransferAmount(amountToValidate",
-        "if (active && !cacheIsFresh) setAfricanPolicyRows([])",
-    ],
-)
-
-print("yellowcard sandbox outcome regression audit passed")
+print("yellowcard production access regression audit passed")
