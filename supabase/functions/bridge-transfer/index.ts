@@ -453,7 +453,6 @@ Deno.serve(async (req) => {
   let cryptoRouteDepositAddress = "";
   let cryptoRouteId = "";
   let cryptoFinalAddress = "";
-  let cryptoRouteFeePercent: number | null = null;
 
   if (isCryptoPayout) {
     const validation = validateBridgePayout(body);
@@ -489,9 +488,10 @@ Deno.serve(async (req) => {
     }
     const savedWalletId = String(savedWallet?.id || "").trim();
     const savedRouteId = String(savedWallet?.bridge_payment_route_id || "").trim();
+    const isUsdcBaseDirectPayout = destinationCurrency === "USDC" && destinationChain === "base";
     cryptoRouteId = savedRouteId;
     cryptoFinalAddress = String(savedWallet?.address || destinationAddress).trim();
-    if (!savedRouteId) {
+    if (!isUsdcBaseDirectPayout && !savedRouteId) {
       return await failAfterAuth({
         success: false,
         code: "external_wallet_route_required",
@@ -505,7 +505,7 @@ Deno.serve(async (req) => {
         error: "Choose the saved wallet again before sending.",
       }, 409, profile.account_type);
     }
-    if (requestedRouteId && requestedRouteId !== savedRouteId) {
+    if (!isUsdcBaseDirectPayout && requestedRouteId && requestedRouteId !== savedRouteId) {
       return await failAfterAuth({
         success: false,
         code: "external_wallet_route_mismatch",
@@ -513,17 +513,17 @@ Deno.serve(async (req) => {
       }, 409, profile.account_type);
     }
     const routeStatus = String(savedWallet?.bridge_payment_route_status || "active").toLowerCase();
-    if (["failed", "removed", "disabled", "inactive", "closed", "deactivated"].includes(routeStatus)) {
+    if (!isUsdcBaseDirectPayout && ["failed", "removed", "disabled", "inactive", "closed", "deactivated"].includes(routeStatus)) {
       return await failAfterAuth({
         success: false,
         code: "external_wallet_route_not_active",
         error: "This saved withdrawal wallet is not active. Add the wallet again or contact support.",
       }, 409, profile.account_type);
     }
-    cryptoRouteDepositAddress = routeDepositAddress(savedWallet?.bridge_payment_route_raw);
-    cryptoRouteFeePercent = Number(asRecord(savedWallet?.bridge_payment_route_raw).developer_fee_percent);
-    if (!Number.isFinite(cryptoRouteFeePercent)) cryptoRouteFeePercent = null;
-    if (!cryptoRouteDepositAddress) {
+    cryptoRouteDepositAddress = isUsdcBaseDirectPayout
+      ? cryptoFinalAddress
+      : routeDepositAddress(savedWallet?.bridge_payment_route_raw);
+    if (!isUsdcBaseDirectPayout && !cryptoRouteDepositAddress) {
       return await failAfterAuth({
         success: false,
         code: "external_wallet_route_deposit_address_missing",
@@ -535,7 +535,7 @@ Deno.serve(async (req) => {
       address: cryptoRouteDepositAddress,
       to_address: cryptoRouteDepositAddress,
       final_address: cryptoFinalAddress,
-      bridge_payment_route_id: cryptoRouteId,
+      bridge_payment_route_id: isUsdcBaseDirectPayout ? undefined : cryptoRouteId,
     };
   }
 
@@ -587,6 +587,8 @@ Deno.serve(async (req) => {
   const transferAmount = enforcedCryptoPayout?.gross_amount ?? amount.raw;
   const transferSourceCurrency = enforcedCryptoPayout?.currency ?? body.source.currency;
   const transferDestinationCurrency = enforcedCryptoPayout?.currency ?? body.destination.currency;
+  const isUsdcBaseDirectPayout = enforcedCryptoPayout?.currency === "USDC"
+    && enforcedCryptoPayout.destination_payment_rail === "base";
   const normalizedSourceType = normalizeBridgeEndpointType(sourceRail);
   const normalizedDestinationType = normalizeBridgeEndpointType(enforcedCryptoPayout?.destination_payment_rail ?? body.destination.payment_rail);
   const transactionDirection = normalizedSourceType === "wallet" ? "debit" : "credit";
@@ -697,11 +699,12 @@ Deno.serve(async (req) => {
         source_type: normalizedSourceType,
         destination_type: normalizedDestinationType,
         payout_validator: enforcedCryptoPayout ? "bridge_payout_validator_v1" : null,
-        developer_fee: enforcedCryptoPayout ? "0.00" : null,
-        developer_fee_percent: enforcedCryptoPayout ? cryptoRouteFeePercent : null,
+        developer_fee: null,
+        developer_fee_percent: null,
+        developer_fee_mode: isUsdcBaseDirectPayout ? "bridge_transfer_configuration" : null,
         bridge_developer_fee: null,
-        bridge_payment_route_id: enforcedCryptoPayout ? cryptoRouteId : null,
-        route_deposit_address: enforcedCryptoPayout ? cryptoRouteDepositAddress : null,
+        bridge_payment_route_id: enforcedCryptoPayout && !isUsdcBaseDirectPayout ? cryptoRouteId : null,
+        route_deposit_address: enforcedCryptoPayout && !isUsdcBaseDirectPayout ? cryptoRouteDepositAddress : null,
         final_destination_address: enforcedCryptoPayout ? cryptoFinalAddress : null,
         is_cross_token: enforcedCryptoPayout?.is_cross_token ?? null,
         net_destination_amount: enforcedCryptoPayout?.net_destination_amount ?? null,

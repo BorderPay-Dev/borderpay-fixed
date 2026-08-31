@@ -7,7 +7,8 @@
 //
 // No money moves here — withdrawals go through bridge-transfer (gated +
 // passcode/biometric). This stores/validates destinations and registers the
-// reusable Bridge liquidation route for the saved destination.
+// saved payout destination. USDC/Base uses Bridge's normal crypto-to-crypto
+// transfer flow. USDT/Tron retains its existing Bridge liquidation route.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -144,6 +145,10 @@ async function repairMissingRoutes(limit: number) {
     try {
       if (!SUPPORTED_CHAINS.has(chain) || !SUPPORTED_ASSETS.has(asset) || !validAddress(chain, address)) {
         results.push({ wallet_id: walletId, status: "skipped", reason: "unsupported_or_invalid_wallet" });
+        continue;
+      }
+      if (asset === "USDC" && chain === "base") {
+        results.push({ wallet_id: walletId, user_id: userId, status: "skipped", reason: "direct_transfer_destination" });
         continue;
       }
       const identity = await loadAndAssertBridgeIdentityInvariant(supa, userId);
@@ -283,6 +288,35 @@ Deno.serve(async (req) => {
       .eq("chain", chain)
       .eq("address", address)
       .maybeSingle();
+
+    // Bridge applies the configured developer fee to a normal USDC/Base
+    // crypto-to-crypto transfer. Do not create or reuse a liquidation address:
+    // that is a different Bridge product and has independent fee settings.
+    if (asset === "USDC" && chain === "base") {
+      const { data, error } = await supa.from("external_wallets")
+        .upsert({
+          user_id: user.id,
+          label,
+          chain,
+          asset,
+          address,
+          status: "active",
+          bridge_payment_route_id: null,
+          bridge_payment_route_status: "direct_transfer",
+          bridge_payment_route_raw: {
+            mode: "crypto_to_crypto_transfer",
+            source: "bridge_wallet",
+            destination_payment_rail: "base",
+            destination_currency: "USDC",
+          },
+          bridge_payment_route_created_at: null,
+          bridge_payment_route_error: null,
+        }, { onConflict: "user_id,chain,address" })
+        .select("id, label, chain, asset, address, bridge_payment_route_id, bridge_payment_route_status, bridge_payment_route_raw, created_at")
+        .maybeSingle();
+      if (error) return json({ success: false, error: "Could not save that wallet. Please try again." }, 500);
+      return json({ success: true, data: { wallet: data, mode: "crypto_to_crypto_transfer" } });
+    }
 
     if (existingWallet?.bridge_payment_route_id && routeStatusUsable(existingWallet.bridge_payment_route_status)) {
       const { data, error } = await supa

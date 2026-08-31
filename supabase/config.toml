@@ -170,6 +170,9 @@ verify_jwt = true
 [functions.external-wallet]
 verify_jwt = true
 
+[functions.bridge-liquidation-migration]
+verify_jwt = false
+
 # Yellow Card authenticated read-only production capability discovery. The
 # shared client fails closed unless the restricted production relay is set.
 [functions.yellowcard-capabilities]
