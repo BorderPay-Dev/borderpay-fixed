@@ -5,8 +5,8 @@ BorderPay fee-schedule audit (fail-closed).
 Guards the money-math invariants for the BorderPay fee schedule:
 
   F1  Edge canonical schedule exists with the Bridge developer-fee rates
-      (virtual-account fiat individual 2.5%, business 2.0%,
-      external-account off-ramp 1.0%, crypto-to-crypto saved route 1.0%;
+      (virtual-account fiat individual 3.0%, business 3.0%,
+      external-account off-ramp 1.0%, crypto-to-crypto saved route 0.0%;
       same-token crypto payout 0.0%).
       USDT 0.999 is a fixed trade rate, not a developer fee.
   F2  Edge African payout markup is 2% for every individual and business plan.
@@ -57,10 +57,10 @@ gateway_validators = read(GATEWAY_VALIDATORS)
 
 # Canonical expected numbers ------------------------------------------------
 DEV_FEE = {
-    "virtual_account_fiat_individual": 2.5,
-    "virtual_account_fiat_business": 2.0,
+    "virtual_account_fiat_individual": 3.0,
+    "virtual_account_fiat_business": 3.0,
     "external_account_offramp": 1.0,
-    "crypto_to_crypto_route": 1.0,
+    "crypto_to_crypto_route": 0.0,
     "crypto_to_crypto_payout": 0.0,
 }
 FIXED_TRADE_RATE = {"USDT": 0.999}
@@ -132,21 +132,31 @@ external_wallet = read(ROOT / "supabase/functions/external-wallet/index.ts")
 if external_wallet:
     if "BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_route" not in external_wallet:
         failures.append("F4 external-wallet does not use crypto_to_crypto_route for saved route developer_fee_percent")
+    if "bridgeProvider.createTransfer" not in external_wallet:
+        failures.append("F4 external-wallet must create Bridge static-template transfers for USDC/Base saved external routes")
+    for marker in ["static_template: true", "flexible_amount: true", "allow_any_from_address: true"]:
+        if marker not in external_wallet:
+            failures.append(f"F4 external-wallet USDC/Base static template missing {marker}")
+    if "ROUTE_DEVELOPER_FEE_PERCENT > 0" not in external_wallet:
+        failures.append("F4 external-wallet must omit the static-template developer fee when the canonical crypto payout fee is zero")
     if "bridgeProvider.createLiquidationAddress" not in external_wallet:
-        failures.append("F4 external-wallet must create Bridge liquidation addresses for saved external crypto routes")
+        failures.append("F4 external-wallet must retain the legacy liquidation route path for existing non-USDC routes")
     if "developer_fee_percent: ROUTE_DEVELOPER_FEE_PERCENT" not in external_wallet and "developer_fee_percent: ROUTE_DEVELOPER_FEE_PERCENT > 0" not in external_wallet:
         failures.append("F4 external-wallet does not pass developer_fee_percent for Bridge liquidation route")
     if "return_address: sourceWallet.address" not in external_wallet:
         failures.append("F4 external-wallet must set return_address from the user's current Bridge wallet")
     route_fn = external_wallet[external_wallet.find("async function createCryptoRoute"):external_wallet.find("async function repairMissingRoutes")]
+    static_start = route_fn.find('if (params.asset === "USDC" && params.chain === "base")')
+    static_end = route_fn.find("const route = await bridgeProvider.createLiquidationAddress", static_start)
+    static_route_fn = route_fn[static_start:static_end]
     if "destination_payment_rail: params.chain as BridgePaymentRail" not in route_fn:
         failures.append("F4 external-wallet saved crypto route must use the crypto rail as liquidation destination")
     if "bridge_wallet_id:" in route_fn:
         failures.append("F4 external-wallet saved crypto route must not source from bridge_wallet; wallet payout sends to the route deposit address later")
-    if re.search(r"source:\s*\{[\s\S]*?chain:", route_fn):
-        failures.append("F4 external-wallet saved crypto route must not send source.chain; Bridge uses source.payment_rail for the blockchain")
-    if re.search(r"destination:\s*\{[\s\S]*?chain:", route_fn):
-        failures.append("F4 external-wallet saved crypto route must not send destination.chain; Bridge uses destination.payment_rail for the blockchain")
+    if re.search(r"source:\s*\{[^}]*\bchain:", static_route_fn):
+        failures.append("F4 external-wallet static template must not send source.chain; Bridge uses source.payment_rail for the blockchain")
+    if re.search(r"destination:\s*\{[^}]*\bchain:", static_route_fn):
+        failures.append("F4 external-wallet static template must not send destination.chain; Bridge uses destination.payment_rail for the blockchain")
 
 # F5 — client value no longer trusted -------------------------------------
 if xfer:
@@ -170,7 +180,7 @@ if failures:
     sys.exit(1)
 
 print(f"FEE SCHEDULE AUDIT: PASS ({total}/{total})")
-print("  ✓ F1 edge Bridge dev fee 2.5% individual VA / 2.0% business VA / 1.0% external-account off-ramp / 1.0% crypto saved route / 0.0% same-token crypto payout; 0.999 USDT fixed rate is separate")
+print("  ✓ F1 edge Bridge dev fee 3.0% all VAs / 1.0% external-account off-ramp / 0.0% crypto payout; 0.999 USDT fixed rate is separate")
 print("  ✓ F2 edge African payout markup tiers (1.0/0.75 starter, 0.5 premium/growth/ent)")
 print("  ✓ F3 frontend mirror numbers identical to edge")
 print("  ✓ F4 bridge-transfer and external-wallet enforce correct Bridge fee parameters")

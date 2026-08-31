@@ -42,8 +42,8 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
 const RAIL_BY_CCY: Record<string, string> = { USD: "ach_push", EUR: "sepa", GBP: "faster_payments" };
 const DEFAULT_ZERO_FEE_EMAILS = new Set(["adhiamboadhiambo22@gmail.com"]);
-const INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT = "2.5";
-const BUSINESS_VA_DEVELOPER_FEE_PERCENT = "2";
+const INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT = "3";
+const BUSINESS_VA_DEVELOPER_FEE_PERCENT = "3";
 
 function normalizeLocalVaStatus(value: unknown): "active" | "suspended" | "deactivated" | "closed" {
   const status = String(value || "").trim().toLowerCase();
