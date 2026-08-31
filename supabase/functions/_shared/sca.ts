@@ -60,38 +60,26 @@ export async function resolveScaResidencyRequirement(
   supabase: ScaDatabaseClient,
   userId: string,
 ): Promise<ScaResidencyRequirement> {
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("id,account_type,country,kyc_status,bridge_kyc_status")
-    .eq("id", userId)
+  // Protected services may consume only a current observation written from
+  // Bridge's Customer API by sca-authorize. Local profile fields are mutable
+  // and are therefore never an authoritative SCA residency source.
+  const { data: scope, error: scopeError } = await supabase
+    .from("sca_customer_scopes")
+    .select("provider_country,sca_required,source,expires_at")
+    .eq("user_id", userId)
+    .eq("source", "bridge_customer_api")
+    .gt("expires_at", new Date().toISOString())
     .maybeSingle();
 
-  if (profileError || !profile?.id) {
-    console.error("sca_residency_profile_lookup_failed", { user_id: userId, code: profileError?.code });
+  if (scopeError || !scope || scope.source !== "bridge_customer_api") {
+    console.error("sca_provider_scope_lookup_failed", { user_id: userId, code: scopeError?.code });
     return { required: false, country: null, reason: "residency_unknown" };
   }
-
-  let country: unknown = profile.country;
-  let verified = ["approved", "verified"].includes(String(profile.kyc_status || "").toLowerCase())
-    || String(profile.bridge_kyc_status || "").toLowerCase() === "approved";
-  if (profile.account_type === "business") {
-    const { data: business, error: businessError } = await supabase
-      .from("business_profiles")
-      .select("country,bridge_kyb_status")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (businessError) {
-      console.error("sca_residency_business_lookup_failed", { user_id: userId, code: businessError.code });
-      return { required: false, country: null, reason: "residency_unknown" };
-    }
-    country = business?.country ?? country;
-    verified = String(business?.bridge_kyb_status || "").toLowerCase() === "approved";
-  }
-
-  if (!verified) {
-    return { required: false, country: normalizeCountryCode(country), reason: "verification_not_approved" };
-  }
-  return classifyScaResidency(country);
+  const classified = classifyScaResidency(scope.provider_country);
+  if (classified.reason === "residency_unknown") return classified;
+  return scope.sca_required === true
+    ? { required: true, country: classified.country, reason: "verified_eea_resident" }
+    : { required: false, country: classified.country, reason: "non_eea_resident" };
 }
 
 const OPERATIONS = new Set<ScaOperation>([
@@ -106,8 +94,9 @@ export function bridgeScaInitiation(channel: unknown) {
   return {
     channel: normalized as BridgeInitiationChannel,
     subchannel: "remote" as const,
-    // Bridge requires the enum string itself, not an outcome object.
-    attestations: { sca: "sca_used" as const },
+    // Bridge support corrected the August 2026 PDF: all three values belong
+    // to one `initiation` object and SCA is nested under `outcome`.
+    attestations: { sca: { outcome: "sca_used" as const } },
   };
 }
 
@@ -170,6 +159,17 @@ export async function consumeScaAuthorization(params: {
   const residency = params.required == null
     ? await resolveScaResidencyRequirement(params.supabase, params.userId)
     : { required: params.required };
+  if ("reason" in residency && residency.reason === "residency_unknown") {
+    return {
+      ok: false,
+      status: 503,
+      body: {
+        success: false,
+        code: "sca_scope_unavailable",
+        error: "Strong-authentication scope could not be verified. Nothing was changed.",
+      },
+    };
+  }
   if (!residency.required) return { ok: true, required: false, applied: false };
 
   // Bridge-marked wallets remain blocked until the runtime rollout control is

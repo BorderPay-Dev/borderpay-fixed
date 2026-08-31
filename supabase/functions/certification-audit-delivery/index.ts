@@ -34,8 +34,8 @@ Deno.serve(async (request) => {
     const signingSecret = required("CERTIFICATION_AUDIT_OUTBOUND_HMAC_SECRET");
     const sinkPublicKey = required("CERTIFICATION_AUDIT_SINK_PUBLIC_KEY_BASE64");
     const sinkKeyId = required("CERTIFICATION_AUDIT_SINK_KEY_ID");
-    const retentionDays = Number(Deno.env.get("CERTIFICATION_AUDIT_MIN_RETENTION_DAYS") || "30");
-    if (!Number.isInteger(retentionDays) || retentionDays < 30) throw new Error("minimum retention must be at least 30 days");
+    const baselineRetentionDays = Number(Deno.env.get("CERTIFICATION_AUDIT_MIN_RETENTION_DAYS") || "30");
+    if (!Number.isInteger(baselineRetentionDays) || baselineRetentionDays < 30) throw new Error("minimum retention must be at least 30 days");
 
     const supabase = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -47,9 +47,17 @@ Deno.serve(async (request) => {
     const failures: Array<{ event_id: string; error: string }> = [];
     for (const event of events || []) {
       try {
+        // Bridge requires underlying SCA evidence to remain available for at
+        // least five years. 1,827 days covers a five-year interval containing
+        // up to two leap days; non-SCA certification events retain their
+        // existing independently configured minimum.
+        const retentionDays = event.table_name === "sca_audit_events"
+          ? Math.max(baselineRetentionDays, 1_827)
+          : baselineRetentionDays;
         const envelope = {
           schema_version: 1,
           project_ref: new URL(required("SUPABASE_URL")).hostname.split(".")[0],
+          retention_requirement_days: retentionDays,
           event,
         };
         const payload = stableStringify(envelope);

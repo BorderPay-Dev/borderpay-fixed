@@ -34,11 +34,11 @@ Deno.test('SCA dynamic link changes when amount, payee, operation resource, or i
   assert(original !== await scaPayloadHash('yellowcard_transaction', base), 'resource change must invalidate authorization');
 });
 
-Deno.test('Bridge SCA attestation uses the exact enum-string contract', () => {
+Deno.test('Bridge SCA attestation uses the corrected nested-outcome contract', () => {
   const web = bridgeScaInitiation('other');
   assert(web.channel === 'other', 'web channel must be other');
   assert(web.subchannel === 'remote', 'Bridge digital transfers must be remote');
-  assert(web.attestations.sca === 'sca_used', 'SCA must be the enum string, not an object');
+  assert(web.attestations.sca.outcome === 'sca_used', 'SCA outcome must use Bridge\'s corrected nested shape');
   const mobile = bridgeScaInitiation('other_mobile_payment');
   assert(mobile.channel === 'other_mobile_payment', 'native channel must be other_mobile_payment');
   let rejected = false;
@@ -63,15 +63,15 @@ Deno.test('the raw classifier never guesses that unknown residency is EEA', () =
   }
 });
 
-Deno.test('business residency is authoritative over the base profile', async () => {
+Deno.test('current Bridge-derived EEA scope is authoritative', async () => {
   const db = {
     from(table: string) {
-      const result = table === 'user_profiles'
-        ? { data: { id: 'user-1', account_type: 'business', country: 'KE', kyc_status: 'approved', bridge_kyc_status: 'approved' }, error: null }
-        : { data: { country: 'FR', bridge_kyb_status: 'approved' }, error: null };
+      assert(table === 'sca_customer_scopes', 'consumer must read only the provider scope cache');
+      const result = { data: { provider_country: 'FR', sca_required: true, source: 'bridge_customer_api', expires_at: '2099-01-01T00:00:00Z' }, error: null };
       const chain: any = {
         select: () => chain,
         eq: () => chain,
+        gt: () => chain,
         maybeSingle: () => Promise.resolve(result),
       };
       return chain;
@@ -79,15 +79,16 @@ Deno.test('business residency is authoritative over the base profile', async () 
     rpc: () => Promise.resolve({ data: null, error: null }),
   };
   const result = await resolveScaResidencyRequirement(db, 'user-1');
-  assert(result.required && result.country === 'FR', 'business profile country must control business residency');
+  assert(result.required && result.country === 'FR', 'current Bridge-derived scope must control residency');
 });
 
-Deno.test('legacy profile lookup errors remain unknown rather than guessed EEA', async () => {
+Deno.test('provider scope lookup errors remain unknown rather than guessed EEA', async () => {
   const db = {
     from() {
       const chain: any = {
         select: () => chain,
         eq: () => chain,
+        gt: () => chain,
         maybeSingle: () => Promise.resolve({ data: null, error: { code: 'lookup_failed' } }),
       };
       return chain;
@@ -98,17 +99,16 @@ Deno.test('legacy profile lookup errors remain unknown rather than guessed EEA',
   assert(!result.required && result.reason === 'residency_unknown', 'lookup errors must not classify a user as verified EEA');
 });
 
-Deno.test('SCA is limited to verified EEA users', async () => {
+Deno.test('current Bridge-derived non-EEA scope bypasses SCA', async () => {
   const db = {
     from(table: string) {
-      const result = table === 'user_profiles'
-        ? { data: { id: 'user-1', account_type: 'business', country: 'FR', kyc_status: 'approved', bridge_kyc_status: 'approved' }, error: null }
-        : { data: { country: 'France', bridge_kyb_status: 'under_review' }, error: null };
-      const chain: any = { select: () => chain, eq: () => chain, maybeSingle: () => Promise.resolve(result) };
+      assert(table === 'sca_customer_scopes', 'consumer must read only the provider scope cache');
+      const result = { data: { provider_country: 'KE', sca_required: false, source: 'bridge_customer_api', expires_at: '2099-01-01T00:00:00Z' }, error: null };
+      const chain: any = { select: () => chain, eq: () => chain, gt: () => chain, maybeSingle: () => Promise.resolve(result) };
       return chain;
     },
     rpc: () => Promise.resolve({ data: null, error: null }),
   };
   const result = await resolveScaResidencyRequirement(db, 'user-1');
-  assert(!result.required && result.reason === 'verification_not_approved', 'unverified EEA users must not enter the SCA flow');
+  assert(!result.required && result.reason === 'non_eea_resident', 'Bridge-derived non-EEA users must bypass SCA');
 });

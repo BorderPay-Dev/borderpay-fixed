@@ -151,7 +151,16 @@ Deno.serve(async (req) => {
     .eq("event_type", "authorization_failed")
     .gte("created_at", recentCutoff);
   if (rateError) return json({ success: false, code: "sca_unavailable", error: "Strong authentication is temporarily unavailable." }, 503);
-  if ((count || 0) >= 5) return json({ success: false, code: "sca_locked", error: "Too many failed attempts. Try again later." }, 429);
+  if ((count || 0) >= 5) {
+    await supabase.from("sca_audit_events").insert({
+      user_id: user.id,
+      event_type: "authorization_locked",
+      operation: typeof body.operation === "string" ? body.operation : null,
+      resource: typeof body.resource === "string" ? body.resource : null,
+      reason: "five_failures_within_fifteen_minutes",
+    });
+    return json({ success: false, code: "sca_locked", error: "Too many failed attempts. Try again later." }, 429);
+  }
 
   // Verify knowledge first. Do not consume a valid one-time TOTP when the PIN
   // is wrong; that creates a needless lockout and weakens retry semantics.
