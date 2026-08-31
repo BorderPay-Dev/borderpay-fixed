@@ -1,7 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
-import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -22,6 +21,28 @@ function constantTimeEqual(left: string, right: string): boolean {
   const length = Math.max(a.length, b.length);
   for (let i = 0; i < length; i += 1) mismatch |= (a[i % Math.max(a.length, 1)] ?? 0) ^ (b[i % Math.max(b.length, 1)] ?? 0);
   return mismatch === 0;
+}
+
+async function bridgeRequest(method: "GET" | "DELETE", path: string) {
+  const apiKey = String(Deno.env.get("BRIDGE_FEE_API_KEY") || Deno.env.get("BRIDGE_API_KEY") || "");
+  if (!apiKey) return { ok: false, status: 0, request_id: null, error: "Bridge API key missing" };
+  try {
+    const response = await fetch(`https://api.bridge.xyz${path}`, {
+      method,
+      headers: { "Api-Key": apiKey, Accept: "application/json", "User-Agent": "borderpay-edge/1.0" },
+    });
+    const raw = await response.text();
+    let parsed: Record<string, unknown> = {};
+    try { parsed = raw ? JSON.parse(raw) : {}; } catch { /* keep redacted fallback */ }
+    return {
+      ok: response.ok,
+      status: response.status,
+      request_id: response.headers.get("x-request-id") || response.headers.get("request-id"),
+      error: String(parsed.message || parsed.error || (response.ok ? "" : `HTTP ${response.status}`)),
+    };
+  } catch (error) {
+    return { ok: false, status: 0, request_id: null, error: String((error as Error).message || "Bridge request failed") };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -46,14 +67,13 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON" }, 400);
   }
   const action = String(body.action || "audit").toLowerCase();
-  if (!new Set(["audit", "deactivate"]).has(action)) {
-    return json({ success: false, error: "action must be audit or deactivate" }, 400);
+  if (!new Set(["audit", "verify", "deactivate"]).has(action)) {
+    return json({ success: false, error: "action must be audit, verify, or deactivate" }, 400);
   }
   const limit = Math.max(1, Math.min(Number(body.limit || 25), 50));
   const { data: wallets, error } = await supa
     .from("external_wallets")
     .select("id,user_id,bridge_payment_route_id,bridge_payment_route_status,created_at")
-    .eq("status", "active")
     .eq("asset", "USDC")
     .eq("chain", "base")
     .not("bridge_payment_route_id", "is", null)
@@ -77,11 +97,12 @@ Deno.serve(async (req) => {
       results.push({ wallet_id: walletId, route_id: routeId, result: "blocked", reason: identity.ok ? "missing_bridge_customer" : identity.failure.reason });
       continue;
     }
-    const response = await bridgeFetch({
-      method: "DELETE",
-      path: `/v0/customers/${encodeURIComponent(identity.context.bridge_customer_id)}/liquidation_addresses/${encodeURIComponent(routeId)}`,
-      retryable: false,
-    });
+    const path = `/v0/customers/${encodeURIComponent(identity.context.bridge_customer_id)}/liquidation_addresses/${encodeURIComponent(routeId)}`;
+    const response = await bridgeRequest(action === "verify" ? "GET" : "DELETE", path);
+    if (action === "verify") {
+      results.push({ wallet_id: walletId, route_id: routeId, result: response.ok ? "authenticated" : "provider_error", status: response.status, request_id: response.request_id || null, error: response.error || null });
+      continue;
+    }
     if (!response.ok && response.status !== 404) {
       results.push({ wallet_id: walletId, route_id: routeId, result: "provider_error", status: response.status, request_id: response.request_id || null, error: response.error || "Bridge deletion failed" });
       continue;
