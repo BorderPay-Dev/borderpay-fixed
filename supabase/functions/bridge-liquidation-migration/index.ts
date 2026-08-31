@@ -67,8 +67,8 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON" }, 400);
   }
   const action = String(body.action || "audit").toLowerCase();
-  if (!new Set(["audit", "verify", "deactivate"]).has(action)) {
-    return json({ success: false, error: "action must be audit, verify, or deactivate" }, 400);
+  if (!new Set(["audit", "verify", "deactivate", "retire_local"]).has(action)) {
+    return json({ success: false, error: "action must be audit, verify, deactivate, or retire_local" }, 400);
   }
   const limit = Math.max(1, Math.min(Number(body.limit || 25), 50));
   const { data: wallets, error } = await supa
@@ -80,6 +80,26 @@ Deno.serve(async (req) => {
     .order("created_at", { ascending: true })
     .limit(limit);
   if (error) return json({ success: false, error: error.message }, 500);
+
+  if (action === "retire_local") {
+    const activeIds = (wallets || [])
+      .filter((wallet) => String(wallet.bridge_payment_route_status || "").toLowerCase() !== "retired_locally_direct_transfer")
+      .map((wallet) => String(wallet.id || ""))
+      .filter(Boolean);
+    if (activeIds.length === 0) return json({ success: true, action, matched: 0, retired: 0, has_more: false });
+    const { data: retired, error: retireError } = await supa
+      .from("external_wallets")
+      .update({
+        status: "removed",
+        bridge_payment_route_status: "retired_locally_direct_transfer",
+        bridge_payment_route_error: "Bridge API has no liquidation-address deletion operation; route is blocked inside BorderPay.",
+      })
+      .in("id", activeIds)
+      .eq("status", "active")
+      .select("id");
+    if (retireError) return json({ success: false, error: retireError.message }, 500);
+    return json({ success: true, action, matched: activeIds.length, retired: (retired || []).length, has_more: (retired || []).length === limit });
+  }
 
   const results: Array<Record<string, unknown>> = [];
   for (const wallet of wallets || []) {
