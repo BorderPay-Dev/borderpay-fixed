@@ -303,20 +303,6 @@ function displayMoneyCurrency(currency: string) {
   return c === 'USDC' || c === 'USDT' ? 'USD' : c;
 }
 
-function routeDeveloperFeePercent(wallet: ExternalWallet | null | undefined): number {
-  const raw = wallet?.bridge_payment_route_raw;
-  const candidates = [
-    raw?.developer_fee_percent,
-    raw?.payment_route?.developer_fee_percent,
-    raw?.features?.developer_fee_percent,
-  ];
-  for (const value of candidates) {
-    const num = Number(value);
-    if (Number.isFinite(num) && num >= 0) return num;
-  }
-  return 0;
-}
-
 function formatDisplayMoney(amount: number, currency: string, options?: Intl.NumberFormatOptions) {
   return formatMoney(amount, displayMoneyCurrency(currency), options);
 }
@@ -875,8 +861,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (!num || num <= 0) return null;
     if (isAfricanPayout) return null;
     if (method === 'stablecoin') {
-      const feePercent = routeDeveloperFeePercent(selectedCryptoExternalWallet);
-      const totalFee = feePercent > 0 ? (num * feePercent) / 100 : 0;
+      const feePercent = 0;
+      const totalFee = 0;
       const free = computePayoutFee({ corridor: 'stablecoin', accountType, amount: num, passThroughCost: 0 });
       return {
         ...free,

@@ -6,7 +6,7 @@ Guards the money-math invariants for the BorderPay fee schedule:
 
   F1  Edge canonical schedule exists with the Bridge developer-fee rates
       (virtual-account fiat individual 3.0%, business 3.0%,
-      external-account off-ramp 1.0%, crypto-to-crypto saved route 1.0%;
+      external-account off-ramp 1.0%, crypto-to-crypto saved route 0.0%;
       same-token crypto payout 0.0%).
       USDT 0.999 is a fixed trade rate, not a developer fee.
   F2  Edge African payout markup is 2% for every individual and business plan.
@@ -60,7 +60,7 @@ DEV_FEE = {
     "virtual_account_fiat_individual": 3.0,
     "virtual_account_fiat_business": 3.0,
     "external_account_offramp": 1.0,
-    "crypto_to_crypto_route": 1.0,
+    "crypto_to_crypto_route": 0.0,
     "crypto_to_crypto_payout": 0.0,
 }
 FIXED_TRADE_RATE = {"USDT": 0.999}
@@ -170,7 +170,7 @@ if failures:
     sys.exit(1)
 
 print(f"FEE SCHEDULE AUDIT: PASS ({total}/{total})")
-print("  ✓ F1 edge Bridge dev fee 3.0% all VAs / 1.0% external-account off-ramp / 1.0% crypto saved route / 0.0% same-token crypto payout; 0.999 USDT fixed rate is separate")
+print("  ✓ F1 edge Bridge dev fee 3.0% all VAs / 1.0% external-account off-ramp / 0.0% crypto payout; 0.999 USDT fixed rate is separate")
 print("  ✓ F2 edge African payout markup tiers (1.0/0.75 starter, 0.5 premium/growth/ent)")
 print("  ✓ F3 frontend mirror numbers identical to edge")
 print("  ✓ F4 bridge-transfer and external-wallet enforce correct Bridge fee parameters")

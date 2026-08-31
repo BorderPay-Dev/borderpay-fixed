@@ -16,7 +16,7 @@
  *         - Individual: 3.0%
  *         - Business:   3.0%
  *       • External-account fiat off-ramp developer fee: 1.0%
- *       • Crypto-to-crypto saved route developer fee: 1.0%
+ *       • Crypto-to-crypto saved route developer fee: 0.0%
  *       • Same-token crypto external-wallet payout: 0.0%
  *         Bridge rejects developer_fee on USDC->USDC / USDT->USDT wallet payouts.
  *
@@ -38,7 +38,7 @@ export const BRIDGE_DEVELOPER_FEE_PERCENT = {
   virtual_account_fiat_individual: 3.0,
   virtual_account_fiat_business:   3.0,
   external_account_offramp:        1.0,
-  crypto_to_crypto_route:          1.0,
+  crypto_to_crypto_route:          0.0,
   crypto_to_crypto_payout:         0.0,
 } as const;
 
