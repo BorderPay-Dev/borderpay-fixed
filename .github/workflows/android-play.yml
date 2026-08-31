@@ -6,7 +6,7 @@ on:
       app_version:
         description: "Marketing version shown in Google Play"
         required: true
-        default: "1.0"
+        default: "1.0.2"
       upload_to_play:
         description: "Upload the signed AAB to Google Play internal track"
         required: true
@@ -59,6 +59,14 @@ jobs:
 
       - name: Type check
         run: npm run type-check
+
+      - name: Verify app-lock navigation regression gates
+        run: |
+          python3 tests/audit/app_lock_audit.py
+          python3 tests/audit/app_lock_no_logout_audit.py
+
+      - name: Verify non-EEA SCA scope regression gate
+        run: python3 tests/audit/non_eea_sca_scope_audit.py
 
       - name: Build web app
         run: npm run build
@@ -133,6 +141,21 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Verify Android deobfuscation mapping
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
+        run: |
+          set -euo pipefail
+          test -s android/app/build/outputs/mapping/release/mapping.txt
+
+      - name: Upload Android deobfuscation mapping
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: borderpay-android-mapping-${{ env.BUILD_NUMBER }}
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Verify Google Play service account
         if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
         run: |
@@ -147,5 +170,6 @@ jobs:
           serviceAccountJsonPlainText: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: ${{ env.PACKAGE_NAME }}
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          mappingFile: android/app/build/outputs/mapping/release/mapping.txt
           track: internal
           status: draft

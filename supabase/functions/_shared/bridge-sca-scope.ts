@@ -51,6 +51,27 @@ export function isBridgeEeaScaCountry(value: unknown): boolean {
 }
 
 /**
+ * Make the cheapest authoritative decision from server-controlled onboarding
+ * data. A verified, explicitly non-EEA profile must never lose account access
+ * because Bridge's profile API is slow or temporarily unavailable. EEA and
+ * missing-country profiles continue to Bridge for confirmation.
+ */
+export function resolveLocalBridgeScaScope(
+  verificationStatus: unknown,
+  countryValue: unknown,
+): BridgeScaScope | null {
+  const verified = String(verificationStatus ?? '').trim().toLowerCase() === 'approved';
+  const country = normalizeBridgeScaCountry(countryValue);
+  if (!verified) {
+    return { required: false, status: "not_required", reason: "not_verified", country, verified: false, has_custodial_wallet: null };
+  }
+  if (country && !BRIDGE_EEA_SCA_COUNTRIES.has(country)) {
+    return { required: false, status: "not_required", reason: "non_eea", country, verified: true, has_custodial_wallet: null };
+  }
+  return null;
+}
+
+/**
  * Resolve SCA scope from authoritative server-side identity and Bridge data.
  * Browser country/profile metadata is never accepted as authority.
  */
@@ -70,20 +91,16 @@ export async function resolveBridgeScaScope(
     };
   }
 
-  const { bridge_customer_id: customerId, verification_status: verificationStatus } = identity.context;
-  const verified = verificationStatus === "approved";
-  if (!verified) {
-    return { required: false, status: "not_required", reason: "not_verified", country: null, verified, has_custodial_wallet: null };
-  }
+  const { bridge_customer_id: customerId, verification_status: verificationStatus, country: localCountry } = identity.context;
+  const localDecision = resolveLocalBridgeScaScope(verificationStatus, localCountry);
+  if (localDecision) return localDecision;
+  const verified = true;
   if (!customerId) {
     return { required: false, status: "unknown", reason: "no_bridge_customer", country: null, verified, has_custodial_wallet: null };
   }
 
   try {
-    const [customer, wallets] = await Promise.all([
-      bridgeProvider.getCustomerProfile(customerId),
-      bridgeProvider.listWallets(customerId),
-    ]);
+    const customer = await bridgeProvider.getCustomerProfile(customerId);
     const country = normalizeBridgeScaCountry(customer.country);
     if (!country) {
       return { required: false, status: "unknown", reason: "bridge_scope_unavailable", country: null, verified, has_custodial_wallet: null };
@@ -91,6 +108,7 @@ export async function resolveBridgeScaScope(
     if (!BRIDGE_EEA_SCA_COUNTRIES.has(country)) {
       return { required: false, status: "not_required", reason: "non_eea", country, verified, has_custodial_wallet: null };
     }
+    const wallets = await bridgeProvider.listWallets(customerId);
     const hasCustodialWallet = wallets.some((wallet) => Boolean(wallet.wallet_id));
     if (!hasCustodialWallet) {
       return { required: false, status: "not_required", reason: "no_custodial_wallet", country, verified, has_custodial_wallet: false };

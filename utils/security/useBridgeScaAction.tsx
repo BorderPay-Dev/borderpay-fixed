@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { backendAPI } from '../api/backendAPI';
+import { isNativeRuntime } from '../native/mobileRuntime';
 import { SCAChallengeDialog } from '../../components/security/SCAChallengeDialog';
 
 type Operation = 'wallet_access' | 'payment' | 'beneficiary_change' | 'security_change';
@@ -21,6 +22,7 @@ export function useBridgeScaAction() {
   const rejecter = useRef<((reason: Error) => void) | null>(null);
 
   const authorize = useCallback(async (challenge: PendingChallenge): Promise<string> => {
+    if (isNativeRuntime()) return '';
     const scope: any = await backendAPI.auth.getScaScope();
     if (!scope?.success || !scope?.data) throw new Error('Strong-authentication scope could not be verified. Nothing was changed.');
     if (scope.data.required !== true) return '';

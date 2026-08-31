@@ -12,6 +12,7 @@ import { Lock, Fingerprint, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { supabase } from '../../utils/supabase/client';
 
 import {
   InputOTP,
@@ -77,6 +78,31 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     setBiometricAvailable(Boolean(supported && (serverEnrolled || BiometricManager.isEnrolled(userId))));
   };
 
+  // A persisted app lock may outlive the short-lived access token. Restore the
+  // authenticated session before invoking server-backed PIN/WebAuthn checks;
+  // this never unlocks the UI by itself.
+  const restoreLockedSession = async (): Promise<boolean> => {
+    const existing = localStorage.getItem('borderpay_token');
+    if (existing) {
+      try {
+        const encodedPayload = existing.split('.')[1];
+        const normalized = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+        const payload = JSON.parse(atob(padded));
+        if (Number(payload?.exp || 0) * 1000 > Date.now() + 30_000) return true;
+      } catch { /* malformed or stale token: refresh below */ }
+      localStorage.removeItem('borderpay_token');
+    }
+
+    const refreshToken = localStorage.getItem('borderpay_refresh_token');
+    if (!refreshToken) return false;
+    const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (refreshError || !data.session) return false;
+    localStorage.setItem('borderpay_token', data.session.access_token);
+    localStorage.setItem('borderpay_refresh_token', data.session.refresh_token);
+    return true;
+  };
+
   const handlePinChange = async (value: string) => {
     setPin(value);
     setError('');
@@ -84,6 +110,11 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     if (value.length === 6) {
       setVerifying(true);
       try {
+        if (!(await restoreLockedSession())) {
+          setPin('');
+          setError('Session expired. Sign in again to unlock BorderPay.');
+          return;
+        }
         const result = await PINManager.verifyAppUnlockPINResult(userId, value);
         if (result.success) {
           setAttempts(0);
@@ -121,6 +152,10 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     setError('');
 
     try {
+      if (!(await restoreLockedSession())) {
+        setError('Session expired. Sign in again to unlock BorderPay.');
+        return;
+      }
       const result = await BiometricManager.verify(userId);
       if (result.success) {
         onUnlock();
@@ -136,7 +171,7 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
 
   return (
     <div
-      className="fixed inset-0 bg-[#0B0E11] flex flex-col overflow-hidden"
+      className="fixed inset-0 z-[1000] bg-[#0B0E11] flex flex-col overflow-hidden"
       style={{ minHeight: 'var(--app-height)', height: 'var(--app-height)' }}
     >
       <div className="glass-gradient-bg" />

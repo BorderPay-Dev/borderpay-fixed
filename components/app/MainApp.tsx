@@ -64,6 +64,7 @@ import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
 import { canDiscoverAfricanRails } from '../../utils/africanRailsAccess';
 import { isBridgeAccountPaused } from '../../utils/bridgeAccountStatus';
 import { initializeNativePush } from '../../utils/notifications/nativePush';
+import { isNativeRuntime } from '../../utils/native/mobileRuntime';
 import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -436,6 +437,10 @@ type StablecoinConfirmData = {
 };
 
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
+  // Bridge has not approved the native SCA implementation yet. Keep the
+  // account-access challenge web-only so App Store/Play builds cannot strand
+  // customers behind an unavailable regulatory flow.
+  const bridgeScaUiEnabled = !isNativeRuntime();
   const africanRailsProfile = authAPI.getStoredUser() as any;
   const africanRailsDiscoveryAllowed = canDiscoverAfricanRails({
     id: userId || africanRailsProfile?.id,
@@ -456,7 +461,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       : ['dashboard', initialScreenFromCallback],
   );
   const [refreshKey, setRefreshKey] = useState(0);
-  const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>('loading');
+  const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>(
+    bridgeScaUiEnabled ? 'loading' : 'not_required',
+  );
   const [scaCountry, setScaCountry] = useState<string | null>(null);
   const [walletAccessUntil, setWalletAccessUntil] = useState(0);
   const [scaDialogOpen, setScaDialogOpen] = useState(false);
@@ -477,6 +484,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   const refreshScaScope = useCallback(async () => {
+    if (!bridgeScaUiEnabled) {
+      setScaScope('not_required');
+      setScaCountry(null);
+      return;
+    }
     setScaScope('loading');
     try {
       const response: any = await backendAPI.auth.getScaScope();
@@ -489,7 +501,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     } catch {
       setScaScope('unknown');
     }
-  }, []);
+  }, [bridgeScaUiEnabled]);
 
   useEffect(() => { void refreshScaScope(); }, [refreshScaScope]);
 
@@ -1024,7 +1036,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   const renderScreen = () => {
     const isBusinessAccount = accountType === 'business' || hasBusinessAccountCached();
-    const protectedAccountAccess = BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS.has(currentScreen);
+    const protectedAccountAccess = bridgeScaUiEnabled && BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS.has(currentScreen);
     const accessGranted = walletAccessUntil > Date.now();
     if (protectedAccountAccess && scaScope !== 'not_required' && !accessGranted) {
       if (scaScope === 'loading') {
@@ -1304,7 +1316,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       </div>
 
       <SCAChallengeDialog
-        open={scaDialogOpen}
+        open={bridgeScaUiEnabled && scaDialogOpen}
         title="Unlock financial information"
         description="Confirm with your account password and authenticator code. Access lasts five minutes."
         operation="wallet_access"

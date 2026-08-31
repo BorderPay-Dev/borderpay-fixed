@@ -6,11 +6,11 @@ on:
       app_version:
         description: "Marketing version shown in App Store Connect"
         required: true
-        default: "1.0"
+        default: "1.0.2"
       build_number:
-        description: "App Store build number. Must be 34 or higher."
+        description: "App Store build number. Must be 42 or higher."
         required: true
-        default: "34"
+        default: "42"
       upload_to_testflight:
         description: "Upload the signed IPA to TestFlight"
         required: true
@@ -72,6 +72,14 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Verify app-lock navigation regression gates
+        run: |
+          python3 tests/audit/app_lock_audit.py
+          python3 tests/audit/app_lock_no_logout_audit.py
+
+      - name: Verify non-EEA SCA scope regression gate
+        run: python3 tests/audit/non_eea_sca_scope_audit.py
+
       - name: Build web app
         run: npm run build
 
@@ -88,8 +96,8 @@ jobs:
             echo "Build number must be a positive integer, got: $BUILD_NUMBER" >&2
             exit 1
           fi
-          if [ "$BUILD_NUMBER" -le 33 ]; then
-            echo "Build number must be 34 or higher, got: $BUILD_NUMBER" >&2
+          if [ "$BUILD_NUMBER" -le 41 ]; then
+            echo "Build number must be 42 or higher, got: $BUILD_NUMBER" >&2
             exit 1
           fi
           echo "number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"

@@ -41,6 +41,7 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { canDiscoverAfricanRails } from '../../utils/africanRailsAccess';
 import { buildReceiptPdf } from '../../utils/receipts/buildReceiptPdf';
 import { exportReceiptPdf } from '../../utils/receipts/exportReceiptPdf';
+import { isNativeRuntime } from '../../utils/native/mobileRuntime';
 import {
   hasFreshAfricanPolicyRows,
   loadAfricanPolicyRows,
@@ -1051,6 +1052,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const hasAnyAuthFactor = hasPinFactor;
 
   useEffect(() => {
+    if (isNativeRuntime()) {
+      setBridgeScaScope('not_required');
+      return;
+    }
     let cancelled = false;
     backendAPI.auth.getScaScope().then((result: any) => {
       if (cancelled) return;
