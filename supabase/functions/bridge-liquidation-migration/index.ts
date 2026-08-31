@@ -25,7 +25,7 @@ function constantTimeEqual(left: string, right: string): boolean {
 
 async function bridgeRequest(method: "GET" | "DELETE", path: string) {
   const apiKey = String(Deno.env.get("BRIDGE_FEE_API_KEY") || Deno.env.get("BRIDGE_API_KEY") || "");
-  if (!apiKey) return { ok: false, status: 0, request_id: null, error: "Bridge API key missing" };
+  if (!apiKey) return { ok: false, status: 0, request_id: null, error: "Bridge API key missing", state: "", custom_developer_fee_percent: null, global_developer_fee_percent: null };
   try {
     const response = await fetch(`https://api.bridge.xyz${path}`, {
       method,
@@ -39,9 +39,12 @@ async function bridgeRequest(method: "GET" | "DELETE", path: string) {
       status: response.status,
       request_id: response.headers.get("x-request-id") || response.headers.get("request-id"),
       error: String(parsed.message || parsed.error || (response.ok ? "" : `HTTP ${response.status}`)),
+      state: String(parsed.state || parsed.status || ""),
+      custom_developer_fee_percent: parsed.custom_developer_fee_percent ?? null,
+      global_developer_fee_percent: parsed.global_developer_fee_percent ?? null,
     };
   } catch (error) {
-    return { ok: false, status: 0, request_id: null, error: String((error as Error).message || "Bridge request failed") };
+    return { ok: false, status: 0, request_id: null, error: String((error as Error).message || "Bridge request failed"), state: "", custom_developer_fee_percent: null, global_developer_fee_percent: null };
   }
 }
 
@@ -67,8 +70,8 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "Invalid JSON" }, 400);
   }
   const action = String(body.action || "audit").toLowerCase();
-  if (!new Set(["audit", "verify", "deactivate", "retire_local"]).has(action)) {
-    return json({ success: false, error: "action must be audit, verify, deactivate, or retire_local" }, 400);
+  if (!new Set(["audit", "verify", "deactivate", "retire_local", "restore_local"]).has(action)) {
+    return json({ success: false, error: "action must be audit, verify, deactivate, retire_local, or restore_local" }, 400);
   }
   const limit = Math.max(1, Math.min(Number(body.limit || 25), 50));
   const { data: wallets, error } = await supa
@@ -118,9 +121,48 @@ Deno.serve(async (req) => {
       continue;
     }
     const path = `/v0/customers/${encodeURIComponent(identity.context.bridge_customer_id)}/liquidation_addresses/${encodeURIComponent(routeId)}`;
-    const response = await bridgeRequest(action === "verify" ? "GET" : "DELETE", path);
+    const response = await bridgeRequest(action === "verify" || action === "restore_local" ? "GET" : "DELETE", path);
     if (action === "verify") {
       results.push({ wallet_id: walletId, route_id: routeId, result: response.ok ? "authenticated" : "provider_error", status: response.status, request_id: response.request_id || null, error: response.error || null });
+      continue;
+    }
+    if (action === "restore_local") {
+      const feePercent = Number(response.custom_developer_fee_percent ?? response.global_developer_fee_percent);
+      const providerState = String(response.state || "").toLowerCase();
+      const providerUsable = response.ok
+        && !["failed", "removed", "disabled", "inactive", "closed", "deactivated", "canceled", "cancelled"].includes(providerState);
+      if (!providerUsable || !Number.isFinite(feePercent) || feePercent <= 0) {
+        results.push({
+          wallet_id: walletId,
+          route_id: routeId,
+          result: "blocked",
+          status: response.status,
+          provider_state: response.state || null,
+          custom_developer_fee_percent: response.custom_developer_fee_percent,
+          global_developer_fee_percent: response.global_developer_fee_percent,
+          request_id: response.request_id || null,
+          reason: !providerUsable ? (response.error || "provider_route_not_active") : "developer_fee_not_configured",
+        });
+        continue;
+      }
+      const { error: restoreError } = await supa
+        .from("external_wallets")
+        .update({
+          status: "active",
+          bridge_payment_route_status: response.state || "active",
+          bridge_payment_route_error: null,
+        })
+        .eq("id", walletId)
+        .eq("user_id", userId);
+      results.push(restoreError
+        ? { wallet_id: walletId, route_id: routeId, result: "local_error", error: restoreError.message }
+        : {
+            wallet_id: walletId,
+            route_id: routeId,
+            result: "restored",
+            provider_state: response.state || "active",
+            developer_fee_percent: feePercent,
+          });
       continue;
     }
     if (!response.ok && response.status !== 404) {
