@@ -814,36 +814,31 @@ function AppContent() {
   if (appState === 'dashboard' && user?.id) {
     const showAppLock = appLocked && PINManager.hasPIN(user.id);
 
+    if (showAppLock) {
+      return (
+        <AppLockScreen
+          userId={user.id}
+          onUnlock={() => {
+            clearAppLocked();
+            setAppLocked(false);
+            setLockChecked(true);
+          }}
+          onLogout={handleLogout}
+          onForgotPIN={handleNavigateToForgotPin}
+        />
+      );
+    }
+
     return (
       <>
-        {/* Keep MainApp mounted behind the lock surface. Unmounting it resets
-            currentScreen/navigationStack and incorrectly sends the customer
-            to Home after a successful PIN or biometric unlock. */}
-        <div
-          aria-hidden={showAppLock ? true : undefined}
-          style={showAppLock ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
-        >
-          <MainApp
-            userId={user.id}
-            onLogout={handleLogout}
-            onLock={handleLock}
-            newDeviceDetected={newDeviceDetected}
-            onDismissNewDevice={() => setNewDeviceDetected(false)}
-            onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}
-          />
-        </div>
-        {showAppLock && (
-          <AppLockScreen
-            userId={user.id}
-            onUnlock={() => {
-              clearAppLocked();
-              setAppLocked(false);
-              setLockChecked(true);
-            }}
-            onLogout={handleLogout}
-            onForgotPIN={handleNavigateToForgotPin}
-          />
-        )}
+        <MainApp
+          userId={user.id}
+          onLogout={handleLogout}
+          onLock={handleLock}
+          newDeviceDetected={newDeviceDetected}
+          onDismissNewDevice={() => setNewDeviceDetected(false)}
+          onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}
+        />
         {/* Android PWA Install Banner */}
         {showInstallBanner && (
           <div className="fixed bottom-20 left-4 right-4 z-[200] animate-in slide-in-from-bottom duration-300">

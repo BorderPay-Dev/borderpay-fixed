@@ -64,6 +64,7 @@ jobs:
         run: |
           python3 tests/audit/app_lock_audit.py
           python3 tests/audit/app_lock_no_logout_audit.py
+          python3 tests/audit/app_lock_screen_restore_audit.py
 
       - name: Verify non-EEA SCA scope regression gate
         run: python3 tests/audit/non_eea_sca_scope_audit.py

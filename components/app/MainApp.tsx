@@ -214,6 +214,26 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
   }
 }
 
+const lastScreenStorageKey = (userId: string) =>
+  `borderpay_last_screen_v1:${String(userId || '').trim()}`;
+
+function readLastScreen(userId: string): AppScreen {
+  if (!userId) return 'dashboard';
+  try {
+    const stored = sessionStorage.getItem(lastScreenStorageKey(userId));
+    return stored ? canonicalizeScreen(stored) : 'dashboard';
+  } catch {
+    return 'dashboard';
+  }
+}
+
+function writeLastScreen(userId: string, screen: AppScreen): void {
+  if (!userId) return;
+  try {
+    sessionStorage.setItem(lastScreenStorageKey(userId), canonicalizeScreen(screen));
+  } catch { /* session storage can be unavailable in hardened browsers */ }
+}
+
 function getBusinessDisplayName(profile: any): string {
   const businessName = profile?.account_type === 'business' ? (profile?.company_name || 'Business account') : '';
   if (businessName) return businessName;
@@ -452,8 +472,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       const postCallback = sessionStorage.getItem('borderpay_post_callback_screen');
       if (postCallback === 'kyc') return 'kyc';
     } catch { /* noop */ }
-    return 'dashboard';
-  }, []);
+    return readLastScreen(userId);
+  }, [userId]);
   const [currentScreen, setCurrentScreen] = useState<AppScreen>(initialScreenFromCallback);
   const [navigationStack, setNavigationStack] = useState<AppScreen[]>(
     initialScreenFromCallback === 'dashboard'
@@ -773,6 +793,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const raf = window.requestAnimationFrame(() => navPerfMarkFirstPaint(currentScreen));
     return () => window.cancelAnimationFrame(raf);
   }, [currentScreen]);
+
+  useEffect(() => {
+    writeLastScreen(userId, currentScreen);
+  }, [currentScreen, userId]);
 
   useEffect(() => {
     const handler = (e: Event) => {

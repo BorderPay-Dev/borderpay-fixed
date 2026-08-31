@@ -30,10 +30,10 @@ checks = [
         "if (user?.id)" in app and "setAppLocked(true)" in app and "isAppLocked()" in app,
     ),
     (
-        "lock overlays MainApp without unmounting navigation state",
+        "locked state does not keep authenticated MainApp running invisibly",
         "const showAppLock = appLocked" in app
-        and "aria-hidden={showAppLock ? true : undefined}" in app
-        and "{showAppLock && (" in app,
+        and "if (showAppLock)" in app
+        and "aria-hidden={showAppLock ? true : undefined}" not in app,
     ),
     (
         "unlock dismisses lock without routing MainApp",
