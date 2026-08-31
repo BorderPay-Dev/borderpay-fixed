@@ -17,7 +17,7 @@ export const BRIDGE_DEVELOPER_FEE_PERCENT = {
   virtual_account_fiat_individual: 3.0,
   virtual_account_fiat_business:   3.0,
   external_account_offramp:        1.0,
-  crypto_to_crypto_route:          0.0,
+  crypto_to_crypto_route:          1.0,
   crypto_to_crypto_payout:         0.0,
 } as const;
 

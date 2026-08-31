@@ -105,35 +105,6 @@ async function createCryptoRoute(params: {
   if (!sourceWallet?.address) {
     throw new Error("source_wallet_required");
   }
-  if (params.asset === "USDC" && params.chain === "base") {
-    const route = await bridgeProvider.createTransfer({
-      on_behalf_of: params.bridgeCustomerId,
-      source: {
-        payment_rail: "base",
-        currency: "USDC",
-      },
-      destination: {
-        payment_rail: "base",
-        currency: "USDC",
-        address: params.address,
-      },
-      developer_fee: ROUTE_DEVELOPER_FEE_PERCENT > 0
-        ? { percentage: ROUTE_DEVELOPER_FEE_PERCENT }
-        : undefined,
-      features: {
-        flexible_amount: true,
-        static_template: true,
-        allow_any_from_address: true,
-      },
-      idempotency_key: `borderpay:external-wallet-static-template:v1:${params.userId}:${params.asset}:${params.chain}:${params.address}`,
-    });
-    const raw = route.raw && typeof route.raw === "object" ? route.raw as Record<string, unknown> : {};
-    return {
-      routeId: String(raw.id || route.transfer_id || ""),
-      routeStatus: String(raw.state || raw.status || route.state || "awaiting_funds"),
-      routeRaw: route.raw,
-    };
-  }
   const route = await bridgeProvider.createLiquidationAddress({
     customer_id: params.bridgeCustomerId,
     currency: params.asset as StablecoinSymbol,
