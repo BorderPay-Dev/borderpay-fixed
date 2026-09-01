@@ -2,7 +2,8 @@ export type ScaOperation = "wallet_access" | "payment" | "beneficiary_change" | 
 export type BridgeInitiationChannel = "other_mobile_payment" | "other";
 
 // Compile-time release boundary. Production activation remains controlled by
-// the server-only UNIVERSAL_SCA_ENFORCEMENT_ENABLED runtime secret.
+// the server-only BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED runtime secret. This is
+// deliberately provider and residency scoped, not a global login control.
 export const CUSTOMER_SCA_ENFORCEMENT_ENABLED = true;
 
 type ScaDatabaseClient = {
@@ -174,7 +175,7 @@ export async function consumeScaAuthorization(params: {
 
   // Bridge-marked wallets remain blocked until the runtime rollout control is
   // enabled; they must never silently fall through without SCA.
-  if (Deno.env.get("UNIVERSAL_SCA_ENFORCEMENT_ENABLED") !== "true") {
+  if (Deno.env.get("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED") !== "true") {
     return {
       ok: false,
       status: 503,

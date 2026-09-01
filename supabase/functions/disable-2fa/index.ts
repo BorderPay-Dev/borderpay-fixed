@@ -69,7 +69,8 @@ serve(async (req) => {
     if (securityStateError) throw securityStateError;
     // Cancelling an incomplete enrollment cannot require the factor that has
     // not been enabled. Disabling an active factor always requires full SCA.
-    if (securityState?.two_factor_enabled === true) {
+    const replacingActiveFactor = securityState?.two_factor_enabled === true;
+    if (replacingActiveFactor) {
       const sca = await consumeScaAuthorization({
         supabase,
         authorizationId: sca_authorization_id,
@@ -96,6 +97,11 @@ serve(async (req) => {
         two_factor_enc_version: null,
         failed_2fa_attempts: 0,
         two_factor_locked_until: null,
+        sca_recovery_started_at: replacingActiveFactor ? new Date().toISOString() : null,
+        sca_recovery_restricted_until: replacingActiveFactor
+          ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          : null,
+        sca_recovery_reason: replacingActiveFactor ? 'authenticator_replacement' : null,
       })
       .eq('user_id', user.id);
 

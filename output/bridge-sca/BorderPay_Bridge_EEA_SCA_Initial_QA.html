@@ -1,0 +1,234 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  @page{size:A4;margin:18mm 17mm 18mm}body{font:10.2pt/1.5 Inter,Arial,sans-serif;color:#142026;margin:0}h1{font-size:23pt;color:#152126;border-bottom:4px solid #c7ff00;padding-bottom:10px}h2{font-size:15pt;margin-top:24px;break-after:avoid;color:#19333a}h3{font-size:12pt;break-after:avoid}p{margin:7px 0}li{margin:4px 0}code{font:8.5pt ui-monospace,monospace;background:#eef3f3;padding:1px 4px;border-radius:3px}pre{font:8pt/1.45 ui-monospace,monospace;background:#0d1518;color:#e9f3f2;padding:14px;border-radius:8px;white-space:pre-wrap;break-inside:avoid}table{border-collapse:collapse;width:100%;font-size:8.5pt;margin:12px 0}th,td{border:1px solid #c9d4d5;padding:7px;vertical-align:top}th{background:#dceeee;text-align:left}.screenshots{break-before:page}figure{margin:18px 0 0;display:flex;min-height:225mm;flex-direction:column;justify-content:center}figure+figure{break-before:page}figure img{width:100%;border:1px solid #d8e0e0}figcaption{text-align:center;color:#59666b;margin-top:8px;font-size:9pt}strong{font-weight:750}</style></head><body><h1>BorderPay Africa, Inc. - Bridge EEA SCA evidence package</h1>
+<p>Submission type: Initial QA evidence pack</p>
+<p>Prepared: 1 September 2026</p>
+<p>Implementation model: Directly implemented multi-factor authentication</p>
+<p>Status: READY FOR INITIAL QA - production validation remains disabled until Bridge approval</p>
+<p>Authoritative materials reviewed:</p>
+<ul>
+<li>BBSA SCA Requirements and Developer Oversight Process supplied by Bridge;</li>
+<li>SCA Attestation for Bridge Transfers API Requests, August 2026 revision;</li>
+<li>Bridge support clarification that the attestation is one <code>initiation</code> object</li>
+</ul>
+<p>  with <code>attestations.sca.outcome</code>; and</p>
+<ul>
+<li>Bridge's evidence-submission instructions supplied through DocSend.</li>
+</ul>
+<h2>1. Scope and control boundary</h2>
+<p>Bridge SCA applies only when both conditions are true:</p>
+<ol>
+<li>the action touches a Bridge custodial wallet; and</li>
+<li>Bridge's authoritative customer record places the verified individual or business in the EEA.</li>
+</ol>
+<p>The EEA scope is EU-27 plus Iceland, Liechtenstein, and Norway. The United Kingdom and Switzerland are excluded. Login is not an SCA-protected action. Fund-in/deposit flows and non-custodial wallets are excluded.</p>
+<p>Protected actions are:</p>
+<ul>
+<li>account access: balances, transaction history, and custodial-wallet details;</li>
+<li>funds-out: payment initiation or withdrawal from a Bridge custodial wallet; and</li>
+<li>sensitive remote actions that can affect fund movement: beneficiary, credential, and relevant wallet-setting changes.</li>
+</ul>
+<p>The server binds the authenticated BorderPay user to one Bridge customer, reads Bridge's customer country, records the provider-derived scope with a bounded lifetime, and fails closed when an in-scope decision cannot be established. Browser-supplied country values are not authoritative.</p>
+<p>Source references:</p>
+<ul>
+<li><code>supabase/functions/sca-authorize/index.ts</code></li>
+<li><code>supabase/functions/_shared/sca.ts</code></li>
+<li><code>supabase/functions/_shared/bridge-identity-invariant.ts</code></li>
+<li><code>supabase/migrations/20260826120000_provider_scoped_sca_financial_reads.sql</code></li>
+<li><code>supabase/migrations/20260826123000_provider_scoped_sca_admin_bypass.sql</code></li>
+<li><code>supabase/migrations/20260831193000_sca_fail_closed_activation.sql</code></li>
+<li><code>supabase/migrations/20260901120000_bridge_eea_sca_controlled_activation.sql</code></li>
+</ul>
+<p>Both the Edge authorization service and database read policies have an</p>
+<p>explicit Bridge-EEA rollout control. It defaults off. Activation is blocked</p>
+<p>until Bridge approves QA, compatible clients are released, and the</p>
+<p>service-role preflight reports zero missing or expired provider scopes.</p>
+<pre>flowchart TD
+  A[Authenticated BorderPay user] --&gt; B[Bind to immutable Bridge customer ID]
+  B --&gt; C[Read Bridge customer verification and country]
+  C --&gt; D{Verified EEA customer?}
+  D -- No --&gt; E[Bridge SCA not required]
+  D -- Unknown/error --&gt; F[Fail closed for protected financial access]
+  D -- Yes --&gt; G{Action touches Bridge custodial wallet?}
+  G -- No --&gt; E
+  G -- Yes --&gt; H[Require Bridge SCA]</pre>
+<h2>2. Authentication factors and independence</h2>
+<p>BorderPay uses two factors from different Bridge-accepted categories:</p>
+<ol>
+<li>Knowledge: a six-digit transaction PIN, verified server-side against the separately stored salted PIN verifier.</li>
+<li>Possession: RFC 6238 TOTP from an independently enrolled authenticator application, verified server-side with replay protection.</li>
+</ol>
+<p>Email OTP, magic links, IP address, device fingerprint, and two knowledge factors are not accepted as the possession factor. The user's normal login is not treated as completion of the Bridge SCA event.</p>
+<p>Factor independence:</p>
+<ul>
+<li>The PIN is selected by the customer and is not derived from the TOTP secret.</li>
+<li>The TOTP seed is generated during authenticator enrollment and is not disclosed by possession of the PIN.</li>
+<li>PIN verification completes before TOTP verification, preventing a valid one-time TOTP from being consumed after a wrong PIN.</li>
+<li>A stored TOTP counter prevents replay of an accepted code.</li>
+<li>Neither PIN nor TOTP values enter the authorization payload hash or audit record.</li>
+</ul>
+<p>Source references:</p>
+<ul>
+<li><code>supabase/functions/sca-authorize/index.ts</code></li>
+<li><code>supabase/functions/verify-pin/index.ts</code></li>
+<li><code>supabase/functions/verify-2fa/index.ts</code></li>
+<li><code>supabase/migrations/20260821170000_universal_sca_authorizations.sql</code></li>
+</ul>
+<h2>3. User journey and enforcement points</h2>
+<p>For an in-scope action, the user sees the exact action context, enters the transaction PIN, and then enters the authenticator code. The server verifies both factors and issues a short-lived, user-bound, operation-bound authorization. The protected Edge Function atomically consumes that authorization before it calls Bridge.</p>
+<p>An authorization is never created for a failed factor check. It expires within five minutes and can be consumed only once.</p>
+<pre>sequenceDiagram
+  participant U as EEA customer
+  participant C as BorderPay client
+  participant S as SCA authorization service
+  participant F as PIN and TOTP verifiers
+  participant T as Protected transfer service
+  participant B as Bridge API
+  U-&gt;&gt;C: Confirm displayed amount and payee
+  C-&gt;&gt;S: Exact intent plus PIN and TOTP
+  S-&gt;&gt;F: Verify PIN, then replay-protected TOTP
+  F--&gt;&gt;S: Two independent factors verified
+  S--&gt;&gt;C: Short-lived intent-bound authorization ID
+  C-&gt;&gt;T: Same intent plus authorization ID
+  T-&gt;&gt;T: Atomically consume exact authorization
+  T-&gt;&gt;B: Transfer plus SCA initiation attestation
+  B--&gt;&gt;T: Provider response</pre>
+<p>Controlled QA screenshots (each is visibly marked as non-production):</p>
+<ul>
+<li><code>artifacts/bridge-sca-evidence/screenshots/01-account-access-pin.png</code></li>
+<li><code>artifacts/bridge-sca-evidence/screenshots/02-account-access-totp.png</code></li>
+<li><code>artifacts/bridge-sca-evidence/screenshots/03-payment-context.png</code></li>
+<li><code>artifacts/bridge-sca-evidence/screenshots/04-factor-enrollment.png</code></li>
+<li><code>artifacts/bridge-sca-evidence/screenshots/05-non-eea-bypass.png</code></li>
+<li><code>artifacts/bridge-sca-evidence/screenshots/06-fund-in-excluded.png</code></li>
+</ul>
+<p>These captures demonstrate the candidate UI and scope behavior without calling</p>
+<p>Bridge or moving customer funds. A live or production recording will be made</p>
+<p>only in a Bridge-authorized QA window.</p>
+<h2>4. Payment-linked SCA and replay protection</h2>
+<p>The authorization hash is SHA-256 over a deterministic canonical representation of the operation resource and exact request. The canonical transfer intent includes the amount, destination/payee, source, destination rail, currency, and idempotency key. Credential fields and the authorization ID are excluded.</p>
+<p>Changing the amount, payee, operation resource, or idempotency key produces a different hash. The protected transfer function rejects the original authorization and requires a new SCA event. Database consumption is atomic and requires an unexpired, unconsumed authorization whose user, operation, resource, and hash all match.</p>
+<p>Source and test references:</p>
+<ul>
+<li><code>supabase/functions/_shared/sca.ts</code></li>
+<li><code>supabase/functions/bridge-transfer/index.ts</code></li>
+<li><code>supabase/migrations/20260821170000_universal_sca_authorizations.sql</code></li>
+<li><code>tests/universal-sca.test.ts</code></li>
+</ul>
+<p>Captured controlled results are indexed in</p>
+<p><code>artifacts/bridge-sca-evidence/dynamic-linking-test-results.txt</code>. They prove</p>
+<p>that amount, payee, resource and idempotency-key changes produce a different</p>
+<p>authorization hash. Atomic database consumption additionally rejects an</p>
+<p>expired, consumed or mismatched authorization.</p>
+<h2>5. Bridge transfer attestation</h2>
+<p>Bridge support corrected the earlier PDF structure. BorderPay will submit one <code>initiation</code> object with <code>channel</code>, <code>subchannel</code>, and nested <code>attestations.sca.outcome</code>:</p>
+<pre>{
+  "amount": "10.00",
+  "on_behalf_of": "&lt;pseudonymised-customer-id&gt;",
+  "source": { "...": "redacted" },
+  "destination": { "...": "redacted" },
+  "initiation": {
+    "channel": "other",
+    "subchannel": "remote",
+    "attestations": {
+      "sca": {
+        "outcome": "sca_used"
+      }
+    }
+  }
+}</pre>
+<p>For a native mobile initiation, the proposed channel is <code>other_mobile_payment</code>; web uses <code>other</code>; all current BorderPay Bridge flows use <code>remote</code>. BorderPay does not claim an exemption and uses <code>sca_used</code> only after successful authorization consumption.</p>
+<p>Source references:</p>
+<ul>
+<li><code>supabase/functions/_shared/sca.ts</code></li>
+<li><code>supabase/functions/_shared/providers/types.ts</code></li>
+<li><code>supabase/functions/bridge-transfer/index.ts</code></li>
+</ul>
+<p>No production transfer test will be attempted until Bridge authorizes QA.</p>
+<h2>6. Enrollment and recovery</h2>
+<p>An EEA customer cannot complete an SCA-protected action until both the transaction PIN and authenticator factor are enrolled. Removing or replacing an active authenticator is itself a protected security change. Login remains available, but account access, beneficiary changes, and funds-out remain blocked until the two-factor requirement is restored.</p>
+<p>The enrollment capture proves that both factors are required before protected</p>
+<p>access. The approved implementation policy is</p>
+<p><code>docs/BRIDGE_EEA_SCA_RECOVERY_POLICY.md</code>. Password recovery and active-factor</p>
+<p>replacement start a 24-hour server-enforced restriction. Login and fund-in</p>
+<p>remain available; account access, beneficiary changes, funds-out and sensitive</p>
+<p>credential changes remain blocked.</p>
+<h2>7. Logging, retention, and monitoring</h2>
+<p>The application records authorization success, authorization failure, consumption, and rejection with a pseudonymous user identifier, operation, resource, payload hash, reason code, and timestamp. It does not write PINs, TOTP codes or seeds, passwords, biometric templates, private keys, or raw transfer payloads into the SCA audit record.</p>
+<p>Source references:</p>
+<ul>
+<li><code>public.sca_audit_events</code> in <code>supabase/migrations/20260821170000_universal_sca_authorizations.sql</code></li>
+<li>SCA event writes in <code>supabase/functions/sca-authorize/index.ts</code></li>
+<li>atomic consumption events in <code>public.consume_sca_authorization</code></li>
+</ul>
+<p>Credential-free controlled samples are included for:</p>
+<ul>
+<li>successful SCA;</li>
+<li>failed SCA;</li>
+<li>rate-limit/lockout; and</li>
+<li>mismatched or replayed authorization.</li>
+</ul>
+<p>The candidate records an explicit <code>authorization_locked</code> event after five</p>
+<p>failed attempts within fifteen minutes. Unknown or expired provider scope is</p>
+<p>not treated as proof of non-EEA residence: protected customer reads and</p>
+<p>actions fail closed until a current Bridge-derived scope exists.</p>
+<p>The source candidate now exports sanitized SCA audit mutations into BorderPay's hash-chained external-audit delivery ledger. The delivery worker requires independently signed <code>COMPLIANCE</code> object-lock receipts covering at least 1,827 days for SCA records.</p>
+<p>Source references:</p>
+<ul>
+<li><code>supabase/migrations/20260831190000_sca_audit_external_retention.sql</code></li>
+<li><code>supabase/functions/certification-audit-delivery/index.ts</code></li>
+<li><code>supabase/functions/_shared/certification-audit.ts</code></li>
+</ul>
+<p>The tamper-resistance design uses a hash-chained local outbox and an</p>
+<p>independently administered append-only sink. The delivery worker accepts a</p>
+<p>receipt only when its Ed25519 signature, event identity/hash, <code>COMPLIANCE</code></p>
+<p>object-lock mode, and minimum retention of 1,827 days all verify. A real sink</p>
+<p>receipt and delivery-health result will be captured during Bridge-authorized</p>
+<p>QA; no production receipt is fabricated for this initial submission.</p>
+<h2>8. Monitoring and incident response</h2>
+<p>Required monitoring coverage:</p>
+<ul>
+<li>repeated failed SCA attempts;</li>
+<li>unusual authentication rates;</li>
+<li>TOTP replay attempts;</li>
+<li>authorization mismatch/replay;</li>
+<li>provider-scope lookup failures; and</li>
+<li>protected-action availability failures.</li>
+</ul>
+<p>The <code>sca-monitoring</code> worker runs every five minutes, creates deduplicated</p>
+<p>alerts, and forwards them through the logged operator-email path. Its policy</p>
+<p>and response procedure are documented in</p>
+<p><code>docs/BRIDGE_EEA_SCA_MONITORING_AND_INCIDENT_RUNBOOK.md</code>; controlled alert</p>
+<p>samples are included with the evidence artifacts.</p>
+<p>Bridge reporting obligations recorded for the operating procedure:</p>
+<ul>
+<li>suspected or confirmed SCA incident: notify within 24 hours, detailed report within 72 hours, then weekly updates until closure;</li>
+<li>material SCA change: notify within 10 business days;</li>
+<li>new SCA vendor: notify at least 45 calendar days before go-live; and</li>
+<li>quarterly attestation: within 15 business days after quarter-end.</li>
+</ul>
+<p>Named contacts:</p>
+<ul>
+<li>implementation DRI: Mark Ikaba, Founder &amp; CEO, BorderPay Africa, Inc.;</li>
+<li>legal representative for attestations: Mark Ikaba, Founder &amp; CEO;</li>
+<li>SCA incident contact: <code>markikaba@borderpayafrica.com</code>; and</li>
+<li>Bridge incident address: <code>sca-incidents@bridge.xyz</code>.</li>
+</ul>
+<h2>9. Evidence index and completion gate</h2>
+<table><thead><tr><th>Bridge requirement</th><th>Evidence</th><th>Status</th></tr></thead><tbody><tr><td>EEA/custodial scope</td><td>Architecture and source references in section 1</td><td>Ready for review</td></tr><tr><td>Two independent factors</td><td>Independence analysis in section 2</td><td>Ready for review</td></tr><tr><td>Factor sequence</td><td>Controlled QA PIN and TOTP screenshots</td><td>Ready for initial QA</td></tr><tr><td>Dynamic linking</td><td>Source and controlled test results</td><td>Ready for initial QA</td></tr><tr><td>Safe enrollment</td><td>Controlled screenshot and server enforcement</td><td>Ready for initial QA</td></tr><tr><td>Recovery</td><td>24-hour restriction and assisted-recovery policy</td><td>Ready for initial QA</td></tr><tr><td>Successful/failed/lockout logs</td><td>Sanitized controlled samples</td><td>Ready for initial QA</td></tr><tr><td>Five-year tamper-resistant retention</td><td>Hash-chain and signed 1,827-day COMPLIANCE receipt enforcement</td><td>Source ready; real receipt deferred to Bridge-authorized QA</td></tr><tr><td>Monitoring</td><td>Five-minute worker, alerts, tests and incident runbook</td><td>Ready for initial QA</td></tr><tr><td>Correct transfer attestation</td><td>Corrected nested request plus offline test</td><td>Ready; production test prohibited pending approval</td></tr><tr><td>DRI/legal/incident contacts</td><td>Named contacts</td><td>Ready for initial QA</td></tr><tr><td>QA access</td><td>Controlled captures now; test access/recorded live demo after authorization</td><td>Awaiting Bridge QA direction</td></tr></tbody></table>
+<p>This package is complete for Bridge's initial QA review. It deliberately does</p>
+<p>not claim production validation. Production test evidence and the real WORM</p>
+<p>receipt are follow-up QA artifacts that require Bridge authorization and the</p>
+<p>approved test procedure.</p>
+<h2>10. Offline verification</h2>
+<pre>deno test --allow-env tests/universal-sca.test.ts
+deno test tests/bridge-sca-monitoring.test.ts
+python3 tests/audit/universal_sca_audit.py
+python3 tests/audit/bridge_sca_recovery_monitoring_audit.py
+python3 tests/audit/bridge_sca_retention_audit.py
+deno check --node-modules-dir=auto supabase/functions/_shared/sca.ts
+deno check --node-modules-dir=auto supabase/functions/sca-authorize/index.ts
+deno check --node-modules-dir=auto supabase/functions/bridge-transfer/index.ts
+npm run type-check
+git diff --check</pre>
+<p>No production customer, production transfer, or live Bridge SCA test was used</p>
+<p>to create this initial QA package.</p><section class="screenshots"><h1>Controlled QA screenshots</h1><figure><img src="../../artifacts/bridge-sca-evidence/screenshots/01-account-access-pin.png"><figcaption>Controlled QA capture 1: 01 account access pin</figcaption></figure><figure><img src="../../artifacts/bridge-sca-evidence/screenshots/02-account-access-totp.png"><figcaption>Controlled QA capture 2: 02 account access totp</figcaption></figure><figure><img src="../../artifacts/bridge-sca-evidence/screenshots/03-payment-context.png"><figcaption>Controlled QA capture 3: 03 payment context</figcaption></figure><figure><img src="../../artifacts/bridge-sca-evidence/screenshots/04-factor-enrollment.png"><figcaption>Controlled QA capture 4: 04 factor enrollment</figcaption></figure><figure><img src="../../artifacts/bridge-sca-evidence/screenshots/05-non-eea-bypass.png"><figcaption>Controlled QA capture 5: 05 non eea bypass</figcaption></figure><figure><img src="../../artifacts/bridge-sca-evidence/screenshots/06-fund-in-excluded.png"><figcaption>Controlled QA capture 6: 06 fund in excluded</figcaption></figure></section></body></html>

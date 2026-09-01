@@ -21,6 +21,7 @@ type Props = {
 export function SCAChallengeDialog(props: Props) {
   const [pin, setPin] = useState('');
   const [totp, setTotp] = useState('');
+  const [step, setStep] = useState<'knowledge' | 'possession'>('knowledge');
   const [loading, setLoading] = useState(false);
   const requirement = useScaRequirement(props.open);
   const bypassStarted = useRef(false);
@@ -28,6 +29,9 @@ export function SCAChallengeDialog(props: Props) {
   useEffect(() => {
     if (!props.open) {
       bypassStarted.current = false;
+      setPin('');
+      setTotp('');
+      setStep('knowledge');
       return;
     }
     if (requirement !== 'not_required' || bypassStarted.current) return;
@@ -50,9 +54,17 @@ export function SCAChallengeDialog(props: Props) {
     );
   }
 
+  const continueToPossession = () => {
+    if (!/^\d{6}$/.test(pin)) {
+      toast.error('Enter your 6-digit transaction PIN.');
+      return;
+    }
+    setStep('possession');
+  };
+
   const submit = async () => {
-    if (!/^\d{6}$/.test(pin) || !/^\d{6}$/.test(totp)) {
-      toast.error('Enter your transaction PIN and 6-digit authenticator code.');
+    if (!/^\d{6}$/.test(totp)) {
+      toast.error('Enter the 6-digit code from your authenticator app.');
       return;
     }
     setLoading(true);
@@ -70,6 +82,7 @@ export function SCAChallengeDialog(props: Props) {
       }
       setPin('');
       setTotp('');
+      setStep('knowledge');
       await props.onAuthorized(String(result.data.authorization_id));
     } finally {
       setLoading(false);
@@ -86,13 +99,36 @@ export function SCAChallengeDialog(props: Props) {
           </div>
           <button type="button" onClick={props.onCancel} aria-label="Cancel"><X size={20} /></button>
         </div>
-        <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-pin">Transaction PIN</label>
-        <input id="sca-pin" type="password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="off" className="mb-4 w-full rounded-xl border border-white/10 bg-black px-4 py-3" />
-        <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-totp">Authenticator code</label>
-        <input id="sca-totp" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" className="mb-5 w-full rounded-xl border border-white/10 bg-black px-4 py-3 tracking-[0.3em]" />
-        <button type="button" onClick={() => void submit()} disabled={loading} className="w-full rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black disabled:opacity-50">
-          {loading ? 'Verifying…' : 'Verify action'}
-        </button>
+        <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500" aria-label={`Strong authentication step ${step === 'knowledge' ? '1' : '2'} of 2`}>
+          <span className={step === 'knowledge' ? 'text-[#C7FF00]' : 'text-white'}>1. Transaction PIN</span>
+          <span aria-hidden="true">→</span>
+          <span className={step === 'possession' ? 'text-[#C7FF00]' : ''}>2. Authenticator</span>
+        </div>
+        {step === 'knowledge' ? (
+          <>
+            <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-pin">Transaction PIN</label>
+            <input id="sca-pin" type="password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="off" autoFocus className="mb-5 w-full rounded-xl border border-white/10 bg-black px-4 py-3" />
+            <button type="button" onClick={continueToPossession} className="w-full rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black">
+              Continue
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="mb-4 rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-gray-300">
+              Transaction PIN entered. Complete the independent possession check with your authenticator app.
+            </p>
+            <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-totp">Authenticator code</label>
+            <input id="sca-totp" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" autoFocus className="mb-5 w-full rounded-xl border border-white/10 bg-black px-4 py-3 tracking-[0.3em]" />
+            <div className="grid grid-cols-[auto_1fr] gap-2">
+              <button type="button" onClick={() => { setTotp(''); setStep('knowledge'); }} disabled={loading} className="rounded-xl border border-white/10 px-4 py-3 font-semibold text-white disabled:opacity-50">
+                Back
+              </button>
+              <button type="button" onClick={() => void submit()} disabled={loading} className="rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black disabled:opacity-50">
+                {loading ? 'Verifying…' : 'Verify action'}
+              </button>
+            </div>
+          </>
+        )}
         {(props.onSetupPin || props.onSetupTotp) && (
           <div className="mt-3 grid grid-cols-2 gap-2">
             {props.onSetupPin && <button type="button" onClick={props.onSetupPin} className="rounded-xl border border-white/10 px-3 py-2 text-xs">Set up PIN</button>}

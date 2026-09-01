@@ -1051,10 +1051,12 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // PIN & result
   const [pin, setPin] = useState('');
   const [totp, setTotp] = useState('');
+  const [scaFactorStep, setScaFactorStep] = useState<'knowledge' | 'possession'>('knowledge');
   useEffect(() => {
     if (step !== 'pin') {
       setPin('');
       setTotp('');
+      setScaFactorStep('knowledge');
     }
   }, [step]);
   const [snapshotReady, setSnapshotReady] = useState(true);
@@ -3308,30 +3310,43 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </p>
             </div>
 
-            <div className="flex justify-center mb-8">
-              <InputOTP
-                maxLength={6}
-                value={pin}
-                onChange={handlePinComplete}
-                type="password"
-                autoComplete="off"
-                inputMode="numeric"
-                pattern="[0-9]*"
-              >
-                <InputOTPGroup>
-                  <InputOTPSlot index={0} mask />
-                  <InputOTPSlot index={1} mask />
-                  <InputOTPSlot index={2} mask />
-                  <InputOTPSlot index={3} mask />
-                  <InputOTPSlot index={4} mask />
-                  <InputOTPSlot index={5} mask />
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
+            {scaRequired && (
+              <div className={`mb-5 flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] ${tc.textMuted}`} aria-label={`Strong authentication step ${scaFactorStep === 'knowledge' ? '1' : '2'} of 2`}>
+                <span className={scaFactorStep === 'knowledge' ? 'text-[#C7FF00]' : tc.text}>1. Transaction PIN</span>
+                <span aria-hidden="true">→</span>
+                <span className={scaFactorStep === 'possession' ? 'text-[#C7FF00]' : ''}>2. Authenticator</span>
+              </div>
+            )}
+
+            {(!scaRequired || scaFactorStep === 'knowledge') && (
+              <div className="flex justify-center mb-8">
+                <InputOTP
+                  maxLength={6}
+                  value={pin}
+                  onChange={handlePinComplete}
+                  type="password"
+                  autoComplete="off"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                >
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} mask />
+                    <InputOTPSlot index={1} mask />
+                    <InputOTPSlot index={2} mask />
+                    <InputOTPSlot index={3} mask />
+                    <InputOTPSlot index={4} mask />
+                    <InputOTPSlot index={5} mask />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+            )}
 
             <div className="px-5 space-y-3">
-              {scaRequired && (
+              {scaRequired && scaFactorStep === 'possession' && (
                 <>
+                  <p className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3 text-xs ${tc.textSecondary}`}>
+                    Transaction PIN entered. Complete the independent possession check with your authenticator app.
+                  </p>
                   <label className={`block text-xs font-medium ${tc.textSecondary}`} htmlFor="send-totp">
                     Authenticator code
                   </label>
@@ -3346,14 +3361,37 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                   />
                 </>
               )}
-              <button
-                type="button"
-                onClick={() => void authorizeAndProcess()}
-                disabled={transactionAuthorizationRef.current || !/^\d{4,6}$/.test(pin) || (scaRequired && !/^\d{6}$/.test(totp))}
-                className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Verify and send
-              </button>
+              {scaRequired && scaFactorStep === 'knowledge' ? (
+                <button
+                  type="button"
+                  onClick={() => setScaFactorStep('possession')}
+                  disabled={!/^\d{6}$/.test(pin)}
+                  className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Continue to authenticator
+                </button>
+              ) : (
+                <div className={scaRequired ? 'grid grid-cols-[auto_1fr] gap-2' : ''}>
+                  {scaRequired && (
+                    <button
+                      type="button"
+                      onClick={() => { setTotp(''); setScaFactorStep('knowledge'); }}
+                      disabled={transactionAuthorizationRef.current}
+                      className={`rounded-2xl border ${tc.cardBorder} px-4 py-3.5 text-sm font-semibold ${tc.text}`}
+                    >
+                      Back
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void authorizeAndProcess()}
+                    disabled={transactionAuthorizationRef.current || !/^\d{4,6}$/.test(pin) || (scaRequired && !/^\d{6}$/.test(totp))}
+                    className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Verify and send
+                  </button>
+                </div>
+              )}
               {scaRequired && <p className={`text-center text-xs ${tc.textMuted}`}>
                 Biometric unlock may open the app, but EEA money movement requires two server-verified factors.
               </p>}

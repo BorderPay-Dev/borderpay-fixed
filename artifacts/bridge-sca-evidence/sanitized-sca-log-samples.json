@@ -1,0 +1,52 @@
+{
+  "evidence_type": "controlled_offline_samples",
+  "production_data": false,
+  "secrets_present": false,
+  "samples": [
+    {
+      "event_type": "authorization_succeeded",
+      "user_id": "psu_7f8c...redacted",
+      "operation": "payment",
+      "resource": "bridge_transfer:intent_001",
+      "payload_hash": "8f5c2b10...redacted",
+      "reason": null,
+      "created_at": "2026-09-01T08:00:00Z"
+    },
+    {
+      "event_type": "authorization_failed",
+      "user_id": "psu_7f8c...redacted",
+      "operation": "payment",
+      "resource": "bridge_transfer:intent_001",
+      "payload_hash": "8f5c2b10...redacted",
+      "reason": "totp_rejected",
+      "created_at": "2026-09-01T08:01:00Z"
+    },
+    {
+      "event_type": "authorization_locked",
+      "user_id": "psu_7f8c...redacted",
+      "operation": "payment",
+      "resource": "bridge_transfer:intent_001",
+      "payload_hash": null,
+      "reason": "five_failures_within_fifteen_minutes",
+      "created_at": "2026-09-01T08:02:00Z"
+    },
+    {
+      "event_type": "authorization_rejected",
+      "user_id": "psu_7f8c...redacted",
+      "operation": "payment",
+      "resource": "bridge_transfer:intent_001",
+      "payload_hash": "1d19b20e...redacted",
+      "reason": "missing_expired_consumed_or_mismatched",
+      "created_at": "2026-09-01T08:03:00Z"
+    },
+    {
+      "event_type": "recovery_restricted",
+      "user_id": "psu_7f8c...redacted",
+      "operation": "wallet_access",
+      "resource": "wallet_balances",
+      "payload_hash": null,
+      "reason": "password_recovery",
+      "created_at": "2026-09-01T08:04:00Z"
+    }
+  ]
+}

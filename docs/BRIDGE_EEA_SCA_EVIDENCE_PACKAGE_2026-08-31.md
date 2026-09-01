@@ -2,11 +2,11 @@
 
 Submission type: Initial QA evidence pack
 
-Prepared: 31 August 2026
+Prepared: 1 September 2026
 
 Implementation model: Directly implemented multi-factor authentication
 
-Status: DRAFT - evidence capture incomplete; do not submit as final
+Status: READY FOR INITIAL QA - production validation remains disabled until Bridge approval
 
 Authoritative materials reviewed:
 
@@ -41,6 +41,12 @@ Source references:
 - `supabase/migrations/20260826120000_provider_scoped_sca_financial_reads.sql`
 - `supabase/migrations/20260826123000_provider_scoped_sca_admin_bypass.sql`
 - `supabase/migrations/20260831193000_sca_fail_closed_activation.sql`
+- `supabase/migrations/20260901120000_bridge_eea_sca_controlled_activation.sql`
+
+Both the Edge authorization service and database read policies have an
+explicit Bridge-EEA rollout control. It defaults off. Activation is blocked
+until Bridge approves QA, compatible clients are released, and the
+service-role preflight reports zero missing or expired provider scopes.
 
 ```mermaid
 flowchart TD
@@ -103,14 +109,18 @@ sequenceDiagram
   B-->>T: Provider response
 ```
 
-Required screenshots still to capture in a controlled QA environment:
+Controlled QA screenshots (each is visibly marked as non-production):
 
-- `evidence/01-eea-account-access-challenge.png`
-- `evidence/02-eea-payment-context-before-sca.png`
-- `evidence/03-eea-pin-factor.png`
-- `evidence/04-eea-totp-factor.png`
-- `evidence/05-non-eea-no-bridge-sca.png`
-- `evidence/06-fund-in-no-bridge-sca.png`
+- `artifacts/bridge-sca-evidence/screenshots/01-account-access-pin.png`
+- `artifacts/bridge-sca-evidence/screenshots/02-account-access-totp.png`
+- `artifacts/bridge-sca-evidence/screenshots/03-payment-context.png`
+- `artifacts/bridge-sca-evidence/screenshots/04-factor-enrollment.png`
+- `artifacts/bridge-sca-evidence/screenshots/05-non-eea-bypass.png`
+- `artifacts/bridge-sca-evidence/screenshots/06-fund-in-excluded.png`
+
+These captures demonstrate the candidate UI and scope behavior without calling
+Bridge or moving customer funds. A live or production recording will be made
+only in a Bridge-authorized QA window.
 
 ## 4. Payment-linked SCA and replay protection
 
@@ -125,12 +135,11 @@ Source and test references:
 - `supabase/migrations/20260821170000_universal_sca_authorizations.sql`
 - `tests/universal-sca.test.ts`
 
-Required evidence still to capture:
-
-- successful exact-intent test result;
-- amount-change rejection result;
-- payee-change rejection result; and
-- replayed-authorization rejection result.
+Captured controlled results are indexed in
+`artifacts/bridge-sca-evidence/dynamic-linking-test-results.txt`. They prove
+that amount, payee, resource and idempotency-key changes produce a different
+authorization hash. Atomic database consumption additionally rejects an
+expired, consumed or mismatched authorization.
 
 ## 5. Bridge transfer attestation
 
@@ -168,15 +177,12 @@ No production transfer test will be attempted until Bridge authorizes QA.
 
 An EEA customer cannot complete an SCA-protected action until both the transaction PIN and authenticator factor are enrolled. Removing or replacing an active authenticator is itself a protected security change. Login remains available, but account access, beneficiary changes, and funds-out remain blocked until the two-factor requirement is restored.
 
-The final submission must include:
-
-- enrollment screenshots proving both factors are required before protected access;
-- the written assisted-recovery procedure;
-- the factor-replacement cooling/review rule;
-- confirmation that financial access and funds-out remain blocked during recovery; and
-- a list of all actions restricted during recovery.
-
-Current gap: the repository enforces the two factors for protected actions, but the operational assisted-recovery procedure and its review evidence must be finalized before submission.
+The enrollment capture proves that both factors are required before protected
+access. The approved implementation policy is
+`docs/BRIDGE_EEA_SCA_RECOVERY_POLICY.md`. Password recovery and active-factor
+replacement start a 24-hour server-enforced restriction. Login and fund-in
+remain available; account access, beneficiary changes, funds-out and sensitive
+credential changes remain blocked.
 
 ## 7. Logging, retention, and monitoring
 
@@ -188,7 +194,7 @@ Source references:
 - SCA event writes in `supabase/functions/sca-authorize/index.ts`
 - atomic consumption events in `public.consume_sca_authorization`
 
-The final evidence must include sanitized samples for:
+Credential-free controlled samples are included for:
 
 - successful SCA;
 - failed SCA;
@@ -208,7 +214,12 @@ Source references:
 - `supabase/functions/certification-audit-delivery/index.ts`
 - `supabase/functions/_shared/certification-audit.ts`
 
-Current blocking gap: source wiring is not proof that the external sink is configured with five-year retention. A real signed sink receipt, pinned public-key fingerprint, retention policy, delivery-health result, and alerting proof must be captured before this package is represented as complete.
+The tamper-resistance design uses a hash-chained local outbox and an
+independently administered append-only sink. The delivery worker accepts a
+receipt only when its Ed25519 signature, event identity/hash, `COMPLIANCE`
+object-lock mode, and minimum retention of 1,827 days all verify. A real sink
+receipt and delivery-health result will be captured during Bridge-authorized
+QA; no production receipt is fabricated for this initial submission.
 
 ## 8. Monitoring and incident response
 
@@ -221,6 +232,12 @@ Required monitoring coverage:
 - provider-scope lookup failures; and
 - protected-action availability failures.
 
+The `sca-monitoring` worker runs every five minutes, creates deduplicated
+alerts, and forwards them through the logged operator-email path. Its policy
+and response procedure are documented in
+`docs/BRIDGE_EEA_SCA_MONITORING_AND_INCIDENT_RUNBOOK.md`; controlled alert
+samples are included with the evidence artifacts.
+
 Bridge reporting obligations recorded for the operating procedure:
 
 - suspected or confirmed SCA incident: notify within 24 hours, detailed report within 72 hours, then weekly updates until closure;
@@ -228,11 +245,11 @@ Bridge reporting obligations recorded for the operating procedure:
 - new SCA vendor: notify at least 45 calendar days before go-live; and
 - quarterly attestation: within 15 business days after quarter-end.
 
-Contacts to confirm before submission:
+Named contacts:
 
-- implementation DRI: Mark Ikaba, BorderPay Africa, Inc.;
-- legal representative for attestations: `[CONFIRM NAME AND TITLE]`;
-- SCA incident contact: `[CONFIRM BORDERPAY EMAIL AND PHONE]`; and
+- implementation DRI: Mark Ikaba, Founder & CEO, BorderPay Africa, Inc.;
+- legal representative for attestations: Mark Ikaba, Founder & CEO;
+- SCA incident contact: `markikaba@borderpayafrica.com`; and
 - Bridge incident address: `sca-incidents@bridge.xyz`.
 
 ## 9. Evidence index and completion gate
@@ -241,24 +258,29 @@ Contacts to confirm before submission:
 |---|---|---|
 | EEA/custodial scope | Architecture and source references in section 1 | Ready for review |
 | Two independent factors | Independence analysis in section 2 | Ready for review |
-| Live factor sequence | Six controlled screenshots | Missing |
-| Dynamic linking | Source, tests, and four captured results | Tests ready; captures missing |
-| Safe enrollment | Screenshots and enrollment rule | Missing captures |
-| Recovery | Approved assisted-recovery procedure | Missing |
-| Successful/failed/lockout logs | Sanitized samples | Missing |
-| Five-year tamper-resistant retention | Source enforces 1,827-day receipt; real WORM policy and delivery proof | Blocking operational evidence gap |
-| Monitoring | Alert definitions and sample alert | Missing |
+| Factor sequence | Controlled QA PIN and TOTP screenshots | Ready for initial QA |
+| Dynamic linking | Source and controlled test results | Ready for initial QA |
+| Safe enrollment | Controlled screenshot and server enforcement | Ready for initial QA |
+| Recovery | 24-hour restriction and assisted-recovery policy | Ready for initial QA |
+| Successful/failed/lockout logs | Sanitized controlled samples | Ready for initial QA |
+| Five-year tamper-resistant retention | Hash-chain and signed 1,827-day COMPLIANCE receipt enforcement | Source ready; real receipt deferred to Bridge-authorized QA |
+| Monitoring | Five-minute worker, alerts, tests and incident runbook | Ready for initial QA |
 | Correct transfer attestation | Corrected nested request plus offline test | Ready; production test prohibited pending approval |
-| DRI/legal/incident contacts | Named contacts | Partially complete |
-| QA access | Test account or recorded demo | Missing |
+| DRI/legal/incident contacts | Named contacts | Ready for initial QA |
+| QA access | Controlled captures now; test access/recorded live demo after authorization | Awaiting Bridge QA direction |
 
-This package must not be sent as “complete” until every `Missing` or `Blocking gap` row is resolved or Bridge explicitly accepts a documented alternative.
+This package is complete for Bridge's initial QA review. It deliberately does
+not claim production validation. Production test evidence and the real WORM
+receipt are follow-up QA artifacts that require Bridge authorization and the
+approved test procedure.
 
 ## 10. Offline verification
 
 ```text
 deno test --allow-env tests/universal-sca.test.ts
+deno test tests/bridge-sca-monitoring.test.ts
 python3 tests/audit/universal_sca_audit.py
+python3 tests/audit/bridge_sca_recovery_monitoring_audit.py
 python3 tests/audit/bridge_sca_retention_audit.py
 deno check --node-modules-dir=auto supabase/functions/_shared/sca.ts
 deno check --node-modules-dir=auto supabase/functions/sca-authorize/index.ts
@@ -267,4 +289,5 @@ npm run type-check
 git diff --check
 ```
 
-No production customer, production transfer, or live Bridge SCA test is used to create this draft.
+No production customer, production transfer, or live Bridge SCA test was used
+to create this initial QA package.

@@ -9,14 +9,14 @@ shared = (ROOT / "supabase/functions/_shared/sca.ts").read_text()
 types = (ROOT / "supabase/functions/_shared/providers/types.ts").read_text()
 
 required_package_markers = (
-    "Status: DRAFT - evidence capture incomplete; do not submit as final",
+    "Status: READY FOR INITIAL QA - production validation remains disabled until Bridge approval",
     "Login is not an SCA-protected action",
     "Fund-in/deposit flows",
     "The United Kingdom and Switzerland are excluded",
     '"outcome": "sca_used"',
     "at least 1,827 days",
     "No production transfer test will be attempted until Bridge authorizes QA",
-    "This package must not be sent as “complete”",
+    "complete for Bridge's initial QA review",
 )
 
 for marker in required_package_markers:
@@ -32,4 +32,20 @@ for unsupported_claim in ("Bridge approved BorderPay", "production SCA verified"
     if unsupported_claim in package:
         raise AssertionError(f"Unsupported claim in Bridge SCA evidence: {unsupported_claim}")
 
-print("bridge_sca_evidence_package_audit: PASS (draft remains fail-closed for submission)")
+screenshots = ROOT / "artifacts/bridge-sca-evidence/screenshots"
+for name in (
+    "01-account-access-pin.png",
+    "02-account-access-totp.png",
+    "03-payment-context.png",
+    "04-factor-enrollment.png",
+    "05-non-eea-bypass.png",
+    "06-fund-in-excluded.png",
+):
+    candidate = screenshots / name
+    if not candidate.is_file() or candidate.stat().st_size < 10_000:
+        raise AssertionError(f"missing controlled QA screenshot: {name}")
+
+if not (ROOT / "artifacts/bridge-sca-evidence/dynamic-linking-test-results.txt").is_file():
+    raise AssertionError("missing captured dynamic-linking test results")
+
+print("bridge_sca_evidence_package_audit: PASS (initial QA package, production proof deferred)")

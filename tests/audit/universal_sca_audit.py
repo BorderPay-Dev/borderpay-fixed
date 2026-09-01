@@ -30,7 +30,8 @@ require('const totpResult = pinResult.ok' in authorize, 'TOTP must only be consu
 require(r'/^\d{6}$/.test(pin)' in authorize, 'Bridge SCA knowledge factor must require a 6-digit PIN')
 
 shared = text('supabase/functions/_shared/sca.ts')
-require('UNIVERSAL_SCA_ENFORCEMENT_ENABLED' in shared, 'backend enforcement must have a server-controlled mobile rollout gate')
+require('BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED' in shared, 'backend enforcement must have a provider- and residency-scoped rollout gate')
+require('UNIVERSAL_SCA_ENFORCEMENT_ENABLED' not in shared, 'Bridge EEA SCA must not use a global enforcement flag')
 require('resolveScaResidencyRequirement(params.supabase, params.userId)' in shared, 'backend consumption must resolve residency when no provider override exists')
 require('if (!residency.required) return { ok: true, required: false, applied: false }' in shared, 'known non-EEA accounts must bypass the extra SCA layer')
 require('attestations: { sca: { outcome: "sca_used" as const } }' in shared, 'Bridge SCA attestation must use the corrected nested outcome')
@@ -42,6 +43,8 @@ require('"GB"' not in shared.split('const EEA_COUNTRY_CODES', 1)[1].split(']);',
 require('"CH"' not in shared.split('const EEA_COUNTRY_CODES', 1)[1].split(']);', 1)[0], 'Switzerland must not be classified as EEA')
 
 authorize = text('supabase/functions/sca-authorize/index.ts')
+require('BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED' in authorize, 'authorization issuance must use the Bridge EEA rollout gate')
+require('UNIVERSAL_SCA_ENFORCEMENT_ENABLED' not in authorize, 'authorization issuance must not use a global SCA gate')
 require('body.action === "requirement"' in authorize, 'client SCA requirement must come from an authenticated server lookup')
 require('loadAndAssertBridgeIdentityInvariant(supabase, userId)' in authorize, 'issuer must bind the authenticated user to one Bridge customer')
 require('bridgeProvider.getCustomerProfile(customerId)' in authorize, 'Bridge Customer API must be authoritative for EEA residency')

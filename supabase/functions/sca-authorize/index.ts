@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
 
   if (
     !CUSTOMER_SCA_ENFORCEMENT_ENABLED
-    || Deno.env.get("UNIVERSAL_SCA_ENFORCEMENT_ENABLED") !== "true"
+    || Deno.env.get("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED") !== "true"
   ) {
     return json({
       success: true,
@@ -115,6 +115,13 @@ Deno.serve(async (req) => {
     // browser/profile country fields must never determine EEA SCA scope.
     residency = await resolveProviderScaRequirement(supabase, user.id);
   } catch (error) {
+    await supabase.from("sca_audit_events").insert({
+      user_id: user.id,
+      event_type: "scope_unavailable",
+      operation: typeof body.operation === "string" ? body.operation : null,
+      resource: typeof body.resource === "string" ? body.resource : null,
+      reason: "bridge_provider_scope_lookup_failed",
+    });
     console.error("sca_provider_requirement_failed", {
       user_id: user.id,
       error: error instanceof Error ? error.message : "unknown",
@@ -131,6 +138,33 @@ Deno.serve(async (req) => {
 
   if (!residency.required) {
     return json({ success: true, data: { sca_required: false, authorization_id: null } });
+  }
+
+  const { data: recoveryState, error: recoveryStateError } = await supabase
+    .from("user_security")
+    .select("sca_recovery_restricted_until,sca_recovery_reason")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (recoveryStateError) {
+    return json({ success: false, code: "sca_unavailable", error: "Strong authentication is temporarily unavailable." }, 503);
+  }
+  const restrictedUntil = recoveryState?.sca_recovery_restricted_until
+    ? new Date(recoveryState.sca_recovery_restricted_until)
+    : null;
+  if (restrictedUntil && Number.isFinite(restrictedUntil.getTime()) && restrictedUntil.getTime() > Date.now()) {
+    await supabase.from("sca_audit_events").insert({
+      user_id: user.id,
+      event_type: "recovery_restricted",
+      operation: typeof body.operation === "string" ? body.operation : null,
+      resource: typeof body.resource === "string" ? body.resource : null,
+      reason: String(recoveryState?.sca_recovery_reason || "credential_recovery"),
+    });
+    return json({
+      success: false,
+      code: "sca_recovery_restricted",
+      error: "Protected financial access is temporarily restricted after credential recovery. Contact support if you did not request this change.",
+      restricted_until: restrictedUntil.toISOString(),
+    }, 423);
   }
 
   let operation;

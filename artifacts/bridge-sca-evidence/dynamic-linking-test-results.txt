@@ -1,0 +1,21 @@
+BorderPay Bridge EEA SCA controlled verification
+Captured: 2026-09-01
+Environment: isolated source candidate; no production API or customer data
+
+PASS - canonical payload is stable and excludes PIN, TOTP and authorization ID
+PASS - amount change invalidates the original authorization hash
+PASS - payee change invalidates the original authorization hash
+PASS - operation-resource change invalidates the original authorization hash
+PASS - idempotency-key change invalidates the original authorization hash
+PASS - authorization consumption requires matching user, operation, resource and payload hash
+PASS - authorization consumption rejects expired or previously consumed grants
+PASS - Bridge initiation uses one object with channel, subchannel and attestations.sca.outcome=sca_used
+PASS - Bridge-derived EEA scope requires SCA
+PASS - Bridge-derived non-EEA scope bypasses Bridge EEA SCA
+
+Commands:
+  deno test --allow-env tests/universal-sca.test.ts
+  python3 tests/audit/universal_sca_audit.py
+
+Production validation was not attempted because Bridge stated that testing is
+not permitted before full SCA approval.

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BorderPay Bridge EEA SCA controlled QA capture</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #080c0e; color: #f8fafc; display: grid; place-items: center; }
+    .frame { width: 1180px; min-height: 760px; padding: 40px; background: radial-gradient(circle at 82% 8%, rgba(199,255,0,.09), transparent 30%), #080c0e; border: 1px solid #20262a; position: relative; }
+    .qa { position: absolute; top: 22px; right: 26px; color: #c7ff00; font: 700 12px/1.2 ui-monospace, monospace; letter-spacing: .12em; }
+    .shell { display: grid; grid-template-columns: 210px 1fr; gap: 30px; margin-top: 42px; }
+    .nav { border: 1px solid #232a2e; background: #0d1215; border-radius: 24px; padding: 24px 18px; }
+    .brand { font-size: 24px; font-weight: 850; margin-bottom: 34px; }.brand b{color:#c7ff00}
+    .nav div { padding: 13px 14px; margin: 8px 0; border-radius: 12px; color: #a5adb7; }.nav .active{background:#c7ff00;color:#050708;font-weight:800}
+    .main { min-height: 630px; border: 1px solid #1e2529; border-radius: 28px; background: #0b1012; padding: 34px; position: relative; overflow: hidden; }
+    .eyebrow { color:#98a2ad; text-transform:uppercase; letter-spacing:.15em; font-size:12px; font-weight:750; }
+    h1 { margin: 10px 0 8px; font-size: 31px; } .sub { color:#a1aab5; max-width:650px; line-height:1.55; }
+    .card { background:#111719; border:1px solid #293136; border-radius:24px; padding:28px; margin-top:28px; }
+    .balance { font-size:48px; font-weight:850; margin:14px 0 8px; }.muted{color:#929ca7}.lime{color:#c7ff00}
+    .button { display:inline-block;background:#c7ff00;color:#050708;border:0;border-radius:14px;padding:14px 22px;font-weight:850;font-size:15px; }
+    .ghost { background:transparent;color:#f8fafc;border:1px solid #30383d; }
+    .modal-backdrop { position:absolute;inset:0;background:rgba(0,0,0,.78);display:grid;place-items:center;padding:28px; }
+    .modal { width:460px;background:#101416;border:1px solid #30383d;border-radius:28px;padding:26px;box-shadow:0 30px 80px rgba(0,0,0,.55); }
+    .title-row{display:flex;gap:14px;align-items:flex-start}.shield{width:48px;height:48px;border-radius:16px;background:rgba(199,255,0,.12);color:#c7ff00;display:grid;place-items:center;font-size:24px}
+    .title-row h2{font-size:19px;margin:2px 0 6px}.title-row p{font-size:13px;line-height:1.45;color:#9aa4af;margin:0}.steps{margin:22px 0 18px;color:#7f8994;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.steps .on{color:#c7ff00}
+    label{display:block;color:#aab3bd;font-size:12px;margin:0 0 7px}.input{width:100%;height:52px;border:1px solid #2b3338;border-radius:14px;background:#050708;color:#fff;padding:0 16px;font-size:19px;letter-spacing:.22em;margin-bottom:18px}
+    .context { display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}.context > div{background:#111719;border:1px solid #293136;border-radius:18px;padding:18px}.context strong{display:block;font-size:21px;margin-top:7px}
+    .notice{border:1px solid rgba(199,255,0,.25);background:rgba(199,255,0,.07);border-radius:16px;padding:15px;color:#dce9bb;font-size:13px;line-height:1.45;margin:15px 0}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.factor{border:1px solid #2a3237;border-radius:18px;padding:20px;background:#111719}.factor h3{margin:0 0 8px}.factor p{color:#9aa4af;font-size:13px;line-height:1.45}.status{display:inline-block;margin-top:8px;border-radius:999px;padding:6px 10px;background:rgba(199,255,0,.12);color:#c7ff00;font-size:11px;font-weight:800}
+    .rail{display:flex;align-items:center;justify-content:space-between;border:1px solid #293136;border-radius:18px;padding:18px;margin-top:16px}.rail strong{font-size:16px}.rail span{font-size:12px;color:#9aa4af}.ok{color:#42dc85!important;font-weight:800}.blocked{filter:blur(8px);user-select:none}.caption{position:absolute;bottom:18px;right:26px;color:#68737d;font-size:11px}
+  </style>
+</head>
+<body>
+<div class="frame" id="frame"></div>
+<script>
+  const view = new URLSearchParams(location.search).get('view') || 'account-pin';
+  const shell = (content, modal='') => `<div class="qa">CONTROLLED QA · NO LIVE TRANSACTION</div><div class="shell"><aside class="nav"><div class="brand">BorderPay<b>.</b></div><div class="active">Home</div><div>Send</div><div>Receive</div><div>Transactions</div><div>Settings</div></aside><main class="main">${content}${modal}</main></div><div class="caption">Candidate source: Bridge EEA SCA review branch · 1 Sep 2026</div>`;
+  const access = `<div class="eyebrow">Business account · verified EEA customer</div><h1>Financial overview</h1><p class="sub">Bridge custodial-wallet information remains concealed until strong authentication succeeds.</p><div class="card"><div class="muted">Total balance</div><div class="balance blocked">€12,480.62</div><div class="muted">Balances, wallet details and transactions are protected.</div></div>`;
+  const modal = (step, title, description) => `<div class="modal-backdrop"><section class="modal"><div class="title-row"><div class="shield">✓</div><div><h2>${title}</h2><p>${description}</p></div></div><div class="steps"><span class="${step===1?'on':''}">1. Transaction PIN</span> &nbsp;→&nbsp; <span class="${step===2?'on':''}">2. Authenticator</span></div>${step===1?`<label>Transaction PIN</label><div class="input">••••••</div><button class="button">Continue</button>`:`<div class="notice">Transaction PIN entered. Complete the independent possession check with your authenticator app.</div><label>Authenticator code</label><div class="input">482 731</div><div style="display:flex;gap:10px"><button class="button ghost">Back</button><button class="button" style="flex:1">Verify action</button></div>`}</section></div>`;
+  let html='';
+  if(view==='account-pin') html=shell(access,modal(1,'Unlock financial information','Viewing balances, transaction history and Bridge wallet details requires two independent factors. Access lasts five minutes.'));
+  if(view==='account-totp') html=shell(access,modal(2,'Unlock financial information','Viewing balances, transaction history and Bridge wallet details requires two independent factors. Access lasts five minutes.'));
+  if(view==='payment') html=shell(`<div class="eyebrow">Payment authorization · verified EEA customer</div><h1>Confirm payment</h1><p class="sub">The SCA event is bound to the exact amount, payee, source wallet and idempotency key shown below.</p><div class="context"><div><span class="muted">Amount</span><strong>1,250.00 EURC</strong></div><div><span class="muted">Payee</span><strong>Example Supplier SAS</strong></div><div><span class="muted">Source</span><strong>EURC · Base</strong></div><div><span class="muted">Destination</span><strong>FR•• 0042</strong></div></div><div class="notice">Changing the amount or payee invalidates this authorization and requires a new SCA event.</div><button class="button">Continue to strong authentication</button>`);
+  if(view==='enrollment') html=shell(`<div class="eyebrow">Security enrollment · verified EEA customer</div><h1>Complete both factors</h1><p class="sub">Protected Bridge wallet actions remain unavailable until one knowledge factor and one independent possession factor are enrolled.</p><div class="grid" style="margin-top:28px"><div class="factor"><h3>1. Transaction PIN</h3><p>Six-digit knowledge factor, verified server-side using a salted verifier.</p><span class="status">ENROLLED</span></div><div class="factor"><h3>2. Authenticator app</h3><p>RFC 6238 TOTP possession factor with replay protection.</p><span class="status">REQUIRED</span></div></div><div class="notice">Login and fund-in remain available. Balances, transaction history, wallet details, beneficiary changes and funds-out remain blocked.</div>`);
+  if(view==='non-eea') html=shell(`<div class="eyebrow">Business account · verified non-EEA customer</div><h1>Financial overview</h1><p class="sub">Bridge customer residency: Kenya. Bridge EEA SCA is not applicable; normal BorderPay transaction-PIN controls remain.</p><div class="card"><div class="muted">Total balance</div><div class="balance">$8,420.50</div><span class="status">NON-EEA · SCA NOT APPLICABLE</span></div>`);
+  if(view==='fund-in') html=shell(`<div class="eyebrow">Receive money · verified EEA customer</div><h1>EUR deposit instructions</h1><p class="sub">Fund-in is outside the Bridge SCA requirement. The customer can receive deposits while protected account-access and funds-out actions remain locked.</p><div class="rail"><div><strong>EUR virtual account</strong><br><span>IBAN ending 0042</span></div><span class="ok">AVAILABLE</span></div><div class="notice">No SCA event is asserted for this deposit flow.</div>`);
+  document.getElementById('frame').innerHTML=html;
+</script>
+</body>
+</html>

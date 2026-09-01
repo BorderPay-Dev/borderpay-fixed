@@ -77,6 +77,11 @@ verify_jwt = true
 [functions.sca-wallet-access]
 verify_jwt = true
 
+# Internal Bridge EEA SCA monitoring worker. Authentication uses a dedicated
+# worker bearer token and all customer identifiers remain server-side.
+[functions.sca-monitoring]
+verify_jwt = false
+
 # Password changes require an authenticated session plus consumed SCA.
 [functions.change-password]
 verify_jwt = true
