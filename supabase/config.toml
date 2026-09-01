@@ -122,6 +122,9 @@ verify_jwt = false
 [functions.bridge-customer]
 verify_jwt = false
 
+[functions.bridge-reconcile-customers]
+verify_jwt = false
+
 # Bridge KYC link — onboarding starter; self-validates JWT. Fail-closed on
 # BRIDGE_ONBOARDING_ENABLED.
 [functions.bridge-kyc-link]

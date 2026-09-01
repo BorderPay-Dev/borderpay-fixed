@@ -38,6 +38,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { normalizeBridgeCustomerState } from "../_shared/bridge-customer-state.ts";
 import {
   assertBridgeIngressDecision,
   evaluateBridgeIngressEvent,
@@ -909,28 +910,15 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
              || (d?.account_type === "business" || d?.type === "business");
 
   const status = String(d?.status ?? d?.kyc_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
-  const normalized =
-    status === "approved"   || status === "verified" ? "approved"
-    : status === "rejected" || status === "denied"   ? "rejected"
-    : status === "under_review"                      ? "under_review"
-    : status === "incomplete"                        ? "incomplete"
-    : status === "not_started"                       ? "not_started"
-    : status === "awaiting_ubo"                      ? "under_review"
-    : status === "pending"                           ? "pending"
-    : null;
-
-  // Unknown/missing KYC-link states must never manufacture a pending review.
-  // Preserve the existing profile and complete the event for observability.
-  if (!normalized) {
-    await supabase.from("bridge_webhook_events")
-      .update({ target_entity_type: isKyb ? "kyc_link" : "customer", target_entity_id: String(customer) })
-      .eq("event_id", ev.event_id);
-    await supabase.rpc("complete_pending_event", {
-      p_event_id: ev.event_id,
-      p_summary: { source: "bridge", kind: isKyb ? "kyb" : "kyc", status: status || null, ignored_unknown_status: true },
-    });
-    return;
-  }
+  const providerStatus = normalizeBridgeCustomerState(status);
+  // Narrow legacy DB columns retain their allowed vocabulary. The exact
+  // provider state is also written to bridge_account_status below by customer
+  // events and by periodic reconciliation.
+  const normalized = providerStatus === "approved" || providerStatus === "rejected" || providerStatus === "under_review"
+    ? providerStatus
+    : providerStatus === "not_started" || providerStatus === "incomplete"
+    ? "not_started"
+    : "pending";
 
   const { resolved, account_type } = await resolveOwnerFromBridgeCustomer(customer);
   await syncCountryFromBridgeCustomer(String(customer), {
@@ -947,12 +935,14 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
     }).eq("user_id", resolved);
     await supabase.from("user_profiles").update({
       bridge_customer_id: String(customer),
+      bridge_account_status: providerStatus,
       kyc_status:         normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : normalized === "not_started" ? "unverified" : "pending",
       updated_at:         new Date().toISOString(),
     }).eq("id", resolved);
   } else {
     await supabase.from("user_profiles").update({
       bridge_kyc_status:        normalized,
+      bridge_account_status:    providerStatus,
       bridge_kyc_completed_at:  normalized === "approved" ? new Date().toISOString() : null,
       kyc_status:               normalized === "approved" ? "verified" : normalized === "rejected" ? "rejected" : normalized === "not_started" ? "unverified" : "pending",
       updated_at:               new Date().toISOString(),
@@ -1011,7 +1001,9 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
   const customer = d?.customer_id ?? d?.id ?? ev.payload?.event_object_id;
   if (!customer) throw new Error("bridge customer event missing id");
 
-  const accountStatus = String(d?.status ?? d?.account_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
+  const accountStatusRaw = String(d?.status ?? d?.account_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
+  const normalizedAccountStatus = normalizeBridgeCustomerState(accountStatusRaw);
+  const accountStatus = normalizedAccountStatus === "approved" ? "active" : normalizedAccountStatus;
   if (accountStatus) {
     const { data: previousProfile } = await supabase
       .from("user_profiles")
@@ -1031,6 +1023,7 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
     const canonicalKyc =
       accountStatus === "active"   ? "verified"
       : accountStatus === "rejected" ? "rejected"
+      : accountStatus === "offboarded" ? "unverified"
       : null; // non-terminal → leave canonical kyc_status untouched
 
     const update: Record<string, unknown> = {
