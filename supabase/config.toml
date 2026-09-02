@@ -177,3 +177,11 @@ verify_jwt = false
 # with the dedicated API_GATEWAY_ADMIN_TOKEN bearer, not a user JWT.
 [functions.api-gateway-admin]
 verify_jwt = false
+
+# Separate partner identity and KYB control plane. The public invite action is
+# unauthenticated; every application action validates the JWT in-function.
+[functions.partner-onboarding]
+verify_jwt = false
+
+[functions.partner-application-admin]
+verify_jwt = true

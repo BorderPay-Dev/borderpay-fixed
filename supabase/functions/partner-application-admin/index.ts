@@ -1,0 +1,110 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const CORS = {
+  "Access-Control-Allow-Origin": "https://admin.borderpayafrica.com",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Cache-Control": "no-store",
+};
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+const clean = (value: unknown, max = 2000) => String(value ?? "").trim().slice(0, max);
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
+
+  const url = Deno.env.get("SUPABASE_URL") || "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  if (!url || !serviceKey) return json({ success: false, error: "Server configuration missing" }, 500);
+  const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const { data: authData, error: authError } = await db.auth.getUser(token);
+  if (authError || !authData.user) return json({ success: false, error: "Authentication required" }, 401);
+  const { data: admin } = await db.from("admin_users").select("user_id").eq("user_id", authData.user.id).maybeSingle();
+  if (!admin) return json({ success: false, error: "Admin access required" }, 403);
+
+  let body: any;
+  try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
+  const action = clean(body?.action, 60);
+  try {
+    if (action === "list") {
+      const { data, error } = await db.from("partner_applications").select("id,organization_id,version,status,requested_products,submitted_at,created_at,updated_at,partner_organizations!inner(legal_name,trading_name,primary_email,country_of_incorporation,status)").order("created_at", { ascending: false }).limit(250);
+      if (error) throw error;
+      return json({ success: true, applications: data || [] });
+    }
+    const applicationId = clean(body?.application_id, 40);
+    if (!applicationId) return json({ success: false, error: "application_id required" }, 400);
+    const { data: application, error: appError } = await db.from("partner_applications").select("*,partner_organizations(*)").eq("id", applicationId).single();
+    if (appError || !application) return json({ success: false, error: "Application not found" }, 404);
+
+    if (action === "get") {
+      const [{ data: people }, { data: documents }, { data: reviews }, { data: pricing }] = await Promise.all([
+        db.from("partner_controlling_people").select("*").eq("application_id", applicationId).order("created_at"),
+        db.from("partner_application_documents").select("id,document_type,original_filename,mime_type,size_bytes,storage_path,created_at").eq("application_id", applicationId).order("created_at"),
+        db.from("partner_application_reviews").select("*").eq("application_id", applicationId).order("created_at", { ascending: false }),
+        db.from("partner_pricing_rules").select("*").eq("organization_id", application.organization_id).order("effective_from", { ascending: false }),
+      ]);
+      return json({ success: true, application, people: people || [], documents: documents || [], reviews: reviews || [], pricing: pricing || [] });
+    }
+
+    if (action === "document_download") {
+      const { data: document, error } = await db.from("partner_application_documents").select("storage_path").eq("id", clean(body.document_id, 40)).eq("application_id", applicationId).single();
+      if (error || !document) return json({ success: false, error: "Document not found" }, 404);
+      const { data: signed, error: signError } = await db.storage.from("partner-due-diligence").createSignedUrl(document.storage_path, 300);
+      if (signError) throw signError;
+      return json({ success: true, signed_url: signed.signedUrl, expires_in: 300 });
+    }
+
+    if (action === "decision") {
+      const decision = clean(body.decision, 40);
+      if (!["under_review", "more_information", "approved", "rejected", "suspended"].includes(decision)) return json({ success: false, error: "Invalid decision" }, 400);
+      const notes = clean(body.notes, 4000);
+      if (!notes) return json({ success: false, error: "Review notes required" }, 400);
+      const now = new Date().toISOString();
+      let tenantId = application.partner_organizations?.approved_tenant_id || null;
+      if (decision === "approved" && !tenantId) {
+        const { data: tenant, error: tenantError } = await db.from("api_tenants").insert({
+          tenant_name: application.partner_organizations?.legal_name || application.partner_organizations?.primary_email,
+          default_mode: "sandbox",
+          is_active: false,
+          beta_access_enabled: false,
+          metadata: { partner_organization_id: application.organization_id, provisioning_status: "operator_required", pricing_source: "partner_custom_only" },
+        }).select("id").single();
+        if (tenantError) throw tenantError;
+        tenantId = tenant.id;
+      }
+      const orgStatus = decision === "more_information" ? "more_information" : decision;
+      const { error: updateError } = await db.from("partner_applications").update({ status: decision, decision_summary: notes, decided_at: ["approved", "rejected"].includes(decision) ? now : null, updated_at: now }).eq("id", applicationId);
+      if (updateError) throw updateError;
+      await db.from("partner_organizations").update({ status: orgStatus, approved_tenant_id: tenantId, updated_at: now }).eq("id", application.organization_id);
+      await db.from("partner_application_reviews").insert({ application_id: applicationId, reviewer_user_id: authData.user.id, decision, notes });
+      await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: `application_${decision}`, metadata: { tenant_id: tenantId } });
+      return json({ success: true, status: decision, tenant_id: tenantId, production_access: false });
+    }
+
+    if (action === "set_pricing") {
+      if (application.partner_organizations?.status !== "approved") return json({ success: false, error: "Approve partner before pricing" }, 409);
+      const rule = body?.rule || {};
+      const payload = {
+        organization_id: application.organization_id,
+        provider: clean(rule.provider, 30), product: clean(rule.product, 60),
+        source_currency: clean(rule.source_currency, 12).toUpperCase() || null,
+        destination_currency: clean(rule.destination_currency, 12).toUpperCase() || null,
+        fee_type: clean(rule.fee_type, 40), fee_percent: rule.fee_percent == null ? null : Number(rule.fee_percent),
+        fixed_amount: rule.fixed_amount == null ? null : Number(rule.fixed_amount), fixed_currency: clean(rule.fixed_currency, 12).toUpperCase() || null,
+        effective_from: rule.effective_from || new Date().toISOString(), effective_until: rule.effective_until || null,
+        approved_by: authData.user.id, approval_reference: clean(rule.approval_reference, 500), is_active: rule.is_active !== false,
+      };
+      if (!payload.approval_reference) return json({ success: false, error: "Pricing approval reference required" }, 400);
+      const { data, error } = await db.from("partner_pricing_rules").insert(payload).select("*").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: "partner_pricing_created", metadata: { pricing_rule_id: data.id } });
+      return json({ success: true, rule: data });
+    }
+    return json({ success: false, error: "Unknown action" }, 400);
+  } catch (error) {
+    console.error("partner-application-admin", error);
+    return json({ success: false, error: "Partner administration request failed" }, 500);
+  }
+});
