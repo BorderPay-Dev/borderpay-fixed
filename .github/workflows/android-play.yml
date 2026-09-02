@@ -72,11 +72,22 @@ jobs:
       - name: Verify native notification safe-area regression gate
         run: python3 tests/audit/native_notification_safe_area_audit.py
 
+      - name: Verify Android system-picker permission policy
+        run: python3 tests/audit/android_media_permissions_audit.py
+
       - name: Build web app
         run: npm run build
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
+
+      - name: Verify generated Android release manifest
+        run: |
+          set -euo pipefail
+          cd android
+          ./gradlew processReleaseMainManifest
+          cd ..
+          python3 tests/audit/android_media_permissions_audit.py --merged
 
       - name: Build Android debug APK
         run: |
