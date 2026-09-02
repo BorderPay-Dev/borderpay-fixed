@@ -17,6 +17,11 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <!-- The OS launch frame is deliberately unbranded. React renders the
+             single BorderPay splash after the WebView is ready. -->
+        <item name="android:background">#0B0E11</item>
+        <item name="windowSplashScreenBackground">#0B0E11</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

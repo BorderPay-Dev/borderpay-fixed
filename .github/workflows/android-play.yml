@@ -75,6 +75,9 @@ jobs:
       - name: Verify Android photo-picker policy
         run: python3 tests/audit/android_photo_picker_policy_audit.py
 
+      - name: Verify one Android branded splash
+        run: python3 tests/audit/android_single_branded_splash_audit.py
+
       - name: Build web app
         run: npm run build
 
