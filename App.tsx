@@ -895,6 +895,18 @@ export default function App() {
           position="top-center"
           theme="dark"
           richColors
+          offset={{
+            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+            right: 16,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+            left: 16,
+          }}
+          mobileOffset={{
+            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+            right: 16,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+            left: 16,
+          }}
           toastOptions={{
             style: {
               background: '#1A1F26',
@@ -908,7 +920,6 @@ export default function App() {
           }}
           gap={8}
           visibleToasts={3}
-          offset={16}
         />
       </ThemeLanguageProvider>
     </ErrorBoundary>
