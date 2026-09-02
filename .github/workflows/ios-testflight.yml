@@ -87,6 +87,9 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Verify direct store signup is Business-only
+        run: python3 tests/audit/direct_business_signup_store_audit.py
+
       - name: Verify app-lock navigation regression gates
         run: |
           python3 tests/audit/app_lock_audit.py
