@@ -183,4 +183,3 @@ jobs:
           mappingFile: android/app/build/outputs/mapping/release/mapping.txt
           track: internal
           status: draft
-          changesNotSentForReview: true
