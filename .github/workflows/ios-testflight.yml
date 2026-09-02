@@ -42,6 +42,7 @@ jobs:
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
 
     steps:
       - name: Checkout
@@ -65,6 +66,20 @@ jobs:
           : "${APP_STORE_CONNECT_ISSUER_ID:?Missing APP_STORE_CONNECT_ISSUER_ID GitHub secret}"
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Missing APP_STORE_CONNECT_KEY_IDENTIFIER GitHub secret}"
           : "${APP_STORE_CONNECT_PRIVATE_KEY:?Missing APP_STORE_CONNECT_PRIVATE_KEY GitHub secret}"
+          : "${IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:?Missing IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64 GitHub secret}"
+
+      - name: Install and validate iOS Firebase configuration
+        run: |
+          set -euo pipefail
+          printf '%s' "$IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64" \
+            | base64 --decode \
+            > ios/App/App/GoogleService-Info.plist
+          plutil -lint ios/App/App/GoogleService-Info.plist
+          FIREBASE_BUNDLE_ID="$(plutil -extract BUNDLE_ID raw ios/App/App/GoogleService-Info.plist)"
+          if [ "$FIREBASE_BUNDLE_ID" != "$BUNDLE_ID" ]; then
+            echo "Firebase bundle ID mismatch: expected $BUNDLE_ID, got $FIREBASE_BUNDLE_ID" >&2
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci
@@ -190,6 +205,18 @@ jobs:
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
           ls -la "$EXPORT_PATH"
 
+      - name: Verify launch-critical resources in exported IPA
+        run: |
+          set -euo pipefail
+          IPA_PATH="$(find "$GITHUB_WORKSPACE/$EXPORT_DIR" -maxdepth 1 -name '*.ipa' | head -n 1)"
+          test -n "$IPA_PATH"
+          unzip -q "$IPA_PATH" -d "$RUNNER_TEMP/exported-ipa"
+          APP_PATH="$(find "$RUNNER_TEMP/exported-ipa/Payload" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+          test -f "$APP_PATH/GoogleService-Info.plist"
+          plutil -lint "$APP_PATH/GoogleService-Info.plist"
+          test "$(plutil -extract BUNDLE_ID raw "$APP_PATH/GoogleService-Info.plist")" = "$BUNDLE_ID"
+          test -f "$APP_PATH/capacitor.config.json"
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
@@ -197,6 +224,14 @@ jobs:
           path: build/ios/*.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload iOS archive and dSYMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: borderpay-ios-archive-${{ steps.ios-build.outputs.number }}
+          path: ${{ runner.temp }}/BorderPayAfrica.xcarchive
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload to TestFlight
         if: ${{ inputs.upload_to_testflight }}
