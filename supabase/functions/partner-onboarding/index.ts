@@ -4,7 +4,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const PROD_ORIGIN = "https://partners.borderpayafrica.com";
 const allowedOrigin = (origin: string | null) => {
   if (!origin) return PROD_ORIGIN;
-  if (origin === PROD_ORIGIN || origin === "http://localhost:5173") return origin;
+  if (origin === PROD_ORIGIN || origin === "https://borderpay-partners.vercel.app" || origin === "http://localhost:5173") return origin;
   if (/^https:\/\/borderpay-partners-[a-z0-9-]+\.vercel\.app$/i.test(origin)) return origin;
   return PROD_ORIGIN;
 };

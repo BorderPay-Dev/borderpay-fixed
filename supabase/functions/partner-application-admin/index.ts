@@ -1,42 +1,55 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const CORS = {
-  "Access-Control-Allow-Origin": "https://admin.borderpayafrica.com",
+const ADMIN_ORIGINS = new Set([
+  "https://admin.borderpayafrica.com",
+  "https://partners.borderpayafrica.com",
+  "https://borderpay-partners.vercel.app",
+  "http://localhost:5173",
+]);
+const allowedOrigin = (origin: string | null) => {
+  if (!origin) return "https://admin.borderpayafrica.com";
+  if (ADMIN_ORIGINS.has(origin) || /^https:\/\/borderpay-partners-[a-z0-9-]+\.vercel\.app$/i.test(origin)) return origin;
+  return "https://admin.borderpayafrica.com";
+};
+const cors = (req: Request) => ({
+  "Access-Control-Allow-Origin": allowedOrigin(req.headers.get("origin")),
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Cache-Control": "no-store",
-};
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+  "Vary": "Origin",
+});
+const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), "Content-Type": "application/json" } });
 const clean = (value: unknown, max = 2000) => String(value ?? "").trim().slice(0, max);
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
+  if (req.headers.get("origin") && allowedOrigin(req.headers.get("origin")) !== req.headers.get("origin")) return json(req, { success: false, error: "Origin not allowed" }, 403);
+  if (req.method !== "POST") return json(req, { success: false, error: "POST only" }, 405);
 
   const url = Deno.env.get("SUPABASE_URL") || "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  if (!url || !serviceKey) return json({ success: false, error: "Server configuration missing" }, 500);
+  if (!url || !serviceKey) return json(req, { success: false, error: "Server configuration missing" }, 500);
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   const { data: authData, error: authError } = await db.auth.getUser(token);
-  if (authError || !authData.user) return json({ success: false, error: "Authentication required" }, 401);
+  if (authError || !authData.user) return json(req, { success: false, error: "Authentication required" }, 401);
   const { data: admin } = await db.from("admin_users").select("user_id").eq("user_id", authData.user.id).maybeSingle();
-  if (!admin) return json({ success: false, error: "Admin access required" }, 403);
+  if (!admin) return json(req, { success: false, error: "Admin access required" }, 403);
 
   let body: any;
-  try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
+  try { body = await req.json(); } catch { return json(req, { success: false, error: "Invalid JSON" }, 400); }
   const action = clean(body?.action, 60);
   try {
     if (action === "list") {
       const { data, error } = await db.from("partner_applications").select("id,organization_id,version,status,requested_products,submitted_at,created_at,updated_at,partner_organizations!inner(legal_name,trading_name,primary_email,country_of_incorporation,status)").order("created_at", { ascending: false }).limit(250);
       if (error) throw error;
-      return json({ success: true, applications: data || [] });
+      return json(req, { success: true, applications: data || [] });
     }
     const applicationId = clean(body?.application_id, 40);
-    if (!applicationId) return json({ success: false, error: "application_id required" }, 400);
+    if (!applicationId) return json(req, { success: false, error: "application_id required" }, 400);
     const { data: application, error: appError } = await db.from("partner_applications").select("*,partner_organizations(*)").eq("id", applicationId).single();
-    if (appError || !application) return json({ success: false, error: "Application not found" }, 404);
+    if (appError || !application) return json(req, { success: false, error: "Application not found" }, 404);
 
     if (action === "get") {
       const [{ data: people }, { data: documents }, { data: reviews }, { data: pricing }] = await Promise.all([
@@ -45,22 +58,22 @@ Deno.serve(async (req) => {
         db.from("partner_application_reviews").select("*").eq("application_id", applicationId).order("created_at", { ascending: false }),
         db.from("partner_pricing_rules").select("*").eq("organization_id", application.organization_id).order("effective_from", { ascending: false }),
       ]);
-      return json({ success: true, application, people: people || [], documents: documents || [], reviews: reviews || [], pricing: pricing || [] });
+      return json(req, { success: true, application, people: people || [], documents: documents || [], reviews: reviews || [], pricing: pricing || [] });
     }
 
     if (action === "document_download") {
       const { data: document, error } = await db.from("partner_application_documents").select("storage_path").eq("id", clean(body.document_id, 40)).eq("application_id", applicationId).single();
-      if (error || !document) return json({ success: false, error: "Document not found" }, 404);
+      if (error || !document) return json(req, { success: false, error: "Document not found" }, 404);
       const { data: signed, error: signError } = await db.storage.from("partner-due-diligence").createSignedUrl(document.storage_path, 300);
       if (signError) throw signError;
-      return json({ success: true, signed_url: signed.signedUrl, expires_in: 300 });
+      return json(req, { success: true, signed_url: signed.signedUrl, expires_in: 300 });
     }
 
     if (action === "decision") {
       const decision = clean(body.decision, 40);
-      if (!["under_review", "more_information", "approved", "rejected", "suspended"].includes(decision)) return json({ success: false, error: "Invalid decision" }, 400);
+      if (!["under_review", "more_information", "approved", "rejected", "suspended"].includes(decision)) return json(req, { success: false, error: "Invalid decision" }, 400);
       const notes = clean(body.notes, 4000);
-      if (!notes) return json({ success: false, error: "Review notes required" }, 400);
+      if (!notes) return json(req, { success: false, error: "Review notes required" }, 400);
       const now = new Date().toISOString();
       let tenantId = application.partner_organizations?.approved_tenant_id || null;
       if (decision === "approved" && !tenantId) {
@@ -80,11 +93,11 @@ Deno.serve(async (req) => {
       await db.from("partner_organizations").update({ status: orgStatus, approved_tenant_id: tenantId, updated_at: now }).eq("id", application.organization_id);
       await db.from("partner_application_reviews").insert({ application_id: applicationId, reviewer_user_id: authData.user.id, decision, notes });
       await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: `application_${decision}`, metadata: { tenant_id: tenantId } });
-      return json({ success: true, status: decision, tenant_id: tenantId, production_access: false });
+      return json(req, { success: true, status: decision, tenant_id: tenantId, production_access: false });
     }
 
     if (action === "set_pricing") {
-      if (application.partner_organizations?.status !== "approved") return json({ success: false, error: "Approve partner before pricing" }, 409);
+      if (application.partner_organizations?.status !== "approved") return json(req, { success: false, error: "Approve partner before pricing" }, 409);
       const rule = body?.rule || {};
       const payload = {
         organization_id: application.organization_id,
@@ -96,15 +109,15 @@ Deno.serve(async (req) => {
         effective_from: rule.effective_from || new Date().toISOString(), effective_until: rule.effective_until || null,
         approved_by: authData.user.id, approval_reference: clean(rule.approval_reference, 500), is_active: rule.is_active !== false,
       };
-      if (!payload.approval_reference) return json({ success: false, error: "Pricing approval reference required" }, 400);
+      if (!payload.approval_reference) return json(req, { success: false, error: "Pricing approval reference required" }, 400);
       const { data, error } = await db.from("partner_pricing_rules").insert(payload).select("*").single();
       if (error) throw error;
       await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: "partner_pricing_created", metadata: { pricing_rule_id: data.id } });
-      return json({ success: true, rule: data });
+      return json(req, { success: true, rule: data });
     }
-    return json({ success: false, error: "Unknown action" }, 400);
+    return json(req, { success: false, error: "Unknown action" }, 400);
   } catch (error) {
     console.error("partner-application-admin", error);
-    return json({ success: false, error: "Partner administration request failed" }, 500);
+    return json(req, { success: false, error: "Partner administration request failed" }, 500);
   }
 });
