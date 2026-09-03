@@ -1078,7 +1078,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       return (
         <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white">
           <h2 className="font-bold">Unlock financial information</h2>
-          <p className="mt-2 text-sm text-gray-400">For verified EEA custodial-wallet accounts{scaCountry ? ` in ${scaCountry}` : ''}, Bridge requires account-password and authenticator verification before balances, wallet details, or transaction history are shown.</p>
+          <p className="mt-2 text-sm text-gray-400">Verified EEA custodial-wallet accounts{scaCountry ? ` in ${scaCountry}` : ''} must complete account-password and authenticator verification before balances, wallet details, or transaction history are shown.</p>
           <button type="button" onClick={() => setScaDialogOpen(true)} className="mt-5 rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black">Verify access</button>
         </div>
       );

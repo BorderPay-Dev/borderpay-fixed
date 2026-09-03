@@ -57,31 +57,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run type-check
-
-      - name: Verify app-lock navigation regression gates
-        run: |
-          python3 tests/audit/app_lock_audit.py
-          python3 tests/audit/app_lock_no_logout_audit.py
-          python3 tests/audit/app_lock_screen_restore_audit.py
-
-      - name: Verify non-EEA SCA scope regression gate
-        run: python3 tests/audit/non_eea_sca_scope_audit.py
-
-      - name: Verify native notification safe-area regression gate
-        run: python3 tests/audit/native_notification_safe_area_audit.py
-
-      - name: Verify customer-facing financial UI regression gates
-        run: |
-          python3 tests/audit/free_external_wallet_preview_audit.py
-          python3 tests/audit/business_dashboard_recent_activity_audit.py
-
-      - name: Verify Android system-picker permission policy
-        run: python3 tests/audit/android_media_permissions_audit.py
-
-      - name: Build web app
-        run: npm run build
+      - name: Run ten-gate store release audit
+        run: bash scripts/ci/store-release-ten-gate.sh
 
       - name: Sync Capacitor Android project
         run: npx cap sync android

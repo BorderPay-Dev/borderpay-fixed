@@ -26,7 +26,7 @@ PUBLIC_PATHS = [
 ]
 
 FORBIDDEN = re.compile(
-    r"\bBridge\b|\bMaplerad\b|\bmaplerad\b|"
+    r"\bBridge\b|\bYellow Card\b|\bFlutterwave\b|\bMaplerad\b|\bmaplerad\b|"
     r"\bbanking-as-a-service partner\b|"
     r"\bbanking partner\b|"
     r"\blocal payments partner\b|"

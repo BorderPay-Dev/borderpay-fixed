@@ -881,7 +881,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
         const grossDigitalDollars = Number(quote?.destination_amount);
         const localPerUsdRate = Number(quote?.rate);
         if (!res?.success || !Number.isFinite(grossDigitalDollars) || grossDigitalDollars <= 0 || !Number.isFinite(localPerUsdRate) || localPerUsdRate <= 0) {
-          throw new Error(res?.error || 'Live Yellow Card receive rate is unavailable.');
+          throw new Error(res?.error || 'The live receive rate is unavailable.');
         }
         setCollectionQuote({
           grossDigitalDollars,
@@ -892,7 +892,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       }).catch((error: any) => {
         if (collectionQuoteRequestRef.current !== requestId) return;
         setCollectionQuote(null);
-        setCollectionQuoteError(friendlyError(error?.message, 'Live Yellow Card receive rate is unavailable.'));
+        setCollectionQuoteError(friendlyError(error?.message, 'The live receive rate is unavailable.'));
       }).finally(() => {
         if (collectionQuoteRequestRef.current === requestId) setCollectionQuoteLoading(false);
       });
@@ -1451,7 +1451,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
                     ${collectionReceiveNet.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
                   </p>
                   <p className={`mt-1 text-xs ${tc.textMuted}`}>
-                    {collectionSettlementAsset} · after transaction fee · final amount confirmed by Yellow Card
+                    {collectionSettlementAsset} · after transaction fee · final amount confirmed by BorderPay
                   </p>
                 </div>
 
