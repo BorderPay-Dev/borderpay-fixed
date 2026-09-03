@@ -42,8 +42,20 @@ def main() -> int:
         ("enforce_signup_abuse_protection" in signup and
          "status: 429" in signup and
          "Retry-After" in signup and
+         'req.headers.get("cf-connecting-ip")' in signup and
+         'req.headers.get("x-real-ip")' in signup and
+         signup.find("enforce_signup_abuse_protection") < signup.find("const currentPolicy = resolveTenantOnboardingPolicy") and
          signup.find("enforce_signup_abuse_protection") < signup.find("createUser({")),
-        "auth-signup should call abuse RPC before createUser and return 429 with Retry-After on deny",
+        "auth-signup should resolve the Supabase gateway IP, call abuse RPC before policy/persistence, and return 429 with Retry-After on deny",
+    ))
+
+    checks.append((
+        "S2b request envelope is bounded before JSON parsing",
+        ("invalid_content_type" in signup and
+         "payload_too_large" in signup and
+         "16_384" in signup and
+         signup.find("invalid_content_type") < signup.find("await req.json()")),
+        "auth-signup should reject non-JSON and oversized request envelopes before parsing",
     ))
 
     checks.append((

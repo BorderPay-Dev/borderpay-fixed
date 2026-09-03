@@ -93,8 +93,68 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
+  const contentType = (req.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.startsWith("application/json")) {
+    return json({ success: false, code: "invalid_content_type", error: "Content-Type must be application/json." }, 415);
+  }
+  const contentLength = Number(req.headers.get("content-length") || "0");
+  if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > 16_384) {
+    return json({ success: false, code: "payload_too_large", error: "Signup request is too large." }, 413);
+  }
+
   try {
     const body = (await req.json()) as SignupBody;
+    const email = String(body?.email || "").trim();
+    const captchaToken = String(body?.captcha_token || "").trim();
+    const forwardedFor = req.headers.get("x-forwarded-for") || "";
+    // Supabase's Cloudflare gateway exposes the client IP through
+    // cf-connecting-ip/x-real-ip. x-forwarded-for is only a fallback and may
+    // be absent, as observed during the September 2026 signup flood.
+    const requestIp = (
+      req.headers.get("cf-connecting-ip") ||
+      req.headers.get("x-real-ip") ||
+      forwardedFor.split(",")[0]?.trim() ||
+      ""
+    ).trim() || null;
+    const ua = req.headers.get("user-agent") || "";
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // Run the IP/email gate before policy lookups and detailed validation.
+    // This keeps malformed and rotating-email floods out of business logic.
+    const { data: abuseGate, error: abuseErr } = await supabaseAdmin.rpc("enforce_signup_abuse_protection", {
+      p_email:      email,
+      p_ip:         requestIp,
+      p_user_agent: ua,
+    });
+    if (abuseErr) {
+      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
+    }
+    const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
+    if (!abuse?.allowed) {
+      const retryAfter = Number(abuse?.retry_after_seconds || 30);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: abuse?.code || "rate_limited",
+          error: "Too many signup attempts. Please wait and try again.",
+          retry_after_seconds: retryAfter,
+        }),
+        {
+          status: 429,
+          headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
+        },
+      );
+    }
+
+    // CAPTCHA is checked before any account-policy or persistence work.
+    // Production remains fail-closed when SIGNUP_CAPTCHA_SECRET is configured.
+    const captchaCheck = await verifySignupCaptcha(captchaToken, requestIp);
+    if (!captchaCheck.ok) {
+      return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
+    }
+
     // Tenant ownership and partner identity are derived exclusively from the
     // verified single-use onboarding token. Reject browser-supplied context
     // instead of silently ignoring it, so conflicting/cross-tenant attempts
@@ -110,8 +170,8 @@ Deno.serve(async (req: Request) => {
         error: "Tenant onboarding context must come from a signed authorization token.",
       }, 403);
     }
-    const { email, password, full_name, phone_number, country_code,
-            account_type, company_name, registration_number, captcha_token } = body;
+    const { password, full_name, phone_number, country_code,
+            account_type, company_name, registration_number } = body;
     const referralCode = String(body.referral_code || "").trim().toUpperCase();
     const normalizedPhone = String(phone_number || "").trim();
     const onboardingToken = String(body.onboarding_token || "").trim();
@@ -143,10 +203,6 @@ Deno.serve(async (req: Request) => {
         }, 400);
       }
     }
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
     let partnerClaims: OnboardingTokenClaims | null = null;
     let partnerAuthorization: {
       authorization_id: string;
@@ -221,42 +277,6 @@ Deno.serve(async (req: Request) => {
         code: "country_not_supported",
         error: "BorderPay is not available in your country yet.",
       }, 403);
-    }
-
-    const xff = req.headers.get("x-forwarded-for") || "";
-    const requestIp = xff.split(",")[0]?.trim() || null;
-    const ua = req.headers.get("user-agent") || "";
-
-    // Abuse gate (rate-limit + cooldown) before any auth row is created.
-    const { data: abuseGate, error: abuseErr } = await supabaseAdmin.rpc("enforce_signup_abuse_protection", {
-      p_email:      email,
-      p_ip:         requestIp,
-      p_user_agent: ua,
-    });
-    if (abuseErr) {
-      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
-    }
-    const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
-    if (!abuse?.allowed) {
-      const retryAfter = Number(abuse?.retry_after_seconds || 30);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: abuse?.code || "rate_limited",
-          error: "Too many signup attempts. Please wait and try again.",
-          retry_after_seconds: retryAfter,
-        }),
-        {
-          status: 429,
-          headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
-        },
-      );
-    }
-
-    // CAPTCHA hook. When SIGNUP_CAPTCHA_SECRET is configured this fails-closed.
-    const captchaCheck = await verifySignupCaptcha(String(captcha_token || "").trim(), requestIp);
-    if (!captchaCheck.ok) {
-      return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
     }
 
     // Reserve the partner authorization atomically only after abuse and CAPTCHA
