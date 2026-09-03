@@ -37,6 +37,51 @@ const ONBOARDING_TOKEN_SIGNING_SECRET = Deno.env.get("ONBOARDING_TOKEN_SIGNING_S
 const SIGNUP_CAPTCHA_VERIFY_URL =
   Deno.env.get("SIGNUP_CAPTCHA_VERIFY_URL") ?? "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
+// This is an origin-side pressure valve, not the primary abuse control. Edge
+// isolates may be recycled at any time, so the database RPC remains the
+// authoritative cross-instance limiter. Keeping a small, bounded cache here
+// prevents a hot attacker from forcing a database round trip for every retry.
+const EDGE_RATE_WINDOW_MS = 60_000;
+const EDGE_RATE_MAX_IP = 12;
+const EDGE_RATE_MAX_EMAIL = 4;
+const EDGE_RATE_MAX_KEYS = 10_000;
+type EdgeRateBucket = { count: number; resetAt: number };
+const edgeRateBuckets = new Map<string, EdgeRateBucket>();
+
+function checkEdgeRateLimit(keys: string[], now = Date.now()): { allowed: true } | { allowed: false; retryAfter: number } {
+  if (edgeRateBuckets.size > EDGE_RATE_MAX_KEYS) {
+    for (const [key, bucket] of edgeRateBuckets) {
+      if (bucket.resetAt <= now) edgeRateBuckets.delete(key);
+    }
+    // Fail safely without allowing attacker-controlled keys to grow memory.
+    while (edgeRateBuckets.size > EDGE_RATE_MAX_KEYS) {
+      const oldest = edgeRateBuckets.keys().next().value;
+      if (typeof oldest !== "string") break;
+      edgeRateBuckets.delete(oldest);
+    }
+  }
+
+  let retryAfter = 0;
+  for (const key of keys) {
+    const limit = key.startsWith("ip:") ? EDGE_RATE_MAX_IP : EDGE_RATE_MAX_EMAIL;
+    const current = edgeRateBuckets.get(key);
+    if (current && current.resetAt > now && current.count >= limit) {
+      retryAfter = Math.max(retryAfter, Math.ceil((current.resetAt - now) / 1000));
+    }
+  }
+  if (retryAfter > 0) return { allowed: false, retryAfter };
+
+  for (const key of keys) {
+    const current = edgeRateBuckets.get(key);
+    if (!current || current.resetAt <= now) {
+      edgeRateBuckets.set(key, { count: 1, resetAt: now + EDGE_RATE_WINDOW_MS });
+    } else {
+      current.count += 1;
+    }
+  }
+  return { allowed: true };
+}
+
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -117,48 +162,10 @@ Deno.serve(async (req: Request) => {
       ""
     ).trim() || null;
     const ua = req.headers.get("user-agent") || "";
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
-    // Run the IP/email gate before policy lookups and detailed validation.
-    // This keeps malformed and rotating-email floods out of business logic.
-    const { data: abuseGate, error: abuseErr } = await supabaseAdmin.rpc("enforce_signup_abuse_protection", {
-      p_email:      email,
-      p_ip:         requestIp,
-      p_user_agent: ua,
-    });
-    if (abuseErr) {
-      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
-    }
-    const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
-    if (!abuse?.allowed) {
-      const retryAfter = Number(abuse?.retry_after_seconds || 30);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: abuse?.code || "rate_limited",
-          error: "Too many signup attempts. Please wait and try again.",
-          retry_after_seconds: retryAfter,
-        }),
-        {
-          status: 429,
-          headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
-        },
-      );
-    }
-
-    // CAPTCHA is checked before any account-policy or persistence work.
-    // Production remains fail-closed when SIGNUP_CAPTCHA_SECRET is configured.
-    const captchaCheck = await verifySignupCaptcha(captchaToken, requestIp);
-    if (!captchaCheck.ok) {
-      return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
-    }
-
-    // Tenant ownership and partner identity are derived exclusively from the
-    // verified single-use onboarding token. Reject browser-supplied context
-    // instead of silently ignoring it, so conflicting/cross-tenant attempts
-    // are observable and cannot be mistaken for authorized onboarding.
+    // Reject cheap invalid input before invoking any database or provider.
+    // During the September flood, this ordering is the difference between an
+    // inexpensive 4xx response and millions of PostgREST/RPC calls.
     if (
       Object.prototype.hasOwnProperty.call(body, "tenant_id") ||
       Object.prototype.hasOwnProperty.call(body, "external_user_id") ||
@@ -203,6 +210,67 @@ Deno.serve(async (req: Request) => {
         }, 400);
       }
     }
+
+    // CAPTCHA verification also precedes database work when enabled.
+    const captchaCheck = await verifySignupCaptcha(captchaToken, requestIp);
+    if (!captchaCheck.ok) {
+      return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
+    }
+
+    const edgeKeys = [`email:${email.toLowerCase()}`];
+    if (requestIp) edgeKeys.push(`ip:${requestIp}`);
+    else edgeKeys.push(`client:${ua.slice(0, 160)}:${email.toLowerCase()}`);
+    const edgeGate = checkEdgeRateLimit(edgeKeys);
+    if (!edgeGate.allowed) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: "rate_limited",
+          error: "Too many signup attempts. Please wait and try again.",
+          retry_after_seconds: edgeGate.retryAfter,
+        }),
+        {
+          status: 429,
+          headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(edgeGate.retryAfter) },
+        },
+      );
+    }
+
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // Run the IP/email gate before policy lookups and detailed validation.
+    // This keeps malformed and rotating-email floods out of business logic.
+    const { data: abuseGate, error: abuseErr } = await supabaseAdmin.rpc("enforce_signup_abuse_protection", {
+      p_email:      email,
+      p_ip:         requestIp,
+      p_user_agent: ua,
+    });
+    if (abuseErr) {
+      return json({ success: false, error: `Signup protection check failed: ${abuseErr.message}` }, 500);
+    }
+    const abuse = Array.isArray(abuseGate) ? abuseGate[0] : abuseGate;
+    if (!abuse?.allowed) {
+      const retryAfter = Number(abuse?.retry_after_seconds || 30);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: abuse?.code || "rate_limited",
+          error: "Too many signup attempts. Please wait and try again.",
+          retry_after_seconds: retryAfter,
+        }),
+        {
+          status: 429,
+          headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
+        },
+      );
+    }
+
+    // Tenant ownership and partner identity are derived exclusively from the
+    // verified single-use onboarding token. Reject browser-supplied context
+    // instead of silently ignoring it, so conflicting/cross-tenant attempts
+    // are observable and cannot be mistaken for authorized onboarding.
     let partnerClaims: OnboardingTokenClaims | null = null;
     let partnerAuthorization: {
       authorization_id: string;
