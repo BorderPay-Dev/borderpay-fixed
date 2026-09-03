@@ -303,20 +303,6 @@ function displayMoneyCurrency(currency: string) {
   return c === 'USDC' || c === 'USDT' ? 'USD' : c;
 }
 
-function routeDeveloperFeePercent(wallet: ExternalWallet | null | undefined): number {
-  const raw = wallet?.bridge_payment_route_raw;
-  const candidates = [
-    raw?.developer_fee_percent,
-    raw?.payment_route?.developer_fee_percent,
-    raw?.features?.developer_fee_percent,
-  ];
-  for (const value of candidates) {
-    const num = Number(value);
-    if (Number.isFinite(num) && num >= 0) return num;
-  }
-  return 0;
-}
-
 function formatDisplayMoney(amount: number, currency: string, options?: Intl.NumberFormatOptions) {
   return formatMoney(amount, displayMoneyCurrency(currency), options);
 }
@@ -875,16 +861,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (!num || num <= 0) return null;
     if (isAfricanPayout) return null;
     if (method === 'stablecoin') {
-      const feePercent = routeDeveloperFeePercent(selectedCryptoExternalWallet);
-      const totalFee = feePercent > 0 ? (num * feePercent) / 100 : 0;
       const free = computePayoutFee({ corridor: 'stablecoin', accountType, amount: num, passThroughCost: 0 });
       return {
         ...free,
-        feePercent,
-        percentFee: totalFee,
-        totalFee,
-        netAmount: Math.max(0, num - totalFee),
-        breakdown: [{ label: 'Transaction fee', amount: totalFee }],
+        feePercent: 0,
+        percentFee: 0,
+        totalFee: 0,
+        netAmount: num,
+        breakdown: [{ label: 'Transaction fee', amount: 0 }],
       };
     }
     const country = SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.country;
@@ -893,7 +877,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ? 'international'                                    // ACH/SEPA external bank
           : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
-  }, [amount, selectedCurrency, accountType, method, isAfricanPayout, selectedCryptoExternalWallet]);
+  }, [amount, selectedCurrency, accountType, method, isAfricanPayout]);
   useEffect(() => {
     const num = parseFloat(amount);
     if (!isAfricanPayout || !selectedAfricanCountryCode || !selectedAfricanRail || !activeFundingCurrency || !Number.isFinite(num) || num <= 0) {

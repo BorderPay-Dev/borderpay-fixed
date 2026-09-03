@@ -84,11 +84,32 @@ jobs:
       - name: Verify native notification safe-area regression gate
         run: python3 tests/audit/native_notification_safe_area_audit.py
 
+      - name: Verify customer-facing financial UI regression gates
+        run: |
+          python3 tests/audit/free_external_wallet_preview_audit.py
+          python3 tests/audit/business_dashboard_recent_activity_audit.py
+
       - name: Build web app
         run: npm run build
 
       - name: Sync Capacitor iOS project
         run: npx cap sync ios
+
+      - name: Verify generated iOS launch configuration
+        run: |
+          python3 tests/audit/ios_native_launch_config_audit.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("ios/App/App/capacitor.config.json").read_text())
+          plugins = set(config.get("packageClassList", []))
+          forbidden = {"FirebaseMessagingPlugin"}
+          unexpected = sorted(plugins & forbidden)
+          if unexpected:
+              raise SystemExit(f"Crash-prone iOS plugins present: {unexpected}")
+          print("Generated iOS plugin list:", sorted(plugins))
+          PY
 
       - name: Resolve App Store build number
         id: ios-build
@@ -200,6 +221,14 @@ jobs:
           path: build/ios/*.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload iOS dSYM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: borderpay-ios-dsym-${{ steps.ios-build.outputs.number }}
+          path: ${{ runner.temp }}/BorderPayAfrica.xcarchive/dSYMs/*.dSYM
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload to TestFlight
         if: ${{ inputs.upload_to_testflight }}

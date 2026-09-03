@@ -11,6 +11,14 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: 'never',
+    // Firebase Messaging aborts during CAPBridgeViewController startup when
+    // GoogleService-Info.plist is absent. iOS push is deliberately excluded
+    // until the signed Firebase configuration is supplied and release-gated.
+    includePlugins: [
+      '@aparajita/capacitor-biometric-auth',
+      '@capacitor/filesystem',
+      '@capacitor/share',
+    ],
   },
   android: {
     allowMixedContent: false,

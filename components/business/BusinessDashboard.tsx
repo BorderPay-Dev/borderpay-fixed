@@ -12,7 +12,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, BriefcaseBusiness, FileText,
+  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, ArrowDownLeft,
+  ArrowUpRight, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -29,6 +30,8 @@ import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManage
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
 import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
+import { txDirection } from '../../utils/transactions/direction';
+import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
@@ -134,6 +137,22 @@ function formatBusinessWalletBalance(row: { currency: string; balance: number })
     maximumFractionDigits: 2,
   });
   return `${symbol}${formatted}`;
+}
+
+function formatBusinessTransactionAmount(transaction: any): string {
+  const currency = String(transaction?.currency || 'USD').toUpperCase();
+  const symbol = currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency === 'USDT' ? '₮' : '$';
+  const amount = Math.abs(Number(transaction?.amount || 0)).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: ['USDC', 'USDT', 'EURC'].includes(currency) ? 6 : 2,
+  });
+  return `${symbol}${amount}`;
+}
+
+function formatBusinessTransactionDate(value: unknown): string {
+  const date = new Date(String(value || ''));
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -720,6 +739,65 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
 
         {/* ── Treasury management ─────────────────────────────────── */}
         <TreasuryCard totalUsd={usdLikeTotal} wallets={wallets} transactions={transactions} userId={userId} />
+
+        {/* ── Recent activity ─────────────────────────────────────── */}
+        <section className="px-5 sm:px-6" data-testid="business-recent-activity">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>
+              Recent activity
+            </h2>
+            <button
+              onPointerDown={() => prefetchScreen('transactions')}
+              onMouseEnter={() => prefetchScreen('transactions')}
+              onTouchStart={() => prefetchScreen('transactions')}
+              onClick={() => navigate('transactions')}
+              className="text-[11px] font-semibold text-[#C7FF00]"
+            >
+              See all
+            </button>
+          </div>
+
+          {transactions.length === 0 ? (
+            <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} px-5 py-8 text-center`}>
+              <FileText className={`mx-auto mb-2 h-6 w-6 ${tc.textMuted}`} />
+              <p className={`text-sm font-medium ${tc.text}`}>No activity yet</p>
+              <p className={`mt-0.5 text-[11px] ${tc.textMuted}`}>Completed and pending transactions will appear here.</p>
+            </div>
+          ) : (
+            <div className={`overflow-hidden rounded-2xl border ${tc.cardBorder} ${tc.card}`}>
+              {transactions.slice(0, 5).map((transaction, index) => {
+                const isCredit = txDirection(transaction) === 'credit';
+                const status = String(transaction?.status || '').toLowerCase();
+                return (
+                  <button
+                    type="button"
+                    key={String(transaction?.id || index)}
+                    onClick={() => navigate('transactions')}
+                    className={`flex w-full items-center gap-3 px-4 py-3.5 text-left ${index > 0 ? `border-t ${tc.borderLight}` : ''} ${tc.hoverBg}`}
+                  >
+                    <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${isCredit ? 'bg-emerald-500/10' : tc.bgAlt}`}>
+                      {isCredit
+                        ? <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-400" />
+                        : <ArrowUpRight className={`h-3.5 w-3.5 ${tc.text}`} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-sm font-medium ${tc.text}`}>
+                        {sanitizeCustomerFacingText(transaction?.description || transaction?.type || 'Transaction')}
+                      </span>
+                      <span className={`mt-0.5 flex items-center gap-2 text-[11px] ${tc.textMuted}`}>
+                        <span>{formatBusinessTransactionDate(transaction?.created_at)}</span>
+                        {status && <span className="capitalize">{status.replace(/_/g, ' ')}</span>}
+                      </span>
+                    </span>
+                    <span className={`flex-shrink-0 font-mono text-sm font-semibold tabular-nums ${isCredit ? 'text-emerald-400' : tc.text}`}>
+                      {isCredit ? '+' : '−'}{formatBusinessTransactionAmount(transaction)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         {/* Profile error */}
         {profileError && (

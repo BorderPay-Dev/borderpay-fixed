@@ -72,6 +72,11 @@ jobs:
       - name: Verify native notification safe-area regression gate
         run: python3 tests/audit/native_notification_safe_area_audit.py
 
+      - name: Verify customer-facing financial UI regression gates
+        run: |
+          python3 tests/audit/free_external_wallet_preview_audit.py
+          python3 tests/audit/business_dashboard_recent_activity_audit.py
+
       - name: Verify Android system-picker permission policy
         run: python3 tests/audit/android_media_permissions_audit.py
 
