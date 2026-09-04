@@ -28,7 +28,7 @@ export interface ApiGatewayContext {
 export const GATEWAY_CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, idempotency-key, x-borderpay-route",
+    "authorization, x-client-info, apikey, content-type, idempotency-key, x-borderpay-route, x-borderpay-mode",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 };
 
@@ -64,11 +64,14 @@ export function parseBearerToken(req: Request): string {
 }
 
 export function extractClientIp(req: Request): string | null {
-  const xff = req.headers.get("x-forwarded-for")?.trim();
-  if (xff) return xff.split(",")[0]?.trim() || null;
+  const cloudflareIp = req.headers.get("cf-connecting-ip")?.trim();
+  if (cloudflareIp) return cloudflareIp;
 
   const realIp = req.headers.get("x-real-ip")?.trim();
   if (realIp) return realIp;
+
+  const xff = req.headers.get("x-forwarded-for")?.trim();
+  if (xff) return xff.split(",")[0]?.trim() || null;
 
   return null;
 }
