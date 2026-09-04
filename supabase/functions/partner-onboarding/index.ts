@@ -1,10 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const PROD_ORIGIN = "https://partners.borderpayafrica.com";
+const PROD_ORIGIN = "https://portal.borderpayafrica.com";
 const allowedOrigin = (origin: string | null) => {
   if (!origin) return PROD_ORIGIN;
-  if (origin === PROD_ORIGIN || origin === "https://borderpay-partners.vercel.app" || origin === "http://localhost:5173") return origin;
+  if (origin === PROD_ORIGIN || origin === "https://partners.borderpayafrica.com" || origin === "https://borderpay-partners.vercel.app" || origin === "http://localhost:5173") return origin;
   if (/^https:\/\/borderpay-partners-[a-z0-9-]+\.vercel\.app$/i.test(origin)) return origin;
   return PROD_ORIGIN;
 };
@@ -79,6 +79,22 @@ function completeness(app: any, people: any[], documents: any[]) {
   return missing;
 }
 
+function newApiKey(mode: "sandbox" | "production") {
+  const tag = mode === "production" ? "live" : "test";
+  const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+  const plain = `bpk_${tag}_${token}`;
+  return { plain, prefix: plain.slice(0, 14) };
+}
+
+function newWebhookSecret() {
+  return `bwhsec_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
+const allowedScopes = new Set([
+  "customers:write", "wallets:write", "virtual_accounts:write",
+  "transfers:write", "payouts:write", "webhooks:write",
+]);
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: headers(req) });
   if (req.method !== "POST") return json(req, { success: false, error: "POST only" }, 405);
@@ -101,12 +117,13 @@ Deno.serve(async (req) => {
       const ip = (req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown").split(",")[0].trim();
       const ipHash = await sha256(`${Deno.env.get("PARTNER_INVITE_HASH_SALT") || serviceKey}:${ip}`);
       const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const { count } = await db.from("partner_access_invite_requests").select("id", { head: true, count: "exact" }).eq("email", email).gte("requested_at", since);
-      if ((count || 0) < 3) {
-        await db.from("partner_access_invite_requests").insert({ email, requester_ip_hash: ipHash });
-        await db.auth.admin.inviteUserByEmail(email, { redirectTo: `${PROD_ORIGIN}/auth/callback?setup=password` });
+      const { count, error: rateError } = await db.from("partner_access_invite_requests").select("id", { head: true, count: "exact" }).eq("requester_ip_hash", ipHash).gte("requested_at", since);
+      if (rateError) throw rateError;
+      if ((count || 0) < 5) {
+        const { error } = await db.from("partner_access_invite_requests").insert({ email, requester_ip_hash: ipHash, status: "pending" });
+        if (error) throw error;
       }
-      return json(req, { success: true, message: "If eligible, an access email will arrive shortly." });
+      return json(req, { success: true, message: "Your request is queued for manual review. If approved, a secure invite will be emailed to you." });
     }
 
     const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
@@ -114,14 +131,29 @@ Deno.serve(async (req) => {
     if (authError || !authData.user) return json(req, { success: false, error: "Authentication required" }, 401);
     const user = authData.user;
 
-    let { data: org } = await db.from("partner_organizations").select("*").eq("owner_user_id", user.id).maybeSingle();
-    if (!org) {
-      const { data: created, error } = await db.from("partner_organizations").insert({ owner_user_id: user.id, primary_email: user.email || "" }).select("*").single();
+    let { data: member } = await db.from("partner_members").select("organization_id,role,is_active").eq("user_id", user.id).eq("is_active", true).maybeSingle();
+    let org: any = null;
+    if (member) {
+      const { data } = await db.from("partner_organizations").select("*").eq("id", member.organization_id).maybeSingle();
+      org = data;
+    }
+    if (!member || !org) {
+      const email = String(user.email || "").trim().toLowerCase();
+      const { data: approvedInvite } = await db.from("partner_access_invite_requests")
+        .select("id,email,status").eq("email", email).eq("status", "invited")
+        .order("invited_at", { ascending: false }).limit(1).maybeSingle();
+      if (!approvedInvite) return json(req, { success: false, error: "Partner access has not been approved." }, 403);
+      const { data: created, error } = await db.from("partner_organizations")
+        .insert({ owner_user_id: user.id, primary_email: email }).select("*").single();
       if (error) throw error;
       org = created;
-      await db.from("partner_members").insert({ organization_id: org.id, user_id: user.id, role: "owner" });
+      const { data: createdMember, error: memberError } = await db.from("partner_members")
+        .insert({ organization_id: org.id, user_id: user.id, role: "owner" })
+        .select("organization_id,role,is_active").single();
+      if (memberError) throw memberError;
+      member = createdMember;
+      await db.from("partner_access_invite_requests").update({ status: "accepted", accepted_at: new Date().toISOString() }).eq("id", approvedInvite.id);
     }
-    const { data: member } = await db.from("partner_members").select("role,is_active").eq("organization_id", org.id).eq("user_id", user.id).maybeSingle();
     if (!member?.is_active) return json(req, { success: false, error: "Partner access disabled" }, 403);
     let { data: app } = await db.from("partner_applications").select("*").eq("organization_id", org.id).in("status", ["draft", "submitted", "under_review", "more_information"]).order("version", { ascending: false }).limit(1).maybeSingle();
     if (!app && org.status !== "approved") {
@@ -137,6 +169,158 @@ Deno.serve(async (req) => {
       ]);
       return json(req, { success: true, organization: org, application: app, people: people || [], documents: documents || [] });
     }
+
+    const tenantId = String(org.approved_tenant_id || "");
+    const canManage = member.role === "owner" || member.role === "admin";
+    const canDevelop = canManage || member.role === "developer";
+    const requireOperationalTenant = () => {
+      if (org.status !== "approved") throw new Error("Partner organization is not approved");
+      if (!tenantId) throw new Error("Partner API tenant has not been provisioned");
+    };
+
+    if (action === "get_workspace") {
+      if (org.status !== "approved" || !tenantId) {
+        return json(req, {
+          success: true,
+          organization: org,
+          application: app,
+          member,
+          provisioned: false,
+          tenant: null,
+          api_keys: [],
+          ip_allowlist: [],
+          webhooks: [],
+          activity: [],
+          pricing: [],
+          members: [],
+        });
+      }
+      const [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ] = await Promise.all([
+        db.from("api_tenants").select("id,tenant_name,default_mode,is_active,beta_access_enabled,max_single_transfer_usd,rate_limit_per_minute,created_at,updated_at").eq("id", tenantId).maybeSingle(),
+        db.from("api_keys").select("id,key_prefix,key_label,scopes,is_active,revoked_at,last_used_at,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
+        db.from("api_ip_allowlist").select("id,cidr_block,note,is_active,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
+        db.from("api_webhook_endpoints").select("id,endpoint_url,is_active,created_at,updated_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
+        db.from("api_request_log").select("id,request_id,method,route,status_code,error_code,latency_ms,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(200),
+        db.from("partner_pricing_rules").select("id,provider,product,source_currency,destination_currency,fee_type,fee_percent,fixed_amount,fixed_currency,effective_from,effective_until,is_active").eq("organization_id", org.id).eq("is_active", true).order("effective_from", { ascending: false }),
+        db.from("partner_members").select("user_id,role,is_active,created_at").eq("organization_id", org.id).order("created_at"),
+        db.from("partner_portal_audit_log").select("id,event_type,metadata,created_at").eq("organization_id", org.id).order("created_at", { ascending: false }).limit(100),
+      ]);
+      for (const result of [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ]) {
+        if (result.error) throw result.error;
+      }
+      if (!tenantQ.data) return json(req, { success: false, error: "Partner API tenant is unavailable" }, 409);
+      const safeMembers = await Promise.all((membersQ.data || []).map(async (row: any) => {
+        const { data } = await db.auth.admin.getUserById(row.user_id);
+        return { ...row, email: data?.user?.email || null };
+      }));
+      return json(req, {
+        success: true,
+        organization: org,
+        application: app,
+        member,
+        provisioned: true,
+        tenant: tenantQ.data,
+        api_keys: keysQ.data || [],
+        ip_allowlist: ipsQ.data || [],
+        webhooks: hooksQ.data || [],
+        activity: activityQ.data || [],
+        pricing: pricingQ.data || [],
+        members: safeMembers,
+        audit_events: auditQ.data || [],
+      });
+    }
+
+    if (action === "create_api_key") {
+      requireOperationalTenant();
+      if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
+      const { data: tenant } = await db.from("api_tenants").select("default_mode,is_active").eq("id", tenantId).single();
+      if (!tenant?.is_active) return json(req, { success: false, error: "API access is not active yet" }, 409);
+      const scopes = Array.isArray(body.scopes) ? body.scopes.map((v: unknown) => clean(v, 80)).filter((v: string) => allowedScopes.has(v)) : [];
+      if (!scopes.length) return json(req, { success: false, error: "Select at least one allowed scope" }, 400);
+      const key = newApiKey(tenant.default_mode === "production" ? "production" : "sandbox");
+      const { data, error } = await db.from("api_keys").insert({
+        tenant_id: tenantId,
+        key_prefix: key.prefix,
+        key_hash: await sha256(key.plain),
+        key_label: clean(body.key_label, 120) || null,
+        scopes,
+        // Partner identities are isolated from user_profiles; attribution lives in
+        // partner_portal_audit_log instead of the customer-profile foreign key.
+        created_by: null,
+      }).select("id,key_prefix,key_label,scopes,is_active,created_at").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "api_key_created", metadata: { api_key_id: data.id, scopes } });
+      return json(req, { success: true, api_key: { ...data, plain_api_key: key.plain } }, 201);
+    }
+
+    if (action === "revoke_api_key") {
+      requireOperationalTenant();
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const keyId = clean(body.key_id, 40);
+      const { data, error } = await db.from("api_keys").update({ is_active: false, revoked_at: new Date().toISOString() })
+        .eq("id", keyId).eq("tenant_id", tenantId).select("id,key_prefix,is_active,revoked_at").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "api_key_revoked", metadata: { api_key_id: keyId } });
+      return json(req, { success: true, api_key: data });
+    }
+
+    if (action === "add_ip_allowlist") {
+      requireOperationalTenant();
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const cidr = clean(body.cidr_block, 80);
+      if (!cidr || !/^[0-9a-f:.]+(?:\/\d{1,3})?$/i.test(cidr)) return json(req, { success: false, error: "Valid IPv4/IPv6 CIDR required" }, 400);
+      const { data, error } = await db.from("api_ip_allowlist").insert({ tenant_id: tenantId, cidr_block: cidr, note: clean(body.note, 200) || null })
+        .select("id,cidr_block,note,is_active,created_at").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "ip_allowlist_added", metadata: { allowlist_id: data.id } });
+      return json(req, { success: true, rule: data }, 201);
+    }
+
+    if (action === "remove_ip_allowlist") {
+      requireOperationalTenant();
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const id = clean(body.id, 40);
+      const { error } = await db.from("api_ip_allowlist").update({ is_active: false }).eq("id", id).eq("tenant_id", tenantId);
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "ip_allowlist_removed", metadata: { allowlist_id: id } });
+      return json(req, { success: true });
+    }
+
+    if (action === "create_webhook") {
+      requireOperationalTenant();
+      if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
+      const endpointUrl = clean(body.endpoint_url, 500);
+      try { if (new URL(endpointUrl).protocol !== "https:") throw new Error(); } catch { return json(req, { success: false, error: "A valid HTTPS webhook URL is required" }, 400); }
+      const secret = newWebhookSecret();
+      const { data, error } = await db.from("api_webhook_endpoints").insert({ tenant_id: tenantId, endpoint_url: endpointUrl, signing_secret_hash: await sha256(secret) })
+        .select("id,endpoint_url,is_active,created_at").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "webhook_created", metadata: { webhook_id: data.id } });
+      return json(req, { success: true, webhook: { ...data, signing_secret: secret } }, 201);
+    }
+
+    if (action === "rotate_webhook_secret") {
+      requireOperationalTenant();
+      if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
+      const id = clean(body.webhook_id, 40);
+      const secret = newWebhookSecret();
+      const { data, error } = await db.from("api_webhook_endpoints").update({ signing_secret_hash: await sha256(secret) })
+        .eq("id", id).eq("tenant_id", tenantId).select("id,endpoint_url,is_active,updated_at").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "webhook_secret_rotated", metadata: { webhook_id: id } });
+      return json(req, { success: true, webhook: { ...data, signing_secret: secret } });
+    }
+
+    if (action === "disable_webhook") {
+      requireOperationalTenant();
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const id = clean(body.webhook_id, 40);
+      const { error } = await db.from("api_webhook_endpoints").update({ is_active: false }).eq("id", id).eq("tenant_id", tenantId);
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "webhook_disabled", metadata: { webhook_id: id } });
+      return json(req, { success: true });
+    }
+
     if (!app) return json(req, { success: false, error: "No active application" }, 409);
     if (!editable.has(app.status)) return json(req, { success: false, error: "Application is read-only during review" }, 409);
 
