@@ -182,7 +182,7 @@ Deno.serve(async (req: Request) => {
     const referralCode = String(body.referral_code || "").trim().toUpperCase();
     const normalizedPhone = String(phone_number || "").trim();
     const onboardingToken = String(body.onboarding_token || "").trim();
-    const normalizedCountryCode = String(country_code || "NG").trim().toUpperCase();
+    const normalizedCountryCode = String(country_code || "").trim().toUpperCase();
 
     if (!email || !password || !full_name) {
       return json({ success: false, error: "Email, password, and full name are required" }, 400);
@@ -209,6 +209,22 @@ Deno.serve(async (req: Request) => {
           error: "Use your company email address (for example, name@company.com). Personal, disposable, and test email domains are not accepted for Business accounts.",
         }, 400);
       }
+    }
+
+    // Ukraine has prohibited sub-regions that this country-only form cannot
+    // distinguish. Exclude it from self-serve onboarding until a verified
+    // address-level screening path exists. Other Bridge High Risk countries
+    // remain eligible where Bridge supports enhanced due diligence.
+    if (
+      !/^[A-Z]{2}$/.test(normalizedCountryCode) ||
+      isBridgeBlocked(normalizedCountryCode) ||
+      normalizedCountryCode === "UA"
+    ) {
+      return json({
+        success: false,
+        code: "country_not_supported",
+        error: "BorderPay onboarding is not available in your country yet.",
+      }, 403);
     }
 
     // CAPTCHA verification also precedes database work when enabled.

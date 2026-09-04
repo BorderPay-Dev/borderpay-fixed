@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
+import { isBridgeBlocked, normalizeBridgeCountryCode } from "../_shared/providers/bridge-country-policy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -86,6 +87,11 @@ Deno.serve(async (req) => {
         getCode3(row?.country_code_alpha3) ??
         (code2 ? null : getCode3(row?.code));
       if (!name && !code2 && !code3) return null;
+      const policyCode = code2 ?? normalizeBridgeCountryCode(code3);
+      // Exclude Bridge-blocked countries and Ukraine until address-level
+      // screening can exclude its prohibited sub-regions. Preserve legitimate
+      // provider rows that only carry ISO-3 so older clients still resolve them.
+      if (isBridgeBlocked(policyCode) || policyCode === "UA") return null;
       return {
         code: code2,
         code3,
@@ -108,4 +114,3 @@ Deno.serve(async (req) => {
     },
   });
 });
-

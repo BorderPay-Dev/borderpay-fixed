@@ -40,7 +40,7 @@
  *      restricted tiers, not the supported tier).
  *
  * Source: https://apidocs.bridge.xyz/platform/customers/compliance/supported-countries-list
- * Captured: 2026-05-21.
+ * Revalidated: 2026-09-04.
  *
  * Round-9 → round-10 P1 hardening:
  *   - Round-9 expanded Prohibited from {CD} to 18 sanctions-relevant codes
@@ -214,10 +214,12 @@ const ISO3_TO_ISO2: Record<string, string> = {
   AFG: "AF",
   AUS: "AU",
   BGD: "BD",
+  BLR: "BY",
   BTN: "BT",
   BDI: "BI",
   CAF: "CF",
   CHN: "CN",
+  COD: "CD",
   CUB: "CU",
   DZA: "DZ",
   ERI: "ER",
@@ -251,6 +253,7 @@ const ISO3_TO_ISO2: Record<string, string> = {
   SYR: "SY",
   THA: "TH",
   TUN: "TN",
+  UKR: "UA",
   VEN: "VE",
   VNM: "VN",
   YEM: "YE",
