@@ -661,6 +661,22 @@ async function failProvisioningLock(lockEventId: string, errorText: string): Pro
     .eq("event_id", lockEventId);
 }
 
+// Partner API resources are created by public-api-gateway with a tenant ID.
+// Verified provider webhooks may update state, but can never create or move a
+// resource between tenants through this projection.
+async function updatePartnerResourceState(
+  resourceType: "wallet" | "virtual_account" | "transfer" | "payout",
+  providerResourceId: string,
+  state: string,
+): Promise<void> {
+  if (!providerResourceId || !state) return;
+  const { error } = await supabase.from("api_tenant_resources")
+    .update({ state: state.slice(0, 80), updated_at: new Date().toISOString() })
+    .eq("resource_type", resourceType)
+    .eq("provider_resource_id", providerResourceId);
+  if (error) console.error("partner resource status projection failed", error.message);
+}
+
 // ── Top-level router (source-aware) ──────────────────────────────────────
 //
 // BorderPay has one active provider path in this worker. Unknown source values
@@ -1808,6 +1824,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     existingFeePercent: existingVa?.developer_fee_percent,
     existingAccountDetails: existingVa?.account_details,
   });
+  await updatePartnerResourceState("virtual_account", String(vaId), owner.status);
   const deliversToExternalWallet = owner.destination_source === "external_wallet";
   const accountDetails = objectValue(existingVa?.account_details) ?? {};
 
@@ -2450,6 +2467,11 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     status:              String(d?.status ?? "active").toLowerCase(),
     updated_at:          new Date().toISOString(),
   }, { onConflict: "bridge_wallet_id" });
+  await updatePartnerResourceState(
+    "wallet",
+    String(walletId),
+    String(d?.status ?? "active").toLowerCase(),
+  );
 
   // Projection repair/prevention: wallet activity with amount should emit a
   // canonical ledger/transaction row idempotently. Customer-facing
@@ -2661,6 +2683,10 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
               : "pending"
         )))
     : "pending";
+  await Promise.all([
+    updatePartnerResourceState("transfer", String(transferId), transferState),
+    updatePartnerResourceState("payout", String(transferId), transferState),
+  ]);
   const transferRaw = {
     ...d,
     borderpay_reconciliation_reason: reconciliationReason,

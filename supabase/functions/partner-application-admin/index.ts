@@ -22,6 +22,7 @@ const cors = (req: Request) => ({
 });
 const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), "Content-Type": "application/json" } });
 const clean = (value: unknown, max = 2000) => String(value ?? "").trim().slice(0, max);
+const comparable = (value: unknown) => clean(value, 300).toLowerCase().replace(/[^a-z0-9]/g, "");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -104,6 +105,45 @@ Deno.serve(async (req) => {
       const { data: signed, error: signError } = await db.storage.from("partner-due-diligence").createSignedUrl(document.storage_path, 300);
       if (signError) throw signError;
       return json(req, { success: true, signed_url: signed.signedUrl, expires_in: 300 });
+    }
+
+    if (action === "verify_bridge_kyb") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      if (clean(body.confirmation, 40) !== "VERIFY BRIDGE KYB") {
+        return json(req, { success: false, error: "Type VERIFY BRIDGE KYB to confirm" }, 400);
+      }
+      const bridgeCustomerId = clean(body.bridge_customer_id, 120);
+      if (!bridgeCustomerId) return json(req, { success: false, error: "Bridge business customer ID required" }, 400);
+      const { data: businesses, error: businessError } = await db.from("business_profiles")
+        .select("user_id,company_name,registration_number,country,status,bridge_customer_id,bridge_kyb_status")
+        .eq("bridge_customer_id", bridgeCustomerId).limit(2);
+      if (businessError) throw businessError;
+      if ((businesses || []).length !== 1) return json(req, { success: false, error: "Bridge customer must map to exactly one BorderPay business" }, 409);
+      const business: any = businesses![0];
+      if (business.status !== "active" || !["approved", "active"].includes(clean(business.bridge_kyb_status, 40).toLowerCase())) {
+        return json(req, { success: false, error: "Bridge business KYB is not approved and active" }, 409);
+      }
+      const entity = application.entity_details || {};
+      const checks = {
+        legal_name: comparable(entity.legal_name) === comparable(business.company_name),
+        registration_number: comparable(entity.registration_number) === comparable(business.registration_number),
+        country: clean(entity.country_of_incorporation, 2).toUpperCase() === clean(business.country, 2).toUpperCase(),
+      };
+      if (!checks.legal_name || !checks.registration_number || !checks.country) {
+        return json(req, { success: false, error: "Partner legal identity does not exactly match the verified Bridge business", checks }, 409);
+      }
+      const now = new Date().toISOString();
+      const { error: updateError } = await db.from("partner_organizations").update({
+        kyb_source: "bridge_verified", bridge_customer_id: bridgeCustomerId,
+        bridge_verified_at: now, bridge_verified_by: authData.user.id, updated_at: now,
+      }).eq("id", application.organization_id);
+      if (updateError) throw updateError;
+      await db.from("partner_portal_audit_log").insert({
+        organization_id: application.organization_id, application_id: applicationId,
+        actor_user_id: authData.user.id, event_type: "bridge_business_kyb_verified",
+        metadata: { bridge_customer_id: bridgeCustomerId, identity_checks: checks },
+      });
+      return json(req, { success: true, kyb_source: "bridge_verified", bridge_customer_id: bridgeCustomerId, identity_checks: checks });
     }
 
     if (action === "decision") {
