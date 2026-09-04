@@ -415,6 +415,15 @@ const BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS: ReadonlySet<AppScreen> = new Set([
   'dashboard', 'home', 'wallet-detail', 'transactions',
 ]);
 
+// Maintenance restrictions apply only after the server records the end of the
+// seven-day grace period. Authentication, profile, support, and invoice access
+// remain available so a customer can recover without operator intervention.
+const SUBSCRIPTION_RESTRICTED_SCREENS: ReadonlySet<AppScreen> = new Set([
+  'send-money', 'receive-money', 'ramps', 'wallet-detail', 'add-wallet',
+  'external-wallets', 'external-accounts', 'add-external-account',
+  'bulk-payout', 'payroll',
+]);
+
 const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
   dashboard:     'dashboard',
   send:          'send-money',
@@ -481,6 +490,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       : ['dashboard', initialScreenFromCallback],
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const [subscriptionAccess, setSubscriptionAccess] = useState<{
+    restricted: boolean;
+    amount: number | null;
+    paymentLink: string | null;
+  }>({ restricted: false, amount: null, paymentLink: null });
   const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>(
     bridgeScaUiEnabled ? 'loading' : 'not_required',
   );
@@ -524,6 +538,23 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, [bridgeScaUiEnabled]);
 
   useEffect(() => { void refreshScaScope(); }, [refreshScaScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void backendAPI.subscription.current().then((response: any) => {
+      if (cancelled || !response?.success) return;
+      const subscription = response?.data?.subscription;
+      setSubscriptionAccess({
+        restricted: Boolean(subscription?.restricted_at),
+        amount: Number.isFinite(Number(subscription?.monthly_fee)) ? Number(subscription.monthly_fee) : null,
+        paymentLink: String(response?.data?.payment_invoice?.payment_link || '').trim() || null,
+      });
+    }).catch(() => {
+      // Fail open on read outages. A network incident must not lock customers;
+      // only an explicit, persisted server restriction may hide services.
+    });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
 
   const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean }>(() => {
     try {
@@ -1060,6 +1091,27 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   const renderScreen = () => {
     const isBusinessAccount = accountType === 'business' || hasBusinessAccountCached();
+    if (subscriptionAccess.restricted && SUBSCRIPTION_RESTRICTED_SCREENS.has(currentScreen)) {
+      return (
+        <div className="mx-auto mt-10 max-w-md rounded-3xl border border-amber-400/20 bg-white/[0.03] p-6 text-white">
+          <h2 className="font-bold">Account maintenance payment required</h2>
+          <p className="mt-2 text-sm text-gray-400">
+            Sending, receiving, and wallet services are unavailable until your overdue
+            {subscriptionAccess.amount !== null ? ` $${subscriptionAccess.amount.toFixed(2)}` : ''} maintenance invoice is paid and verified.
+          </p>
+          {subscriptionAccess.paymentLink && (
+            <a
+              href={subscriptionAccess.paymentLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-5 inline-flex rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black"
+            >
+              Pay invoice
+            </a>
+          )}
+        </div>
+      );
+    }
     const protectedAccountAccess = bridgeScaUiEnabled && BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS.has(currentScreen);
     const accessGranted = walletAccessUntil > Date.now();
     if (protectedAccountAccess && scaScope !== 'not_required' && !accessGranted) {

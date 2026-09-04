@@ -2725,6 +2725,9 @@ export const subscriptionAPI = {
         completed_at: string | null;
         created_at: string;
       }>;
+      payment_invoice?: {
+        payment_link?: string | null;
+      } | null;
     }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),
 
 };

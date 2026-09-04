@@ -39,6 +39,7 @@ python3 tests/audit/capacitor_viewport_audit.py
 
 echo "[store-release] gate 9/10: EEA-only SCA and non-EEA access"
 python3 tests/audit/non_eea_sca_scope_audit.py
+python3 tests/audit/native_store_sca_and_subscription_audit.py
 
 echo "[store-release] gate 10/10: Business dashboard and financial UI"
 python3 tests/audit/business_dashboard_recent_activity_audit.py
