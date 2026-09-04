@@ -19,7 +19,7 @@ import type {
   PaymentProvider,
   CustomerCreateInput, CustomerCreateResult,
   KycLinkInput,        KycLinkResult,
-  VirtualAccountCreateInput, VirtualAccountResult,
+  VirtualAccountCreateInput, VirtualAccountResult, ProviderVirtualAccountSummary,
   WalletCreateInput,   WalletResult,
   TransferCreateInput, TransferResult,
   LiquidationAddressCreateInput, LiquidationAddressResult,
@@ -660,7 +660,6 @@ export class BridgeProvider implements PaymentProvider {
       currency: String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
       rail: v?.source_deposit_instructions?.payment_rail || v?.rail,
       status: v?.status ? String(v.status) : undefined,
-      created_at: v?.created_at ? String(v.created_at) : undefined,
       account_details: v,
     };
   }

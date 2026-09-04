@@ -1,7 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { isBridgeEeaScaCountry, resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 
 const URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -9,6 +8,26 @@ const WORKER_TOKEN = Deno.env.get("WORKER_AUTH_TOKEN") ?? "";
 const EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? SERVICE_ROLE;
 const db = createClient(URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+// Billing routing is intentionally independent from SCA. It uses the
+// verified server-side customer country only to choose invoice collection
+// versus wallet collection; it does not gate login or financial screens.
+const EEA_BILLING_COUNTRIES = new Set([
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE",
+  "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL",
+  "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+]);
+
+async function resolveBillingCountry(userId: string): Promise<{ country: string | null; eea: boolean }> {
+  const { data, error } = await db.from("user_profiles")
+    .select("country,verification_status")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error || data?.verification_status !== "approved") return { country: null, eea: false };
+  const country = String(data?.country ?? "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(country)) return { country: null, eea: false };
+  return { country, eea: EEA_BILLING_COUNTRIES.has(country) };
+}
 
 function equal(a: string, b: string): boolean {
   if (!a || !b || a.length !== b.length) return false;
@@ -41,10 +60,10 @@ async function billDue() {
   const results = [];
   const scopedRows = await mapWithConcurrency(data ?? [], 3, async (row) => ({
     row,
-    scope: await resolveBridgeScaScope(db, row.user_id),
+    scope: await resolveBillingCountry(row.user_id),
   }));
   for (const { row, scope } of scopedRows) {
-    if (isBridgeEeaScaCountry(scope.country)) {
+    if (scope.eea) {
       const { data: result, error: invoiceError } = await db.rpc("queue_external_subscription_invoice", {
         p_subscription_id: row.id,
         p_billing_date: today,
@@ -54,8 +73,8 @@ async function billDue() {
       results.push({ id: row.id, route: "flutterwave_invoice", result, error: invoiceError?.message ?? null });
       continue;
     }
-    if (scope.reason !== "non_eea" || scope.status !== "not_required") {
-      results.push({ id: row.id, route: "blocked", result: null, error: `maintenance_region_unresolved:${scope.reason}` });
+    if (!scope.country) {
+      results.push({ id: row.id, route: "blocked", result: null, error: "maintenance_region_unresolved" });
       continue;
     }
     try {
@@ -96,8 +115,8 @@ async function queueUnpaidInvoices() {
     .limit(500);
   if (error) throw error;
   const results = await mapWithConcurrency(data ?? [], 3, async (row) => {
-    const scope = await resolveBridgeScaScope(db, row.user_id);
-    if (!scope.country) return { id: row.id, queued: false, error: `maintenance_region_unresolved:${scope.reason}` };
+    const scope = await resolveBillingCountry(row.user_id);
+    if (!scope.country) return { id: row.id, queued: false, error: "maintenance_region_unresolved" };
     const { data: result, error: invoiceError } = await db.rpc("queue_external_subscription_invoice", {
       p_subscription_id: row.id,
       p_billing_date: row.next_billing_date,
