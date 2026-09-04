@@ -795,7 +795,9 @@ export function getSignupCountriesFromBridge(records: Array<{ code?: string | nu
         ?? null;
     }
     if (!code) continue;
-    if (isBridgeBlocked(code)) continue;
+    // Ukraine has prohibited sub-regions that this country-only form cannot
+    // distinguish. Exclude it until address-level screening exists.
+    if (isBridgeBlocked(code) || code === 'UA') continue;
     const cfg = countryConfigFromCode(code);
     if (!cfg || cfg.status !== 'active') continue;
     out.set(code, cfg);
