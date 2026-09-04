@@ -1,0 +1,87 @@
+name: Security Pipeline
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "hotfix/**"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-gates:
+    name: Authorization, secrets, dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Reject high-impact secrets in tracked files
+        run: python3 scripts/ci/scan_tracked_secrets.py
+
+      - name: Block high and critical production dependency advisories
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Enforce security and lifecycle boundaries
+        run: bash scripts/ci/enforce-safety-boundaries.sh
+
+      - name: Verify frozen-account authorization
+        run: python3 tests/audit/frozen_account_access_gate_audit.py
+
+      - name: Verify signup abuse controls
+        run: python3 tests/audit/signup_abuse_protection_audit.py
+
+      - name: Verify Bridge webhook authentication
+        run: python3 tests/audit/bridge_webhook_signature_audit.py
+
+      - name: Verify legacy email endpoints remain authenticated
+        run: python3 tests/audit/legacy_email_endpoint_security_audit.py
+
+  codeql:
+    name: CodeQL JavaScript/TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"

@@ -180,6 +180,9 @@ python3 "$ROOT/tests/audit/wallet_active_rows_audit.py" >/dev/null \
 python3 "$ROOT/tests/audit/current_access_model_regression_audit.py" >/dev/null \
   || fail "Current access model regression audit failed."
 
+python3 "$ROOT/tests/audit/frozen_account_access_gate_audit.py" >/dev/null \
+  || fail "Frozen account access gate audit failed."
+
 python3 "$ROOT/tests/audit/signup_abuse_protection_audit.py" >/dev/null \
   || fail "Signup abuse protection / RPC availability audit failed."
 
