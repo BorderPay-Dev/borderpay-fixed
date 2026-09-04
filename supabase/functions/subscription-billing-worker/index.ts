@@ -242,6 +242,12 @@ async function sendEmails() {
   return { selected: data?.length ?? 0, sent, failed };
 }
 
+async function finalizeRestrictionsAfterEmailDelivery() {
+  const { data, error } = await db.rpc("finalize_subscription_restrictions");
+  if (error) throw error;
+  return data;
+}
+
 async function sign(secret: string, value: string): Promise<string> {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const raw = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
@@ -337,7 +343,11 @@ Deno.serve(async (req) => {
     if (mode === "access_dry_run") out.access = await reconcileSubscriptionAccess(true);
     if (mode === "access") out.access = await reconcileSubscriptionAccess(false);
     if (mode === "announcement") out.announcement = await queueAnnouncement();
-    if (["emails", "drain", "announcement"].includes(mode)) out.emails = await sendEmails();
+    if (["emails", "drain", "announcement"].includes(mode)) {
+      out.emails = await sendEmails();
+      out.restrictions = await finalizeRestrictionsAfterEmailDelivery();
+      out.access = await reconcileSubscriptionAccess(false);
+    }
     if (["events", "drain"].includes(mode)) out.events = await deliverEvents();
     return json({ success: true, data: out });
   } catch (e) {
