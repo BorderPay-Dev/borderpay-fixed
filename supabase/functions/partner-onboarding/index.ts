@@ -102,6 +102,13 @@ Deno.serve(async (req) => {
     return json(req, { success: false, error: "Origin not allowed" }, 403);
   }
 
+  const contentType = (req.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.startsWith("application/json")) return json(req, { success: false, error: "Content-Type must be application/json" }, 415);
+  const contentLength = Number(req.headers.get("content-length") || "0");
+  if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > 65_536) {
+    return json(req, { success: false, error: "Request body is too large" }, 413);
+  }
+
   const url = Deno.env.get("SUPABASE_URL") || "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!url || !serviceKey) return json(req, { success: false, error: "Server configuration missing" }, 500);
@@ -114,7 +121,12 @@ Deno.serve(async (req) => {
     if (action === "request_invite") {
       const email = clean(body?.email, 254).toLowerCase();
       if (!emailOk(email)) return json(req, { success: false, error: "Valid business email required" }, 400);
-      const ip = (req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown").split(",")[0].trim();
+      const ip = (
+        req.headers.get("cf-connecting-ip") ||
+        req.headers.get("x-real-ip") ||
+        (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() ||
+        "unknown"
+      ).trim();
       const ipHash = await sha256(`${Deno.env.get("PARTNER_INVITE_HASH_SALT") || serviceKey}:${ip}`);
       const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const { count, error: rateError } = await db.from("partner_access_invite_requests").select("id", { head: true, count: "exact" }).eq("requester_ip_hash", ipHash).gte("requested_at", since);
@@ -373,6 +385,20 @@ Deno.serve(async (req) => {
     if (action === "finalize_document") {
       const path = clean(body.storage_path, 500);
       if (!path.startsWith(`${org.id}/${app.id}/`)) return json(req, { success: false, error: "Invalid document path" }, 400);
+      const filename = path.split("/").pop() || "";
+      const folder = `${org.id}/${app.id}`;
+      const { data: stored, error: storageError } = await db.storage.from("partner-due-diligence").list(folder, {
+        search: filename,
+        limit: 2,
+      });
+      if (storageError) throw storageError;
+      const object = (stored || []).find((entry: any) => entry.name === filename);
+      if (!object) return json(req, { success: false, error: "Uploaded document was not found" }, 409);
+      const declaredSize = Number(body.size_bytes);
+      const storedSize = Number(object.metadata?.size ?? object.metadata?.contentLength ?? 0);
+      if (!(declaredSize > 0 && declaredSize <= 10_485_760) || (storedSize > 0 && storedSize !== declaredSize)) {
+        return json(req, { success: false, error: "Uploaded document size does not match" }, 409);
+      }
       const payload = { application_id: app.id, document_type: clean(body.document_type, 80), storage_path: path, original_filename: clean(body.original_filename, 240), mime_type: clean(body.mime_type, 80), size_bytes: Number(body.size_bytes), uploaded_by: user.id };
       const { data, error } = await db.from("partner_application_documents").insert(payload).select("id,document_type,original_filename,mime_type,size_bytes,created_at").single();
       if (error) throw error;

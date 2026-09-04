@@ -10,6 +10,7 @@ checks = {
     "public requests never create Auth users": "inviteUserByEmail" not in public_invite,
     "public requests are queued pending": 'status: "pending"' in public_invite,
     "public intake is IP rate limited": 'eq("requester_ip_hash", ipHash)' in public_invite,
+    "public intake trusts gateway IP before forwarded input": public_invite.find('req.headers.get("cf-connecting-ip")') < public_invite.find('req.headers.get("x-forwarded-for")'),
     "membership requires an invited email": all(token in onboarding for token in ('.eq("email", email)', '.eq("status", "invited")', '"Partner access has not been approved."')),
     "only admin worker sends Auth invites": "inviteUserByEmail" in admin and "Admin access required" in admin,
     "invite redirect uses production portal": "https://portal.borderpayafrica.com/auth/callback?setup=password" in admin,
@@ -18,6 +19,11 @@ checks = {
     "key hashes never appear in workspace responses": 'select("id,key_prefix,key_label,scopes,is_active,revoked_at,last_used_at,created_at")' in onboarding,
     "activity omits IP and metadata": 'select("id,request_id,method,route,status_code,error_code,latency_ms,created_at")' in onboarding,
     "private access schema is constrained": all(token in migration for token in ("partner_access_invite_status_check", "partner_members_one_active_org_per_user_idx")),
+    "partner mutations require super admin": "if (!canOperate)" in admin and "Super admin access required" in admin,
+    "sandbox activation requires typed confirmation": 'clean(body.confirmation, 40) !== "ACTIVATE SANDBOX"' in admin,
+    "sandbox activation cannot enable production": 'default_mode: "sandbox"' in admin and 'production_access: false' in admin,
+    "sandbox activation requires approved KYB": 'application.status !== "approved"' in admin,
+    "document finalization verifies uploaded object": '.storage.from("partner-due-diligence").list(folder' in onboarding and 'Uploaded document was not found' in onboarding,
 }
 
 failed = [name for name, passed in checks.items() if not passed]

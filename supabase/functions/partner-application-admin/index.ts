@@ -35,8 +35,10 @@ Deno.serve(async (req) => {
   const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   const { data: authData, error: authError } = await db.auth.getUser(token);
   if (authError || !authData.user) return json(req, { success: false, error: "Authentication required" }, 401);
-  const { data: admin } = await db.from("admin_users").select("user_id").eq("user_id", authData.user.id).maybeSingle();
+  const { data: admin } = await db.from("admin_users").select("user_id,role").eq("user_id", authData.user.id).maybeSingle();
   if (!admin) return json(req, { success: false, error: "Admin access required" }, 403);
+  const adminRole = clean(admin.role, 80).toUpperCase();
+  const canOperate = adminRole === "ADMIN_SUPER" || adminRole === "SUPER_ADMIN" || adminRole === "ADMIN";
 
   let body: any;
   try { body = await req.json(); } catch { return json(req, { success: false, error: "Invalid JSON" }, 400); }
@@ -51,6 +53,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "approve_invite") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
       const requestId = Number(body?.request_id);
       if (!Number.isInteger(requestId) || requestId <= 0) return json(req, { success: false, error: "request_id required" }, 400);
       const { data: invite, error: inviteError } = await db.from("partner_access_invite_requests")
@@ -67,6 +70,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "reject_invite") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
       const requestId = Number(body?.request_id);
       if (!Number.isInteger(requestId) || requestId <= 0) return json(req, { success: false, error: "request_id required" }, 400);
       const { error } = await db.from("partner_access_invite_requests").update({ status: "rejected", approved_by: authData.user.id, approved_at: new Date().toISOString() }).eq("id", requestId).eq("status", "pending");
@@ -103,6 +107,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "decision") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
       const decision = clean(body.decision, 40);
       if (!["under_review", "more_information", "approved", "rejected", "suspended"].includes(decision)) return json(req, { success: false, error: "Invalid decision" }, 400);
       const notes = clean(body.notes, 4000);
@@ -129,7 +134,35 @@ Deno.serve(async (req) => {
       return json(req, { success: true, status: decision, tenant_id: tenantId, production_access: false });
     }
 
+    if (action === "activate_sandbox") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      if (clean(body.confirmation, 40) !== "ACTIVATE SANDBOX") {
+        return json(req, { success: false, error: "Type ACTIVATE SANDBOX to confirm" }, 400);
+      }
+      if (application.status !== "approved" || application.partner_organizations?.status !== "approved") {
+        return json(req, { success: false, error: "Approve partner KYB before sandbox activation" }, 409);
+      }
+      const tenantId = clean(application.partner_organizations?.approved_tenant_id, 40);
+      if (!tenantId) return json(req, { success: false, error: "Approved sandbox tenant is missing" }, 409);
+      const now = new Date().toISOString();
+      const { data: tenant, error: tenantError } = await db.from("api_tenants")
+        .update({ default_mode: "sandbox", is_active: true, beta_access_enabled: true, updated_at: now })
+        .eq("id", tenantId)
+        .select("id,tenant_name,default_mode,is_active,beta_access_enabled,rate_limit_per_minute,max_single_transfer_usd")
+        .single();
+      if (tenantError) throw tenantError;
+      await db.from("partner_portal_audit_log").insert({
+        organization_id: application.organization_id,
+        application_id: applicationId,
+        actor_user_id: authData.user.id,
+        event_type: "sandbox_activated",
+        metadata: { tenant_id: tenantId, production_access: false },
+      });
+      return json(req, { success: true, tenant, production_access: false });
+    }
+
     if (action === "set_pricing") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
       if (application.partner_organizations?.status !== "approved") return json(req, { success: false, error: "Approve partner before pricing" }, 409);
       const rule = body?.rule || {};
       const payload = {
