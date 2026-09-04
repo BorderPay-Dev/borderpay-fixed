@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ADMIN_ORIGINS = new Set([
   "https://admin.borderpayafrica.com",
+  "https://portal.borderpayafrica.com",
   "https://partners.borderpayafrica.com",
   "https://borderpay-partners.vercel.app",
   "http://localhost:5173",
@@ -41,6 +42,38 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return json(req, { success: false, error: "Invalid JSON" }, 400); }
   const action = clean(body?.action, 60);
   try {
+    if (action === "list_invite_requests") {
+      const { data, error } = await db.from("partner_access_invite_requests")
+        .select("id,email,status,requested_at,approved_at,invited_at,accepted_at")
+        .order("requested_at", { ascending: false }).limit(250);
+      if (error) throw error;
+      return json(req, { success: true, requests: data || [] });
+    }
+
+    if (action === "approve_invite") {
+      const requestId = Number(body?.request_id);
+      if (!Number.isInteger(requestId) || requestId <= 0) return json(req, { success: false, error: "request_id required" }, 400);
+      const { data: invite, error: inviteError } = await db.from("partner_access_invite_requests")
+        .select("id,email,status").eq("id", requestId).single();
+      if (inviteError || !invite) return json(req, { success: false, error: "Invite request not found" }, 404);
+      if (invite.status !== "pending") return json(req, { success: false, error: "Invite request is no longer pending" }, 409);
+      const redirectTo = "https://portal.borderpayafrica.com/auth/callback?setup=password";
+      const { error: sendError } = await db.auth.admin.inviteUserByEmail(invite.email, { redirectTo });
+      if (sendError) throw sendError;
+      const now = new Date().toISOString();
+      const { error } = await db.from("partner_access_invite_requests").update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now }).eq("id", requestId).eq("status", "pending");
+      if (error) throw error;
+      return json(req, { success: true, status: "invited" });
+    }
+
+    if (action === "reject_invite") {
+      const requestId = Number(body?.request_id);
+      if (!Number.isInteger(requestId) || requestId <= 0) return json(req, { success: false, error: "request_id required" }, 400);
+      const { error } = await db.from("partner_access_invite_requests").update({ status: "rejected", approved_by: authData.user.id, approved_at: new Date().toISOString() }).eq("id", requestId).eq("status", "pending");
+      if (error) throw error;
+      return json(req, { success: true, status: "rejected" });
+    }
+
     if (action === "list") {
       const { data, error } = await db.from("partner_applications").select("id,organization_id,version,status,requested_products,submitted_at,created_at,updated_at,partner_organizations!inner(legal_name,trading_name,primary_email,country_of_incorporation,status)").order("created_at", { ascending: false }).limit(250);
       if (error) throw error;
