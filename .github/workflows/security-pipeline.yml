@@ -60,11 +60,8 @@ jobs:
       - name: Verify Bridge webhook authentication
         run: python3 tests/audit/bridge_webhook_signature_audit.py
 
-      - name: Verify internal worker authentication
-        run: python3 tests/audit/process_pending_events_auth_audit.py
-
-      - name: Verify email sender authentication
-        run: python3 tests/audit/send_email_internal_token_audit.py
+      - name: Verify legacy email endpoints remain authenticated
+        run: python3 tests/audit/legacy_email_endpoint_security_audit.py
 
   codeql:
     name: CodeQL JavaScript/TypeScript
