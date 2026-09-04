@@ -24,13 +24,27 @@ const clean = (value: unknown, max = 500) => String(value ?? "").trim().slice(0,
 const emailOk = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const countryOk = (value: unknown) => /^[A-Z]{2}$/.test(clean(value).toUpperCase());
 const editable = new Set(["draft", "more_information"]);
+const mfaProtectedActions = new Set([
+  "create_project", "save_workspace_settings", "create_api_key", "revoke_api_key",
+  "add_ip_allowlist", "remove_ip_allowlist", "create_webhook", "rotate_webhook_secret", "disable_webhook",
+]);
+
+function tokenAal(token: string): string {
+  try {
+    const encoded = token.split(".")[1] || "";
+    const padded = encoded.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+    return clean(JSON.parse(atob(padded))?.aal, 10).toLowerCase();
+  } catch {
+    return "";
+  }
+}
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function completeness(app: any, people: any[], documents: any[]) {
+function completeness(app: any, people: any[], documents: any[], organization: any) {
   const entity = app?.entity_details || {};
   const operating = app?.operating_details || {};
   const compliance = app?.compliance_details || {};
@@ -71,11 +85,35 @@ function completeness(app: any, people: any[], documents: any[]) {
     missing.push("All UBOs owning 20% or more, or no-UBO declaration");
   }
   const docTypes = new Set(documents.map((doc) => doc.document_type));
-  for (const [type, label] of [
+  const commonDocuments = [
+    ["aml_policy", "AML/CFT policy"],
+    ["sanctions_policy", "Sanctions policy"],
+    ["privacy_policy", "Privacy policy"],
+    ["security_policy", "Information-security policy"],
+    ["incident_response_policy", "Incident-response policy"],
+    ["bank_statement", "Business bank statement"],
+  ];
+  const manualIdentityDocuments = [
     ["certificate_of_incorporation", "Certificate of incorporation"],
+    ["articles_of_association", "Articles of association"],
     ["register_of_directors", "Register of directors"],
     ["register_of_shareholders", "Register of shareholders"],
-  ]) if (!docTypes.has(type)) missing.push(label);
+    ["ownership_chart", "Ownership structure chart"],
+    ["proof_of_registered_address", "Proof of registered address"],
+    ["director_identity", "Director identity document"],
+    ["financial_statement", "Latest financial statement"],
+    ["source_of_funds", "Source-of-funds evidence"],
+  ];
+  for (const [type, label] of commonDocuments) if (!docTypes.has(type)) missing.push(label);
+  if (organization?.kyb_source !== "bridge_verified") {
+    for (const [type, label] of manualIdentityDocuments) if (!docTypes.has(type)) missing.push(label);
+    if (people.some((person) => person.person_type === "ubo")) {
+      if (!docTypes.has("ubo_identity")) missing.push("UBO identity document");
+      if (!docTypes.has("ubo_address")) missing.push("UBO proof of address");
+    }
+  }
+  if (compliance.regulated === true && !docTypes.has("operating_licence")) missing.push("Operating licence");
+  if (compliance.nda_available === true && !docTypes.has("nda")) missing.push("NDA");
   return missing;
 }
 
@@ -173,6 +211,11 @@ Deno.serve(async (req) => {
       if (error) throw error;
       app = created;
     }
+    if (!app && org.status === "approved") {
+      const { data: latest } = await db.from("partner_applications").select("*")
+        .eq("organization_id", org.id).order("version", { ascending: false }).limit(1).maybeSingle();
+      app = latest;
+    }
 
     if (action === "get_state") {
       const [{ data: people }, { data: documents }] = await Promise.all([
@@ -182,9 +225,23 @@ Deno.serve(async (req) => {
       return json(req, { success: true, organization: org, application: app, people: people || [], documents: documents || [] });
     }
 
-    const tenantId = String(org.approved_tenant_id || "");
     const canManage = member.role === "owner" || member.role === "admin";
     const canDevelop = canManage || member.role === "developer";
+    const { data: securitySettings } = await db.from("partner_workspace_settings")
+      .select("two_factor_required").eq("organization_id", org.id).maybeSingle();
+    if (securitySettings?.two_factor_required === true && mfaProtectedActions.has(action) && tokenAal(token) !== "aal2") {
+      return json(req, { success: false, error: "Two-factor authentication is required for this action" }, 403);
+    }
+    const { data: projects, error: projectsError } = await db.from("partner_projects")
+      .select("id,tenant_id,name,slug,environment,status,created_at,updated_at")
+      .eq("organization_id", org.id).order("created_at");
+    if (projectsError) throw projectsError;
+    const requestedProjectId = clean(body.project_id, 40);
+    const selectedProject = requestedProjectId
+      ? (projects || []).find((project: any) => project.id === requestedProjectId)
+      : (projects || []).find((project: any) => project.tenant_id === org.approved_tenant_id) || (projects || [])[0];
+    if (requestedProjectId && !selectedProject) return json(req, { success: false, error: "Project not found" }, 404);
+    const tenantId = String(selectedProject ? (selectedProject.tenant_id || "") : (org.approved_tenant_id || ""));
     const requireOperationalTenant = () => {
       if (org.status !== "approved") throw new Error("Partner organization is not approved");
       if (!tenantId) throw new Error("Partner API tenant has not been provisioned");
@@ -205,9 +262,13 @@ Deno.serve(async (req) => {
           activity: [],
           pricing: [],
           members: [],
+          projects: projects || [],
+          resources: [],
+          settings: null,
+          support_tickets: [],
         });
       }
-      const [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ] = await Promise.all([
+      const [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ] = await Promise.all([
         db.from("api_tenants").select("id,tenant_name,default_mode,is_active,beta_access_enabled,max_single_transfer_usd,rate_limit_per_minute,created_at,updated_at").eq("id", tenantId).maybeSingle(),
         db.from("api_keys").select("id,key_prefix,key_label,scopes,is_active,revoked_at,last_used_at,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
         db.from("api_ip_allowlist").select("id,cidr_block,note,is_active,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
@@ -216,8 +277,12 @@ Deno.serve(async (req) => {
         db.from("partner_pricing_rules").select("id,provider,product,source_currency,destination_currency,fee_type,fee_percent,fixed_amount,fixed_currency,effective_from,effective_until,is_active").eq("organization_id", org.id).eq("is_active", true).order("effective_from", { ascending: false }),
         db.from("partner_members").select("user_id,role,is_active,created_at").eq("organization_id", org.id).order("created_at"),
         db.from("partner_portal_audit_log").select("id,event_type,metadata,created_at").eq("organization_id", org.id).order("created_at", { ascending: false }).limit(100),
+        db.from("api_tenant_resources").select("id,resource_type,provider_resource_id,customer_provider_id,state,amount,source_currency,destination_currency,display_name,external_reference,safe_metadata,created_at,updated_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(500),
+        db.from("partner_workspace_settings").select("brand_name,primary_color,support_email,billing_email,payout_contact_email,email_sender_name,email_reply_to,two_factor_required,updated_at").eq("organization_id", org.id).maybeSingle(),
+        db.from("partner_support_tickets").select("id,project_id,category,subject,message,status,created_at,updated_at").eq("organization_id", org.id).order("created_at", { ascending: false }).limit(100),
+        app ? db.from("partner_controlling_people").select("id,person_type,full_name,nationality,country_of_residence,ownership_percent,is_politically_exposed,created_at").eq("application_id", app.id).order("created_at") : Promise.resolve({ data: [], error: null }),
       ]);
-      for (const result of [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ]) {
+      for (const result of [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ]) {
         if (result.error) throw result.error;
       }
       if (!tenantQ.data) return json(req, { success: false, error: "Partner API tenant is unavailable" }, 409);
@@ -239,7 +304,83 @@ Deno.serve(async (req) => {
         pricing: pricingQ.data || [],
         members: safeMembers,
         audit_events: auditQ.data || [],
+        projects: projects || [],
+        selected_project: selectedProject || null,
+        resources: resourcesQ.data || [],
+        settings: settingsQ.data || null,
+        support_tickets: ticketsQ.data || [],
+        controlling_people: peopleQ.data || [],
       });
+    }
+
+    if (action === "create_project") {
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      if (org.status !== "approved") return json(req, { success: false, error: "Partner approval required before creating projects" }, 409);
+      const name = clean(body.name, 120);
+      const slug = clean(body.slug, 60).toLowerCase();
+      if (name.length < 2 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+        return json(req, { success: false, error: "Project name and lowercase URL-safe slug required" }, 400);
+      }
+      const { data, error } = await db.from("partner_projects").insert({
+        organization_id: org.id, name, slug, environment: "sandbox", status: "pending", created_by: user.id,
+      }).select("id,tenant_id,name,slug,environment,status,created_at").single();
+      if (error) throw error;
+      const { data: tenant, error: tenantError } = await db.from("api_tenants").insert({
+        tenant_name: `${org.legal_name || org.primary_email} · ${name}`,
+        default_mode: "sandbox", is_active: true, beta_access_enabled: true,
+        metadata: { partner_organization_id: org.id, partner_project_id: data.id, pricing_source: "partner_custom_only", production_access: false },
+      }).select("id").single();
+      if (tenantError) throw tenantError;
+      const { data: activated, error: activateError } = await db.from("partner_projects")
+        .update({ tenant_id: tenant.id, status: "active" }).eq("id", data.id).eq("organization_id", org.id)
+        .select("id,tenant_id,name,slug,environment,status,created_at").single();
+      if (activateError) throw activateError;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "sandbox_project_created", metadata: { project_id: data.id, tenant_id: tenant.id, production_access: false } });
+      return json(req, { success: true, project: activated, production_access: false }, 201);
+    }
+
+    if (action === "save_workspace_settings") {
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const color = clean(body.primary_color, 7);
+      if (color && !/^#[0-9a-f]{6}$/i.test(color)) return json(req, { success: false, error: "Primary color must be a six-digit hex color" }, 400);
+      const emailFields = ["support_email", "billing_email", "payout_contact_email", "email_reply_to"];
+      for (const field of emailFields) {
+        const value = clean(body[field], 254);
+        if (value && !emailOk(value)) return json(req, { success: false, error: `${field} must be a valid email` }, 400);
+      }
+      const payload = {
+        organization_id: org.id,
+        brand_name: clean(body.brand_name, 120) || null,
+        primary_color: color || null,
+        support_email: clean(body.support_email, 254) || null,
+        billing_email: clean(body.billing_email, 254) || null,
+        payout_contact_email: clean(body.payout_contact_email, 254) || null,
+        email_sender_name: clean(body.email_sender_name, 120) || null,
+        email_reply_to: clean(body.email_reply_to, 254) || null,
+        two_factor_required: body.two_factor_required === true,
+        updated_by: user.id,
+      };
+      const { data, error } = await db.from("partner_workspace_settings").upsert(payload, { onConflict: "organization_id" }).select("brand_name,primary_color,support_email,billing_email,payout_contact_email,email_sender_name,email_reply_to,two_factor_required,updated_at").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "workspace_settings_updated" });
+      return json(req, { success: true, settings: data });
+    }
+
+    if (action === "create_support_ticket") {
+      const category = clean(body.category, 30);
+      const subject = clean(body.subject, 160);
+      const message = clean(body.message, 5000);
+      if (!new Set(["integration", "compliance", "billing", "payout", "security", "other"]).has(category) || subject.length < 3 || message.length < 10) {
+        return json(req, { success: false, error: "Complete the support category, subject, and message" }, 400);
+      }
+      const projectId = clean(body.project_id, 40) || null;
+      if (projectId && !(projects || []).some((project: any) => project.id === projectId)) return json(req, { success: false, error: "Project not found" }, 404);
+      const { data, error } = await db.from("partner_support_tickets").insert({
+        organization_id: org.id, project_id: projectId, created_by: user.id, category, subject, message,
+      }).select("id,project_id,category,subject,message,status,created_at,updated_at").single();
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "support_ticket_created", metadata: { ticket_id: data.id } });
+      return json(req, { success: true, ticket: data }, 201);
     }
 
     if (action === "create_api_key") {
@@ -409,7 +550,7 @@ Deno.serve(async (req) => {
         db.from("partner_controlling_people").select("*").eq("application_id", app.id),
         db.from("partner_application_documents").select("*").eq("application_id", app.id),
       ]);
-      const missing = completeness(app, people || [], documents || []);
+      const missing = completeness(app, people || [], documents || [], org);
       if (missing.length) return json(req, { success: false, error: "Application incomplete", missing }, 422);
       const now = new Date().toISOString();
       const { error } = await db.from("partner_applications").update({ status: "submitted", submitted_at: now, updated_at: now }).eq("id", app.id);

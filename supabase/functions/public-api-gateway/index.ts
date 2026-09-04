@@ -40,6 +40,16 @@ type GatewayHandlerResult = {
   body: Record<string, unknown>;
 };
 
+async function recordTenantResource(
+  supa: ReturnType<typeof createAdminClient>,
+  row: Record<string, unknown>,
+) {
+  const { error } = await supa.from("api_tenant_resources").upsert(row, {
+    onConflict: "tenant_id,resource_type,provider_resource_id",
+  });
+  if (error) console.error("api_tenant_resources upsert failed", error.message);
+}
+
 const IDEMPOTENT_ROUTES = new Set([
   "POST /v1/customers",
   "POST /v1/wallets",
@@ -215,6 +225,19 @@ async function handleRoute(
     }
 
     const result = await bridgeProvider.createCustomer(parsed.value);
+    await recordTenantResource(supa, {
+      tenant_id: ctx.tenantId,
+      resource_type: "customer",
+      provider_resource_id: result.provider_id,
+      state: "created",
+      display_name: parsed.value.company_name ?? parsed.value.full_name ?? null,
+      external_reference: parsed.value.borderpay_user_id,
+      safe_metadata: {
+        account_type: parsed.value.account_type,
+        email: parsed.value.email,
+        country_code: parsed.value.country_code,
+      },
+    });
     return {
       status: 201,
       body: {
@@ -236,6 +259,15 @@ async function handleRoute(
       };
     }
     const result = await bridgeProvider.createWallet(parsed.value as any);
+    await recordTenantResource(supa, {
+      tenant_id: ctx.tenantId,
+      resource_type: "wallet",
+      provider_resource_id: result.wallet_id,
+      customer_provider_id: parsed.value.customer_id,
+      state: "active",
+      source_currency: result.symbol,
+      safe_metadata: { chain: result.chain },
+    });
     return {
       status: 201,
       body: {
@@ -259,6 +291,20 @@ async function handleRoute(
       };
     }
     const result = await bridgeProvider.createVirtualAccount(parsed.value);
+    await recordTenantResource(supa, {
+      tenant_id: ctx.tenantId,
+      resource_type: "virtual_account",
+      provider_resource_id: result.virtual_account_id,
+      customer_provider_id: parsed.value.customer_id,
+      state: "active",
+      source_currency: result.currency,
+      safe_metadata: {
+        destination_rail: parsed.value.destination.rail,
+        bank_name: result.bank_name ?? null,
+        account_last4: result.account_number?.slice(-4) ?? null,
+        iban_last4: result.iban?.slice(-4) ?? null,
+      },
+    });
     return {
       status: 201,
       body: {
@@ -285,6 +331,22 @@ async function handleRoute(
       };
     }
     const result = await bridgeProvider.createTransfer(parsed.value as any);
+    const source = parsed.value.source as Record<string, unknown>;
+    const destination = parsed.value.destination as Record<string, unknown>;
+    await recordTenantResource(supa, {
+      tenant_id: ctx.tenantId,
+      resource_type: routeKey === "POST /v1/payouts" ? "payout" : "transfer",
+      provider_resource_id: result.transfer_id,
+      state: result.state,
+      amount: Number(source.amount),
+      source_currency: String(source.currency ?? "").toUpperCase(),
+      destination_currency: String(destination.currency ?? "").toUpperCase(),
+      external_reference: parsed.value.idempotency_key,
+      safe_metadata: {
+        source_rail: source.payment_rail ?? null,
+        destination_rail: destination.payment_rail ?? null,
+      },
+    });
 
     return {
       status: 201,
