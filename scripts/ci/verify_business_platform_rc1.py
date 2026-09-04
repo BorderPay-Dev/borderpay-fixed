@@ -102,14 +102,35 @@ def main() -> int:
         )
 
     # No perpetual-loading guardrails on major business screens.
-    send_timeout_guard = (
-        ("SNAPSHOT_READY_TIMEOUT_MS" in send_flow and "timedOut" in send_flow)
-        or ("institutionsLoadInFlightRef" in send_flow and "finally" in send_flow)
+    # Send no longer waits for a snapshot before first paint. It renders cached
+    # route data immediately and performs one cancellable refresh in the
+    # background. Keep accepting the older bounded-wait implementation for
+    # release branches, but require the current implementation to remain
+    # non-blocking and to terminate its only visible rail-loading state.
+    bounded_snapshot_wait = (
+        "SNAPSHOT_READY_TIMEOUT_MS" in send_flow and "timedOut" in send_flow
+    )
+    non_blocking_snapshot_refresh = all([
+        "backendAPI.financial.getSendRouteData" in send_flow,
+        "const hydrateOnce = async" in send_flow,
+        "if (!snapshotReady)" not in send_flow,
+        "setSnapshotReady(false)" not in send_flow,
+    ])
+    institutions_loading_terminates = (
+        "setLoadingInstitutions(true)" in send_flow
+        and re.search(
+            r"finally\s*\{[^}]*setLoadingInstitutions\(false\)",
+            send_flow,
+            re.S,
+        ) is not None
+    )
+    send_timeout_guard = bounded_snapshot_wait or (
+        non_blocking_snapshot_refresh and institutions_loading_terminates
     )
     must(
         "Send snapshot timeout guard present",
         send_timeout_guard,
-        "Send flow must hard-stop loading waits",
+        "Send flow must not block first paint and must terminate visible loading states",
         failures,
     )
     for name, src in [
