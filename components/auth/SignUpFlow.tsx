@@ -2,25 +2,11 @@ import { BorderPayLogo } from '../cards/BorderPayLogo';
 /**
  * BorderPay Africa - Complete Signup Flow
  *
- * Two account-type paths share step 1 (basic info) and step 2
- * (confirm-email), then diverge:
- *
- *   • Individual account:
- *     1. Basic Info (name, email, phone, country, password)
- *     2. Confirm Email (verification link)
- *     3. Date of Birth + ID document type selection
- *     4. Address details (street, city, state, postal)
- *     5. Proof of Address upload (utility bill, bank statement, etc.)
- *     6. Review & Submit
- *     7. Pending → Dashboard
- *
- *   • Business account:
- *     1. Basic Info + account-type=business + company name (+ optional reg #)
- *     2. Confirm Email (verification link)
- *     → onSignUpSuccess() → BusinessDashboard.
- *     Business accounts do NOT run through steps 3-7 here. Identity,
- *     ownership, business address, and document collection continue from
- *     the dashboard through BorderPay's secure verification flow.
+ * Direct BorderPay signup is Business-only and has exactly two steps:
+ *   1. Business account details.
+ *   2. Confirm email.
+ * Identity, ownership, address, and document collection continue from the
+ * dashboard through BorderPay's secure business-verification flow.
  *
  * BorderPay does not store ID images in this app surface.
  */
@@ -175,9 +161,11 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     return () => { cancelled = true; };
   }, []);
 
-  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'proof-of-address', 'review', 'pending'];
+  // Authoritative for progress and navigation. Dormant legacy Individual KYC
+  // screens must never be reachable from direct signup on web or native.
+  const steps: SignUpStep[] = ['personal', 'confirm-email'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 6; // Don't count 'pending'
+  const totalSteps = steps.length;
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)
@@ -474,7 +462,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               <StepConfirmEmail
                 email={formData.email}
                 fullName={formData.fullName}
-                isBusiness={formData.accountType === 'business'}
+                isBusiness={true}
                 onEmailConfirmed={async () => {
                   // Try to sign in now that email is confirmed
                   try {
@@ -582,9 +570,9 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         return;
                       }
 
-                      // ─── Individual signup (unchanged) ──────────────────
-                      toast.success('Email verified! Continue with verification.');
-                      setCurrentStep('identity');
+                      // Direct signup is Business-only. Never route a user
+                      // into the legacy Individual multi-step flow.
+                      throw new Error('Business account setup could not be verified. Please contact support@borderpayafrica.com.');
                     }
                   } catch (err: any) {
                     toast.error(friendlyError(err, 'Sign in failed. Please try logging in.'));
@@ -838,7 +826,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
     if (!formData.selectedCountry && signupCountries.length > 0) {
       const detectedCode = detectCountryFromTimezone();
       if (detectedCode) {
-        const match = signupCountries.find((c) => c.code === detectedCode) ?? getCountryByCode(detectedCode);
+        const match = signupCountries.find((c) => c.code === detectedCode);
         if (match && match.status === 'active') {
           updateForm({ selectedCountry: match });
         }
@@ -877,8 +865,8 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         <div className="w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mx-auto mb-4">
           <BorderPayLogo size={28} color="#000000" />
         </div>
-        <h1 className="text-2xl font-bold mb-1">Create Account</h1>
-        <p className="text-sm text-gray-400">Join BorderPay Africa</p>
+        <h1 className="text-2xl font-bold mb-1">Create Business Account</h1>
+        <p className="text-sm text-gray-400">Join BorderPay Africa as a business</p>
       </div>
 
       {/* Inline Error Banner */}

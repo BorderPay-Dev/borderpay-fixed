@@ -17,6 +17,8 @@ gate 2 "TypeScript compilation" npm run type-check
 
 echo "[store-release] gate 3/10: direct signup is Business-only"
 python3 tests/audit/direct_business_signup_store_audit.py
+python3 tests/audit/signup_compliance_release_audit.py
+python3 tests/audit/signup_country_enforcement_audit.py
 python3 tests/audit/signup_phone_optional_app_review_audit.py
 
 echo "[store-release] gate 4/10: exactly one branded native launch experience"

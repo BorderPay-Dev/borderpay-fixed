@@ -98,12 +98,16 @@ Deno.serve(async (req: Request) => {
     if (normalizedAccountType === "business" && !company_name) {
       return json({ success: false, error: "company_name is required for business accounts" }, 400);
     }
-    const normalizedCountryCode = String(country_code || "NG").trim().toUpperCase();
-    if (isBridgeBlocked(normalizedCountryCode)) {
+    const normalizedCountryCode = String(country_code || "").trim().toUpperCase();
+    if (
+      !/^[A-Z]{2}$/.test(normalizedCountryCode) ||
+      isBridgeBlocked(normalizedCountryCode) ||
+      normalizedCountryCode === "UA"
+    ) {
       return json({
         success: false,
         code: "country_not_supported",
-        error: "BorderPay is not available in your country yet.",
+        error: "BorderPay onboarding is not available in your country yet.",
       }, 403);
     }
 
