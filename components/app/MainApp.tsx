@@ -383,10 +383,12 @@ const TOP_LEVEL_SCREENS: ReadonlySet<AppScreen> = new Set([
 ]);
 
 // Account-maintenance enforcement is intentionally narrower than a full
-// account suspension. It hides receiving and wallet-management surfaces only
-// after the server explicitly reports a seven-day restriction.
+// account suspension. It blocks money movement and wallet-management surfaces
+// only after the server explicitly reports a seven-day restriction.
 const SUBSCRIPTION_RESTRICTED_SCREENS: ReadonlySet<AppScreen> = new Set([
-  'receive-money', 'ramps', 'wallet-detail', 'add-wallet', 'external-wallets',
+  'send-money', 'receive-money', 'ramps', 'wallet-detail', 'add-wallet',
+  'external-wallets', 'external-accounts', 'add-external-account',
+  'bulk-payout', 'payroll',
 ]);
 const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
   dashboard:     'dashboard',

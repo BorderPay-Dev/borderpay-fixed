@@ -368,10 +368,23 @@ Deno.serve(async (req) => {
   if (isBridgeBlocked(profile?.country)) {
     return await failAfterAuth(bridgeCountryBlockResponse(profile!.country!) as Record<string, unknown>, 403, profile.account_type);
   }
-  // Account-maintenance billing is not active until the configured billing
-  // cycle begins. A legacy overdue flag must never become an
-  // independent money-movement authority. Billing restrictions belong to the
-  // subscription grace-period workflow, not this provider transfer boundary.
+  const { data: accessRestricted, error: accessError } = await supa.rpc("subscription_feature_restricted", {
+    p_user_id: user.id,
+  });
+  if (accessError) {
+    return await failAfterAuth({
+      success: false,
+      code: "subscription_status_unavailable",
+      error: "Account maintenance status is temporarily unavailable.",
+    }, 503, profile.account_type);
+  }
+  if (accessRestricted === true) {
+    return await failAfterAuth({
+      success: false,
+      code: "subscription_payment_required",
+      error: "Pay the overdue account maintenance invoice before sending money.",
+    }, 402, profile.account_type);
+  }
   logControlledBridgeTraffic("bridge-transfer", profile?.country, user.id);
   if (!profile.bridge_customer_id) {
     return await failAfterAuth({ success: false, error: "Complete account setup before sending transfers", code: "no_customer" }, 409, profile.account_type);

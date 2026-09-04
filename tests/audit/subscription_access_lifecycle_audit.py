@@ -47,6 +47,36 @@ checks = {
         token in read("supabase/functions/bridge-wallet/index.ts")
         for token in ("subscription_feature_restricted", "subscription_payment_required")
     ),
+    "single and bulk transfers are blocked server-side": all(
+        all(
+            token in read(path)
+            for token in ("subscription_feature_restricted", "subscription_payment_required")
+        )
+        for path in (
+            "supabase/functions/bridge-transfer/index.ts",
+            "supabase/functions/bridge-bulk-payout/index.ts",
+        )
+    ),
+    "restricted UI blocks all wallet money movement": all(
+        token in read("components/app/MainApp.tsx")
+        for token in (
+            "'send-money'",
+            "'receive-money'",
+            "'wallet-detail'",
+            "'external-accounts'",
+            "'bulk-payout'",
+        )
+    ),
+    "subscription lifecycle is scheduled without embedded secrets": all(
+        token in read("supabase/migrations/20260904143000_subscription_lifecycle_scheduler.sql")
+        for token in (
+            "subscription-billing-daily",
+            "subscription-grace-daily",
+            "subscription-delivery-drain",
+            "subscription-webhook-drain",
+            "public.app_config_get('worker_auth_token')",
+        )
+    ),
 }
 
 failed = [name for name, passed in checks.items() if not passed]

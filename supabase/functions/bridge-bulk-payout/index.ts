@@ -141,16 +141,18 @@ Deno.serve(async (req) => {
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) return json({ success: false, ...identity.failure }, 409);
   const profile = identity.context;
-  const { data: maintenance } = await supa
-    .from("user_profiles")
-    .select("maintenance_overdue")
-    .eq("id", user.id)
-    .maybeSingle();
 
   if (isBridgeBlocked(profile?.country)) return json(bridgeCountryBlockResponse(profile!.country!), 403);
-  if (maintenance?.maintenance_overdue === true) {
-    return json({ success: false, code: "maintenance_due",
-      error: "Clear your account maintenance fee before sending. Outbound transfers are paused until then." }, 402);
+  const { data: accessRestricted, error: accessError } = await supa.rpc("subscription_feature_restricted", {
+    p_user_id: user.id,
+  });
+  if (accessError) {
+    return json({ success: false, code: "subscription_status_unavailable",
+      error: "Account maintenance status is temporarily unavailable." }, 503);
+  }
+  if (accessRestricted === true) {
+    return json({ success: false, code: "subscription_payment_required",
+      error: "Pay the overdue account maintenance invoice before sending money." }, 402);
   }
   logControlledBridgeTraffic("bridge-bulk-payout", profile?.country, user.id);
   if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);
