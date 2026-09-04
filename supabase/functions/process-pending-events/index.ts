@@ -38,6 +38,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { mergeBridgeSourceDepositInstructions } from "../_shared/bridge-va-account-details.ts";
 import { normalizeBridgeCustomerState } from "../_shared/bridge-customer-state.ts";
 import {
   assertBridgeIngressDecision,
@@ -1810,11 +1811,7 @@ async function upsertBridgeVirtualAccountProjection(params: {
     ...existingDetails,
     ...payloadDetails,
     ...(destinationDetails ? { destination: destinationDetails } : {}),
-    source_deposit_instructions:
-      params.payload?.source_deposit_instructions ??
-      params.payload?.account_details?.source_deposit_instructions ??
-      existingDetails.source_deposit_instructions ??
-      null,
+    source_deposit_instructions: mergeBridgeSourceDepositInstructions(existingDetails, payloadDetails),
   };
 
   await supabase.from("bridge_virtual_accounts").upsert({
