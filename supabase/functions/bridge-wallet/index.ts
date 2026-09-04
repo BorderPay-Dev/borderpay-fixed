@@ -59,6 +59,20 @@ Deno.serve(async (req) => {
   const profile = identity.context;
   const isBusiness = profile.account_type === "business";
 
+  const { data: accessRestricted, error: accessError } = await supa.rpc("subscription_feature_restricted", {
+    p_user_id: user.id,
+  });
+  if (accessError) {
+    return json({ success: false, error: "Account maintenance status is temporarily unavailable." }, 503);
+  }
+  if (accessRestricted === true) {
+    return json({
+      success: false,
+      code: "subscription_payment_required",
+      error: "Pay the overdue account maintenance invoice before creating or changing wallets.",
+    }, 402);
+  }
+
   // Legacy minimum-balance gate retained as a compatibility no-op.
   const __planGate = await requireMinimumWalletBalance(supa, user.id, {
     isBusiness,

@@ -382,6 +382,12 @@ const TOP_LEVEL_SCREENS: ReadonlySet<AppScreen> = new Set([
   'cards', 'profile', 'settings', 'kyc', 'team', 'notifications',
 ]);
 
+// Account-maintenance enforcement is intentionally narrower than a full
+// account suspension. It hides receiving and wallet-management surfaces only
+// after the server explicitly reports a seven-day restriction.
+const SUBSCRIPTION_RESTRICTED_SCREENS: ReadonlySet<AppScreen> = new Set([
+  'receive-money', 'ramps', 'wallet-detail', 'add-wallet', 'external-wallets',
+]);
 const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
   dashboard:     'dashboard',
   send:          'send-money',
@@ -444,6 +450,11 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       : ['dashboard', initialScreenFromCallback],
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const [subscriptionAccess, setSubscriptionAccess] = useState<{
+    restricted: boolean;
+    amount: number | null;
+    paymentLink: string | null;
+  }>({ restricted: false, amount: null, paymentLink: null });
   const tc = useThemeClasses();
   const tl = useThemeLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -459,6 +470,22 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void backendAPI.subscription.current().then((response: any) => {
+      if (cancelled || !response?.success) return;
+      const subscription = response?.data?.subscription;
+      setSubscriptionAccess({
+        restricted: Boolean(subscription?.restricted_at),
+        amount: Number.isFinite(Number(subscription?.monthly_fee)) ? Number(subscription.monthly_fee) : null,
+        paymentLink: String(response?.data?.payment_invoice?.payment_link || '').trim() || null,
+      });
+    }).catch(() => {
+      // Fail open on read outages. Only an explicit server restriction may
+      // hide account services; a network/Supabase incident must not lock users.
+    });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
   const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean }>(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
@@ -990,6 +1017,27 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   const renderScreen = () => {
     const isBusinessAccount = accountType === 'business' || hasBusinessAccountCached();
+    if (subscriptionAccess.restricted && SUBSCRIPTION_RESTRICTED_SCREENS.has(currentScreen)) {
+      return (
+        <div className="mx-auto mt-10 max-w-md rounded-3xl border border-amber-400/20 bg-white/[0.03] p-6 text-white">
+          <h2 className="font-bold">Account maintenance payment required</h2>
+          <p className="mt-2 text-sm text-gray-400">
+            Receiving accounts and wallets are unavailable until your overdue
+            {subscriptionAccess.amount !== null ? ` $${subscriptionAccess.amount.toFixed(2)}` : ''} maintenance invoice is paid and verified.
+          </p>
+          {subscriptionAccess.paymentLink && (
+            <a
+              href={subscriptionAccess.paymentLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-5 inline-flex rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black"
+            >
+              Pay invoice
+            </a>
+          )}
+        </div>
+      );
+    }
     switch (currentScreen) {
       case 'cards':
         return <CardsScreen onBack={navigateBack} />;

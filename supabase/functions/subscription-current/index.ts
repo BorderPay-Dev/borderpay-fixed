@@ -30,7 +30,7 @@ const CORS = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
-const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
@@ -38,48 +38,35 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
 
-  const auth  = req.headers.get("Authorization") || "";
-  const token = auth.replace(/^Bearer\s+/i, "").trim();
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
-  const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
-  const user = userInfo?.user;
-  if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  const { data: auth, error: authError } = await db.auth.getUser(token);
+  if (authError || !auth.user) return json({ success: false, error: "Unauthorized" }, 401);
 
-  const { data: profile } = await supa
-    .from("user_profiles")
-    .select("account_type")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isBusiness = profile?.account_type === "business";
-
-  const subQuery = supa
-    .from("user_subscriptions")
-    .select("id, plan_key, status, current_period_start, current_period_end, cancel_at_period_end")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const { data: sub } = isBusiness
-    ? await subQuery.eq("business_user_id", user.id)
-    : await subQuery.eq("user_id", user.id);
-
-  // Recent invoices for this subscription, if any.
-  let invoices: any[] = [];
-  if (sub?.id) {
-    const { data: invs } = await supa
-      .from("subscription_invoices")
-      .select("id, plan_key, amount_usd_cents, status, paid_at, created_at")
-      .eq("subscription_id", sub.id)
-      .order("created_at", { ascending: false })
-      .limit(12);
-    invoices = invs ?? [];
+  const { data: subscription, error } = await db.from("subscriptions")
+    .select("id,account_type,monthly_fee,currency,status,payment_status,next_billing_date,last_billed_at,grace_started_at,restricted_at,created_at")
+    .eq("user_id", auth.user.id).maybeSingle();
+  if (error) return json({ success: false, error: error.message }, 500);
+  let recent_transactions: unknown[] = [];
+  let payment_invoice: unknown = null;
+  if (subscription?.id) {
+    const [transactionsResult, invoiceResult] = await Promise.all([
+      db.from("billing_transactions")
+        .select("id,billing_period,amount,collected_amount,asset,asset_breakdown,status,failure_code,completed_at,created_at")
+        .eq("subscription_id", subscription.id).order("created_at", { ascending: false }).limit(12),
+      db.from("subscription_external_invoices")
+        .select("id,amount,currency,billing_period,status,payment_link,expires_at,created_at")
+        .eq("subscription_id", subscription.id)
+        .in("status", ["pending_configuration", "payment_link_created", "failed"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (transactionsResult.error) return json({ success: false, error: transactionsResult.error.message }, 500);
+    recent_transactions = transactionsResult.data ?? [];
+    // This table was introduced after the base subscription schema. A missing
+    // table must not block account access while an environment is upgrading.
+    if (!invoiceResult.error) payment_invoice = invoiceResult.data ?? null;
   }
-
-  return json({
-    success: true,
-    data: {
-      subscription:    sub ?? null,
-      recent_invoices: invoices,
-    },
-  });
+  return json({ success: true, data: { subscription, recent_transactions, payment_invoice } });
 });

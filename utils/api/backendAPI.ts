@@ -2608,6 +2608,16 @@ export const subscriptionAPI = {
         completed_at: string | null;
         created_at: string;
       }>;
+      payment_invoice: {
+        id: string;
+        amount: number;
+        currency: string;
+        billing_period: string;
+        status: string;
+        payment_link: string | null;
+        expires_at: string | null;
+        created_at: string;
+      } | null;
     }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),
 
 };
