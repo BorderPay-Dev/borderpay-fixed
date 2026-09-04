@@ -82,6 +82,10 @@ Deno.serve(async (req) => {
     // metadata flags) can lag behind the verification webhook.
     const emailConfirmed   = !!user.email_confirmed_at;
     const emailConfirmedAt = user.email_confirmed_at || null;
+    const localAccountStatus = String(profile?.account_status || "").trim().toLowerCase();
+    const providerAccountStatus = String(profile?.bridge_account_status || "").trim().toLowerCase();
+    const blockedStatuses = new Set(["frozen", "paused", "suspended", "offboarded", "deactivated", "closed"]);
+    const accountAccessRestricted = blockedStatuses.has(localAccountStatus) || blockedStatuses.has(providerAccountStatus);
 
     return new Response(JSON.stringify({
       success: true,
@@ -100,7 +104,16 @@ Deno.serve(async (req) => {
           wallet_activated:    userData?.wallet_activated || false,
           bridge_customer_id:  profile?.bridge_customer_id || null,
           bridge_kyc_status:   profile?.bridge_kyc_status || null,
-          bridge_account_status: profile?.bridge_account_status || null,
+          // Older released clients only recognize `paused` as the shell-level
+          // access hold. Preserve the raw provider state separately while
+          // projecting every terminal/frozen state into that compatibility flag.
+          bridge_account_status: accountAccessRestricted ? "paused" : (profile?.bridge_account_status || null),
+          bridge_provider_account_status: profile?.bridge_account_status || null,
+          bridge_account_paused_at: profile?.bridge_account_paused_at || null,
+          account_status: profile?.account_status || null,
+          account_frozen_at: profile?.account_frozen_at || null,
+          account_frozen_reason: profile?.account_frozen_reason || null,
+          account_access_restricted: accountAccessRestricted,
           bridge_kyb_status:   bridgeKybStatus,
           address:             profile?.address || null,
           city:                profile?.city || null,
