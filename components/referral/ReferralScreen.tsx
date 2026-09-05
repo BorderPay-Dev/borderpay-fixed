@@ -7,6 +7,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Gift, Users, DollarSign, Zap, ChevronRight, Share2, Copy, CheckCircle } from 'lucide-react';
 import { FloatingBackButton } from '../common/FloatingBackButton';
+import { openAffiliatePortal } from '../../utils/affiliate/openAffiliatePortal';
 
 interface ReferralScreenProps {
   onBack: () => void;
@@ -174,15 +175,14 @@ export function ReferralScreen({ onBack }: ReferralScreenProps) {
           transition={{ duration: 0.5, delay: 0.4 }}
           className="pb-6"
         >
-          <motion.a
-            href="https://affiliate.borderpayafrica.com"
-            target="_blank"
-            rel="noopener noreferrer"
+          <motion.button
+            type="button"
+            onClick={() => void openAffiliatePortal('referral_screen')}
             whileTap={{ scale: 0.97 }}
             className="block w-full py-4 bg-[#C7FF00] text-black font-bold text-center rounded-2xl text-sm active:bg-[#B8F000] transition-colors"
           >
             Earn Now
-          </motion.a>
+          </motion.button>
           <p className="text-center text-gray-600 text-[11px] mt-3">
             Terms apply. Rewards credited after friend's first qualifying transfer.
           </p>
