@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractPublicClientIp, readBoundedJson } from "../_shared/public-request-security.ts";
+import { encryptApiWebhookSecret, newApiWebhookSecret, validateApiWebhookEndpointUrl } from "../_shared/api-webhook-security.ts";
 
 const PROD_ORIGIN = "https://portal.borderpayafrica.com";
 const allowedOrigin = (origin: string | null) => {
@@ -125,10 +126,6 @@ function newApiKey(mode: "sandbox" | "production") {
   const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
   const plain = `bpk_${tag}_${token}`;
   return { plain, prefix: plain.slice(0, 14) };
-}
-
-function newWebhookSecret() {
-  return `bwhsec_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
 const allowedScopes = new Set([
@@ -409,7 +406,7 @@ Deno.serve(async (req) => {
         db.from("api_partner_approvals").select("status,approved_products,approved_at").eq("tenant_id", tenantId).maybeSingle(),
         db.from("api_keys").select("id,key_prefix,key_label,scopes,is_active,revoked_at,last_used_at,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
         db.from("api_ip_allowlist").select("id,cidr_block,note,is_active,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
-        db.from("api_webhook_endpoints").select("id,endpoint_url,is_active,created_at,updated_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
+        db.from("api_webhook_endpoints").select("id,endpoint_url,is_active,delivery_enabled,event_types,created_at,updated_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
         db.from("api_request_log").select("id,request_id,method,route,status_code,error_code,latency_ms,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(200),
         db.from("partner_pricing_rules").select("id,provider,product,source_currency,destination_currency,fee_type,fee_percent,fixed_amount,fixed_currency,effective_from,effective_until,is_active").eq("organization_id", org.id).eq("is_active", true).order("effective_from", { ascending: false }),
         db.from("partner_members").select("user_id,role,is_active,created_at").eq("organization_id", org.id).order("created_at"),
@@ -529,10 +526,12 @@ Deno.serve(async (req) => {
       }
       if (emailDeliveryMode === "partner_webhook") {
         for (const id of approvedTenantIds) {
-          const { count, error: webhookCheckError } = await db.from("api_webhook_endpoints")
-            .select("id", { count: "exact", head: true }).eq("tenant_id", id).eq("is_active", true);
+          const { data: emailEndpoints, error: webhookCheckError } = await db.from("api_webhook_endpoints")
+            .select("event_types,delivery_enabled").eq("tenant_id", id).eq("is_active", true);
           if (webhookCheckError) throw webhookCheckError;
-          if (!count) return json(req, { success: false, error: "Add an active webhook to every approved project before selecting partner-managed email" }, 409);
+          const canDeliverEmail = (emailEndpoints || []).some((endpoint: any) => endpoint.delivery_enabled === true &&
+            (!Array.isArray(endpoint.event_types) || endpoint.event_types.length === 0 || endpoint.event_types.includes("email.delivery_requested")));
+          if (!canDeliverEmail) return json(req, { success: false, error: "Add an active webhook subscribed to email.delivery_requested on every approved project before selecting partner-managed email" }, 409);
         }
       }
       const payload = {
@@ -743,11 +742,21 @@ Deno.serve(async (req) => {
     if (action === "create_webhook") {
       requireOperationalTenant();
       if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
-      const endpointUrl = clean(body.endpoint_url, 500);
-      try { if (new URL(endpointUrl).protocol !== "https:") throw new Error(); } catch { return json(req, { success: false, error: "A valid HTTPS webhook URL is required" }, 400); }
-      const secret = newWebhookSecret();
-      const { data, error } = await db.from("api_webhook_endpoints").insert({ tenant_id: tenantId, endpoint_url: endpointUrl, signing_secret_hash: await sha256(secret) })
-        .select("id,endpoint_url,is_active,created_at").single();
+      let endpointUrl: string;
+      try { endpointUrl = validateApiWebhookEndpointUrl(clean(body.endpoint_url, 500)); }
+      catch (error) { return json(req, { success: false, error: (error as Error).message }, 400); }
+      const id = crypto.randomUUID();
+      const version = 1;
+      const secret = newApiWebhookSecret();
+      const encrypted = await encryptApiWebhookSecret(secret, id, version);
+      const { data, error } = await db.from("api_webhook_endpoints").insert({
+        id, tenant_id: tenantId, endpoint_url: endpointUrl,
+        signing_secret_hash: await sha256(secret),
+        signing_secret_ciphertext: encrypted.ciphertext,
+        signing_secret_nonce: encrypted.nonce,
+        signing_secret_version: version,
+        delivery_enabled: true,
+      }).select("id,endpoint_url,is_active,delivery_enabled,event_types,created_at").single();
       if (error) throw error;
       await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "webhook_created", metadata: { webhook_id: data.id } });
       return json(req, { success: true, webhook: { ...data, signing_secret: secret } }, 201);
@@ -757,9 +766,19 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
       const id = clean(body.webhook_id, 40);
-      const secret = newWebhookSecret();
-      const { data, error } = await db.from("api_webhook_endpoints").update({ signing_secret_hash: await sha256(secret) })
-        .eq("id", id).eq("tenant_id", tenantId).select("id,endpoint_url,is_active,updated_at").single();
+      const { data: current, error: currentError } = await db.from("api_webhook_endpoints").select("id,signing_secret_version").eq("id", id).eq("tenant_id", tenantId).maybeSingle();
+      if (currentError) throw currentError;
+      if (!current) return json(req, { success: false, error: "Webhook endpoint not found" }, 404);
+      const version = Number(current.signing_secret_version || 0) + 1;
+      const secret = newApiWebhookSecret();
+      const encrypted = await encryptApiWebhookSecret(secret, id, version);
+      const { data, error } = await db.from("api_webhook_endpoints").update({
+        signing_secret_hash: await sha256(secret),
+        signing_secret_ciphertext: encrypted.ciphertext,
+        signing_secret_nonce: encrypted.nonce,
+        signing_secret_version: version,
+        delivery_enabled: true,
+      }).eq("id", id).eq("tenant_id", tenantId).select("id,endpoint_url,is_active,delivery_enabled,event_types,updated_at").single();
       if (error) throw error;
       await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "webhook_secret_rotated", metadata: { webhook_id: id } });
       return json(req, { success: true, webhook: { ...data, signing_secret: secret } });
@@ -769,7 +788,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
       const id = clean(body.webhook_id, 40);
-      const { error } = await db.from("api_webhook_endpoints").update({ is_active: false }).eq("id", id).eq("tenant_id", tenantId);
+      const { error } = await db.from("api_webhook_endpoints").update({ is_active: false, delivery_enabled: false }).eq("id", id).eq("tenant_id", tenantId);
       if (error) throw error;
       await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "webhook_disabled", metadata: { webhook_id: id } });
       return json(req, { success: true });
