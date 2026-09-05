@@ -12,6 +12,7 @@ checks = {
     "logo URL is published to tenant metadata": "logo_url: publicLogo.publicUrl" in portal,
     "sandbox projects inherit approved products": "approvalCloneError" in portal and "sourceApproval" in portal,
     "white-label keys support onboarding only": '"onboarding:write"' in portal and "scopes.every" in portal,
+    "partner CAPTCHA uses Google credential and fails closed": all(token in portal for token in ["FIREBASE_SERVICE_ACCOUNT_JSON", "googleAccessToken", "PARTNER_INVITE_CAPTCHA_REQUIRED", "return !required"]),
 }
 
 failed = [name for name, ok in checks.items() if not ok]
