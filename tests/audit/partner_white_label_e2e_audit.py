@@ -13,6 +13,8 @@ checks = {
     "sandbox projects inherit approved products": "approvalCloneError" in portal and "sourceApproval" in portal,
     "white-label keys support onboarding only": '"onboarding:write"' in portal and "scopes.every" in portal,
     "partner CAPTCHA uses Google credential and fails closed": all(token in portal for token in ["FIREBASE_SERVICE_ACCOUNT_JSON", "googleAccessToken", "PARTNER_INVITE_CAPTCHA_REQUIRED", "return !required"]),
+    "email delivery mode is allowlisted": all(token in portal for token in ['"borderpay_managed"', '"partner_webhook"', 'Email delivery mode is invalid']),
+    "partner-managed email requires active webhook": 'Add an active webhook to every approved project' in portal and '.eq("is_active", true)' in portal,
 }
 
 failed = [name for name, ok in checks.items() if not ok]
