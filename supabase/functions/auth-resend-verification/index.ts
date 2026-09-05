@@ -111,6 +111,9 @@ Deno.serve(async (req: Request) => {
   const emailTemplate = userRow.account_type === "business"
     ? "business.email_verification"
     : "individual.email_verification";
+  const { data: origin } = await supabase.from("account_origin_provenance")
+    .select("tenant_id,onboarding_channel").eq("user_id", userRow.id).maybeSingle();
+  const whiteLabelTenantId = origin?.onboarding_channel === "white_label" ? origin.tenant_id : null;
   const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
     method: "POST",
     headers: {
@@ -121,6 +124,7 @@ Deno.serve(async (req: Request) => {
       template:        emailTemplate,
       to:              userRow.email,
       user_id:         userRow.id,
+      tenant_id:       whiteLabelTenantId || undefined,
       idempotency_key: `verify-resend:${userRow.id}:${(tokenData as string).slice(0, 16)}`,
       props: {
         full_name:        userRow.full_name,

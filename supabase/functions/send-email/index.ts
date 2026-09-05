@@ -65,6 +65,7 @@ interface SendEmailBody {
   to:               string;
   props?:           Record<string, unknown>;
   user_id?:         string;
+  tenant_id?:       string;
   idempotency_key?: string;
   reply_to?:        string;
   attachments?:     EmailAttachment[];
@@ -84,6 +85,7 @@ interface ProviderSendInput {
   html: string;
   text: string;
   replyTo?: string;
+  fromName?: string;
   attachments: EmailAttachment[];
 }
 
@@ -99,20 +101,72 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+type WhiteLabelEmailContext = {
+  tenantId: string;
+  brandName: string;
+  primaryColor: string;
+  logoUrl: string | null;
+  supportEmail: string | null;
+  senderName: string;
+  replyTo: string | null;
+};
+
+const DEFAULT_LOGO_URL = "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-email-logo.png";
+const safeEmail = (value: unknown) => typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) ? value.trim().toLowerCase() : null;
+const safeHttps = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  try { const parsed = new URL(value.trim()); return parsed.protocol === "https:" && !parsed.username && !parsed.password ? parsed.toString() : null; } catch { return null; }
+};
+const safeLabel = (value: unknown) => String(value || "").replace(/[\u0000-\u001F\u007F<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+const escapeBrand = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+async function loadWhiteLabelEmailContext(body: SendEmailBody): Promise<WhiteLabelEmailContext | null> {
+  const tenantId = String(body.tenant_id || "").trim();
+  if (!tenantId) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(tenantId)) throw new Error("Invalid tenant_id");
+  const [{ data: tenant }, { data: approval }] = await Promise.all([
+    supabaseAdmin.from("api_tenants").select("id,is_active,metadata").eq("id", tenantId).maybeSingle(),
+    supabaseAdmin.from("api_partner_approvals").select("status,approved_products").eq("tenant_id", tenantId).maybeSingle(),
+  ]);
+  if (!tenant?.is_active || approval?.status !== "approved" || !Array.isArray(approval.approved_products) || !approval.approved_products.includes("white_label")) {
+    throw new Error("Active white-label partner approval is required");
+  }
+  if (body.user_id) {
+    const { data: provenance } = await supabaseAdmin.from("account_origin_provenance")
+      .select("tenant_id").eq("user_id", body.user_id).eq("tenant_id", tenantId).maybeSingle();
+    if (!provenance) throw new Error("Email recipient is not owned by this partner tenant");
+  }
+  const white = tenant.metadata?.white_label && typeof tenant.metadata.white_label === "object" ? tenant.metadata.white_label as Record<string, unknown> : {};
+  const brandName = safeLabel(white.app_name || white.brand_name);
+  if (white.enabled !== true || !brandName) throw new Error("White-label email branding is not published");
+  const primaryColor = typeof white.primary_color === "string" && /^#[0-9a-f]{6}$/i.test(white.primary_color.trim()) ? white.primary_color.trim().toUpperCase() : "#C7FF00";
+  return { tenantId, brandName, primaryColor, logoUrl: safeHttps(white.logo_url), supportEmail: safeEmail(white.support_email), senderName: safeLabel(white.email_sender_name || brandName), replyTo: safeEmail(white.email_reply_to) };
+}
+
+function applyWhiteLabelEmail(rendered: { subject: string; html: string; text: string }, brand: WhiteLabelEmailContext) {
+  const htmlName = escapeBrand(brand.brandName);
+  let html = rendered.html.replace(/BorderPay Africa|BorderPay/g, () => htmlName)
+    .replaceAll("#C7FF00", brand.primaryColor).replaceAll("#c7ff00", brand.primaryColor);
+  if (brand.logoUrl) html = html.replaceAll(DEFAULT_LOGO_URL, escapeBrand(brand.logoUrl));
+  if (brand.supportEmail) html = html.replaceAll("support@borderpayafrica.com", escapeBrand(brand.supportEmail));
+  return {
+    subject: rendered.subject.replace(/BorderPay Africa|BorderPay/g, () => brand.brandName),
+    html,
+    text: rendered.text.replace(/BorderPay Africa|BorderPay/g, () => brand.brandName)
+      .replaceAll("support@borderpayafrica.com", brand.supportEmail || "support@borderpayafrica.com"),
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")   return json({ success: false, error: "POST only" }, 405);
 
   // AuthN: internal server-to-server only.
-  // Primary credential: SEND_EMAIL_INTERNAL_TOKEN.
-  // Compatibility path: allow service-role bearer as an internal caller token
-  // to prevent cross-repo secret drift from blocking production email sends.
-  // (Both are high-entropy secrets; token is never logged.)
+  // Dedicated least-privilege caller credential. Never accept the Supabase
+  // service-role key as an HTTP password for this endpoint.
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
-  const internalOk = INTERNAL_TOKEN ? timingSafeEqualStr(token, INTERNAL_TOKEN) : false;
-  const serviceRoleOk = SUPABASE_SERVICE_ROLE ? timingSafeEqualStr(token, SUPABASE_SERVICE_ROLE) : false;
-  if (!(internalOk || serviceRoleOk)) {
+  if (!INTERNAL_TOKEN || !timingSafeEqualStr(token, INTERNAL_TOKEN)) {
     return json({ success: false, error: "Unauthorized — internal token required" }, 401);
   }
 
@@ -130,10 +184,15 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, error: (e as Error).message }, 400);
   }
 
+  let whiteLabel: WhiteLabelEmailContext | null = null;
+  try { whiteLabel = await loadWhiteLabelEmailContext(body); }
+  catch (e) { return json({ success: false, error: (e as Error).message }, 403); }
+
   // ── Render the template ────────────────────────────────────────────────
   let rendered;
   try {
     rendered = renderTemplate(body.template, body.props ?? {});
+    if (whiteLabel) rendered = applyWhiteLabelEmail(rendered, whiteLabel);
   } catch (e) {
     return json({ success: false, error: `Render failed: ${(e as Error).message}` }, 400);
   }
@@ -144,7 +203,7 @@ Deno.serve(async (req: Request) => {
     p_recipient: body.to,
     p_template:  body.template,
     p_subject:   rendered.subject,
-    p_payload:   { props: body.props ?? {} },
+    p_payload:   { props: body.props ?? {}, ...(whiteLabel ? { tenant_id: whiteLabel.tenantId, white_label: true } : {}) },
     p_idem_key:  body.idempotency_key ?? null,
   });
   if (logErr) {
@@ -199,7 +258,8 @@ Deno.serve(async (req: Request) => {
         subject: rendered.subject,
         html: rendered.html,
         text: rendered.text,
-        replyTo: body.reply_to,
+        replyTo: whiteLabel?.replyTo || body.reply_to,
+        fromName: whiteLabel?.senderName,
         attachments,
       });
       if (result.ok) {
@@ -234,12 +294,27 @@ Deno.serve(async (req: Request) => {
         last_error: null,
       })
       .eq("id", logId);
+    if (whiteLabel) await recordPartnerEmailOutcome(whiteLabel.tenantId, logId, body.template, "sent", providerUsed || null);
     return json({ success: true, data: { provider: providerUsed, provider_id: providerId, resend_id: providerId, log_id: logId, status: "sent" } });
   }
 
   await markFailed(logId, lastError || "Unknown send failure");
+  if (whiteLabel) await recordPartnerEmailOutcome(whiteLabel.tenantId, logId, body.template, "failed", providerUsed || null);
   return json({ success: false, error: lastError || "Email send failed", log_id: logId }, 502);
 });
+
+async function recordPartnerEmailOutcome(tenantId: string, logId: string, template: string, status: "sent" | "failed", provider: string | null) {
+  const { error } = await supabaseAdmin.from("partner_email_usage_events").upsert({ tenant_id: tenantId, email_log_id: logId, template, delivery_status: status, provider, units: 1, billable: status === "sent" }, { onConflict: "tenant_id,email_log_id" });
+  if (error) console.error("partner email usage write failed", error.message);
+  const { error: webhookError } = await supabaseAdmin.rpc("api_webhook_enqueue_event", {
+    p_tenant_id: tenantId, p_tenant_end_user_id: null, p_resource_id: null,
+    p_event_type: status === "sent" ? "email.sent" : "email.failed",
+    p_idempotency_key: `partner:email:${logId}:${status}`,
+    p_payload: { email: { id: logId, template, status } },
+    p_occurred_at: new Date().toISOString(),
+  });
+  if (webhookError) console.error("partner email webhook enqueue failed", webhookError.message);
+}
 
 async function markFailed(logId: string, message: string) {
   await supabaseAdmin
@@ -287,7 +362,7 @@ async function sendWithBrevo(input: ProviderSendInput): Promise<ProviderSendResu
         "api-key":       BREVO_KEY,
       },
       body: JSON.stringify({
-        sender:      parseFrom(BREVO_FROM_EMAIL),
+        sender:      input.fromName ? { ...parseFrom(BREVO_FROM_EMAIL), name: input.fromName } : parseFrom(BREVO_FROM_EMAIL),
         to:          [{ email: input.to }],
         subject:     input.subject,
         htmlContent: input.html,
@@ -325,7 +400,7 @@ async function sendWithResend(input: ProviderSendInput): Promise<ProviderSendRes
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        from: RESEND_FROM_EMAIL,
+        from: input.fromName ? formatFromName(RESEND_FROM_EMAIL, input.fromName) : RESEND_FROM_EMAIL,
         to: [input.to],
         subject: input.subject,
         html: input.html,
@@ -363,6 +438,12 @@ function parseFrom(raw: string): { email: string; name?: string } {
     return name ? { email, name } : { email };
   }
   return { email: raw.trim() };
+}
+
+function formatFromName(raw: string, name: string): string {
+  const parsed = parseFrom(raw);
+  const cleanName = name.replace(/[\r\n<>]/g, " ").trim().slice(0, 80);
+  return `${cleanName || parsed.name || "BorderPay Africa"} <${parsed.email}>`;
 }
 
 function sanitizeAttachments(raw: unknown): EmailAttachment[] {
