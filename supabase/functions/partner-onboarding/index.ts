@@ -507,6 +507,10 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       const color = clean(body.primary_color, 7);
       if (color && !/^#[0-9a-f]{6}$/i.test(color)) return json(req, { success: false, error: "Primary color must be a six-digit hex color" }, 400);
+      const emailDeliveryMode = clean(body.email_delivery_mode, 32) || "borderpay_managed";
+      if (!new Set(["borderpay_managed", "partner_webhook"]).has(emailDeliveryMode)) {
+        return json(req, { success: false, error: "Email delivery mode is invalid" }, 400);
+      }
       const emailFields = ["support_email", "billing_email", "payout_contact_email", "email_reply_to"];
       for (const field of emailFields) {
         const value = clean(body[field], 254);
@@ -522,6 +526,14 @@ Deno.serve(async (req) => {
       }
       if (!approvedTenantIds.length) {
         return json(req, { success: false, error: "White-label product approval is required before publishing branding" }, 403);
+      }
+      if (emailDeliveryMode === "partner_webhook") {
+        for (const id of approvedTenantIds) {
+          const { count, error: webhookCheckError } = await db.from("api_webhook_endpoints")
+            .select("id", { count: "exact", head: true }).eq("tenant_id", id).eq("is_active", true);
+          if (webhookCheckError) throw webhookCheckError;
+          if (!count) return json(req, { success: false, error: "Add an active webhook to every approved project before selecting partner-managed email" }, 409);
+        }
       }
       const payload = {
         organization_id: org.id,
@@ -556,6 +568,7 @@ Deno.serve(async (req) => {
               support_email: data.support_email,
               email_sender_name: data.email_sender_name,
               email_reply_to: data.email_reply_to,
+              email_delivery_mode: emailDeliveryMode,
             },
           },
         }).eq("id", id);
