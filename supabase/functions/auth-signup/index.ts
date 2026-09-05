@@ -751,6 +751,7 @@ Deno.serve(async (req: Request) => {
           template:        emailTemplate,
           to:              email,
           user_id:         userId,
+          tenant_id:       partnerAuthorization?.onboarding_channel === "white_label" ? partnerAuthorization.tenant_id : undefined,
           idempotency_key: `verify:${userId}:${tokenPurpose}`,
           props: {
             full_name,
