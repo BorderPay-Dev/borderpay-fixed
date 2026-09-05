@@ -157,6 +157,33 @@ function decodeWhiteLabelLogo(value: unknown) {
 }
 
 const inviteBuckets = new Map<string, { count: number; resetAt: number }>();
+type GoogleServiceAccount = { client_email: string; private_key: string };
+let googleTokenCache: { value: string; expiresAt: number } | null = null;
+function base64Url(value: Uint8Array | string): string {
+  const binary = typeof value === "string" ? value : String.fromCharCode(...value);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+function pemBytes(pem: string): Uint8Array {
+  const body = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, "");
+  return Uint8Array.from(atob(body), (char) => char.charCodeAt(0));
+}
+async function googleAccessToken(raw: string): Promise<string> {
+  if (googleTokenCache && googleTokenCache.expiresAt > Date.now() + 60_000) return googleTokenCache.value;
+  const account = JSON.parse(raw) as GoogleServiceAccount;
+  if (!account.client_email || !account.private_key) throw new Error("Google service account is incomplete");
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = base64Url(JSON.stringify({ iss: account.client_email, scope: "https://www.googleapis.com/auth/cloud-platform", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }));
+  const unsigned = `${header}.${claims}`;
+  const keyBytes = pemBytes(account.private_key);
+  const key = await crypto.subtle.importKey("pkcs8", keyBytes.buffer.slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength) as ArrayBuffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned)));
+  const response = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${base64Url(signature)}` }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !(payload as any)?.access_token) throw new Error("Google OAuth token could not be issued");
+  googleTokenCache = { value: String((payload as any).access_token), expiresAt: Date.now() + Number((payload as any).expires_in || 3600) * 1000 };
+  return googleTokenCache.value;
+}
 function allowInviteAttempt(keys: string[], now = Date.now()) {
   if (inviteBuckets.size > 5_000) {
     for (const [key, bucket] of inviteBuckets) if (bucket.resetAt <= now) inviteBuckets.delete(key);
@@ -181,16 +208,20 @@ function allowInviteAttempt(keys: string[], now = Date.now()) {
 async function verifyPartnerInviteCaptcha(token: string, remoteIp: string | null) {
   const projectId = Deno.env.get("RECAPTCHA_ENTERPRISE_PROJECT_ID") || "";
   const apiKey = Deno.env.get("RECAPTCHA_ENTERPRISE_API_KEY") || "";
+  const serviceAccount = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_JSON") || "";
   const siteKey = Deno.env.get("PARTNER_RECAPTCHA_ENTERPRISE_SITE_KEY") || "";
   const required = (Deno.env.get("PARTNER_INVITE_CAPTCHA_REQUIRED") || "false").toLowerCase() === "true";
-  if (!projectId || !apiKey || !siteKey) return !required;
+  if (!projectId || (!apiKey && !serviceAccount) || !siteKey) return !required;
   if (!token) return !required;
   try {
+    const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) authHeaders["X-Goog-Api-Key"] = apiKey;
+    else authHeaders.Authorization = `Bearer ${await googleAccessToken(serviceAccount)}`;
     const response = await fetch(
       `https://recaptchaenterprise.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/assessments`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey },
+        headers: authHeaders,
         body: JSON.stringify({
           event: {
             token,
