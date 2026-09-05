@@ -243,7 +243,7 @@ Deno.serve(async (req: Request) => {
     const { error: webhookError } = await supabaseAdmin.rpc("api_webhook_enqueue_event", {
       p_tenant_id: whiteLabel.tenantId,
       p_tenant_end_user_id: null,
-      p_resource_id: logId,
+      p_resource_id: null,
       p_event_type: "email.delivery_requested",
       p_idempotency_key: `partner:email:${logId}:delivery_requested`,
       p_payload: {
