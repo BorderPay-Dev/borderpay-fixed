@@ -17,6 +17,7 @@ checks = {
     "delivery outcome is queued to partner webhooks": 'api_webhook_enqueue_event' in sender and '"email.sent"' in sender and '"email.failed"' in sender,
     "partner-owned delivery is webhook-only": 'whiteLabel?.deliveryMode === "partner_webhook"' in sender and '"email.delivery_requested"' in sender,
     "partner-owned delivery is not metered as sent": 'provider: "partner_webhook"' in sender and 'status: "queued"' in sender,
+    "email event does not misuse provider resource identity": 'p_resource_id: null' in sender,
 }
 
 failed = [name for name, ok in checks.items() if not ok]
