@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_SUPABASE_URL':        JSON.stringify(env.VITE_SUPABASE_URL || ''),
       'import.meta.env.VITE_SUPABASE_ANON_KEY':   JSON.stringify(env.VITE_SUPABASE_ANON_KEY || ''),
       'import.meta.env.VITE_SUPABASE_PROJECT_ID': JSON.stringify(env.VITE_SUPABASE_PROJECT_ID || ''),
+      'import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY': JSON.stringify(env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY || ''),
       // VITE_SERVER_FUNCTION removed — old make-server proxy no longer used
     },
   };
