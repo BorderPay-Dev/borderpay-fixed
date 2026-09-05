@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
+    "@capacitor-firebase/app-check": "8.5.1",
     "@capacitor-firebase/messaging": "^8.3.0",
     "@capacitor/android": "^8.4.1",
     "@capacitor/cli": "^8.4.1",
@@ -102,7 +103,6 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-slick": "^0.23.13",
-    "@vercel/node": "^5.7.13",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",

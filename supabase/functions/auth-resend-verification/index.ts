@@ -20,6 +20,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { extractPublicClientIp, readBoundedJson } from "../_shared/public-request-security.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // Service-role: used ONLY for the admin client (user lookup + getUserById).
@@ -45,8 +46,11 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")   return json({ success: false, error: "POST only" }, 405);
 
-  let body: { email?: string };
-  try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
+  const envelope = await readBoundedJson<{ email?: string }>(req, 4096);
+  if (!envelope.ok) {
+    return json({ success: false, code: envelope.code, error: envelope.error }, envelope.status);
+  }
+  const body = envelope.value;
   const email = String(body.email || "").trim().toLowerCase();
   if (!email) return json({ success: false, error: "email required" }, 400);
 
@@ -74,13 +78,12 @@ Deno.serve(async (req: Request) => {
   const purpose = userRow.account_type === "business" ? "signup_business" : "signup_individual";
 
   // Issue token (rate-limited inside the function)
-  const xff = req.headers.get("x-forwarded-for") || "";
   const ua  = req.headers.get("user-agent") || "";
   const { data: tokenData, error: tokenErr } = await supabase.rpc("issue_email_token", {
     p_user_id:     userRow.id,
     p_purpose:     purpose,
     p_ttl_minutes: 60 * 24,
-    p_ip:          xff.split(",")[0]?.trim() || null,
+    p_ip:          extractPublicClientIp(req),
     p_ua:          ua,
   });
   if (tokenErr) {

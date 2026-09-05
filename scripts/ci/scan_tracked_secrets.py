@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail CI when high-impact credentials are committed as literals.
 
-This intentionally scans only Git-tracked files and reports file/line/type,
+This scans all Git-tracked text files and reports file/line/type,
 never the matched credential. GitHub push protection remains the broader
 provider-token detector.
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".gz", ".lock"}
 SKIP_PATHS = {".env.example"}
-SKIP_PREFIXES = ("tests/", "artifacts/", "docs/")
+SKIP_PREFIXES: tuple[str, ...] = ()
 
 PATTERNS = {
     "private_key": re.compile(r"^\s*-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\s*$"),
@@ -53,11 +53,17 @@ for relative in tracked_files():
         text = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError):
         continue
-    for line_number, line in enumerate(text.splitlines(), 1):
+    lines = text.splitlines()
+    for line_number, line in enumerate(lines, 1):
         if any(is_service_role_jwt(token) for token in JWT.findall(line)):
             findings.append((relative, line_number, "supabase_service_role_jwt"))
         for name, pattern in PATTERNS.items():
             if pattern.search(line):
+                # Documentation may show a deliberately empty PEM skeleton.
+                # A real key contains encoded material instead of a literal
+                # ellipsis and therefore remains a finding.
+                if name == "private_key" and line_number < len(lines) and lines[line_number].strip() == "...":
+                    continue
                 findings.append((relative, line_number, name))
 
 if findings:

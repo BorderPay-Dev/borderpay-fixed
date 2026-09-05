@@ -181,6 +181,7 @@ async function googleAccessToken(raw: string): Promise<string> {
   googleTokenCache = { value: String((payload as any).access_token), expiresAt: Date.now() + Number((payload as any).expires_in || 3600) * 1000 };
   return googleTokenCache.value;
 }
+const inviteBuckets = new Map<string, { count: number; resetAt: number }>();
 function allowInviteAttempt(keys: string[], now = Date.now()) {
   if (inviteBuckets.size > 5_000) {
     for (const [key, bucket] of inviteBuckets) if (bucket.resetAt <= now) inviteBuckets.delete(key);

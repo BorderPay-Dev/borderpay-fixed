@@ -13,6 +13,18 @@ verify_jwt = false
 
 # ── Edge function-specific overrides ────────────────────────────────────────
 
+# Public authentication entry points. These cannot use platform JWT validation
+# because callers do not have a session yet; each route has explicit bounded
+# input, abuse controls, and enumeration-safe behavior in function code.
+[functions.auth-signup]
+verify_jwt = false
+
+[functions.auth-resend-verification]
+verify_jwt = false
+
+[functions.verify-email-token]
+verify_jwt = false
+
 # kyc-submit — LEGACY, REMOVED. Repo source is a 410 "Gone" stub and the function
 # is NOT deployed. The live KYC flow is the Bridge hosted-link
 # (bridge-customer → bridge-kyc-link / bridge-kyb-link). This pin is retained
@@ -190,3 +202,35 @@ verify_jwt = true
 # also enforces verified identity, account state, and single-use token storage.
 [functions.affiliate-sso-link]
 verify_jwt = true
+
+# Flutterwave user routes require a Supabase JWT. The provider webhook cannot
+# carry a user JWT and instead validates Flutterwave's signature in-function.
+[functions.flutterwave-capabilities]
+verify_jwt = true
+
+[functions.flutterwave-account-resolve]
+verify_jwt = true
+
+[functions.flutterwave-transfer-rates]
+verify_jwt = true
+
+[functions.flutterwave-transfer-create]
+verify_jwt = true
+
+[functions.flutterwave-transfer-status]
+verify_jwt = true
+
+[functions.flutterwave-transfers-list]
+verify_jwt = true
+
+[functions.flutterwave-collection-create]
+verify_jwt = true
+
+[functions.flutterwave-collection-status]
+verify_jwt = true
+
+[functions.flutterwave-collections-list]
+verify_jwt = true
+
+[functions.flutterwave-webhook]
+verify_jwt = false

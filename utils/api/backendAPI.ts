@@ -16,6 +16,8 @@ import { CARDS_RUNTIME_ENABLED } from '../featureFlags';
 import { normalizeTransactionReceipt } from '../transactions/receipt';
 import { txDirection } from '../transactions/direction';
 import { friendlyError } from '../errors/friendlyError';
+import { executeEnterpriseRecaptcha } from '../security/recaptchaEnterprise';
+import { getNativeAppCheckToken } from '../security/firebaseAppCheck';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -295,10 +297,21 @@ export const authSecurityAPI = {
     captcha_token?:       string;
     referral_code?:       string;
   }, anonKey: string) {
-    return apiCallPublic('auth-signup', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }, anonKey);
+    const submit = async () => {
+      const [captchaToken, appCheckToken] = await Promise.all([
+        data.captcha_token ? Promise.resolve(data.captcha_token) : executeEnterpriseRecaptcha('SIGNUP'),
+        getNativeAppCheckToken(),
+      ]);
+      return apiCallPublic('auth-signup', {
+        method: 'POST',
+        headers: appCheckToken ? { 'X-Firebase-AppCheck': appCheckToken } : undefined,
+        body: JSON.stringify({
+          ...data,
+          ...(captchaToken ? { captcha_token: captchaToken } : {}),
+        }),
+      }, anonKey);
+    };
+    return submit();
   },
 
   async verifyPIN(pin: string) {

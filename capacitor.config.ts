@@ -25,6 +25,7 @@ const config: CapacitorConfig = {
       spm: {
         packageOptions: {
           '@capacitor-firebase/messaging': { symlink: true },
+          '@capacitor-firebase/app-check': { symlink: true },
         },
       },
     },
