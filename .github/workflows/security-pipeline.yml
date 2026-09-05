@@ -54,6 +54,9 @@ jobs:
       - name: Verify frozen-account authorization
         run: python3 tests/audit/frozen_account_access_gate_audit.py
 
+      - name: Verify affiliate linked-account SSO
+        run: python3 tests/audit/affiliate_sso_link_audit.py
+
       - name: Verify signup abuse controls
         run: python3 tests/audit/signup_abuse_protection_audit.py
 

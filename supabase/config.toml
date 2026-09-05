@@ -185,3 +185,8 @@ verify_jwt = false
 
 [functions.partner-application-admin]
 verify_jwt = true
+
+# Authenticated BorderPay identity handoff to the affiliate portal. The worker
+# also enforces verified identity, account state, and single-use token storage.
+[functions.affiliate-sso-link]
+verify_jwt = true

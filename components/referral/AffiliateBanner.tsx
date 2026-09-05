@@ -6,7 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
-import { affiliateProgramUrl } from '../../utils/affiliate/config';
+import { openAffiliatePortal } from '../../utils/affiliate/openAffiliatePortal';
 
 const DISMISSED_KEY = 'affiliate_banner_dismissed_v2';
 
@@ -28,12 +28,7 @@ export function AffiliateBanner({ kycStatus }: AffiliateBannerProps) {
     setVisible(false);
   };
 
-  const handleJoin = () => {
-    const url = affiliateProgramUrl('banner');
-    const win = window.open(url, '_blank', 'noopener,noreferrer');
-    // Fallback path: open in current tab if popup/external open fails.
-    if (!win) window.location.assign(url);
-  };
+  const handleJoin = () => void openAffiliatePortal('banner');
 
   if (!visible) return null;
 
