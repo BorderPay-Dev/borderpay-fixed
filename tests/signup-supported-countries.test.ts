@@ -19,3 +19,12 @@ Deno.test("Bridge live countries remain subject to prohibited-country policy", (
 
   assert.deepEqual(countries.map((country) => country.code), ["ZW"]);
 });
+
+Deno.test("country-only signup excludes Ukraine until sub-region screening exists", () => {
+  const countries = getSignupCountriesFromBridge([
+    { code: "UA", code3: "UKR", name: "Ukraine" },
+    { code: "KE", code3: "KEN", name: "Kenya" },
+  ]);
+
+  assert.deepEqual(countries.map((country) => country.code), ["KE"]);
+});
