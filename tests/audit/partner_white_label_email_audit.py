@@ -15,6 +15,8 @@ checks = {
     "partner reply-to overrides caller input": 'whiteLabel?.replyTo || body.reply_to' in sender,
     "successful sends are billable and failures are not": 'billable: status === "sent"' in sender,
     "delivery outcome is queued to partner webhooks": 'api_webhook_enqueue_event' in sender and '"email.sent"' in sender and '"email.failed"' in sender,
+    "partner-owned delivery is webhook-only": 'whiteLabel?.deliveryMode === "partner_webhook"' in sender and '"email.delivery_requested"' in sender,
+    "partner-owned delivery is not metered as sent": 'provider: "partner_webhook"' in sender and 'status: "queued"' in sender,
 }
 
 failed = [name for name, ok in checks.items() if not ok]

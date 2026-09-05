@@ -109,6 +109,7 @@ type WhiteLabelEmailContext = {
   supportEmail: string | null;
   senderName: string;
   replyTo: string | null;
+  deliveryMode: "borderpay_managed" | "partner_webhook";
 };
 
 const DEFAULT_LOGO_URL = "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-email-logo.png";
@@ -131,16 +132,16 @@ async function loadWhiteLabelEmailContext(body: SendEmailBody): Promise<WhiteLab
   if (!tenant?.is_active || approval?.status !== "approved" || !Array.isArray(approval.approved_products) || !approval.approved_products.includes("white_label")) {
     throw new Error("Active white-label partner approval is required");
   }
-  if (body.user_id) {
-    const { data: provenance } = await supabaseAdmin.from("account_origin_provenance")
-      .select("tenant_id").eq("user_id", body.user_id).eq("tenant_id", tenantId).maybeSingle();
-    if (!provenance) throw new Error("Email recipient is not owned by this partner tenant");
-  }
+  if (!body.user_id) throw new Error("White-label email requires a tenant-owned user");
+  const { data: provenance } = await supabaseAdmin.from("account_origin_provenance")
+    .select("tenant_id").eq("user_id", body.user_id).eq("tenant_id", tenantId).maybeSingle();
+  if (!provenance) throw new Error("Email recipient is not owned by this partner tenant");
   const white = tenant.metadata?.white_label && typeof tenant.metadata.white_label === "object" ? tenant.metadata.white_label as Record<string, unknown> : {};
   const brandName = safeLabel(white.app_name || white.brand_name);
   if (white.enabled !== true || !brandName) throw new Error("White-label email branding is not published");
   const primaryColor = typeof white.primary_color === "string" && /^#[0-9a-f]{6}$/i.test(white.primary_color.trim()) ? white.primary_color.trim().toUpperCase() : "#C7FF00";
-  return { tenantId, brandName, primaryColor, logoUrl: safeHttps(white.logo_url), supportEmail: safeEmail(white.support_email), senderName: safeLabel(white.email_sender_name || brandName), replyTo: safeEmail(white.email_reply_to) };
+  const deliveryMode = white.email_delivery_mode === "partner_webhook" ? "partner_webhook" : "borderpay_managed";
+  return { tenantId, brandName, primaryColor, logoUrl: safeHttps(white.logo_url), supportEmail: safeEmail(white.support_email), senderName: safeLabel(white.email_sender_name || brandName), replyTo: safeEmail(white.email_reply_to), deliveryMode };
 }
 
 function applyWhiteLabelEmail(rendered: { subject: string; html: string; text: string }, brand: WhiteLabelEmailContext) {
@@ -236,6 +237,35 @@ Deno.serve(async (req: Request) => {
         deduped: true,
       },
     });
+  }
+
+  if (whiteLabel?.deliveryMode === "partner_webhook") {
+    const { error: webhookError } = await supabaseAdmin.rpc("api_webhook_enqueue_event", {
+      p_tenant_id: whiteLabel.tenantId,
+      p_tenant_end_user_id: null,
+      p_resource_id: logId,
+      p_event_type: "email.delivery_requested",
+      p_idempotency_key: `partner:email:${logId}:delivery_requested`,
+      p_payload: {
+        email: {
+          id: logId,
+          template: body.template,
+          to: body.to,
+          subject: rendered.subject,
+          html: rendered.html,
+          text: rendered.text,
+          sender_name: whiteLabel.senderName,
+          reply_to: whiteLabel.replyTo,
+        },
+      },
+      p_occurred_at: new Date().toISOString(),
+    });
+    if (webhookError) {
+      await markFailed(logId, `Partner delivery webhook could not be queued: ${webhookError.message}`);
+      return json({ success: false, error: "Partner email delivery is temporarily unavailable", log_id: logId }, 502);
+    }
+    await supabaseAdmin.from("email_log").update({ status: "queued", resend_id: "partner_webhook", last_error: null }).eq("id", logId);
+    return json({ success: true, data: { provider: "partner_webhook", provider_id: null, resend_id: null, log_id: logId, status: "queued" } });
   }
 
   // ── Send with retry/backoff ────────────────────────────────────────────
