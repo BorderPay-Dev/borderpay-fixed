@@ -175,9 +175,12 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     return () => { cancelled = true; };
   }, []);
 
-  const steps: SignUpStep[] = ['personal', 'confirm-email', 'identity', 'address', 'proof-of-address', 'review', 'pending'];
+  // Public registration ends after email confirmation. Identity and business
+  // verification continue through the hosted dashboard flow; they are not
+  // additional signup screens.
+  const steps: SignUpStep[] = ['personal', 'confirm-email'];
   const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = 6; // Don't count 'pending'
+  const totalSteps = 2;
 
   // ============================================================================
   // STEP 1: CREATE ACCOUNT (after personal info)

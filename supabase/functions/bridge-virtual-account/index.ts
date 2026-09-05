@@ -42,8 +42,13 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
 const RAIL_BY_CCY: Record<string, string> = { USD: "ach_push", EUR: "sepa", GBP: "faster_payments" };
 const DEFAULT_ZERO_FEE_EMAILS = new Set(["adhiamboadhiambo22@gmail.com"]);
+const BLOCKED_ACCOUNT_STATUSES = new Set(["frozen", "paused", "suspended", "offboarded", "deactivated", "closed"]);
 const INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT = "2.5";
 const BUSINESS_VA_DEVELOPER_FEE_PERCENT = "2";
+
+function isBlockedAccountStatus(value: unknown): boolean {
+  return BLOCKED_ACCOUNT_STATUSES.has(String(value || "").trim().toLowerCase());
+}
 
 function normalizeLocalVaStatus(value: unknown): "active" | "suspended" | "deactivated" | "closed" {
   const status = String(value || "").trim().toLowerCase();
@@ -273,6 +278,28 @@ Deno.serve(async (req) => {
         code: "invalid_auth_token",
       },
     }, 401);
+  }
+
+  // Enforce before capabilities, writes, destination resolution, or Bridge.
+  const { data: accessProfile, error: accessProfileError } = await supa
+    .from("user_profiles")
+    .select("account_status,bridge_account_status")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (accessProfileError) {
+    return json({
+      success: false,
+      code: "account_status_unavailable",
+      error: "Account access status is temporarily unavailable.",
+    }, 503);
+  }
+  if (isBlockedAccountStatus(accessProfile?.account_status) || isBlockedAccountStatus(accessProfile?.bridge_account_status)) {
+    return json({
+      success: false,
+      code: "account_frozen",
+      error: "This account is frozen. Virtual account access is unavailable.",
+      summary: { code: "account_frozen" },
+    }, 423);
   }
 
   let body: { action?: string; currency?: string };

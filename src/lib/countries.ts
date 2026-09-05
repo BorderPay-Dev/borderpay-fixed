@@ -795,7 +795,10 @@ export function getSignupCountriesFromBridge(records: Array<{ code?: string | nu
         ?? null;
     }
     if (!code) continue;
-    if (isBridgeBlocked(code)) continue;
+    // Bridge prohibits specific Ukrainian regions, but public signup only
+    // captures a country. Until address-level screening is available, fail
+    // closed for UA rather than presenting a country we cannot safely screen.
+    if (isBridgeBlocked(code) || code === 'UA') continue;
     const cfg = countryConfigFromCode(code);
     if (!cfg || cfg.status !== 'active') continue;
     out.set(code, cfg);
