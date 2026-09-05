@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { extractPublicClientIp, readBoundedJson } from "../_shared/public-request-security.ts";
 
 const PROD_ORIGIN = "https://portal.borderpayafrica.com";
 const allowedOrigin = (origin: string | null) => {
@@ -27,6 +28,7 @@ const editable = new Set(["draft", "more_information"]);
 const mfaProtectedActions = new Set([
   "create_project", "save_workspace_settings", "create_api_key", "revoke_api_key",
   "add_ip_allowlist", "remove_ip_allowlist", "create_webhook", "rotate_webhook_secret", "disable_webhook",
+  "invite_team_member", "update_team_member", "remove_team_member",
 ]);
 
 function tokenAal(token: string): string {
@@ -133,6 +135,66 @@ const allowedScopes = new Set([
   "transfers:write", "payouts:write", "webhooks:write",
 ]);
 
+const inviteBuckets = new Map<string, { count: number; resetAt: number }>();
+function allowInviteAttempt(keys: string[], now = Date.now()) {
+  if (inviteBuckets.size > 5_000) {
+    for (const [key, bucket] of inviteBuckets) if (bucket.resetAt <= now) inviteBuckets.delete(key);
+    while (inviteBuckets.size > 5_000) {
+      const oldest = inviteBuckets.keys().next().value;
+      if (typeof oldest !== "string") break;
+      inviteBuckets.delete(oldest);
+    }
+  }
+  for (const key of keys) {
+    const bucket = inviteBuckets.get(key);
+    if (bucket && bucket.resetAt > now && bucket.count >= 5) return false;
+  }
+  for (const key of keys) {
+    const bucket = inviteBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) inviteBuckets.set(key, { count: 1, resetAt: now + 60 * 60 * 1_000 });
+    else bucket.count += 1;
+  }
+  return true;
+}
+
+async function verifyPartnerInviteCaptcha(token: string, remoteIp: string | null) {
+  const projectId = Deno.env.get("RECAPTCHA_ENTERPRISE_PROJECT_ID") || "";
+  const apiKey = Deno.env.get("RECAPTCHA_ENTERPRISE_API_KEY") || "";
+  const siteKey = Deno.env.get("PARTNER_RECAPTCHA_ENTERPRISE_SITE_KEY") || "";
+  const required = (Deno.env.get("PARTNER_INVITE_CAPTCHA_REQUIRED") || "false").toLowerCase() === "true";
+  if (!projectId || !apiKey || !siteKey) return !required;
+  if (!token) return !required;
+  try {
+    const response = await fetch(
+      `https://recaptchaenterprise.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/assessments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey },
+        body: JSON.stringify({
+          event: {
+            token,
+            siteKey,
+            expectedAction: "PARTNER_INVITE",
+            ...(remoteIp ? { userIpAddress: remoteIp } : {}),
+          },
+        }),
+      },
+    );
+    const assessment = await response.json().catch(() => ({})) as {
+      tokenProperties?: { valid?: boolean; action?: string; hostname?: string };
+      riskAnalysis?: { score?: number };
+    };
+    const score = Number(assessment.riskAnalysis?.score ?? -1);
+    return response.ok &&
+      assessment.tokenProperties?.valid === true &&
+      assessment.tokenProperties?.action === "PARTNER_INVITE" &&
+      String(assessment.tokenProperties?.hostname || "").toLowerCase() === "portal.borderpayafrica.com" &&
+      Number.isFinite(score) && score >= 0.7;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: headers(req) });
   if (req.method !== "POST") return json(req, { success: false, error: "POST only" }, 405);
@@ -140,31 +202,26 @@ Deno.serve(async (req) => {
     return json(req, { success: false, error: "Origin not allowed" }, 403);
   }
 
-  const contentType = (req.headers.get("content-type") || "").toLowerCase();
-  if (!contentType.startsWith("application/json")) return json(req, { success: false, error: "Content-Type must be application/json" }, 415);
-  const contentLength = Number(req.headers.get("content-length") || "0");
-  if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > 65_536) {
-    return json(req, { success: false, error: "Request body is too large" }, 413);
-  }
-
   const url = Deno.env.get("SUPABASE_URL") || "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!url || !serviceKey) return json(req, { success: false, error: "Server configuration missing" }, 500);
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  let body: any;
-  try { body = await req.json(); } catch { return json(req, { success: false, error: "Invalid JSON" }, 400); }
+  const envelope = await readBoundedJson<any>(req, 65_536);
+  if (!envelope.ok) return json(req, { success: false, code: envelope.code, error: envelope.error }, envelope.status);
+  const body = envelope.value;
   const action = clean(body?.action, 60);
 
   try {
     if (action === "request_invite") {
       const email = clean(body?.email, 254).toLowerCase();
       if (!emailOk(email)) return json(req, { success: false, error: "Valid business email required" }, 400);
-      const ip = (
-        req.headers.get("cf-connecting-ip") ||
-        req.headers.get("x-real-ip") ||
-        (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() ||
-        "unknown"
-      ).trim();
+      const ip = extractPublicClientIp(req) || "unknown";
+      if (!allowInviteAttempt([`ip:${ip}`, `email:${email}`])) {
+        return json(req, { success: false, code: "rate_limited", error: "Too many requests. Please try again later." }, 429);
+      }
+      if (!await verifyPartnerInviteCaptcha(clean(body?.captcha_token, 8_192), ip === "unknown" ? null : ip)) {
+        return json(req, { success: false, code: "captcha_failed", error: "Request verification failed. Please retry." }, 403);
+      }
       const ipHash = await sha256(`${Deno.env.get("PARTNER_INVITE_HASH_SALT") || serviceKey}:${ip}`);
       const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const { count, error: rateError } = await db.from("partner_access_invite_requests").select("id", { head: true, count: "exact" }).eq("requester_ip_hash", ipHash).gte("requested_at", since);
@@ -186,6 +243,24 @@ Deno.serve(async (req) => {
     if (member) {
       const { data } = await db.from("partner_organizations").select("*").eq("id", member.organization_id).maybeSingle();
       org = data;
+    }
+    if (!member || !org) {
+      const email = String(user.email || "").trim().toLowerCase();
+      const { data: teamInvite } = await db.from("partner_team_invitations")
+        .select("id,organization_id,role,status").eq("email", email).eq("status", "invited")
+        .order("invited_at", { ascending: false }).limit(1).maybeSingle();
+      if (teamInvite) {
+        const { data: invitedOrg } = await db.from("partner_organizations")
+          .select("*").eq("id", teamInvite.organization_id).eq("status", "approved").maybeSingle();
+        if (!invitedOrg) return json(req, { success: false, error: "Partner organization is not active." }, 403);
+        const { data: joined, error: joinError } = await db.from("partner_members")
+          .insert({ organization_id: teamInvite.organization_id, user_id: user.id, role: teamInvite.role })
+          .select("organization_id,role,is_active").single();
+        if (joinError) throw joinError;
+        await db.from("partner_team_invitations").update({ status: "accepted", accepted_at: new Date().toISOString() }).eq("id", teamInvite.id);
+        member = joined;
+        org = invitedOrg;
+      }
     }
     if (!member || !org) {
       const email = String(user.email || "").trim().toLowerCase();
@@ -268,7 +343,7 @@ Deno.serve(async (req) => {
           support_tickets: [],
         });
       }
-      const [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ] = await Promise.all([
+      const [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, invitesQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ] = await Promise.all([
         db.from("api_tenants").select("id,tenant_name,default_mode,is_active,beta_access_enabled,max_single_transfer_usd,rate_limit_per_minute,created_at,updated_at").eq("id", tenantId).maybeSingle(),
         db.from("api_keys").select("id,key_prefix,key_label,scopes,is_active,revoked_at,last_used_at,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
         db.from("api_ip_allowlist").select("id,cidr_block,note,is_active,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
@@ -276,13 +351,14 @@ Deno.serve(async (req) => {
         db.from("api_request_log").select("id,request_id,method,route,status_code,error_code,latency_ms,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(200),
         db.from("partner_pricing_rules").select("id,provider,product,source_currency,destination_currency,fee_type,fee_percent,fixed_amount,fixed_currency,effective_from,effective_until,is_active").eq("organization_id", org.id).eq("is_active", true).order("effective_from", { ascending: false }),
         db.from("partner_members").select("user_id,role,is_active,created_at").eq("organization_id", org.id).order("created_at"),
+        db.from("partner_team_invitations").select("id,email,role,status,invited_at,accepted_at,revoked_at").eq("organization_id", org.id).order("invited_at", { ascending: false }).limit(100),
         db.from("partner_portal_audit_log").select("id,event_type,metadata,created_at").eq("organization_id", org.id).order("created_at", { ascending: false }).limit(100),
         db.from("api_tenant_resources").select("id,resource_type,provider_resource_id,customer_provider_id,state,amount,source_currency,destination_currency,display_name,external_reference,safe_metadata,created_at,updated_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(500),
         db.from("partner_workspace_settings").select("brand_name,primary_color,support_email,billing_email,payout_contact_email,email_sender_name,email_reply_to,two_factor_required,updated_at").eq("organization_id", org.id).maybeSingle(),
         db.from("partner_support_tickets").select("id,project_id,category,subject,message,status,created_at,updated_at").eq("organization_id", org.id).order("created_at", { ascending: false }).limit(100),
         app ? db.from("partner_controlling_people").select("id,person_type,full_name,nationality,country_of_residence,ownership_percent,is_politically_exposed,created_at").eq("application_id", app.id).order("created_at") : Promise.resolve({ data: [], error: null }),
       ]);
-      for (const result of [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ]) {
+      for (const result of [tenantQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, invitesQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ]) {
         if (result.error) throw result.error;
       }
       if (!tenantQ.data) return json(req, { success: false, error: "Partner API tenant is unavailable" }, 409);
@@ -303,6 +379,7 @@ Deno.serve(async (req) => {
         activity: activityQ.data || [],
         pricing: pricingQ.data || [],
         members: safeMembers,
+        team_invitations: invitesQ.data || [],
         audit_events: auditQ.data || [],
         projects: projects || [],
         selected_project: selectedProject || null,
@@ -364,6 +441,60 @@ Deno.serve(async (req) => {
       if (error) throw error;
       await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "workspace_settings_updated" });
       return json(req, { success: true, settings: data });
+    }
+
+    if (action === "invite_team_member") {
+      requireOperationalTenant();
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const email = clean(body.email, 254).toLowerCase();
+      const role = clean(body.role, 20);
+      const allowedRoles = member.role === "owner"
+        ? new Set(["admin", "compliance", "developer", "viewer"])
+        : new Set(["compliance", "developer", "viewer"]);
+      if (!emailOk(email) || !allowedRoles.has(role)) return json(req, { success: false, error: "Valid email and permitted role required" }, 400);
+      if (email === String(user.email || "").toLowerCase()) return json(req, { success: false, error: "You are already a member" }, 409);
+      const { data: invitation, error: inviteRecordError } = await db.from("partner_team_invitations").insert({
+        organization_id: org.id, email, role, invited_by: user.id,
+      }).select("id,email,role,status,invited_at").single();
+      if (inviteRecordError) return json(req, { success: false, error: "An active invitation already exists for this email" }, 409);
+      const redirectTo = "https://portal.borderpayafrica.com/auth/callback?setup=password";
+      const { error: emailError } = await db.auth.admin.inviteUserByEmail(email, { redirectTo });
+      if (emailError) {
+        await db.from("partner_team_invitations").delete().eq("id", invitation.id);
+        return json(req, { success: false, error: "The invitation email could not be sent" }, 502);
+      }
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "team_member_invited", metadata: { invitation_id: invitation.id, role } });
+      return json(req, { success: true, invitation }, 201);
+    }
+
+    if (action === "update_team_member") {
+      requireOperationalTenant();
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const targetUserId = clean(body.user_id, 40);
+      const role = clean(body.role, 20);
+      const allowedRoles = member.role === "owner"
+        ? new Set(["admin", "compliance", "developer", "viewer"])
+        : new Set(["compliance", "developer", "viewer"]);
+      if (!targetUserId || !allowedRoles.has(role)) return json(req, { success: false, error: "Valid member and permitted role required" }, 400);
+      const { data: target } = await db.from("partner_members").select("role").eq("organization_id", org.id).eq("user_id", targetUserId).maybeSingle();
+      if (!target || target.role === "owner") return json(req, { success: false, error: "The organization owner role cannot be changed" }, 409);
+      const { error } = await db.from("partner_members").update({ role }).eq("organization_id", org.id).eq("user_id", targetUserId);
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "team_member_role_updated", metadata: { target_user_id: targetUserId, role } });
+      return json(req, { success: true });
+    }
+
+    if (action === "remove_team_member") {
+      requireOperationalTenant();
+      if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const targetUserId = clean(body.user_id, 40);
+      if (!targetUserId || targetUserId === user.id) return json(req, { success: false, error: "You cannot remove your own access" }, 409);
+      const { data: target } = await db.from("partner_members").select("role").eq("organization_id", org.id).eq("user_id", targetUserId).maybeSingle();
+      if (!target || target.role === "owner") return json(req, { success: false, error: "The organization owner cannot be removed" }, 409);
+      const { error } = await db.from("partner_members").update({ is_active: false }).eq("organization_id", org.id).eq("user_id", targetUserId);
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "team_member_removed", metadata: { target_user_id: targetUserId } });
+      return json(req, { success: true });
     }
 
     if (action === "create_support_ticket") {
