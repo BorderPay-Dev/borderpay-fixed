@@ -504,8 +504,7 @@ export function AccountDetailSheet({ open, onClose, va }: {
         <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-3 flex items-start gap-2 mb-3`}>
           <Info className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
           <p className={`text-xs ${tc.textSecondary}`}>
-            Share these details to receive {cur} by bank transfer. The account holder shown is
-            our regulated provider — that’s expected; funds are credited to your BorderPay wallet automatically.
+            Share these account details to receive {cur} payments by bank transfer.
           </p>
         </div>
 
