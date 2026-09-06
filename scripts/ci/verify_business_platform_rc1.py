@@ -104,7 +104,11 @@ def main() -> int:
     # No perpetual-loading guardrails on major business screens.
     send_timeout_guard = (
         ("SNAPSHOT_READY_TIMEOUT_MS" in send_flow and "timedOut" in send_flow)
-        or ("institutionsLoadInFlightRef" in send_flow and "finally" in send_flow)
+        or (
+            ("institutionsLoadInFlightRef" in send_flow or "institutionsLoadRequestIdRef" in send_flow)
+            and "finally" in send_flow
+            and "setLoadingInstitutions(false)" in send_flow
+        )
     )
     must(
         "Send snapshot timeout guard present",
