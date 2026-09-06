@@ -17,6 +17,7 @@ import { normalizeTransactionReceipt } from '../transactions/receipt';
 import { txDirection } from '../transactions/direction';
 import { friendlyError } from '../errors/friendlyError';
 import { extractExternalAccountList } from './externalAccountList';
+import { getNativeAppCheckToken } from '../security/firebaseAppCheck';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -325,8 +326,10 @@ export const authSecurityAPI = {
     referral_code?:       string;
     onboarding_token?:    string;
   }, anonKey: string) {
+    const appCheckToken = await getNativeAppCheckToken();
     return apiCallPublic('auth-signup', {
       method: 'POST',
+      headers: appCheckToken ? { 'X-Firebase-AppCheck': appCheckToken } : undefined,
       body: JSON.stringify(data),
     }, anonKey);
   },

@@ -42,10 +42,11 @@ jobs:
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Select Xcode
         run: |
@@ -53,7 +54,7 @@ jobs:
           xcodebuild -version
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -65,12 +66,28 @@ jobs:
           : "${APP_STORE_CONNECT_ISSUER_ID:?Missing APP_STORE_CONNECT_ISSUER_ID GitHub secret}"
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Missing APP_STORE_CONNECT_KEY_IDENTIFIER GitHub secret}"
           : "${APP_STORE_CONNECT_PRIVATE_KEY:?Missing APP_STORE_CONNECT_PRIVATE_KEY GitHub secret}"
+          : "${IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:?Missing IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64 GitHub secret}"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run ten-gate store release audit
         run: bash scripts/ci/store-release-ten-gate.sh
+
+      - name: Install Firebase iOS configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          encoded = os.environ["IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64"].strip()
+          Path("ios/App/App/GoogleService-Info.plist").write_bytes(base64.b64decode(encoded, validate=True))
+          PY
+          test "$(plutil -extract BUNDLE_ID raw ios/App/App/GoogleService-Info.plist)" = "$BUNDLE_ID"
+          test -n "$(plutil -extract GOOGLE_APP_ID raw ios/App/App/GoogleService-Info.plist)"
 
       - name: Sync Capacitor iOS project
         run: npx cap sync ios
@@ -88,6 +105,8 @@ jobs:
           unexpected = sorted(plugins & forbidden)
           if unexpected:
               raise SystemExit(f"Crash-prone iOS plugins present: {unexpected}")
+          if "FirebaseAppCheckPlugin" not in plugins:
+              raise SystemExit("FirebaseAppCheckPlugin missing from generated iOS plugin list")
           print("Generated iOS plugin list:", sorted(plugins))
           PY
 
@@ -195,7 +214,7 @@ jobs:
           ls -la "$EXPORT_PATH"
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: borderpay-ios-ipa
           path: build/ios/*.ipa
@@ -203,7 +222,7 @@ jobs:
           retention-days: 14
 
       - name: Upload iOS dSYM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: borderpay-ios-dsym-${{ steps.ios-build.outputs.number }}
           path: ${{ runner.temp }}/BorderPayAfrica.xcarchive/dSYMs/*.dSYM
