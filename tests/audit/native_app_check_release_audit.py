@@ -26,6 +26,8 @@ require(".github/workflows/android-play.yml", "ANDROID_GOOGLE_SERVICES_JSON_BASE
 require(".github/workflows/android-play.yml", "firebase-appcheck-playintegrity")
 require("android/app/src/main/java/com/borderpayafrica/app/MainActivity.java", "FirebaseApp.initializeApp(this)")
 require("android/app/src/main/java/com/borderpayafrica/app/MainActivity.java", "super.onCreate(savedInstanceState)")
+require("android/app/build.gradle", 'implementation "com.google.firebase:firebase-appcheck-playintegrity:$firebaseAppCheckPlayIntegrityVersion"')
+require("android/variables.gradle", "firebaseAppCheckPlayIntegrityVersion = '19.0.1'")
 
 for path in ("utils/security/firebaseAppCheck.ts", ".github/workflows/ios-testflight.yml", ".github/workflows/android-play.yml"):
     text = Path(path).read_text()
