@@ -198,6 +198,16 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ steps.ios-build.outputs.number }}" \
             clean archive
 
+      - name: Verify Firebase configuration in archived app
+        shell: bash
+        run: |
+          set -euo pipefail
+          EMBEDDED_FIREBASE_PLIST="$RUNNER_TEMP/$ARCHIVE_NAME/Products/Applications/App.app/GoogleService-Info.plist"
+          test -s "$EMBEDDED_FIREBASE_PLIST"
+          test "$(plutil -extract BUNDLE_ID raw "$EMBEDDED_FIREBASE_PLIST")" = "$BUNDLE_ID"
+          test -n "$(plutil -extract GOOGLE_APP_ID raw "$EMBEDDED_FIREBASE_PLIST")"
+          echo "Firebase configuration is embedded in the archived app."
+
       - name: Export signed IPA
         run: |
           set -euo pipefail

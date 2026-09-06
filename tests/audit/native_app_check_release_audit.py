@@ -19,6 +19,9 @@ require("utils/security/firebaseAppCheck.ts", "Native app attestation unavailabl
 require("utils/api/backendAPI.ts", "'X-Firebase-AppCheck': appCheckToken")
 require(".github/workflows/ios-testflight.yml", "IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64")
 require(".github/workflows/ios-testflight.yml", "FirebaseAppCheckPlugin")
+require("ios/App/App.xcodeproj/project.pbxproj", "GoogleService-Info.plist in Resources")
+require(".github/workflows/ios-testflight.yml", "Verify Firebase configuration in archived app")
+require(".github/workflows/ios-testflight.yml", "Products/Applications/App.app/GoogleService-Info.plist")
 require(".github/workflows/android-play.yml", "ANDROID_GOOGLE_SERVICES_JSON_BASE64")
 require(".github/workflows/android-play.yml", "firebase-appcheck-playintegrity")
 
