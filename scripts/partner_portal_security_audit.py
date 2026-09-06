@@ -4,13 +4,20 @@ root = Path(__file__).resolve().parents[1]
 onboarding = (root / "supabase/functions/partner-onboarding/index.ts").read_text()
 admin = (root / "supabase/functions/partner-application-admin/index.ts").read_text()
 migration = (root / "supabase/migrations/20260904213000_partner_portal_private_access.sql").read_text()
+public_security = (root / "supabase/functions/_shared/public-request-security.ts").read_text()
 
 public_invite = onboarding.split('if (action === "request_invite")', 1)[1].split("const token =", 1)[0]
 checks = {
+    "partner onboarding has one invite limiter": onboarding.count("const inviteBuckets") == 1,
     "public requests never create Auth users": "inviteUserByEmail" not in public_invite,
     "public requests are queued pending": 'status: "pending"' in public_invite,
     "public intake is IP rate limited": 'eq("requester_ip_hash", ipHash)' in public_invite,
-    "public intake trusts gateway IP before forwarded input": public_invite.find('req.headers.get("cf-connecting-ip")') < public_invite.find('req.headers.get("x-forwarded-for")'),
+    "public intake uses the shared client-IP extractor": "extractPublicClientIp(req)" in public_invite,
+    "shared client-IP extractor trusts gateway headers first": (
+        public_security.find('req.headers.get("cf-connecting-ip")')
+        < public_security.find('req.headers.get("x-real-ip")')
+        < public_security.find('req.headers.get("x-forwarded-for")')
+    ),
     "membership requires an invited email": all(token in onboarding for token in ('.eq("email", email)', '.eq("status", "invited")', '"Partner access has not been approved."')),
     "only admin worker sends Auth invites": "inviteUserByEmail" in admin and "Admin access required" in admin,
     "invite redirect uses production portal": "https://portal.borderpayafrica.com/auth/callback?setup=password" in admin,
