@@ -36,7 +36,7 @@ def main() -> int:
 
     checks.append((
         "E2 POST-only",
-        ("if (req.method !== 'POST')" in fn and "POST only" in fn),
+        (("if (req.method !== 'POST')" in fn or 'if (req.method !== "POST")' in fn) and "POST only" in fn),
         "legacy endpoint should reject non-POST methods",
     ))
 
@@ -63,4 +63,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
