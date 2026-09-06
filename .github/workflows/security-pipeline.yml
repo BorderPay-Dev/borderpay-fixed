@@ -96,6 +96,12 @@ jobs:
           supabase/functions/auth-resend-verification/index.ts
           supabase/functions/auth-reset-password/index.ts
 
+      - name: Type-check private partner Edge Functions
+        run: >-
+          deno check --node-modules-dir=auto
+          supabase/functions/partner-onboarding/index.ts
+          supabase/functions/partner-application-admin/index.ts
+
       - name: Test Firebase App Check JWT verification
         run: deno test --node-modules-dir=auto tests/firebase-app-check.test.ts
 
