@@ -16,12 +16,22 @@ const config: CapacitorConfig = {
     // until the signed Firebase configuration is supplied and release-gated.
     includePlugins: [
       '@aparajita/capacitor-biometric-auth',
+      '@capacitor-firebase/app-check',
       '@capacitor/filesystem',
       '@capacitor/share',
     ],
   },
   android: {
     allowMixedContent: false,
+  },
+  experimental: {
+    ios: {
+      spm: {
+        packageOptions: {
+          '@capacitor-firebase/app-check': { symlink: true },
+        },
+      },
+    },
   },
 };
 

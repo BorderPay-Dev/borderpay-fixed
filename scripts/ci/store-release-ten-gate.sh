@@ -27,6 +27,7 @@ python3 tests/audit/android_media_permissions_audit.py
 
 echo "[store-release] gate 6/10: iOS native launch configuration"
 python3 tests/audit/ios_native_launch_config_audit.py
+python3 tests/audit/native_app_check_release_audit.py
 
 echo "[store-release] gate 7/10: app-lock restores the exact prior screen"
 python3 tests/audit/app_lock_audit.py
