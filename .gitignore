@@ -29,6 +29,10 @@ yarn-error.log*
 *.tsbuildinfo
 .vercel
 
+# Firebase native configuration is injected by the signed release workflows.
+ios/App/App/GoogleService-Info.plist
+android/app/google-services.json
+
 # Supabase CLI local residue (link/deploy artifacts — never commit)
 .tools/
 supabase/.temp/
