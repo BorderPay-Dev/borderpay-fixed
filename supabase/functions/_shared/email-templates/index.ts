@@ -56,6 +56,7 @@ import { render as businessStablecoinFreeAnnouncement } from "./business/stablec
 import { render as businessAppStoreAnnouncement } from "./business/app-store-announcement.ts";
 import { render as businessAccountMaintenanceFee } from "./business/account-maintenance-fee.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
+import { render as partnerAccessInvite }                from "./partner/access-invite.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -101,7 +102,8 @@ export type TemplateName =
   | "business.stablecoin_free_announcement"
   | "business.app_store_announcement"
   | "business.account_maintenance_fee"
-  | "admin.incident_alert";
+  | "admin.incident_alert"
+  | "partner.access_invite";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -150,6 +152,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.app_store_announcement": businessAppStoreAnnouncement,
   "business.account_maintenance_fee": businessAccountMaintenanceFee,
   "admin.incident_alert":                adminIncidentAlert,
+  "partner.access_invite":               partnerAccessInvite,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {

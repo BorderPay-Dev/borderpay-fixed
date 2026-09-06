@@ -64,6 +64,9 @@ interface SendEmailBody {
   template:         TemplateName;
   to:               string;
   props?:           Record<string, unknown>;
+  // Values needed to render the message but unsafe to persist in email_log
+  // (for example one-time Auth action links).
+  sensitive_props?: Record<string, unknown>;
   user_id?:         string;
   tenant_id?:       string;
   idempotency_key?: string;
@@ -192,7 +195,10 @@ Deno.serve(async (req: Request) => {
   // ── Render the template ────────────────────────────────────────────────
   let rendered;
   try {
-    rendered = renderTemplate(body.template, body.props ?? {});
+    rendered = renderTemplate(body.template, {
+      ...(body.props ?? {}),
+      ...(body.sensitive_props ?? {}),
+    });
     if (whiteLabel) rendered = applyWhiteLabelEmail(rendered, whiteLabel);
   } catch (e) {
     return json({ success: false, error: `Render failed: ${(e as Error).message}` }, 400);
@@ -204,7 +210,11 @@ Deno.serve(async (req: Request) => {
     p_recipient: body.to,
     p_template:  body.template,
     p_subject:   rendered.subject,
-    p_payload:   { props: body.props ?? {}, ...(whiteLabel ? { tenant_id: whiteLabel.tenantId, white_label: true } : {}) },
+    p_payload:   {
+      props: body.props ?? {},
+      ...(body.sensitive_props ? { sensitive_props_redacted: true } : {}),
+      ...(whiteLabel ? { tenant_id: whiteLabel.tenantId, white_label: true } : {}),
+    },
     p_idem_key:  body.idempotency_key ?? null,
   });
   if (logErr) {

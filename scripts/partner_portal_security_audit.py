@@ -4,15 +4,22 @@ root = Path(__file__).resolve().parents[1]
 onboarding = (root / "supabase/functions/partner-onboarding/index.ts").read_text()
 admin = (root / "supabase/functions/partner-application-admin/index.ts").read_text()
 migration = (root / "supabase/migrations/20260904213000_partner_portal_private_access.sql").read_text()
+public_request_security = (root / "supabase/functions/_shared/public-request-security.ts").read_text()
 
 public_invite = onboarding.split('if (action === "request_invite")', 1)[1].split("const token =", 1)[0]
 checks = {
     "public requests never create Auth users": "inviteUserByEmail" not in public_invite,
     "public requests are queued pending": 'status: "pending"' in public_invite,
     "public intake is IP rate limited": 'eq("requester_ip_hash", ipHash)' in public_invite,
-    "public intake trusts gateway IP before forwarded input": public_invite.find('req.headers.get("cf-connecting-ip")') < public_invite.find('req.headers.get("x-forwarded-for")'),
+    "public intake trusts gateway IP before forwarded input": (
+        "extractPublicClientIp(req)" in public_invite
+        and public_request_security.find('req.headers.get("cf-connecting-ip")')
+        < public_request_security.find('req.headers.get("x-forwarded-for")')
+    ),
     "membership requires an invited email": all(token in onboarding for token in ('.eq("email", email)', '.eq("status", "invited")', '"Partner access has not been approved."')),
-    "only admin worker sends Auth invites": "inviteUserByEmail" in admin and "Admin access required" in admin,
+    "only admin worker creates Auth invite links": 'type: "invite"' in admin and "Admin access required" in admin,
+    "partner invites use logged transactional email": 'template: "partner.access_invite"' in admin and 'sensitive_props: { invite_url:' in admin,
+    "existing Auth identities are supported": 'type: "magiclink"' in admin and "isExistingUserError" in admin,
     "invite redirect uses production portal": "https://portal.borderpayafrica.com/auth/callback?setup=password" in admin,
     "operational tables are tenant scoped": onboarding.count('.eq("tenant_id", tenantId)') >= 8,
     "partner keys do not reference customer profiles": "created_by: null" in onboarding,
