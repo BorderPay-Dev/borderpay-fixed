@@ -43,8 +43,14 @@ const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
 const RAIL_BY_CCY: Record<string, string> = { USD: "ach_push", EUR: "sepa", GBP: "faster_payments" };
 const DEFAULT_ZERO_FEE_EMAILS = new Set(["adhiamboadhiambo22@gmail.com"]);
 const BLOCKED_ACCOUNT_STATUSES = new Set(["frozen", "paused", "suspended", "offboarded", "deactivated", "closed"]);
-const INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT = "2.5";
-const BUSINESS_VA_DEVELOPER_FEE_PERCENT = "2";
+// Direct BorderPay VA pricing is currency-based, never account-type based.
+// Keep this beside the provider call so stale database/operator settings cannot
+// silently alter the fee sent to Bridge for a newly-created VA.
+const DIRECT_VA_DEVELOPER_FEE_PERCENT: Record<"USD" | "EUR" | "GBP", string> = {
+  USD: "3",
+  EUR: "2.98",
+  GBP: "2.98",
+};
 
 function isBlockedAccountStatus(value: unknown): boolean {
   return BLOCKED_ACCOUNT_STATUSES.has(String(value || "").trim().toLowerCase());
@@ -685,9 +691,7 @@ Deno.serve(async (req) => {
       userId: user.id,
       bridgeCustomerId: profile.bridge_customer_id,
     });
-    developerFeePercent = String(profile.account_type || "").trim().toLowerCase() === "business"
-      ? BUSINESS_VA_DEVELOPER_FEE_PERCENT
-      : INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT;
+    developerFeePercent = DIRECT_VA_DEVELOPER_FEE_PERCENT[currency as "USD" | "EUR" | "GBP"];
     idempotencyKey = await deterministicIdempotencyKey({
       customerId: profile.bridge_customer_id,
       currency: currency as VaCurrency,
