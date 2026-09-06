@@ -28,8 +28,7 @@ import { assertBridgeIngressDecision, evaluateBridgeIngressEvent } from "../_sha
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const PUBLIC_KEY_PEM        = Deno.env.get("BRIDGE_WEBHOOK_PUBLIC_KEY") ?? "";
-const BREVO_API_KEY         = Deno.env.get("BREVO_API_KEY") ?? "";
-const INCIDENT_ALERT_FROM   = Deno.env.get("INCIDENT_ALERT_FROM") ?? "BorderPay Ops <ops@mail.borderpayafrica.com>";
+const SEND_EMAIL_TOKEN      = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "";
 const INCIDENT_ALERT_RECIPIENTS = (Deno.env.get("INCIDENT_ALERT_RECIPIENTS") ?? "")
   .split(",")
   .map((v) => v.trim())
@@ -53,42 +52,35 @@ function webhookLog(stage: string, detail: Record<string, unknown> = {}) {
   }));
 }
 
-function parseFrom(raw: string): { name: string; email: string } {
-  const m = raw.match(/^\s*([^<]+)\s*<([^>]+)>\s*$/);
-  if (m) return { name: m[1].trim(), email: m[2].trim().toLowerCase() };
-  const email = raw.trim().toLowerCase();
-  return { name: "BorderPay Ops", email };
-}
-
 async function sendContractRejectAlert(input: {
   eventId: string;
   eventType: string;
   reasonCode: string;
 }): Promise<void> {
-  if (!BREVO_API_KEY || INCIDENT_ALERT_RECIPIENTS.length === 0) return;
-  const payload = {
-    sender: parseFrom(INCIDENT_ALERT_FROM),
-    to: INCIDENT_ALERT_RECIPIENTS.map((email) => ({ email })),
-    subject: `[P1] Bridge webhook contract reject: ${input.reasonCode}`,
-    textContent: [
-      "BorderPay webhook ingress rejected a Bridge event due to payload contract failure.",
-      `event_id: ${input.eventId}`,
-      `event_type: ${input.eventType}`,
-      `reason_code: ${input.reasonCode}`,
-      `timestamp: ${new Date().toISOString()}`,
-    ].join("\n"),
-  };
-  try {
-    await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": BREVO_API_KEY,
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    // Never block webhook processing on alerting transport.
+  if (!SEND_EMAIL_TOKEN || INCIDENT_ALERT_RECIPIENTS.length === 0) return;
+  for (const email of INCIDENT_ALERT_RECIPIENTS) {
+    try {
+      await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SEND_EMAIL_TOKEN}` },
+        body: JSON.stringify({
+          template: "admin.incident_alert",
+          to: email,
+          idempotency_key: `bridge-contract-reject:${input.eventId}:${input.reasonCode}:${email}`,
+          props: {
+            severity: "P1",
+            service: "bridge-webhook",
+            title: "Bridge webhook contract reject",
+            code: input.reasonCode,
+            provider_request_id: input.eventId,
+            message: `Rejected Bridge event type: ${input.eventType}`,
+            occurred_at: new Date().toISOString(),
+          },
+        }),
+      });
+    } catch {
+      // Never block webhook processing on alerting transport.
+    }
   }
 }
 
@@ -133,13 +125,14 @@ function parseSigHeader(h: string): { ts: number; tsRaw: string; sig: Uint8Array
 }
 
 let cachedKey: CryptoKey | null = null;
+const asArrayBuffer = (bytes: Uint8Array): ArrayBuffer => Uint8Array.from(bytes).buffer as ArrayBuffer;
 async function loadPublicKey(): Promise<CryptoKey | null> {
   if (cachedKey) return cachedKey;
   if (!PUBLIC_KEY_PEM) return null;
   try {
     const der = pemToDer(PUBLIC_KEY_PEM);
     cachedKey = await crypto.subtle.importKey(
-      "spki", der,
+      "spki", asArrayBuffer(der),
       { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
       false, ["verify"],
     );
@@ -157,7 +150,7 @@ async function verifySignature(rawBody: string, tsRaw: string, sig: Uint8Array):
   // never match. tsRaw is the verbatim header timestamp.
   const signedPayload = new TextEncoder().encode(`${tsRaw}.${rawBody}`);
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", signedPayload));
-  try { return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, digest); }
+  try { return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, asArrayBuffer(sig), asArrayBuffer(digest)); }
   catch (_) { return false; }
 }
 
