@@ -4,12 +4,11 @@ Signup country eligibility audit (PR C).
 
 Two-layer assertions:
 
-  Structural (S1-S5)  — the SIGNUP code path goes through
-                        getSignupEligibleCountries() and that helper
-                        is wired to the shared Bridge policy. Without
-                        these the semantic checks below could pass
-                        on a codebase that no longer enforces the
-                        filter at runtime.
+  Structural (S1-S6)  — the SIGNUP code path consumes Bridge's live country
+                        response through getSignupCountriesFromBridge(), while
+                        the static fallback remains wired to the shared Bridge
+                        policy. Without these the semantic checks below could
+                        pass on code that no longer filters the runtime list.
 
   Semantic (E1-E5)    — the resulting set excludes Bridge-blocked
                         codes and retains controlled-tier codes.
@@ -27,12 +26,14 @@ Invariants:
        inline blocklist.
 
   (S4) components/auth/SignUpFlow.tsx imports and calls
-       `getSignupEligibleCountries`.
+       `getSignupCountriesFromBridge`.
 
   (S5) components/auth/SignUpFlow.tsx no longer calls
        `getActiveCountries()` (the signup picker code path must use
-       the eligibility-filtered helper). `getPopularCountries()` is
-       still allowed; it is filtered locally.
+       a Bridge-filtered helper).
+
+  (S6) getSignupCountriesFromBridge rejects Bridge-blocked countries and
+       Ukraine, whose prohibited regions cannot be screened country-only.
 
   (E1) Every code in BRIDGE_PROHIBITED_COUNTRIES that is `status:
        'active'` in COUNTRY_CONFIG is excluded from signup-eligible.
@@ -169,14 +170,15 @@ def main() -> int:
         fail("S3: getSignupEligibleCountries body must reference isBridgeBlocked "
              "(don't introduce an inline blocklist)")
 
-    # (S4) SignUpFlow.tsx imports + calls getSignupEligibleCountries.
+    # (S4) The live signup picker consumes Bridge's country response through
+    #      the shared normalizer/filter rather than a static local list.
     if not re.search(
-        r"import\s*\{[^}]*\bgetSignupEligibleCountries\b[^}]*\}\s*from\s*['\"].*?countries['\"]",
+        r"import\s*\{[^}]*\bgetSignupCountriesFromBridge\b[^}]*\}\s*from\s*['\"].*?countries['\"]",
         signup_src,
     ):
-        fail("S4: SignUpFlow.tsx must import getSignupEligibleCountries from countries")
-    if not re.search(r"\bgetSignupEligibleCountries\s*\(\s*\)", signup_src):
-        fail("S4: SignUpFlow.tsx must call getSignupEligibleCountries() at least once")
+        fail("S4: SignUpFlow.tsx must import getSignupCountriesFromBridge from countries")
+    if not re.search(r"\bgetSignupCountriesFromBridge\s*\(", signup_src):
+        fail("S4: SignUpFlow.tsx must call getSignupCountriesFromBridge()")
 
     # (S5) SignUpFlow.tsx must NOT call getActiveCountries() — the signup picker
     #      code path must use the eligibility-filtered helper. (Importing or
@@ -185,7 +187,13 @@ def main() -> int:
     #      allowed; we filter that locally in the component.
     if re.search(r"\bgetActiveCountries\s*\(\s*\)", signup_src):
         fail("S5: SignUpFlow.tsx must not invoke getActiveCountries() — the "
-             "signup picker must source from getSignupEligibleCountries()")
+             "signup picker must source from Bridge's filtered response")
+
+    bridge_body = extract_function_body(countries_src, "getSignupCountriesFromBridge")
+    if bridge_body is None:
+        fail("S6: could not locate body of getSignupCountriesFromBridge")
+    if "isBridgeBlocked" not in bridge_body or "code === 'UA'" not in bridge_body:
+        fail("S6: Bridge country normalization must reject blocked countries and UA")
 
     # ── Semantic invariants (the resulting set behaves as expected) ──
 

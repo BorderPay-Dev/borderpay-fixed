@@ -9,7 +9,11 @@ checks = {
     "trusted gateway IP": "extractPublicClientIp(req)" in source,
     "warm-isolate rate limit": "allowInviteAttempt" in source,
     "Enterprise assessment": "recaptchaenterprise.googleapis.com" in source,
-    "API key stays in header": '"X-Goog-Api-Key": apiKey' in source and "?key=" not in source,
+    "Google credential stays in header": (
+        'authHeaders["X-Goog-Api-Key"] = apiKey' in source
+        and 'authHeaders.Authorization = `Bearer ${await googleAccessToken(serviceAccount)}`' in source
+        and "?key=" not in source
+    ),
     "token is action-bound": 'expectedAction: "PARTNER_INVITE"' in source and 'action === "PARTNER_INVITE"' in source,
     "token is hostname-bound": '=== "portal.borderpayafrica.com"' in source,
     "risk score is enforced": "score >= 0.7" in source,

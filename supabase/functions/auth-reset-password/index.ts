@@ -23,6 +23,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { readBoundedJson } from "../_shared/public-request-security.ts";
 
 const SUPABASE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
 // Service-role: used ONLY for the admin client (generateLink).
@@ -54,13 +55,11 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")   return json({ success: false, error: "POST only" }, 405);
 
-  let email = "";
-  try {
-    const body = await req.json();
-    email = String(body?.email || "").trim().toLowerCase();
-  } catch {
-    return json({ success: false, error: "Invalid JSON" }, 400);
+  const envelope = await readBoundedJson<{ email?: string }>(req, 4096);
+  if (!envelope.ok) {
+    return json({ success: false, code: envelope.code, error: envelope.error }, envelope.status);
   }
+  const email = String(envelope.value.email || "").trim().toLowerCase();
   if (!email) return json({ success: false, error: "Email is required" }, 400);
 
   try {

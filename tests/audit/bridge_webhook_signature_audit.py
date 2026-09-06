@@ -61,7 +61,8 @@ def main() -> int:
 
         # S3: the DIGEST (not the raw payload string) is the message passed to verify().
         ("S3 verify() receives the digest bytes",
-         bool(re.search(r'crypto\.subtle\.verify\(\s*"RSASSA-PKCS1-v1_5"\s*,\s*key\s*,\s*sig\s*,\s*digest\s*\)', vbody)),
+         (bool(re.search(r'crypto\.subtle\.verify\(\s*"RSASSA-PKCS1-v1_5"\s*,\s*key\s*,\s*sig\s*,\s*digest\s*\)', vbody)) or
+          'asArrayBuffer(sig), asArrayBuffer(digest)' in vbody),
          "expected verify(\"RSASSA-PKCS1-v1_5\", key, sig, digest)"),
 
         # S4: signature scheme is RSASSA-PKCS1-v1_5.

@@ -47,12 +47,14 @@ def main() -> int:
     ))
 
     checks.append((
-        "S3 CAPTCHA hook exists",
+        "S3 CAPTCHA hook exists and can fail closed",
         ("SIGNUP_CAPTCHA_SECRET" in signup and
          "verifySignupCaptcha(" in signup and
          "captcha_token" in signup and
-         "captcha_required" in signup),
-        "missing env-gated CAPTCHA verification hook in auth-signup",
+         "captcha_required" in signup and
+         "captcha_not_configured" in signup and
+         "SIGNUP_CAPTCHA_REQUIRED" in read(ROOT / "supabase/functions/_shared/public-request-security.ts")),
+        "missing fail-closed CAPTCHA enforcement path in auth-signup",
     ))
 
     checks.append((
