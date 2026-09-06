@@ -24,6 +24,8 @@ require(".github/workflows/ios-testflight.yml", "Verify Firebase configuration i
 require(".github/workflows/ios-testflight.yml", "Products/Applications/App.app/GoogleService-Info.plist")
 require(".github/workflows/android-play.yml", "ANDROID_GOOGLE_SERVICES_JSON_BASE64")
 require(".github/workflows/android-play.yml", "firebase-appcheck-playintegrity")
+require("android/app/src/main/java/com/borderpayafrica/app/MainActivity.java", "FirebaseApp.initializeApp(this)")
+require("android/app/src/main/java/com/borderpayafrica/app/MainActivity.java", "super.onCreate(savedInstanceState)")
 
 for path in ("utils/security/firebaseAppCheck.ts", ".github/workflows/ios-testflight.yml", ".github/workflows/android-play.yml"):
     text = Path(path).read_text()

@@ -144,14 +144,24 @@ jobs:
           keyPassword=${ANDROID_UPLOAD_KEY_PASSWORD}
           EOF
 
-      - name: Build signed Android App Bundle
+      - name: Build signed Android release APK and App Bundle
         if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
         run: |
           set -euo pipefail
           cd android
-          ./gradlew bundleRelease \
+          ./gradlew assembleRelease bundleRelease \
             -PVERSION_NAME="$APP_VERSION" \
             -PVERSION_CODE="$BUILD_NUMBER"
+
+      - name: Cold-launch signed release on Android emulator
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel
+          disable-animations: true
+          script: bash scripts/ci/android-release-launch-smoke.sh
 
       - name: Upload AAB artifact
         if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
