@@ -1325,16 +1325,38 @@ function receivedAmountBreakdown(payload: any, currency: string): {
   exchangeFeeMinor: bigint;
   netMinor: bigint;
 } | null {
-  const grossMinor = toMinorUnits(payload?.amount, currency);
+  const receipt = objectValue(payload?.receipt) ?? {};
+  // A converted VA settlement uses top-level `amount` for the destination
+  // asset.  It is not the amount the payer sent in the VA's fiat currency.
+  // Bridge's receipt/source amount is authoritative for the incoming amount;
+  // only fall back to the top-level amount for the earlier fiat credit event.
+  const grossMinor =
+    toMinorUnits(receipt.initial_amount, currency) ??
+    toMinorUnits(receipt.source_amount, currency) ??
+    toMinorUnits(receipt.incoming_amount, currency) ??
+    toMinorUnits(payload?.initial_amount, currency) ??
+    toMinorUnits(payload?.source_amount, currency) ??
+    toMinorUnits(payload?.incoming_amount, currency) ??
+    toMinorUnits(payload?.amount, currency);
   if (grossMinor === null) return null;
 
-  const developerFeeMinor = firstMinorUnitAmount(payload, currency, [
+  const developerFeeMinor = firstMinorUnitAmount(receipt, currency, [
+    "developer_fee_amount",
+    "developerFeeAmount",
+    "developer_fee",
+    "developerFee",
+  ]) || firstMinorUnitAmount(payload, currency, [
     "developer_fee_amount",
     "developerFeeAmount",
     "developer_fee",
     "developerFee",
   ]);
-  const exchangeFeeMinor = firstMinorUnitAmount(payload, currency, [
+  const exchangeFeeMinor = firstMinorUnitAmount(receipt, currency, [
+    "exchange_fee_amount",
+    "exchangeFeeAmount",
+    "exchange_fee",
+    "exchangeFee",
+  ]) || firstMinorUnitAmount(payload, currency, [
     "exchange_fee_amount",
     "exchangeFeeAmount",
     "exchange_fee",
@@ -1353,6 +1375,7 @@ function receivedAmountBreakdown(payload: any, currency: string): {
 function bridgeVaReceiptDetails(params: {
   payload: any;
   sourceCurrency: string;
+  eventCurrency?: string;
   vaId: unknown;
   accountDetails: Record<string, unknown>;
   breakdown: ReturnType<typeof receivedAmountBreakdown>;
@@ -1371,6 +1394,7 @@ function bridgeVaReceiptDetails(params: {
     objectValue(objectValue(p.account_details)?.source_deposit_instructions) ??
     {};
   const sourceCurrency = params.sourceCurrency.toUpperCase();
+  const eventCurrency = normalizeCurrencyCode(params.eventCurrency);
   const destinationCurrency = firstNonEmptyText(
     receipt.destination_currency,
     receipt.outgoing_currency,
@@ -1378,6 +1402,7 @@ function bridgeVaReceiptDetails(params: {
     p.to_currency,
     destination.currency,
     destination.asset,
+    eventCurrency && eventCurrency !== sourceCurrency ? eventCurrency : null,
   )?.toUpperCase() ?? null;
   const destinationAmount = firstFiniteNumber(
     receipt.destination_amount,
@@ -1388,6 +1413,7 @@ function bridgeVaReceiptDetails(params: {
     p.final_destination_amount,
     p.net_destination_amount,
     destination.amount,
+    destinationCurrency && destinationCurrency !== sourceCurrency ? p.amount : null,
   );
   const destinationAddress = firstNonEmptyText(
     receipt.destination_address,
@@ -1892,6 +1918,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     const statusReceipt = bridgeVaReceiptDetails({
       payload: d,
       sourceCurrency: currency,
+      eventCurrency,
       vaId,
       accountDetails,
       breakdown: statusBreakdown,
@@ -2050,6 +2077,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
     const statusReceipt = bridgeVaReceiptDetails({
       payload: d,
       sourceCurrency: currency,
+      eventCurrency,
       vaId,
       accountDetails,
       breakdown: statusBreakdown,
@@ -2165,6 +2193,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   const approvedReceipt = bridgeVaReceiptDetails({
     payload: d,
     sourceCurrency: currency,
+    eventCurrency,
     vaId,
     accountDetails,
     breakdown: approvedBreakdown,
