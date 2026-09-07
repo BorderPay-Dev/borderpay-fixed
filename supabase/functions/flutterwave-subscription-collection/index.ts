@@ -262,14 +262,22 @@ async function handleWebhook(req: Request) {
   const verification = await flutterwave(`/transactions/${encodeURIComponent(transactionId)}/verify`, { method: "GET" });
   const verified = verification?.data ?? {};
   if (clean(verified.status).toLowerCase() !== "successful" || clean(verified.tx_ref) !== txRef) {
+    const referenceMatches = clean(verified.tx_ref) === txRef;
     console.warn("flutterwave_webhook_rejected", {
       reason: "provider_transaction_not_successful",
       signature_version: signatureVersion,
       transaction_id: transactionId,
       verified_status: clean(verified.status).toLowerCase() || "missing",
-      reference_matches: clean(verified.tx_ref) === txRef,
+      reference_matches: referenceMatches,
     });
-    return json({ success: false, error: "provider_transaction_not_successful" }, 409);
+    // A validly signed notification for a failed/non-terminal transaction is
+    // not a delivery failure. Acknowledge it so Flutterwave does not retry it
+    // indefinitely, but never complete the invoice.
+    return json({
+      success: true,
+      processed: false,
+      reason: referenceMatches ? "provider_transaction_not_successful" : "provider_reference_mismatch",
+    });
   }
   const eventId = clean(event?.id ?? event?.event_id) || `flutterwave:${transactionId}:charge.completed`;
   const { data, error } = await db.rpc("complete_external_subscription_invoice", {

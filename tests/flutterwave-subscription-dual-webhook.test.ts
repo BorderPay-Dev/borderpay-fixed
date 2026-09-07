@@ -20,6 +20,11 @@ Deno.test("maintenance webhook supports v3 and v4 signatures without changing th
   assert(source.includes("v4_signature_length"), "diagnostics may log signature length but not the secret value");
   assert(!source.includes("v4_signature: v4Signature"), "diagnostics must never log the signature value");
   assert(source.includes("reference_matches:"), "provider verification mismatch must be diagnosable without logging references");
+  assert(source.includes("processed: false"), "valid failed-payment callbacks must be acknowledged without completing invoices");
+  assert(
+    source.includes('reason: referenceMatches ? "provider_transaction_not_successful" : "provider_reference_mismatch"'),
+    "failed status and reference mismatch must remain explicit",
+  );
   assert(source.includes('reason: "missing_recognized_signature_header"'), "unrecognized webhook headers must be diagnosable");
   assert(source.includes("relevant_header_names"), "only relevant header names may be logged");
   assert(
