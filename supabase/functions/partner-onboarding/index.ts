@@ -97,28 +97,15 @@ function completeness(app: any, people: any[], documents: any[], organization: a
     missing.push("All UBOs owning 20% or more, or no-UBO declaration");
   }
   const docTypes = new Set(documents.map((doc) => doc.document_type));
-  const commonDocuments = [
-    ["aml_policy", "AML/CFT policy"],
-    ["sanctions_policy", "Sanctions policy"],
-    ["privacy_policy", "Privacy policy"],
-    ["security_policy", "Information-security policy"],
-    ["incident_response_policy", "Incident-response policy"],
-    ["bank_statement", "Business bank statement"],
-  ];
   const manualIdentityDocuments = [
     ["certificate_of_incorporation", "Certificate of incorporation"],
     ["articles_of_association", "Articles of association"],
-    ["tax_registration", "Tax registration / EIN confirmation"],
-    ["company_bylaws", "Company bylaws / constitution"],
     ["register_of_directors", "Register of directors"],
     ["register_of_shareholders", "Register of shareholders"],
     ["ownership_chart", "Ownership structure chart"],
     ["proof_of_registered_address", "Proof of registered address"],
     ["director_identity", "Director identity document"],
-    ["financial_statement", "Latest financial statement"],
-    ["source_of_funds", "Source-of-funds evidence"],
   ];
-  for (const [type, label] of commonDocuments) if (!docTypes.has(type)) missing.push(label);
   if (organization?.kyb_source !== "bridge_verified") {
     for (const [type, label] of manualIdentityDocuments) if (!docTypes.has(type)) missing.push(label);
     if (people.some((person) => person.person_type === "ubo")) {
@@ -126,8 +113,6 @@ function completeness(app: any, people: any[], documents: any[], organization: a
       if (!docTypes.has("ubo_address")) missing.push("UBO proof of address");
     }
   }
-  if (compliance.regulated === true && !docTypes.has("operating_licence")) missing.push("Operating licence");
-  if (compliance.nda_available === true && !docTypes.has("nda")) missing.push("NDA");
   return missing;
 }
 
