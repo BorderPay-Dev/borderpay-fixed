@@ -20,6 +20,8 @@ Deno.test("maintenance webhook supports v3 and v4 signatures without changing th
   assert(source.includes("v4_signature_length"), "diagnostics may log signature length but not the secret value");
   assert(!source.includes("v4_signature: v4Signature"), "diagnostics must never log the signature value");
   assert(source.includes("reference_matches:"), "provider verification mismatch must be diagnosable without logging references");
+  assert(source.includes('reason: "missing_recognized_signature_header"'), "unrecognized webhook headers must be diagnosable");
+  assert(source.includes("relevant_header_names"), "only relevant header names may be logged");
   assert(
     config.includes("[functions.flutterwave-subscription-collection]\nverify_jwt = false"),
     "the signed provider webhook must remain reachable without a Supabase JWT",

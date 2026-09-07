@@ -301,6 +301,13 @@ Deno.serve(async (req) => {
     const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
     const { data: configuredWorkerToken } = await db.rpc("app_config_get", { p_key: "worker_auth_token" });
     if (!(equal(token, WORKER_TOKEN) || equal(token, SERVICE_ROLE) || equal(token, clean(configuredWorkerToken)))) {
+      const relevantHeaderNames = Array.from(req.headers.keys())
+        .filter((name) => /flutter|signature|verif|webhook/i.test(name));
+      console.warn("flutterwave_webhook_rejected", {
+        reason: "missing_recognized_signature_header",
+        relevant_header_names: relevantHeaderNames,
+        has_authorization_header: Boolean(req.headers.get("Authorization")),
+      });
       return json({ success: false, error: "Unauthorized" }, 401);
     }
     const body = await req.json().catch(() => ({}));
