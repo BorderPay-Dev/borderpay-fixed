@@ -238,18 +238,6 @@ Deno.serve(async (req) => {
       const metadata = existingTenant?.metadata && typeof existingTenant.metadata === "object"
         ? existingTenant.metadata
         : {};
-      const { data: tenant, error: tenantError } = await db.from("api_tenants")
-        .update({
-          default_mode: "sandbox",
-          is_active: true,
-          beta_access_enabled: true,
-          metadata: { ...metadata, provisioning_status: "sandbox_active", production_access: false },
-          updated_at: now,
-        })
-        .eq("id", tenantId)
-        .select("id,tenant_name,default_mode,is_active,beta_access_enabled,rate_limit_per_minute,max_single_transfer_usd")
-        .single();
-      if (tenantError) throw tenantError;
       const { data: existingProject, error: projectReadError } = await db.from("partner_projects")
         .select("id").eq("organization_id", application.organization_id).eq("slug", "primary").maybeSingle();
       if (projectReadError) throw projectReadError;
@@ -270,6 +258,20 @@ Deno.serve(async (req) => {
         });
         if (projectInsertError) throw projectInsertError;
       }
+      // Activation is deliberately last. A failed approval or project write
+      // must leave the API tenant disabled rather than partially operational.
+      const { data: tenant, error: tenantError } = await db.from("api_tenants")
+        .update({
+          default_mode: "sandbox",
+          is_active: true,
+          beta_access_enabled: true,
+          metadata: { ...metadata, provisioning_status: "sandbox_active", production_access: false },
+          updated_at: now,
+        })
+        .eq("id", tenantId)
+        .select("id,tenant_name,default_mode,is_active,beta_access_enabled,rate_limit_per_minute,max_single_transfer_usd")
+        .single();
+      if (tenantError) throw tenantError;
       await db.from("partner_portal_audit_log").insert({
         organization_id: application.organization_id,
         application_id: applicationId,
