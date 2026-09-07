@@ -167,6 +167,11 @@ verify_jwt = true
 [functions.maintenance-collect]
 verify_jwt = false
 
+# Flutterwave maintenance collector — public provider webhook with v3/v4
+# signature verification; scheduled invoice work is separately bearer-gated.
+[functions.flutterwave-subscription-collection]
+verify_jwt = false
+
 # Public API gateway — external clients authenticate in-code with BorderPay API
 # keys, signatures, tenant status, and allowlists. Supabase platform JWT must
 # stay disabled or non-Supabase API clients are rejected before gateway auth runs.

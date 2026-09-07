@@ -6,6 +6,9 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const WORKER_TOKEN = Deno.env.get("WORKER_AUTH_TOKEN") ?? "";
 const FLW_SECRET_KEY = Deno.env.get("FLUTTERWAVE_SECRET_KEY") ?? "";
 const FLW_WEBHOOK_HASH = Deno.env.get("FLUTTERWAVE_WEBHOOK_HASH") ?? "";
+const FLW_V4_WEBHOOK_SECRET = Deno.env.get("FLUTTERWAVE_V4_WEBHOOK_SECRET_HASH")
+  ?? Deno.env.get("FLUTTERWAVE_V4_WEBHOOK_SECRET")
+  ?? "";
 const APP_URL = (Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com").replace(/\/+$/, "");
 const FLW_API = "https://api.flutterwave.com/v3";
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, {
@@ -28,6 +31,49 @@ function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function webhookSignatureHeader(req: Request): string {
+  return clean(
+    req.headers.get("flutterwave-signature")
+      ?? req.headers.get("x-flutterwave-signature")
+      ?? req.headers.get("X-Flutterwave-Signature"),
+  );
+}
+
+function isWebhookRequest(req: Request): boolean {
+  return req.headers.has("verif-hash")
+    || req.headers.has("Verif-Hash")
+    || req.headers.has("flutterwave-signature")
+    || req.headers.has("x-flutterwave-signature")
+    || req.headers.has("X-Flutterwave-Signature");
+}
+
+async function hmacSha256(secret: string, rawBody: string): Promise<{ base64: string; hex: string }> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)));
+  const binary = Array.from(signature, (byte) => String.fromCharCode(byte)).join("");
+  return {
+    base64: btoa(binary),
+    hex: Array.from(signature, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+  };
+}
+
+async function verifyWebhook(req: Request, rawBody: string): Promise<"v3" | "v4" | null> {
+  const v3Signature = clean(req.headers.get("verif-hash") ?? req.headers.get("Verif-Hash"));
+  if (FLW_WEBHOOK_HASH && equal(v3Signature, FLW_WEBHOOK_HASH)) return "v3";
+
+  const v4Signature = webhookSignatureHeader(req);
+  if (!FLW_V4_WEBHOOK_SECRET || !v4Signature) return null;
+  const expected = await hmacSha256(FLW_V4_WEBHOOK_SECRET, rawBody);
+  if (equal(v4Signature, expected.base64) || equal(v4Signature.toLowerCase(), expected.hex)) return "v4";
+  return null;
+}
+
 async function flutterwave(path: string, init: RequestInit): Promise<Record<string, any>> {
   if (!FLW_SECRET_KEY) throw new Error("flutterwave_not_configured");
   const response = await fetch(`${FLW_API}${path}`, {
@@ -46,7 +92,7 @@ async function flutterwave(path: string, init: RequestInit): Promise<Record<stri
 }
 
 async function drainInvoices() {
-  if (!FLW_SECRET_KEY || !FLW_WEBHOOK_HASH) {
+  if (!FLW_SECRET_KEY || (!FLW_WEBHOOK_HASH && !FLW_V4_WEBHOOK_SECRET)) {
     return { configured: false, selected: 0, created: 0, failed: 0 };
   }
 
@@ -179,17 +225,23 @@ async function reconcileInvoices(providerReference?: string) {
 }
 
 async function handleWebhook(req: Request) {
-  if (!FLW_WEBHOOK_HASH || !equal(req.headers.get("verif-hash") ?? "", FLW_WEBHOOK_HASH)) {
+  const rawBody = await req.text();
+  const signatureVersion = await verifyWebhook(req, rawBody);
+  if (!signatureVersion) {
     return json({ success: false, error: "invalid_signature" }, 401);
   }
   if (!FLW_SECRET_KEY) return json({ success: false, error: "flutterwave_not_configured" }, 503);
 
-  const event = await req.json().catch(() => null) as Record<string, any> | null;
-  if (!event || clean(event.event).toLowerCase() !== "charge.completed") {
+  let event: Record<string, any> | null = null;
+  try { event = JSON.parse(rawBody) as Record<string, any>; } catch { /* handled below */ }
+  const eventType = clean(event?.event ?? event?.type ?? event?.event_type).toLowerCase();
+  if (!event || eventType !== "charge.completed") {
     return json({ success: true, ignored: true });
   }
-  const transactionId = clean(event?.data?.id);
-  const txRef = clean(event?.data?.tx_ref);
+  const eventData = event?.data && typeof event.data === "object" ? event.data : {};
+  const payment = eventData?.transaction && typeof eventData.transaction === "object" ? eventData.transaction : eventData;
+  const transactionId = clean(payment?.id ?? payment?.transaction_id ?? payment?.transactionId);
+  const txRef = clean(payment?.tx_ref ?? payment?.reference ?? payment?.txRef);
   if (!transactionId || !txRef.startsWith("bp-maintenance-")) {
     return json({ success: true, ignored: true });
   }
@@ -201,7 +253,7 @@ async function handleWebhook(req: Request) {
   if (clean(verified.status).toLowerCase() !== "successful" || clean(verified.tx_ref) !== txRef) {
     return json({ success: false, error: "provider_transaction_not_successful" }, 409);
   }
-  const eventId = clean(event?.id) || `flutterwave:${transactionId}:charge.completed`;
+  const eventId = clean(event?.id ?? event?.event_id) || `flutterwave:${transactionId}:charge.completed`;
   const { data, error } = await db.rpc("complete_external_subscription_invoice", {
     p_provider_reference: txRef,
     p_provider_transaction_id: transactionId,
@@ -210,7 +262,7 @@ async function handleWebhook(req: Request) {
     p_event_id: eventId,
   });
   if (error) throw error;
-  return json({ success: true, data });
+  return json({ success: true, signature_version: signatureVersion, data });
 }
 
 Deno.serve(async (req) => {
@@ -227,7 +279,7 @@ Deno.serve(async (req) => {
   }
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
   try {
-    if (req.headers.has("verif-hash")) return await handleWebhook(req);
+    if (isWebhookRequest(req)) return await handleWebhook(req);
     const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
     const { data: configuredWorkerToken } = await db.rpc("app_config_get", { p_key: "worker_auth_token" });
     if (!(equal(token, WORKER_TOKEN) || equal(token, SERVICE_ROLE) || equal(token, clean(configuredWorkerToken)))) {
@@ -248,4 +300,3 @@ Deno.serve(async (req) => {
     return json({ success: false, error: message.slice(0, 500) }, 500);
   }
 });
-
