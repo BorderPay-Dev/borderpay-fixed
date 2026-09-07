@@ -14,6 +14,18 @@ checks = {
     "resource table blocks direct authenticated access": "revoke all on table public.api_tenant_resources from anon, authenticated" in migration,
     "projects are organization owned": "organization_id uuid not null references public.partner_organizations" in migration,
     "new projects are sandbox only": 'default_mode: "sandbox", is_active: true' in portal and "production_access: false" in portal,
+    "sandbox activation creates the product approval gate": all(token in admin for token in [
+        '.from("api_partner_approvals").upsert(',
+        'approved_products: requestedProducts',
+        'engineering_approval_reference: `sandbox-activation:${applicationId}`',
+    ]),
+    "sandbox activation creates or repairs the primary project": all(token in admin for token in [
+        '.from("partner_projects")',
+        '.eq("slug", "primary")',
+        'status: "active"',
+    ]),
+    "sandbox activation cannot revive suspended approval": 'currentApproval.status !== "approved"' in admin,
+    "operator detail returns tenant and approval state": "pricing: pricing || [], tenant, approval" in admin,
     "project selection is ownership bounded": 'project.id === requestedProjectId' in portal,
     "workspace resource read is tenant bounded": '.eq("tenant_id", tenantId)' in portal,
     "gateway records customers": 'resource_type: "customer"' in gateway,

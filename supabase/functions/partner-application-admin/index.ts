@@ -90,13 +90,20 @@ Deno.serve(async (req) => {
     if (appError || !application) return json(req, { success: false, error: "Application not found" }, 404);
 
     if (action === "get") {
-      const [{ data: people }, { data: documents }, { data: reviews }, { data: pricing }] = await Promise.all([
+      const tenantId = clean(application.partner_organizations?.approved_tenant_id, 40);
+      const [{ data: people }, { data: documents }, { data: reviews }, { data: pricing }, { data: tenant }, { data: approval }] = await Promise.all([
         db.from("partner_controlling_people").select("*").eq("application_id", applicationId).order("created_at"),
         db.from("partner_application_documents").select("id,document_type,original_filename,mime_type,size_bytes,storage_path,created_at").eq("application_id", applicationId).order("created_at"),
         db.from("partner_application_reviews").select("*").eq("application_id", applicationId).order("created_at", { ascending: false }),
         db.from("partner_pricing_rules").select("*").eq("organization_id", application.organization_id).order("effective_from", { ascending: false }),
+        tenantId
+          ? db.from("api_tenants").select("id,tenant_name,default_mode,is_active,beta_access_enabled,rate_limit_per_minute,max_single_transfer_usd,metadata,created_at,updated_at").eq("id", tenantId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        tenantId
+          ? db.from("api_partner_approvals").select("status,approved_products,approved_use_case,approved_at,suspended_at,suspension_reason").eq("tenant_id", tenantId).maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
-      return json(req, { success: true, application, people: people || [], documents: documents || [], reviews: reviews || [], pricing: pricing || [] });
+      return json(req, { success: true, application, people: people || [], documents: documents || [], reviews: reviews || [], pricing: pricing || [], tenant, approval });
     }
 
     if (action === "document_download") {
@@ -185,20 +192,92 @@ Deno.serve(async (req) => {
       const tenantId = clean(application.partner_organizations?.approved_tenant_id, 40);
       if (!tenantId) return json(req, { success: false, error: "Approved sandbox tenant is missing" }, 409);
       const now = new Date().toISOString();
+      const requestedProducts: string[] = Array.isArray(application.requested_products)
+        ? [...new Set<string>(application.requested_products.map((value: unknown) => clean(value, 30)))]
+          .filter((value) => value === "api" || value === "white_label")
+        : [];
+      if (!requestedProducts.length) return json(req, { success: false, error: "No approved partner product was selected" }, 409);
+      const technical = application.technical_details || {};
+      const operating = application.operating_details || {};
+      const technicalEmail = clean(technical.technical_contact_email, 254).toLowerCase();
+      const complianceEmail = clean(technical.compliance_contact_email, 254).toLowerCase();
+      const incidentEmail = clean(technical.security_contact_email, 254).toLowerCase();
+      if (![technicalEmail, complianceEmail, incidentEmail].every((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+        return json(req, { success: false, error: "Valid technical, compliance, and security contacts are required before sandbox activation" }, 409);
+      }
+      const { data: currentApproval, error: currentApprovalError } = await db.from("api_partner_approvals")
+        .select("status").eq("tenant_id", tenantId).maybeSingle();
+      if (currentApprovalError) throw currentApprovalError;
+      if (currentApproval && currentApproval.status !== "approved") {
+        return json(req, { success: false, error: "A suspended or rejected partner approval cannot be reactivated from this workflow" }, 409);
+      }
+      const actor = clean(authData.user.email || authData.user.id, 254);
+      const { error: approvalError } = await db.from("api_partner_approvals").upsert({
+        tenant_id: tenantId,
+        status: "approved",
+        partner_type: "platform",
+        approved_products: requestedProducts,
+        approved_use_case: clean(operating.intended_use || operating.business_model, 2000),
+        technical_contact_email: technicalEmail,
+        compliance_contact_email: complianceEmail,
+        incident_contact_email: incidentEmail,
+        compliance_approval_reference: `partner-application:${applicationId}`,
+        engineering_approval_reference: `sandbox-activation:${applicationId}`,
+        compliance_approved_by: actor,
+        engineering_approved_by: actor,
+        recorded_by: actor,
+        approved_at: now,
+        suspended_at: null,
+        suspended_by: null,
+        suspension_reason: null,
+      }, { onConflict: "tenant_id" });
+      if (approvalError) throw approvalError;
+      const { data: existingTenant, error: tenantReadError } = await db.from("api_tenants")
+        .select("metadata").eq("id", tenantId).single();
+      if (tenantReadError) throw tenantReadError;
+      const metadata = existingTenant?.metadata && typeof existingTenant.metadata === "object"
+        ? existingTenant.metadata
+        : {};
       const { data: tenant, error: tenantError } = await db.from("api_tenants")
-        .update({ default_mode: "sandbox", is_active: true, beta_access_enabled: true, updated_at: now })
+        .update({
+          default_mode: "sandbox",
+          is_active: true,
+          beta_access_enabled: true,
+          metadata: { ...metadata, provisioning_status: "sandbox_active", production_access: false },
+          updated_at: now,
+        })
         .eq("id", tenantId)
         .select("id,tenant_name,default_mode,is_active,beta_access_enabled,rate_limit_per_minute,max_single_transfer_usd")
         .single();
       if (tenantError) throw tenantError;
+      const { data: existingProject, error: projectReadError } = await db.from("partner_projects")
+        .select("id").eq("organization_id", application.organization_id).eq("slug", "primary").maybeSingle();
+      if (projectReadError) throw projectReadError;
+      if (existingProject) {
+        const { error: projectUpdateError } = await db.from("partner_projects")
+          .update({ tenant_id: tenantId, environment: "sandbox", status: "active", updated_at: now })
+          .eq("id", existingProject.id);
+        if (projectUpdateError) throw projectUpdateError;
+      } else {
+        const { error: projectInsertError } = await db.from("partner_projects").insert({
+          organization_id: application.organization_id,
+          tenant_id: tenantId,
+          name: application.partner_organizations?.trading_name || application.partner_organizations?.legal_name || "Primary project",
+          slug: "primary",
+          environment: "sandbox",
+          status: "active",
+          created_by: application.partner_organizations?.owner_user_id,
+        });
+        if (projectInsertError) throw projectInsertError;
+      }
       await db.from("partner_portal_audit_log").insert({
         organization_id: application.organization_id,
         application_id: applicationId,
         actor_user_id: authData.user.id,
         event_type: "sandbox_activated",
-        metadata: { tenant_id: tenantId, production_access: false },
+        metadata: { tenant_id: tenantId, approved_products: requestedProducts, production_access: false },
       });
-      return json(req, { success: true, tenant, production_access: false });
+      return json(req, { success: true, tenant, approved_products: requestedProducts, production_access: false });
     }
 
     if (action === "set_pricing") {
@@ -216,6 +295,15 @@ Deno.serve(async (req) => {
         approved_by: authData.user.id, approval_reference: clean(rule.approval_reference, 500), is_active: rule.is_active !== false,
       };
       if (!payload.approval_reference) return json(req, { success: false, error: "Pricing approval reference required" }, 400);
+      if (!new Set(["bridge", "yellow_card", "borderpay"]).has(payload.provider)) return json(req, { success: false, error: "Approved provider required" }, 400);
+      if (!new Set(["virtual_account_onramp", "external_fiat_offramp", "crypto_transfer", "african_rails"]).has(payload.product)) return json(req, { success: false, error: "Approved pricing product required" }, 400);
+      if (!new Set(["percent", "fixed"]).has(payload.fee_type)) return json(req, { success: false, error: "Fee type must be percent or fixed" }, 400);
+      if (payload.fee_type === "percent" && (!Number.isFinite(payload.fee_percent) || Number(payload.fee_percent) < 0 || Number(payload.fee_percent) > 100)) {
+        return json(req, { success: false, error: "Percent fee must be between 0 and 100" }, 400);
+      }
+      if (payload.fee_type === "fixed" && (!Number.isFinite(payload.fixed_amount) || Number(payload.fixed_amount) < 0 || !payload.fixed_currency)) {
+        return json(req, { success: false, error: "Fixed fee requires a non-negative amount and currency" }, 400);
+      }
       const { data, error } = await db.from("partner_pricing_rules").insert(payload).select("*").single();
       if (error) throw error;
       await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: "partner_pricing_created", metadata: { pricing_rule_id: data.id } });
