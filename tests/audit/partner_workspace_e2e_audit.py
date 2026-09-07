@@ -7,6 +7,7 @@ portal = (root / "supabase/functions/partner-onboarding/index.ts").read_text()
 admin = (root / "supabase/functions/partner-application-admin/index.ts").read_text()
 gateway = (root / "supabase/functions/public-api-gateway/index.ts").read_text()
 worker = (root / "supabase/functions/process-pending-events/index.ts").read_text()
+activation = admin.split('if (action === "activate_sandbox")', 1)[1].split('if (action === "set_pricing")', 1)[0]
 
 checks = {
     "resources are tenant owned": "tenant_id uuid not null references public.api_tenants" in migration,
@@ -24,6 +25,7 @@ checks = {
         '.eq("slug", "primary")',
         'status: "active"',
     ]),
+    "tenant activation happens after project persistence": activation.index('.from("partner_projects")') < activation.index('.update({\n          default_mode: "sandbox"'),
     "sandbox activation cannot revive suspended approval": 'currentApproval.status !== "approved"' in admin,
     "operator detail returns tenant and approval state": "pricing: pricing || [], tenant, approval" in admin,
     "project selection is ownership bounded": 'project.id === requestedProjectId' in portal,
