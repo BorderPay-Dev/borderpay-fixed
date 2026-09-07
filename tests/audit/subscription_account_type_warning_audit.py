@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 individual = (ROOT / "supabase/functions/_shared/email-templates/individual/subscription-external-invoice.ts").read_text()
 business = (ROOT / "supabase/functions/_shared/email-templates/business/subscription-external-invoice.ts").read_text()
 migration = (ROOT / "supabase/migrations/20260907220000_individual_business_maintenance_warning_split.sql").read_text()
+business_queue = (ROOT / "supabase/migrations/20260907223000_queue_august_business_maintenance_warning.sql").read_text()
 
 checks = {
     "templates are physically separate": "export { render }" not in individual and "export { render }" not in business,
@@ -17,6 +18,13 @@ checks = {
     "individual automatic reactivation is forbidden": migration.count("s.account_type='business'") >= 2,
     "final restriction waits for delivered email": "j.status='sent'" in migration and "j.sent_at is not null" in migration,
     "no identity or financial record deletion": "delete from" not in migration.lower(),
+    "business warning targets only supplied fifteen-dollar invoices": all(
+        x in business_queue for x in ("sei.amount=15.00", "s.account_type='business'", "up.account_type='business'", "business.subscription_external_invoice")
+    ),
+    "business warning excludes paid and unavailable accounts": all(
+        x in business_queue for x in ("sei.paid_at is null", "s.restricted_at is null", "up.account_frozen_at is null", "up.bridge_account_status")
+    ),
+    "business warning never claims permanent closure": "permanently closed" not in business_queue,
 }
 
 failed = [name for name, ok in checks.items() if not ok]
