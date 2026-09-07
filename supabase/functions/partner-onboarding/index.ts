@@ -83,9 +83,17 @@ function completeness(app: any, people: any[], documents: any[], organization: a
   ];
   for (const [value, label] of required) if (!value) missing.push(label);
   if (!Array.isArray(app?.requested_products) || app.requested_products.length === 0) missing.push("Requested product");
-  if (!people.some((person) => person.person_type === "director")) missing.push("At least one director");
-  if (!people.some((person) => person.person_type === "controller")) missing.push("At least one controller");
-  if (!people.some((person) => person.person_type === "ubo" && Number(person.ownership_percent) >= 20) && declarations.no_ubo_over_20 !== true) {
+  const qualifyingUbos = people.filter((person) =>
+    person.person_type === "ubo" && Number(person.ownership_percent) >= 20
+  );
+  // A sole 100% beneficial owner is also the controlling person for this
+  // application. Do not force the partner to duplicate the same natural
+  // person as separate director and controller rows. Identity evidence is
+  // still required below and the operator retains manual KYB review.
+  const soleOwner = qualifyingUbos.length === 1 && Number(qualifyingUbos[0].ownership_percent) >= 99.99;
+  if (!soleOwner && !people.some((person) => person.person_type === "director")) missing.push("At least one director");
+  if (!soleOwner && !people.some((person) => person.person_type === "controller")) missing.push("At least one controller");
+  if (qualifyingUbos.length === 0 && declarations.no_ubo_over_20 !== true) {
     missing.push("All UBOs owning 20% or more, or no-UBO declaration");
   }
   const docTypes = new Set(documents.map((doc) => doc.document_type));
