@@ -33,13 +33,27 @@ const isExistingUserError = (error: unknown) => {
 async function createPartnerAccessLink(db: any, email: string) {
   const passwordSetupRedirect = "https://portal.borderpayafrica.com/auth/callback?setup=password";
   const existingAccountRedirect = "https://portal.borderpayafrica.com/auth/callback";
+  const portalTokenLink = (tokenHash: string, verificationType: string, setupPassword: boolean) => {
+    if (!tokenHash || !["invite", "magiclink"].includes(verificationType)) {
+      throw new Error("Partner invitation token is incomplete");
+    }
+    const params = new URLSearchParams({ token_hash: tokenHash, type: verificationType });
+    if (setupPassword) params.set("setup", "password");
+    // Keep the one-time token in the fragment: it is available to the portal
+    // client but is not sent to Vercel, access logs, or referrer headers.
+    return `https://portal.borderpayafrica.com/auth/callback#${params.toString()}`;
+  };
   const invited = await db.auth.admin.generateLink({
     type: "invite",
     email,
     options: { redirectTo: passwordSetupRedirect },
   });
-  if (!invited.error && invited.data?.properties?.action_link) {
-    return { actionLink: invited.data.properties.action_link as string, userId: invited.data.user?.id || null, existingAccount: false };
+  if (!invited.error && invited.data?.properties?.hashed_token) {
+    return {
+      actionLink: portalTokenLink(invited.data.properties.hashed_token, "invite", true),
+      userId: invited.data.user?.id || null,
+      existingAccount: false,
+    };
   }
   if (!isExistingUserError(invited.error)) throw invited.error || new Error("Invite link generation failed");
 
@@ -48,8 +62,12 @@ async function createPartnerAccessLink(db: any, email: string) {
     email,
     options: { redirectTo: existingAccountRedirect },
   });
-  if (existing.error || !existing.data?.properties?.action_link) throw existing.error || new Error("Existing-user access link generation failed");
-  return { actionLink: existing.data.properties.action_link as string, userId: existing.data.user?.id || null, existingAccount: true };
+  if (existing.error || !existing.data?.properties?.hashed_token) throw existing.error || new Error("Existing-user access link generation failed");
+  return {
+    actionLink: portalTokenLink(existing.data.properties.hashed_token, "magiclink", false),
+    userId: existing.data.user?.id || null,
+    existingAccount: true,
+  };
 }
 
 Deno.serve(async (req) => {

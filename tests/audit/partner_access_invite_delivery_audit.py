@@ -12,6 +12,8 @@ checks = {
     "delivery uses internal-token protected send-email": '/functions/v1/send-email' in admin and 'Bearer ${SEND_EMAIL_TOKEN}' in admin,
     "delivery must be confirmed before request is marked invited": admin.find('sendResult?.data?.status !== "sent"') < admin.find('status: "invited"'),
     "one-time link is passed as sensitive data": 'sensitive_props: { invite_url: access.actionLink }' in admin,
+    "partner invite bypasses the customer-app Site URL": 'https://portal.borderpayafrica.com/auth/callback#' in admin and 'properties.hashed_token' in admin,
+    "partner token stays out of server logs and referrers": 'not sent to Vercel, access logs, or referrer headers' in admin,
     "one-time link is excluded from email log payload": "sensitive_props_redacted: true" in sender and "props: body.props ?? {}" in sender,
     "sensitive props are still available only for rendering": "...(body.sensitive_props ?? {})" in sender,
     "partner template is registered": '"partner.access_invite"' in registry and "partnerAccessInvite" in registry,
