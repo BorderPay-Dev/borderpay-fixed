@@ -13,6 +13,7 @@ checks = {
     "delivery must be confirmed before request is marked invited": admin.find('sendResult?.data?.status !== "sent"') < admin.find('status: "invited"'),
     "one-time link is passed as sensitive data": 'sensitive_props: { invite_url: access.actionLink }' in admin,
     "partner invite bypasses the customer-app Site URL": 'https://portal.borderpayafrica.com/auth/callback#' in admin and 'properties.hashed_token' in admin,
+    "portal token uses Supabase returned verification type": admin.count("properties.verification_type") >= 2 and '["signup", "invite", "magiclink"]' in admin,
     "partner token stays out of server logs and referrers": 'not sent to Vercel, access logs, or referrer headers' in admin,
     "already-sent broken links can be replaced safely": 'action === "resend_invite"' in admin and 'Only an invited request can be resent' in admin,
     "one-time link is excluded from email log payload": "sensitive_props_redacted: true" in sender and "props: body.props ?? {}" in sender,

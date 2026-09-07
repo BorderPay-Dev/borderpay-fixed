@@ -34,7 +34,7 @@ async function createPartnerAccessLink(db: any, email: string) {
   const passwordSetupRedirect = "https://portal.borderpayafrica.com/auth/callback?setup=password";
   const existingAccountRedirect = "https://portal.borderpayafrica.com/auth/callback";
   const portalTokenLink = (tokenHash: string, verificationType: string, setupPassword: boolean) => {
-    if (!tokenHash || !["invite", "magiclink"].includes(verificationType)) {
+    if (!tokenHash || !["signup", "invite", "magiclink"].includes(verificationType)) {
       throw new Error("Partner invitation token is incomplete");
     }
     const params = new URLSearchParams({ token_hash: tokenHash, type: verificationType });
@@ -50,7 +50,11 @@ async function createPartnerAccessLink(db: any, email: string) {
   });
   if (!invited.error && invited.data?.properties?.hashed_token) {
     return {
-      actionLink: portalTokenLink(invited.data.properties.hashed_token, "invite", true),
+      actionLink: portalTokenLink(
+        invited.data.properties.hashed_token,
+        invited.data.properties.verification_type,
+        true,
+      ),
       userId: invited.data.user?.id || null,
       existingAccount: false,
     };
@@ -64,7 +68,11 @@ async function createPartnerAccessLink(db: any, email: string) {
   });
   if (existing.error || !existing.data?.properties?.hashed_token) throw existing.error || new Error("Existing-user access link generation failed");
   return {
-    actionLink: portalTokenLink(existing.data.properties.hashed_token, "magiclink", false),
+    actionLink: portalTokenLink(
+      existing.data.properties.hashed_token,
+      existing.data.properties.verification_type,
+      false,
+    ),
     userId: existing.data.user?.id || null,
     existingAccount: true,
   };
