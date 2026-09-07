@@ -30,6 +30,7 @@ checks = {
     "support is organization scoped": '.eq("organization_id", org.id)' in portal,
     "settings reject arbitrary HTML surface": "email_sender_name" in migration and "custom_html" not in migration,
     "organization 2FA protects mutations": "mfaProtectedActions" in portal and 'tokenAal(token) !== "aal2"' in portal,
+    "invite session can establish its password without client Auth timeout": 'action === "set_initial_password"' in portal and 'updateUserById(user.id, { password })' in portal,
 }
 
 failed = [name for name, ok in checks.items() if not ok]

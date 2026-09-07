@@ -238,6 +238,24 @@ Deno.serve(async (req) => {
     if (authError || !authData.user) return json(req, { success: false, error: "Authentication required" }, 401);
     const user = authData.user;
 
+    if (action === "set_initial_password") {
+      const password = typeof body?.password === "string" ? body.password : "";
+      if (password.length < 12 || password.length > 128) {
+        return json(req, { success: false, error: "Password must contain between 12 and 128 characters" }, 400);
+      }
+      const email = String(user.email || "").trim().toLowerCase();
+      const { data: approvedInvite } = await db.from("partner_access_invite_requests")
+        .select("id").eq("email", email).eq("status", "invited")
+        .order("invited_at", { ascending: false }).limit(1).maybeSingle();
+      if (!approvedInvite) return json(req, { success: false, error: "Active partner invitation required" }, 403);
+      const { error: passwordError } = await db.auth.admin.updateUserById(user.id, { password });
+      if (passwordError) {
+        console.error("partner initial password update failed", { user_id: user.id, code: passwordError.code || null });
+        return json(req, { success: false, error: "Partner password could not be secured. Please retry." }, 502);
+      }
+      return json(req, { success: true, password_secured: true });
+    }
+
     let { data: member } = await db.from("partner_members").select("organization_id,role,is_active").eq("user_id", user.id).eq("is_active", true).maybeSingle();
     let org: any = null;
     if (member) {

@@ -17,6 +17,8 @@ checks = {
         < public_request_security.find('req.headers.get("x-forwarded-for")')
     ),
     "membership requires an invited email": all(token in onboarding for token in ('.eq("email", email)', '.eq("status", "invited")', '"Partner access has not been approved."')),
+    "initial password setup is invite-bound and server-authorized": all(token in onboarding for token in ('action === "set_initial_password"', 'db.auth.admin.updateUserById(user.id, { password })', '"Active partner invitation required"')),
+    "initial password is neither persisted nor logged": 'console.error("partner initial password update failed", { user_id: user.id' in onboarding and 'password_secured: true' in onboarding,
     "only admin worker creates Auth invite links": 'type: "invite"' in admin and "Admin access required" in admin,
     "partner invites use logged transactional email": 'template: "partner.access_invite"' in admin and 'sensitive_props: { invite_url:' in admin,
     "existing Auth identities are supported": 'type: "magiclink"' in admin and "isExistingUserError" in admin,
