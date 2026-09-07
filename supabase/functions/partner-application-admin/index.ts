@@ -99,14 +99,17 @@ Deno.serve(async (req) => {
       return json(req, { success: true, requests: data || [] });
     }
 
-    if (action === "approve_invite") {
+    if (action === "approve_invite" || action === "resend_invite") {
       if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      const isResend = action === "resend_invite";
       const requestId = Number(body?.request_id);
       if (!Number.isInteger(requestId) || requestId <= 0) return json(req, { success: false, error: "request_id required" }, 400);
       const { data: invite, error: inviteError } = await db.from("partner_access_invite_requests")
         .select("id,email,status").eq("id", requestId).single();
       if (inviteError || !invite) return json(req, { success: false, error: "Invite request not found" }, 404);
-      if (invite.status !== "pending") return json(req, { success: false, error: "Invite request is no longer pending" }, 409);
+      if ((!isResend && invite.status !== "pending") || (isResend && invite.status !== "invited")) {
+        return json(req, { success: false, error: isResend ? "Only an invited request can be resent" : "Invite request is no longer pending" }, 409);
+      }
       if (!SEND_EMAIL_TOKEN) return json(req, { success: false, error: "Partner invitation email is not configured" }, 503);
       let access;
       try {
@@ -133,10 +136,10 @@ Deno.serve(async (req) => {
         return json(req, { success: false, error: "Partner invitation email could not be delivered; review the transactional email log" }, 502);
       }
       const now = new Date().toISOString();
-      const { data: updated, error } = await db.from("partner_access_invite_requests").update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now }).eq("id", requestId).eq("status", "pending").select("id").maybeSingle();
+      const { data: updated, error } = await db.from("partner_access_invite_requests").update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now }).eq("id", requestId).eq("status", invite.status).select("id").maybeSingle();
       if (error) throw error;
       if (!updated) return json(req, { success: false, error: "Invite request changed while the email was being delivered" }, 409);
-      return json(req, { success: true, status: "invited", delivery_provider: sendResult?.data?.provider || null, existing_account: access.existingAccount });
+      return json(req, { success: true, status: "invited", resent: isResend, delivery_provider: sendResult?.data?.provider || null, existing_account: access.existingAccount });
     }
 
     if (action === "reject_invite") {
