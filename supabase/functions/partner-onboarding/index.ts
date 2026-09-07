@@ -108,6 +108,8 @@ function completeness(app: any, people: any[], documents: any[], organization: a
   const manualIdentityDocuments = [
     ["certificate_of_incorporation", "Certificate of incorporation"],
     ["articles_of_association", "Articles of association"],
+    ["tax_registration", "Tax registration / EIN confirmation"],
+    ["company_bylaws", "Company bylaws / constitution"],
     ["register_of_directors", "Register of directors"],
     ["register_of_shareholders", "Register of shareholders"],
     ["ownership_chart", "Ownership structure chart"],
