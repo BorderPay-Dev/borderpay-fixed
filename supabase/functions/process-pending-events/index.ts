@@ -234,6 +234,7 @@ async function emailTransactionStatusBestEffort(params: {
   refundRail?: string | null;
   refundBeneficiaryName?: string | null;
   refundReferenceId?: string | null;
+  receiptDetails?: Record<string, unknown> | null;
 }): Promise<void> {
   try {
     if (!SEND_EMAIL_TOKEN) return;
@@ -270,6 +271,24 @@ async function emailTransactionStatusBestEffort(params: {
       refund_rail: params.refundRail ?? null,
       refund_beneficiary_name: params.refundBeneficiaryName ?? null,
       refund_reference_id: params.refundReferenceId ?? null,
+      sender_name: params.receiptDetails?.sender_name ?? null,
+      source_bank_name: params.receiptDetails?.source_bank_name ?? null,
+      source_bank_account: params.receiptDetails?.source_bank_account ?? null,
+      source_bank_routing_number: params.receiptDetails?.source_bank_routing_number ?? null,
+      receiving_account_holder: params.receiptDetails?.receiving_account_holder ?? null,
+      receiving_bank_name: params.receiptDetails?.receiving_bank_name ?? null,
+      receiving_account_number: params.receiptDetails?.receiving_account_number ?? null,
+      receiving_routing_number: params.receiptDetails?.receiving_routing_number ?? null,
+      receiving_iban: params.receiptDetails?.receiving_iban ?? null,
+      receiving_bic: params.receiptDetails?.receiving_bic ?? null,
+      receiving_bank_address: params.receiptDetails?.receiving_bank_address ?? null,
+      payment_reference: params.receiptDetails?.payment_reference ?? null,
+      bridge_transaction_id: params.receiptDetails?.bridge_transaction_id ?? null,
+      trace_id: params.receiptDetails?.trace_id ?? null,
+      tracking_number: params.receiptDetails?.tracking_number ?? null,
+      imad: params.receiptDetails?.imad ?? null,
+      uetr: params.receiptDetails?.uetr ?? null,
+      clave_de_rastreo: params.receiptDetails?.clave_de_rastreo ?? null,
     };
     if (params.accountType === "business") {
       const { data: biz } = await supabase
@@ -1372,6 +1391,145 @@ function receivedAmountBreakdown(payload: any, currency: string): {
   };
 }
 
+function bridgeBankTraceDetails(
+  payload: any,
+  accountDetails: Record<string, unknown> = {},
+): Record<string, string | null> {
+  const p = objectValue(payload) ?? {};
+  const receipt = objectValue(p.receipt) ?? {};
+  const source = objectValue(receipt.source) ?? objectValue(p.source) ?? {};
+  const sender = objectValue(source.sender) ?? objectValue(receipt.sender) ?? objectValue(p.sender) ?? {};
+  const sourceBank = objectValue(source.bank) ?? objectValue(receipt.source_bank) ?? objectValue(p.source_bank) ?? {};
+  const tracking = objectValue(receipt.tracking) ?? objectValue(receipt.tracking_details) ?? objectValue(p.tracking) ?? {};
+  const payloadDetails = objectValue(p.account_details) ?? {};
+  const storedBridgeResponse = objectValue(accountDetails.bridge_response) ?? {};
+  const storedBridgeData = objectValue(storedBridgeResponse.data) ?? storedBridgeResponse;
+  const receivingInstructions =
+    objectValue(p.source_deposit_instructions) ??
+    objectValue(payloadDetails.source_deposit_instructions) ??
+    objectValue(accountDetails.source_deposit_instructions) ??
+    objectValue(storedBridgeData.source_deposit_instructions) ??
+    {};
+  const receiving = { ...storedBridgeData, ...accountDetails, ...payloadDetails, ...receivingInstructions };
+
+  return {
+    sender_name: firstNonEmptyText(
+      receipt.sender_name,
+      source.sender_name,
+      source.originator_name,
+      sender.name,
+      sender.full_name,
+      sender.business_name,
+    ),
+    source_bank_name: firstNonEmptyText(
+      receipt.source_bank_name,
+      source.bank_name,
+      source.institution_name,
+      sourceBank.name,
+      sourceBank.bank_name,
+    ),
+    source_bank_account: firstNonEmptyText(
+      receipt.source_bank_account_number,
+      source.account_number,
+      source.bank_account_number,
+      sourceBank.account_number,
+    ),
+    source_bank_routing_number: firstNonEmptyText(
+      receipt.source_bank_routing_number,
+      source.routing_number,
+      source.bank_routing_number,
+      sourceBank.routing_number,
+    ),
+    receiving_account_holder: firstNonEmptyText(
+      receiving.account_holder_name,
+      receiving.bank_beneficiary_name,
+      receiving.account_owner_name,
+      receiving.beneficiary_name,
+      payloadDetails.account_holder_name,
+      accountDetails.account_holder_name,
+    ),
+    receiving_bank_name: firstNonEmptyText(
+      receiving.bank_name,
+      receiving.institution_name,
+      payloadDetails.bank_name,
+      accountDetails.bank_name,
+    ),
+    receiving_account_number: firstNonEmptyText(
+      receiving.account_number,
+      receiving.bank_account_number,
+      payloadDetails.account_number,
+      accountDetails.account_number,
+    ),
+    receiving_routing_number: firstNonEmptyText(
+      receiving.routing_number,
+      receiving.bank_routing_number,
+      receiving.sort_code,
+      payloadDetails.routing_number,
+      accountDetails.routing_number,
+    ),
+    receiving_iban: firstNonEmptyText(
+      receiving.iban,
+      receiving.iban_number,
+      payloadDetails.iban,
+      accountDetails.iban,
+    ),
+    receiving_bic: firstNonEmptyText(
+      receiving.bic,
+      receiving.bic_swift,
+      receiving.swift_code,
+      receiving.swift,
+      payloadDetails.bic,
+      accountDetails.bic,
+    ),
+    receiving_bank_address: firstNonEmptyText(
+      receiving.bank_address,
+      payloadDetails.bank_address,
+      accountDetails.bank_address,
+    ),
+    payment_reference: firstNonEmptyText(
+      receipt.reference_text,
+      receipt.payment_reference,
+      source.reference_text,
+      source.reference,
+      p.reference_text,
+      p.reference,
+    ),
+    bridge_transaction_id: firstNonEmptyText(
+      receipt.transaction_id,
+      receipt.payment_id,
+      p.transaction_id,
+      p.payment_id,
+      p.id,
+    ),
+    trace_id: firstNonEmptyText(
+      tracking.trace_id,
+      receipt.trace_id,
+      receipt.ach_trace_id,
+      receipt.ach_trace_number,
+      p.trace_id,
+      p.ach_trace_id,
+      p.ach_trace_number,
+    ),
+    tracking_number: firstNonEmptyText(
+      tracking.tracking_number,
+      receipt.tracking_number,
+      receipt.payment_tracking_number,
+      p.tracking_number,
+      source.tracking_number,
+    ),
+    imad: firstNonEmptyText(tracking.imad, tracking.imad_number, receipt.imad, receipt.imad_number, p.imad, p.imad_number),
+    uetr: firstNonEmptyText(tracking.uetr, receipt.uetr, receipt.swift_uetr, p.uetr, p.swift_uetr),
+    clave_de_rastreo: firstNonEmptyText(
+      tracking.clave_de_rastreo,
+      tracking.clave_rastreo,
+      receipt.clave_de_rastreo,
+      receipt.clave_rastreo,
+      p.clave_de_rastreo,
+      p.clave_rastreo,
+    ),
+  };
+}
+
 function bridgeVaReceiptDetails(params: {
   payload: any;
   sourceCurrency: string;
@@ -1430,6 +1588,7 @@ function bridgeVaReceiptDetails(params: {
   );
   const breakdown = params.breakdown;
   return {
+    ...bridgeBankTraceDetails(p, params.accountDetails),
     deposit_id: bridgeReceiptId(p, params.vaId),
     source_currency: sourceCurrency,
     source_amount: breakdown ? minorToDecimal(breakdown.grossMinor, sourceCurrency) : firstFiniteNumber(receipt.initial_amount, p.initial_amount, p.amount),
@@ -2041,6 +2200,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         destinationAddress: String(statusReceipt.destination_address || ""),
         sourceRail: String(statusReceipt.source_rail || ""),
         depositId: receiptDepositId || null,
+        receiptDetails: statusReceipt,
         refundReturnReason: String(refundDetails.return_reason || ""),
         refundReturnedAt: String(refundDetails.returned_at || ""),
         refundRiskRejectionReason: String(refundDetails.risk_rejection_reason || ""),
@@ -2140,6 +2300,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         destinationAddress: String(statusReceipt.destination_address || ""),
         sourceRail: String(statusReceipt.source_rail || ""),
         depositId: receiptDepositId || null,
+        receiptDetails: statusReceipt,
       });
     }
     await supabase.from("bridge_webhook_events")
@@ -2268,6 +2429,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       destinationAddress: String(approvedReceipt.destination_address || ""),
       sourceRail: String(approvedReceipt.source_rail || ""),
       depositId: receiptDepositId || null,
+      receiptDetails: approvedReceipt,
     });
     await supabase.from("bridge_webhook_events")
       .update({ target_entity_type: "virtual_account", target_entity_id: String(vaId) })
@@ -2836,6 +2998,7 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
         developerFeeAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.developerFeeMinor, currency) : null,
         exchangeFeeAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency) : null,
         netAmount: receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
+        receiptDetails: bridgeBankTraceDetails(d),
       });
     }
   }

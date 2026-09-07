@@ -1,6 +1,7 @@
 import { htmlLayout, textLayout, firstName, escapeHtml, fmtMoney, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { BankTraceReceiptProps, renderBankTraceHtml, renderBankTraceText } from "../transaction-receipt-details.ts";
 
-export interface TransactionStatusProps {
+export interface TransactionStatusProps extends BankTraceReceiptProps {
   full_name?: string | null;
   status: "in_review" | "approved" | "canceled" | "refunded" | "refund_in_flight";
   amount: number;
@@ -162,6 +163,8 @@ export function render(p: TransactionStatusProps): RenderedEmail {
       ${p.refund_reference_id ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Refund reference ID</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.refund_reference_id))}</td></tr>` : ""}`
     : "";
+  const bankTraceRows = renderBankTraceHtml(p);
+  const bankTraceText = renderBankTraceText(p);
   const body = `
     ${hasReceipt ? `
       <div style="border:1px solid ${BORDERPAY_BRAND.border};background-color:#F8FAF8;border-radius:12px;padding:14px 16px;margin:0 0 14px;">
@@ -172,6 +175,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${BORDERPAY_BRAND.border};border-radius:12px;padding:16px;margin:8px 0 0;">
       ${refundRows}
       ${receiptRows || amountRows}
+      ${bankTraceRows}
       <tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Status</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;text-align:right;">${escapeHtml(displayHeading)}</td></tr>
       <tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Reference</td>
@@ -196,9 +200,9 @@ export function render(p: TransactionStatusProps): RenderedEmail {
     }),
     text: textLayout({
       heading: displayHeading,
-      body: hasReceipt
+      body: (hasReceipt
         ? `${displayHeading}\n\n${isRefund ? `Return reason: ${p.refund_return_reason || p.description || "Payment refunded"}\n${refundReturnedAt ? `Returned at: ${refundReturnedAt}\n` : ""}${p.refund_risk_rejection_reason ? `Risk rejection reason: ${p.refund_risk_rejection_reason}\n` : ""}The payment has been refunded to the original destination.\n${p.refund_rail ? `Refund rail: ${p.refund_rail}\n` : ""}${p.refund_beneficiary_name ? `Refund beneficiary name: ${p.refund_beneficiary_name}\n` : ""}${p.refund_reference_id ? `Refund reference ID: ${p.refund_reference_id}\n` : ""}` : (isApprovedReceipt ? "Expected same day" : `What this means: ${receiptSummary}`)}\n\n${p.deposit_id ? `Deposit #${p.deposit_id}\n` : ""}Incoming funds: ${fmtMoney(sourceAmount, sourceCurrency)}\n${p.source_rail ? `Payment rail: ${String(p.source_rail).toUpperCase()}\n` : ""}${serviceChargeAmount > 0 ? `Service charge: ${fmtMoney(serviceChargeAmount, sourceCurrency)}\nBorderPay\n` : ""}Available for conversion: ${fmtMoney(availableAmount, sourceCurrency)}\n${Number.isFinite(Number(p.exchange_rate)) && Number(p.exchange_rate) > 0 ? `Exchange rate: 1 ${sourceCurrency} = ${p.exchange_rate} ${destinationCurrency}\n` : ""}Outgoing funds: ${outgoing}\n${p.destination_address ? `Destination: ${p.destination_address}\n` : ""}Status: ${displayHeading}\nReference: ${p.reference}\nWhen: ${occurredAt}`
-        : `${c.intro}\n${hasFeeBreakdown ? `Full amount received: ${gross}\n${transactionFeeAmount > 0 ? `Transaction fee: -${transactionFee}\n` : ""}${exchangeFeeAmount > 0 ? `Exchange fee: -${exchangeFee}\n` : ""}Net amount: ${amount}` : `Amount: ${amount}`}\nStatus: ${c.heading}\nReference: ${p.reference}\n${p.description ? "Description: " + p.description + "\n" : ""}When: ${occurredAt}`,
+        : `${c.intro}\n${hasFeeBreakdown ? `Full amount received: ${gross}\n${transactionFeeAmount > 0 ? `Transaction fee: -${transactionFee}\n` : ""}${exchangeFeeAmount > 0 ? `Exchange fee: -${exchangeFee}\n` : ""}Net amount: ${amount}` : `Amount: ${amount}`}\nStatus: ${c.heading}\nReference: ${p.reference}\n${p.description ? "Description: " + p.description + "\n" : ""}When: ${occurredAt}`) + (bankTraceText ? `\n${bankTraceText}` : ""),
       ctaText: "Open BorderPay",
       ctaUrl,
     }),

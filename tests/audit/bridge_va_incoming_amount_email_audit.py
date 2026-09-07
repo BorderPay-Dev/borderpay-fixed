@@ -55,5 +55,25 @@ must(
     worker.count("eventCurrency,") >= 3,
     "Every VA activity receipt projection must receive the webhook event currency",
 )
+for provider_field in [
+    "sender_name",
+    "source_bank_name",
+    "receiving_account_holder",
+    "receiving_bank_name",
+    "payment_reference",
+    "bridge_transaction_id",
+    "trace_id",
+    "tracking_number",
+    "imad",
+    "uetr",
+    "clave_de_rastreo",
+]:
+    must(provider_field in worker, f"Bridge receipt projection must allowlist {provider_field}")
+must(
+    worker.count("receiptDetails: statusReceipt") == 2
+    and "receiptDetails: approvedReceipt" in worker
+    and "receiptDetails: bridgeBankTraceDetails(d)" in worker,
+    "VA and transfer status emails must receive allowlisted Bridge bank-trace details",
+)
 
 print("bridge_va_incoming_amount_email_audit: PASS")
