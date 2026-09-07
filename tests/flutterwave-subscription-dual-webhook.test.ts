@@ -16,6 +16,10 @@ Deno.test("maintenance webhook supports v3 and v4 signatures without changing th
   assert(source.includes("new TextEncoder().encode(rawBody)"), "signature must cover the untouched request body");
   assert(source.includes('payment?.tx_ref ?? payment?.reference ?? payment?.txRef'), "v3/v4 references must normalize explicitly");
   assert(source.includes("complete_external_subscription_invoice"), "verified payments must retain the atomic completion RPC");
+  assert(source.includes('reason: "invalid_signature"'), "signature failures must emit safe diagnostics");
+  assert(source.includes("v4_signature_length"), "diagnostics may log signature length but not the secret value");
+  assert(!source.includes("v4_signature: v4Signature"), "diagnostics must never log the signature value");
+  assert(source.includes("reference_matches:"), "provider verification mismatch must be diagnosable without logging references");
   assert(
     config.includes("[functions.flutterwave-subscription-collection]\nverify_jwt = false"),
     "the signed provider webhook must remain reachable without a Supabase JWT",

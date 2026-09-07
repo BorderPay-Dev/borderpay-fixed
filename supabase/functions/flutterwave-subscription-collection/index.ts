@@ -228,6 +228,17 @@ async function handleWebhook(req: Request) {
   const rawBody = await req.text();
   const signatureVersion = await verifyWebhook(req, rawBody);
   if (!signatureVersion) {
+    const v3Signature = clean(req.headers.get("verif-hash") ?? req.headers.get("Verif-Hash"));
+    const v4Signature = webhookSignatureHeader(req);
+    console.warn("flutterwave_webhook_rejected", {
+      reason: "invalid_signature",
+      has_v3_signature: Boolean(v3Signature),
+      has_v4_signature: Boolean(v4Signature),
+      v3_signature_length: v3Signature.length,
+      v4_signature_length: v4Signature.length,
+      v3_secret_configured: Boolean(FLW_WEBHOOK_HASH),
+      v4_secret_configured: Boolean(FLW_V4_WEBHOOK_SECRET),
+    });
     return json({ success: false, error: "invalid_signature" }, 401);
   }
   if (!FLW_SECRET_KEY) return json({ success: false, error: "flutterwave_not_configured" }, 503);
@@ -251,6 +262,13 @@ async function handleWebhook(req: Request) {
   const verification = await flutterwave(`/transactions/${encodeURIComponent(transactionId)}/verify`, { method: "GET" });
   const verified = verification?.data ?? {};
   if (clean(verified.status).toLowerCase() !== "successful" || clean(verified.tx_ref) !== txRef) {
+    console.warn("flutterwave_webhook_rejected", {
+      reason: "provider_transaction_not_successful",
+      signature_version: signatureVersion,
+      transaction_id: transactionId,
+      verified_status: clean(verified.status).toLowerCase() || "missing",
+      reference_matches: clean(verified.tx_ref) === txRef,
+    });
     return json({ success: false, error: "provider_transaction_not_successful" }, 409);
   }
   const eventId = clean(event?.id ?? event?.event_id) || `flutterwave:${transactionId}:charge.completed`;
