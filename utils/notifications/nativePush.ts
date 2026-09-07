@@ -35,6 +35,14 @@ function notificationRoute(data: unknown): string {
 export async function initializeNativePush(onOpenTransactions: () => void): Promise<() => void> {
   if (!isNativeRuntime()) return () => undefined;
 
+  // P0 availability guard: builds 48-50 began exiting immediately after a
+  // successful Android sign-in, when MainApp mounts and initializes Firebase
+  // Messaging. The unauthenticated cold-launch gate cannot exercise this path.
+  // Keep Android transaction push quarantined until the provider interaction
+  // has an authenticated device test; iOS push and all in-app notifications
+  // remain unchanged.
+  if (nativePlatform() === 'android') return () => undefined;
+
   const supported = await FirebaseMessaging.isSupported();
   if (!supported.isSupported) return () => undefined;
 
