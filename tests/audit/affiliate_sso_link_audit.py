@@ -10,7 +10,7 @@ screen = (root / "components/referral/ReferralScreen.tsx").read_text()
 
 checks = {
     "auth identity email is authoritative": "canonicalEmail = user.email" in worker and "profile?.email" not in worker,
-    "individual Bridge verification is required": 'profile.bridge_kyc_status' in worker and 'verification_required' in worker,
+    "individual accounts are denied": 'accountType !== "business"' in worker and 'business_account_required' in worker,
     "business KYB comes from business_profiles": 'from("business_profiles")' in worker and 'bridge_kyb_status' in worker,
     "frozen accounts are denied": "LOCKED_STATUSES" in worker and 'code: "account_frozen"' in worker,
     "secret misconfiguration fails closed": "secret.length < 32" in worker and "}, 503)" in worker,
